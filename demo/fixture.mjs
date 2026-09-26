@@ -1,7 +1,8 @@
-// Builds a self-contained demo: a fake Claude Code config dir with one session
-// transcript, and a small C# git repository with uncommitted changes.
+// Builds a self-contained demo: a fake Claude Code config dir with the session
+// being worked on, a few older sessions (also of a second project) for the
+// Sessions view, and a small C# git repository with uncommitted changes.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SESSION = "7f3c2a91-5d4e-4b8a-9c61-0e2f8d4a6b13";
@@ -234,13 +235,104 @@ public class OrderValidatorTests
 /** Same rule as projectSlug in src/transcript/locate.ts. */
 const slug = (path) => path.replace(/[^a-zA-Z0-9]/g, "-");
 
+/**
+ * An older session for the Sessions view: prompts, edits and plans at the
+ * given times (ISO), recorded as Claude Code would for `cwd` on `branch`.
+ */
+function olderSession({ id, cwd, branch, title, steps }) {
+  const lines = [];
+  if (title) lines.push({ type: "custom-title", customTitle: title, sessionId: id });
+  steps.forEach((step, i) => {
+    const base = { uuid: `${id}-${i}`, timestamp: step.at, cwd, gitBranch: branch, sessionId: id };
+    if (step.prompt) lines.push({ ...base, type: "user", message: { role: "user", content: step.prompt } });
+    if (step.edit)
+      lines.push({
+        ...base,
+        type: "assistant",
+        message: { id: `m${i}`, role: "assistant", content: [{ type: "tool_use", id: `e${i}`, name: "Edit", input: { file_path: join(cwd, step.edit) } }] },
+      });
+    if (step.plan) {
+      lines.push({
+        ...base,
+        type: "assistant",
+        message: { id: `m${i}`, role: "assistant", content: [{ type: "tool_use", id: `p${i}`, name: "ExitPlanMode", input: { plan: step.plan } }] },
+      });
+      lines.push({
+        ...base,
+        uuid: `${id}-${i}r`,
+        type: "user",
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: `p${i}`, is_error: !!step.rejected, content: "" }] },
+      });
+    }
+  });
+  return lines;
+}
+
+const OLDER_SESSIONS = (shop, docs) => [
+  {
+    id: "3b1e0c55-7a42-4f0e-9d7c-2c1f5e8a9b10",
+    cwd: shop,
+    branch: "feature/checkout",
+    title: "checkout-refactor",
+    steps: [
+      { at: "2026-09-24T12:05:00.000Z", prompt: "Split CheckoutService into payment and shipping" },
+      { at: "2026-09-24T12:14:00.000Z", plan: "# Split CheckoutService\n\n1. Extract PaymentGateway\n2. Extract ShippingCalculator", rejected: true },
+      { at: "2026-09-24T12:21:00.000Z", plan: "# Split CheckoutService\n\n1. Extract PaymentGateway\n2. Extract ShippingCalculator\n3. Keep the public API" },
+      { at: "2026-09-24T12:40:00.000Z", edit: "src/Checkout/CheckoutService.cs" },
+      { at: "2026-09-24T12:52:00.000Z", edit: "src/Checkout/PaymentGateway.cs" },
+      { at: "2026-09-24T13:05:00.000Z", edit: "src/Checkout/ShippingCalculator.cs" },
+      { at: "2026-09-24T13:31:00.000Z", prompt: "Run the checkout tests" },
+      { at: "2026-09-24T13:40:00.000Z", prompt: "Commit it" },
+    ],
+  },
+  {
+    id: "9c4d7e21-1f3a-4b6c-8e2d-5a7b9c0d1e2f",
+    cwd: docs,
+    branch: "main",
+    steps: [
+      { at: "2026-09-25T07:30:00.000Z", prompt: "Document the new order validation rules" },
+      { at: "2026-09-25T07:44:00.000Z", edit: "docs/orders.md" },
+      { at: "2026-09-25T07:52:00.000Z", prompt: "Link it from the index page" },
+      { at: "2026-09-25T07:55:00.000Z", edit: "docs/index.md" },
+    ],
+  },
+  {
+    id: "5e8f2a90-3c4b-4d7e-a1f2-6b3c8d9e0a14",
+    cwd: shop,
+    branch: "main",
+    title: "flaky-tests",
+    steps: [
+      { at: "2026-09-25T14:10:00.000Z", prompt: "OrderRepositoryTests fail every few runs, find out why" },
+      { at: "2026-09-25T14:26:00.000Z", edit: "tests/Orders/OrderRepositoryTests.cs" },
+      { at: "2026-09-25T14:31:00.000Z", prompt: "Make the clock injectable instead" },
+      { at: "2026-09-25T14:48:00.000Z", edit: "src/Orders/OrderRepository.cs" },
+    ],
+  },
+];
+
 export function createDemo(root) {
   const cwd = join(root, "shop");
   const configDir = join(root, "claude");
 
   const projectDir = join(configDir, "projects", slug(cwd));
   mkdirSync(projectDir, { recursive: true });
-  writeFileSync(join(projectDir, `${SESSION}.jsonl`), entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  // Claude Code records the folder and branch on every entry; the Sessions view shows them.
+  const current = [
+    { type: "custom-title", customTitle: "order-validation", sessionId: SESSION },
+    ...entries.map((e) => ({ ...e, cwd, gitBranch: "main", sessionId: SESSION })),
+  ];
+  writeFileSync(join(projectDir, `${SESSION}.jsonl`), current.map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+  const docs = join(root, "docs-site");
+  for (const session of OLDER_SESSIONS(cwd, docs)) {
+    const dir = join(configDir, "projects", slug(session.cwd));
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${session.id}.jsonl`);
+    writeFileSync(file, olderSession(session).map((e) => JSON.stringify(e)).join("\n") + "\n");
+    // Older than the current session, which the viewer (without hooks) takes as the newest transcript.
+    const last = new Date(session.steps.at(-1).at);
+    utimesSync(file, last, last);
+  }
 
   const write = (file, text) => {
     mkdirSync(join(cwd, file, ".."), { recursive: true });

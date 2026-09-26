@@ -24,6 +24,9 @@ const root = mkdtempSync(join(tmpdir(), "cco-demo-"));
 const { cwd, configDir } = createDemo(root);
 // Must be set before the viewer is imported: it reads transcripts and settings from here.
 process.env.CLAUDE_CONFIG_DIR = configDir;
+// Paths under the home directory are shown with ~; the demo folder stands in for it (~\shop, not a temp path).
+const home = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
+process.env.USERPROFILE = process.env.HOME = root;
 process.env.WT_SESSION = "demo";
 delete process.env.TMUX;
 
@@ -65,16 +68,20 @@ async function shot(duration, keys = [], settle = 700) {
 await sleep(1500);
 await shot(2500); // newest turn, following the session
 await shot(3500, ["g"]); // first turn: plan with list and table
-await shot(3000, Array(14).fill("down")); // scroll to the C# block
+await shot(3000, [...Array(14).fill("down"), "right", "left"]); // scroll to the C# block; the turn switch restarts the list marquee
 await shot(1800, [" "]); // mark the turn
 await shot(3500, ["2"], 1800); // changes view: diff of OrderService.cs
 await shot(3000, ["enter"], 1000); // whole file after the change
 await shot(3000, ["esc", "right"], 1000); // next file
 await shot(3500, ["3"], 1000); // plan view: the approved second version
 await shot(3000, ["enter"], 1000); // changes to the rejected first version
-await shot(2000, ["esc", "1"]); // back to the chat
+await shot(2500, ["esc", "4"], 1800); // sessions view: all projects, the active session selected
+await shot(4000, ["left", "left", "left"], 1000); // an older session with plans and changed files
+await shot(2000, ["1"]); // back to the chat
 
 app.unmount();
+// Chrome (for the GIF) needs the real profile folder.
+Object.assign(process.env, home);
 rmSync(root, { recursive: true, force: true });
 
 // Windows Terminal draws the border of the focused pane in its accent color.
@@ -98,11 +105,12 @@ const still = { columns: RIGHT, rows: ROWS, title: "cco" };
 writeFileSync(join(docs, "chat.svg"), frameToSvg(viewer[2].lines, still));
 writeFileSync(join(docs, "changes.svg"), frameToSvg(viewer[4].lines, still));
 writeFileSync(join(docs, "plan.svg"), frameToSvg(viewer[7].lines, still));
+writeFileSync(join(docs, "sessions.svg"), frameToSvg(viewer[10].lines, still));
 const window = { columns: COLUMNS, rows: ROWS, title: TITLE };
 writeGif(
   frames.map((f) => ({ svg: frameToSvg(f.lines, window), duration: f.duration })),
   frameSize(COLUMNS, ROWS),
   join(docs, "demo.gif"),
 );
-console.log(`Wrote docs/demo.gif (${frames.length} frames), docs/chat.svg, docs/changes.svg and docs/plan.svg`);
+console.log(`Wrote docs/demo.gif (${frames.length} frames), docs/chat.svg, docs/changes.svg, docs/plan.svg and docs/sessions.svg`);
 process.exit(0);

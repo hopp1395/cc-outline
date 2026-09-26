@@ -5,13 +5,13 @@
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
-- **Sessions** gives an overview of the project's sessions: when, how long, which plans, which changed files, and the command to resume each one.
+- **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, or goes to the trash.
 
-![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff and the plan view](docs/demo.gif)
+![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
 ## Why
 
-Working with Claude Code in the terminal has three blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
+Working with Claude Code in the terminal has four blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
 
 ### 1. Answers are hard to read and quickly gone
 
@@ -29,7 +29,13 @@ Working with Claude Code in the terminal has three blind spots. cc-outline fills
 
 **The problem.** In plan mode Claude writes a plan and asks for approval. Once you approve it, Claude starts working and the plan scrolls away under tool calls and output. To check what was agreed, or whether a step was skipped, you have to scroll back and find it. If you reject a plan with feedback, Claude writes a new version, and nothing shows what changed compared with the one you rejected. Which versions were approved or rejected, and why, is hard to reconstruct later.
 
-**How cc-outline solves it.** The Plan view lists every plan of the session with its time, title and status: approved, rejected or waiting for your decision. The selected plan stays readable next to the session while Claude carries it out, with the prompt it answers pinned above it, and for a rejected plan your feedback. `Enter` shows what changed compared with the previous version as a diff, so you only review the changes. Plans appear as soon as Claude presents them, before you decide, and can be marked like answers and files.
+**How cc-outline solves it.** The Plan view lists every plan of the session with its time, title and status: approved, rejected or waiting for your decision. The selected plan stays readable next to the session while Claude carries it out, with the prompt it answers pinned above it, and for a rejected plan your feedback. `Enter` shows what changed compared with the previous version as a diff, so you only review the changes. Plans appear as soon as Claude writes them, before they are presented and before you decide, and can be marked like answers and files.
+
+### 4. Past sessions are hard to find, resume and clean up
+
+**The problem.** Every session is kept, in every project, but only as JSONL files with random names. `/resume` offers them by title and time. What a session was about, which plans it had and which files it changed only shows once you resume it, and that takes you out of the session you are in. Nothing deletes old or failed sessions, so the list only grows.
+
+**How cc-outline solves it.** The Sessions view lists the sessions of all projects with their project, name and time. For the selected session it shows when and where it ran and for how long, on which branch, its plans with their status, the files it changed and its prompts, all without resuming it. `Enter` continues it in a new terminal tab in the right folder, and `c` copies the `claude --resume` command instead. Sessions you no longer need go to a trash with `d`, where they can be restored until you delete them for good.
 
 ### In daily work
 
@@ -37,6 +43,8 @@ Working with Claude Code in the terminal has three blind spots. cc-outline fills
 - **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`4`) switches views, `alt+←` returns to Claude Code.
 - **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
+- **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a new tab next to the current one.
+- **Everything stays where you left it.** Every list keeps its selected entry and each entry's scroll position, also across restarts.
 - **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan` or `/cco:session`, follows the active session, closes it with the session and reopens it next time if it was open.
 
 ## Installation
@@ -201,6 +209,8 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 
 The Sessions view is an overview of your Claude Code sessions: of all projects by default, or only of this one after `a` (remembered in `settings.json`). It only reads them: the other views keep showing the active session.
 
+![Sessions view: sessions of two projects on the left, an older session with its plans, changed files and prompts on the right](docs/sessions.svg)
+
 **List (left).** One entry per session, oldest first, with its start date and time, with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
 
 **Details (right).** Pinned at the top:
@@ -301,10 +311,10 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 npm run dev         # tsup --watch
 npm test            # vitest
 npm run typecheck
-npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg and plan.svg
+npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg, plan.svg and sessions.svg
 ```
 
-The demo runs the viewer headlessly on a made-up project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
+The demo runs the viewer headlessly on a made-up project with a few older sessions, also of a second project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
 
 `cco` runs the built `dist/cli.js`. After a rebuild, close a running viewer with `q` and reopen it. Changes to the plugin (hooks, commands) take effect only after Claude Code restarts.
 
