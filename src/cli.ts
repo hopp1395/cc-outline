@@ -5,6 +5,7 @@ import { runHook } from "./hook.js";
 import { openPane } from "./open.js";
 import { App } from "./tui/App.js";
 import type { Mode } from "./tui/layout.js";
+import { VERSION } from "./version.js";
 import { registerViewer, unregisterViewer } from "./viewer.js";
 
 const viewOption = () =>
@@ -13,7 +14,7 @@ const viewOption = () =>
 const program = new Command()
   .name("cco")
   .description("cc-outline: rendered session preview and git diff view")
-  .version("0.1.0");
+  .version(VERSION);
 
 program
   .command("watch", { isDefault: true })

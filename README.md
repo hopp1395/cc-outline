@@ -153,9 +153,22 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `r` | – | refresh now |
 | `w` | toggle wrapping | toggle wrapping |
 | `Shift+←` / `Shift+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
+| `i` | info dialog | info dialog |
 | `q` | quit | quit |
 
 `t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Chat and Changes each keep their own `w` setting.
+
+## Info dialog
+
+`i` opens a dialog centred over the view. It shows:
+- the version, the author and the license
+- the project directory, the session id and its transcript file
+- the git repository root
+- the terminal and the key that switches panes
+- the settings file
+- the keys of the current view
+
+The dialog is modal: the view underneath takes no keys until you close it with `i` or `Esc`.
 
 ## Focus
 
@@ -186,3 +199,7 @@ npm run typecheck
 ```
 
 `cco` runs the built `dist/cli.js`. After a rebuild, close a running viewer with `q` and reopen it. Changes to the plugin (hooks, commands) take effect only after Claude Code restarts.
+
+## License
+
+[MIT](LICENSE) © 2026 Jan Hoppe

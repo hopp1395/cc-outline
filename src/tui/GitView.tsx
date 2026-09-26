@@ -302,6 +302,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap },
         { text: "r refresh" },
+        { text: "i info" },
         { text: "1/2 view" },
         { text: "q quit" },
       ]}

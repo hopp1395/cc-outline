@@ -1,6 +1,7 @@
 {
   "name": "cc-outline",
   "version": "0.1.0",
+  "author": "Jan Hoppe",
   "description": "cc-outline: rendered session preview and git diff view in a terminal pane",
   "type": "module",
   "bin": {

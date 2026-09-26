@@ -1,6 +1,7 @@
 {
   "name": "cco",
   "version": "0.1.0",
+  "author": { "name": "Jan Hoppe" },
   "description": "cc-outline: rendered session preview and git diff view in a split pane",
   "license": "MIT"
 }

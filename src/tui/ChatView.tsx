@@ -19,11 +19,12 @@ import {
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useSetting } from "./useSetting.js";
-import { useSessionPath, useTranscript } from "./useTranscript.js";
+import { useTranscript } from "./useTranscript.js";
 
 interface Props {
   cwd: string;
-  sessionId?: string;
+  /** Transcript of the session to show (resolved by App). */
+  path?: string;
   layout: Layout;
   active: boolean;
   /** Reports whether the full-prompt view is open, so Esc closes it instead of quitting. */
@@ -72,8 +73,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, sessionId, layout, active, onPromptOpen }: Props) {
-  const path = useSessionPath(cwd, sessionId);
+export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
   const { turns, version } = useTranscript(path);
   const { listWidth, previewWidth, bodyHeight } = layout;
 
@@ -281,6 +281,7 @@ export function ChatView({ cwd, sessionId, layout, active, onPromptOpen }: Props
           { text: "h thinking", on: showThinking },
           { text: "w wrap", on: wrap },
           { text: "c copy" },
+          { text: "i info" },
           { text: "1/2 view" },
           { text: "q quit" },
         ]
