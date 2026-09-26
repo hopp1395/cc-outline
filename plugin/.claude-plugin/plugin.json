@@ -1,0 +1,6 @@
+{
+  "name": "ccmd",
+  "version": "0.1.0",
+  "description": "Rendered Markdown preview of the current session in a terminal split pane",
+  "license": "MIT"
+}

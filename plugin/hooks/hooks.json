@@ -1,0 +1,11 @@
+{
+  "description": "Tell a running ccmd viewer which session is active in this project",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "ccmd hook", "timeout": 10 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "ccmd hook", "timeout": 10 }] }
+    ]
+  }
+}
