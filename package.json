@@ -1,0 +1,67 @@
+{
+  "name": "cc-outline",
+  "version": "0.1.1",
+  "author": "Jan Hoppe",
+  "description": "Rendered Markdown preview of Claude Code sessions and a git changes view with syntax highlighting, in a terminal split pane",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "markdown",
+    "terminal",
+    "tui",
+    "git-diff",
+    "ink"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/hopp1395/cc-outline#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hopp1395/cc-outline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hopp1395/cc-outline/issues"
+  },
+  "type": "module",
+  "bin": {
+    "cco": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "plugin",
+    ".claude-plugin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "demo": "tsup src/tui/App.tsx --no-config --format esm --platform node --target node20 --out-dir demo/.out --external ink --external react && node demo/record.mjs"
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "cli-highlight": "^2.1.11",
+    "clipboardy": "^5.3.2",
+    "commander": "^15.0.0",
+    "ink": "^7.1.1",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
+    "react": "^19.3.0",
+    "slice-ansi": "^9.0.1",
+    "string-width": "^8.3.0",
+    "wrap-ansi": "^10.0.2"
+  },
+  "devDependencies": {
+    "@types/marked-terminal": "^6.1.1",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "gifenc": "^1.0.3",
+    "pngjs": "^7.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

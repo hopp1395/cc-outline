@@ -1,0 +1,65 @@
+<!doctype html>
+<!--
+  GitHub social preview (1280x640). Render after `npm run demo`, e.g.:
+  chrome --headless=new --hide-scrollbars --window-size=1280,640 --screenshot=docs/social-preview.png demo/social-preview.html
+  then upload it under Settings → General → Social preview.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1280px;
+        height: 640px;
+        overflow: hidden;
+        background: radial-gradient(circle at 20% 20%, #2a3140 0%, #0f1115 70%);
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: #e6e6e6;
+      }
+      .text {
+        position: absolute;
+        left: 64px;
+        top: 150px;
+        width: 360px;
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 64px;
+        font-weight: 700;
+        letter-spacing: -1px;
+      }
+      p {
+        margin: 0 0 28px;
+        font-size: 26px;
+        line-height: 1.35;
+        color: #aab2bf;
+      }
+      code {
+        display: inline-block;
+        padding: 8px 14px;
+        border-radius: 8px;
+        background: #22252c;
+        color: #98c379;
+        font: 20px "Cascadia Mono", Consolas, monospace;
+      }
+      img {
+        position: absolute;
+        left: 460px;
+        top: 70px;
+        width: 780px;
+        border-radius: 10px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="text">
+      <h1>cc-outline</h1>
+      <p>Rendered Markdown and git diffs for Claude Code, in a terminal split pane.</p>
+      <code>npm i -g cc-outline</code>
+    </div>
+    <img src="../docs/chat.svg" alt="" />
+  </body>
+</html>

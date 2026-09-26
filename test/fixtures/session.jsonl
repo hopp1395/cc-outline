@@ -1,0 +1,18 @@
+{"type":"custom-title","customTitle":"demo","sessionId":"s1"}
+{"type":"user","uuid":"u0","isMeta":true,"message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>"}}
+{"type":"user","uuid":"u1","timestamp":"2026-09-26T08:00:00.000Z","message":{"role":"user","content":"Explain **hooks**"}}
+{"type":"assistant","uuid":"a1","message":{"id":"m1","role":"assistant","content":[{"type":"thinking","thinking":"Let me think"}]}}
+{"type":"assistant","uuid":"a2","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"## Hooks\n\n- **Stop** runs after a reply"}]}}
+{"type":"assistant","uuid":"a3","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la"}}]}}
+{"type":"user","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"assistant","uuid":"a4","isSidechain":true,"message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"subagent chatter"}]}}
+{"type":"assistant","uuid":"a5","message":{"id":"m3","role":"assistant","content":[{"type":"text","text":"Done."}]}}
+{"type":"user","uuid":"u3","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","uuid":"u4","message":{"role":"user","content":"<command-name>/color</command-name>\n<command-message>color</command-message>\n<command-args>green</command-args>"}}
+{"type":"user","uuid":"u5","message":{"role":"user","content":"<local-command-stdout>Session color set</local-command-stdout>"}}
+{"type":"user","uuid":"u6","timestamp":"2026-09-26T08:05:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Second prompt"}]}}
+{"type":"assistant","uuid":"a6","message":{"id":"m4","role":"assistant","content":[{"type":"text","text":"Working on it."}]}}
+{"type":"queue-operation","operation":"enqueue","content":"also add tests"}
+{"type":"queue-operation","operation":"remove","content":"also add tests","reason":"absorbed_mid_turn"}
+{"type":"attachment","uuid":"q1","timestamp":"2026-09-26T08:06:00.000Z","attachment":{"type":"queued_command","prompt":"also add tests","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}
+{"type":"assistant","uuid":"a7","message":{"id":"m5","role":"assistant","content":[{"type":"text","text":"Tests added."}]}}

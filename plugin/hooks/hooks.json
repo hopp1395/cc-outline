@@ -1,0 +1,14 @@
+{
+  "description": "Tell a running cco viewer which session is active in this project, and close it when the session ends",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "cco hook", "timeout": 10 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "cco hook", "timeout": 10 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "cco hook", "timeout": 10 }] }
+    ]
+  }
+}
