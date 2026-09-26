@@ -12,6 +12,7 @@ const prompt = (uuid: string, time: string, text: string, branch = "main") =>
     uuid,
     timestamp: `2026-09-26T${time}:00.000Z`,
     gitBranch: branch,
+    cwd: "/repo",
     message: { role: "user", content: text },
   });
 const tool = (id: string, time: string, name: string, input: unknown) =>
@@ -51,6 +52,7 @@ describe("SessionReader", () => {
       ],
       files: ["/repo/src/a.cs", "/repo/src/b.cs"],
       branch: "feature/x",
+      cwd: "/repo",
       start: "2026-09-26T09:00:00.000Z",
       end: "2026-09-26T10:30:00.000Z",
     });

@@ -16,6 +16,8 @@ export interface SessionSummary {
   files: string[];
   /** Git branch of the last entry that recorded one. */
   branch?: string;
+  /** Working directory Claude Code was started in (the first entry that recorded one). */
+  cwd?: string;
   /** First and last timestamp in the transcript. */
   start?: string;
   end?: string;
@@ -33,6 +35,7 @@ interface RawEntry {
   type?: string;
   timestamp?: string;
   gitBranch?: string;
+  cwd?: string;
   customTitle?: string;
   isSidechain?: boolean;
 }
@@ -49,6 +52,7 @@ export class SessionReader {
   private parser = new TranscriptParser();
   private title?: string;
   private branch?: string;
+  private cwd?: string;
   private start?: string;
   private end?: string;
   private summary?: SessionSummary;
@@ -84,7 +88,7 @@ export class SessionReader {
     this.buffer = "";
     this.decoder = new TextDecoder("utf-8");
     this.parser = new TranscriptParser();
-    this.title = this.branch = this.start = this.end = undefined;
+    this.title = this.branch = this.cwd = this.start = this.end = undefined;
   }
 
   private read(size: number): void {
@@ -116,6 +120,7 @@ export class SessionReader {
       if (entry.type === "custom-title" && entry.customTitle?.trim()) this.title = entry.customTitle.trim();
       if (!entry.isSidechain) {
         if (entry.gitBranch) this.branch = entry.gitBranch;
+        if (entry.cwd) this.cwd ??= entry.cwd;
         if (entry.timestamp) {
           this.start ??= entry.timestamp;
           this.end = entry.timestamp;
@@ -144,6 +149,7 @@ export class SessionReader {
       plans: this.parser.plans.map((p) => ({ ...p })),
       files,
       branch: this.branch,
+      cwd: this.cwd,
       start: this.start,
       end: this.end,
     };

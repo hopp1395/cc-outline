@@ -1,5 +1,6 @@
 import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
+import { homedir } from "node:os";
 import { basename } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nextMarked } from "../favorites.js";
@@ -70,6 +71,12 @@ function span(start?: string, end?: string): string {
   return `${date(s)} ${time(start)}–${date(e) === date(s) ? "" : date(e) + " "}${time(end)}`;
 }
 
+/** Replaces the home directory with ~. */
+function tilde(path: string): string {
+  const home = homedir();
+  return path.toLowerCase().startsWith(home.toLowerCase()) ? "~" + path.slice(home.length) : path;
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The name shown for a session: its /rename title, else its first prompt that is not a slash command. */
@@ -120,6 +127,7 @@ function sessionHeader(s: SessionSummary, isActive: boolean, width: number): str
     details: [
       when,
       counts.join(" · "),
+      ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []),
       `${isActive ? "active · " : ""}${resumeCommand(s)}`,
     ],
   });

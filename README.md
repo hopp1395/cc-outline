@@ -204,6 +204,7 @@ The Sessions view is an overview of all sessions of the project. It only reads t
 - the name
 - the date, start and end time, duration and git branch
 - the number of prompts, plans and changed files
+- the folder the session ran in, where the resume command has to be run
 - the command that continues the session: `claude --resume <session-id>`. `c` copies it to the clipboard. In a running Claude Code, `/resume <session-id>` does the same.
 
 Below it:
