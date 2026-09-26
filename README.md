@@ -219,6 +219,7 @@ Below it:
 - Moved are the transcript, the session's folder next to it (subagents, title), its file history for `/rewind` and its session environment. The shared prompt history (`history.jsonl`) and plan files in `~/.claude/plans/` stay.
 - The active session and sessions running in another Claude Code (per `~/.claude/sessions/`) can't be deleted.
 - `T` shows the trash of the project, most recently deleted first, with the details as before. There, `u` restores the selected session, `x` deletes it for good and `X` empties the trash, each after a confirmation. `T` or `Esc` returns to the list.
+- In the confirmation, `Enter` confirms and `Esc` cancels. While it is open, no other key does anything.
 - The trash lives in `~/.claude/cco/trash/<project-slug>/`. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
 ## Keys

@@ -14,7 +14,7 @@ export interface Confirmation {
 
 const MAX_WIDTH = 64;
 
-/** Asks before an action: y confirms, n or Esc cancels. Takes all keys while open. */
+/** Asks before an action: Enter confirms, Esc cancels. Takes all keys while open. */
 export function ConfirmDialog({
   layout,
   confirmation,
@@ -24,11 +24,11 @@ export function ConfirmDialog({
   confirmation: Confirmation;
   onClose: () => void;
 }) {
-  useInput((input, key) => {
-    if (input === "y") {
+  useInput((_input, key) => {
+    if (key.return) {
       onClose();
       confirmation.onConfirm();
-    } else if (input === "n" || key.escape) onClose();
+    } else if (key.escape) onClose();
   });
 
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
@@ -48,9 +48,9 @@ export function ConfirmDialog({
       ))}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color={color}>y</Text> {confirmation.action}
+        <Text color={color}>Enter</Text> {confirmation.action}
         {"   "}
-        <Text color="yellow">n</Text> / <Text color="yellow">Esc</Text> cancel
+        <Text color="yellow">Esc</Text> cancel
       </Text>
     </Dialog>
   );
