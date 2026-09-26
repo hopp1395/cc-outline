@@ -5,7 +5,9 @@ import stringWidth from "string-width";
 import { diffLines } from "../git/linediff.js";
 import { renderDiff } from "../render/diff.js";
 import { renderMarkdown } from "../render/markdown.js";
-import type { Plan, PlanStatus } from "../transcript/parse.js";
+import { readFileSync, statSync } from "node:fs";
+import type { Plan, PlanModeState, PlanStatus } from "../transcript/parse.js";
+import { watchFile } from "../transcript/tail.js";
 import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
@@ -29,7 +31,10 @@ import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 
 interface Props {
   cwd: string;
+  /** Plans Claude presented (ExitPlanMode calls). */
   plans: Plan[];
+  /** Plan mode while it is on; its plan file shows the plan being written. */
+  planMode?: PlanModeState;
   /** A session is shown (otherwise there is nothing to take plans from). */
   hasSession: boolean;
   layout: Layout;
@@ -39,6 +44,7 @@ interface Props {
 }
 
 const STATUS: Record<PlanStatus, { icon: string; color: string; label: string; ansi: string }> = {
+  draft: { icon: "✎", color: "cyan", label: "being written, not presented yet", ansi: "36" },
   approved: { icon: "✓", color: "green", label: "approved", ansi: "32" },
   rejected: { icon: "✗", color: "red", label: "rejected", ansi: "31" },
   pending: { icon: "●", color: "yellow", label: "waiting for approval", ansi: "33" },
@@ -77,7 +83,59 @@ function planHeader(plan: Plan, version: number, width: number, showDiff: boolea
   return [...header.slice(0, -1), rule(width, label)];
 }
 
-export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }: Props) {
+/** How often the plan file is checked besides the file watcher. */
+const DRAFT_POLL_MS = 1000;
+
+/**
+ * The plan being written in plan mode, read from its plan file: Claude writes
+ * the plan there before presenting it, while the transcript only gets the
+ * ExitPlanMode call once the user decided. Undefined when there is none: plan
+ * mode is off, the file is older than plan mode (a previous plan), or it holds
+ * the plan that was presented last (e.g. rejected, not rewritten yet).
+ */
+export function draftPlan(
+  planMode: PlanModeState | undefined,
+  file: { text: string; mtime: number } | undefined,
+  presented: Plan[],
+): Plan | undefined {
+  if (!planMode || !file?.text.trim()) return undefined;
+  if (planMode.since && file.mtime < Date.parse(planMode.since)) return undefined;
+  const last = presented.filter((p) => !planMode.since || (p.timestamp ?? "") >= planMode.since).at(-1);
+  if (last && last.text.trim() === file.text.trim()) return undefined;
+  return { id: "draft", text: file.text, timestamp: new Date(file.mtime).toISOString(), prompt: planMode.prompt, status: "draft" };
+}
+
+/** Text and modification time of the plan file while plan mode is on, kept current. */
+function usePlanFile(planMode: PlanModeState | undefined) {
+  const [file, setFile] = useState<{ text: string; mtime: number }>();
+  useEffect(() => {
+    setFile(undefined);
+    if (!planMode) return;
+    const path = planMode.file;
+    const read = () => {
+      try {
+        const { mtimeMs } = statSync(path);
+        setFile((prev) => (prev?.mtime === mtimeMs ? prev : { text: readFileSync(path, "utf8"), mtime: mtimeMs }));
+      } catch {
+        setFile(undefined);
+      }
+    };
+    read();
+    const watcher = watchFile(path, read);
+    const timer = setInterval(read, DRAFT_POLL_MS);
+    return () => {
+      clearInterval(timer);
+      void watcher.close();
+    };
+  }, [planMode?.file, planMode?.since]);
+  return file;
+}
+
+export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, active, onDiffOpen }: Props) {
+  const planFile = usePlanFile(planMode);
+  const draft = draftPlan(planMode, planFile, presented);
+  // The plan being written comes last, after the ones already presented.
+  const plans = useMemo(() => (draft ? [...presented, draft] : presented), [presented, draft?.text, draft?.timestamp]);
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const last = plans.length - 1;
@@ -176,7 +234,10 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
     (input, key) => {
       // Checked first: Space marks instead of paging, Shift+←/→ jump between marked plans.
       const mark = markKeys(input, key);
-      if (mark === "toggle") return plan && favorites.toggle(plan.id);
+      if (mark === "toggle") {
+        if (plan?.status === "draft") return notify("a plan can be marked once it is presented");
+        return plan && favorites.toggle(plan.id);
+      }
       if (mark) {
         const target = nextMarked(
           plans.map((p) => p.id),
@@ -216,7 +277,9 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
   else if (!plan)
     preview = (
       <Text dimColor>
-        No plan in this session yet. In Claude Code, Shift+Tab switches to plan mode; the plans Claude presents show up here.
+        {planMode
+          ? "Plan mode is on. The plan shows up here as soon as Claude writes it."
+          : "No plan in this session yet. In Claude Code, Shift+Tab switches to plan mode; the plans Claude presents show up here."}
       </Text>
     );
   else
@@ -235,7 +298,7 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
 
   const counts = plans.reduce<Record<PlanStatus, number>>(
     (acc, p) => ({ ...acc, [p.status]: acc[p.status] + 1 }),
-    { approved: 0, rejected: 0, pending: 0 },
+    { draft: 0, approved: 0, rejected: 0, pending: 0 },
   );
 
   return (
@@ -248,6 +311,7 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
           {counts.approved > 0 && <Text color="green">{` · ${counts.approved} approved`}</Text>}
           {counts.rejected > 0 && <Text color="red">{` · ${counts.rejected} rejected`}</Text>}
           {counts.pending > 0 && <Text color="yellow">{` · ${counts.pending} waiting`}</Text>}
+          {counts.draft > 0 && <Text color="cyan">{" · 1 being written"}</Text>}
           {plan && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}

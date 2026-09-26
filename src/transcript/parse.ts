@@ -14,7 +14,8 @@ export interface Turn {
   queued?: boolean;
 }
 
-export type PlanStatus = "pending" | "approved" | "rejected";
+/** "draft": being written in plan mode, not presented yet (see `PlanModeState`). */
+export type PlanStatus = "draft" | "pending" | "approved" | "rejected";
 
 /** A plan Claude presented in plan mode (the ExitPlanMode tool call). */
 export interface Plan {
@@ -27,6 +28,20 @@ export interface Plan {
   status: PlanStatus;
   /** What the user said when rejecting the plan, if anything. */
   feedback?: string;
+}
+
+/**
+ * Plan mode as the transcript shows it. Claude Code writes the ExitPlanMode
+ * call only once the user decided, but it names the plan file when plan mode
+ * starts; Claude writes the plan there first, so the file shows it earlier.
+ */
+export interface PlanModeState {
+  /** The plan file of this plan mode. */
+  file: string;
+  /** When plan mode started; an older file still holds a previous plan. */
+  since?: string;
+  /** Prompt of the turn plan mode started in. */
+  prompt?: string;
 }
 
 interface ContentBlock {
@@ -48,7 +63,14 @@ interface Entry {
   isMeta?: boolean;
   isSidechain?: boolean;
   message?: { id?: string; content?: string | ContentBlock[] };
-  attachment?: { type?: string; prompt?: string | ContentBlock[]; humanTurn?: boolean; origin?: { kind?: string } };
+  attachment?: {
+    type?: string;
+    prompt?: string | ContentBlock[];
+    humanTurn?: boolean;
+    origin?: { kind?: string };
+    planFilePath?: string;
+    isSubAgent?: boolean;
+  };
 }
 
 /**
@@ -111,6 +133,8 @@ export function promptText(entry: Entry): string | undefined {
 export class TranscriptParser {
   readonly turns: Turn[] = [];
   readonly plans: Plan[] = [];
+  /** Set while plan mode is on, from its start until it is left. */
+  planMode?: PlanModeState;
   private buffer = "";
 
   /** Returns true when the turns or plans changed. */
@@ -134,6 +158,7 @@ export class TranscriptParser {
 
   private add(entry: Entry): boolean {
     const prompt = promptText(entry);
+    if (prompt !== undefined && this.planMode && !this.planMode.prompt) this.planMode.prompt = prompt;
     if (prompt !== undefined) {
       this.turns.push({
         id: entry.uuid ?? String(this.turns.length),
@@ -142,6 +167,10 @@ export class TranscriptParser {
         blocks: [],
       });
       return true;
+    }
+    if (entry.type === "attachment" && !entry.isSidechain) {
+      const changed = this.trackPlanMode(entry);
+      if (changed) return true;
     }
     const queued = queuedPrompt(entry);
     if (queued !== undefined) {
@@ -190,6 +219,23 @@ export class TranscriptParser {
       changed = true;
     }
     return changed;
+  }
+
+  /** Follows plan mode through its attachments: start (and re-entry) name the plan file, exit ends it. */
+  private trackPlanMode(entry: Entry): boolean {
+    const a = entry.attachment;
+    if (!a || a.isSubAgent) return false;
+    if (a.type === "plan_mode" && a.planFilePath) {
+      // Repeated reminders within the same plan mode keep its start.
+      if (this.planMode?.file === a.planFilePath) return false;
+      this.planMode = { file: a.planFilePath, since: entry.timestamp, prompt: this.turns.at(-1)?.prompt };
+      return true;
+    }
+    if (a.type === "plan_mode_exit" && this.planMode) {
+      this.planMode = undefined;
+      return true;
+    }
+    return false;
   }
 
   /** Applies the user's answer to presented plans: approved, or rejected with optional feedback. */

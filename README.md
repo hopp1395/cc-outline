@@ -174,6 +174,7 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 - `✓` approved
 - `✗` rejected
 - `●` waiting for your decision
+- `✎` being written: Claude is still in plan mode and has not presented it yet
 
 **Plan (right).** The selected plan rendered as Markdown. Above it, pinned while you scroll:
 - the title
@@ -183,7 +184,9 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 
 **Changes between versions.** If there is an earlier version, the separator below the header reads `↵ changes to v1`. `Enter` then shows what changed compared with that version, as a diff with line numbers. `Enter` or `Esc` returns to the plan.
 
-**Following.** The newest plan stays selected while Claude presents new ones; selecting an older plan stops that, and `End` resumes it. Plans are read from the session transcript, so they appear as soon as Claude presents them, before you decide. `c` copies the plan's Markdown.
+**Following.** The newest plan stays selected while Claude presents new ones; selecting an older plan stops that, and `End` resumes it.
+
+**While Claude writes.** A plan shows up as soon as Claude writes it, not only once it is presented. Claude Code records the presented plan in the transcript only after you decided; but when plan mode starts it names the plan file (in `~/.claude/plans/`), and Claude writes the plan there first. The Plan view shows that file as `✎` and updates it while Claude revises it. Once the plan is presented and you decide, it becomes a regular entry (`✓`/`✗`); after a rejection, the next revision shows up as `✎` again, and `Enter` shows what it changes. `c` copies the plan's Markdown.
 
 **Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Ctrl+←/→` scrolls sideways; in the changes between versions the line numbers stay in place.
 

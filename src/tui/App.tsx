@@ -98,6 +98,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
           <PlanView
             cwd={cwd}
             plans={transcript.plans}
+            planMode={transcript.planMode}
             hasSession={path !== undefined}
             layout={layout}
             active={mode === "plan" && !blocked}

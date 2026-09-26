@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { diffLines } from "../src/git/linediff.js";
 import { TranscriptParser } from "../src/transcript/parse.js";
-import { planTitle } from "../src/tui/PlanView.js";
+import { draftPlan, planTitle } from "../src/tui/PlanView.js";
 
 const line = (o: unknown) => JSON.stringify(o) + "\n";
 const prompt = (uuid: string, text: string) =>
@@ -88,5 +88,61 @@ describe("diffLines", () => {
 
   it("returns no hunks for equal texts", () => {
     expect(diffLines("a\nb\n", "a\nb").hunks).toEqual([]);
+  });
+});
+
+describe("plan mode", () => {
+  const attachment = (type: string, extra: Record<string, unknown> = {}, time = "08:00") =>
+    line({ type: "attachment", timestamp: `2026-09-26T${time}:00.000Z`, attachment: { type, ...extra } });
+
+  it("follows plan mode and its plan file from start to exit", () => {
+    const parser = new TranscriptParser();
+    parser.push(attachment("plan_mode", { planFilePath: "/plans/a.md", isSubAgent: false }, "08:00"));
+    parser.push(prompt("u1", "Plan the cache"));
+    expect(parser.planMode).toEqual({ file: "/plans/a.md", since: "2026-09-26T08:00:00.000Z", prompt: "Plan the cache" });
+    // A repeated reminder keeps the start.
+    parser.push(attachment("plan_mode", { planFilePath: "/plans/a.md" }, "08:30"));
+    expect(parser.planMode?.since).toBe("2026-09-26T08:00:00.000Z");
+    parser.push(attachment("plan_mode_exit", { planFilePath: "/plans/a.md" }));
+    expect(parser.planMode).toBeUndefined();
+  });
+
+  it("ignores the plan mode of subagents", () => {
+    const parser = new TranscriptParser();
+    parser.push(attachment("plan_mode", { planFilePath: "/plans/a.md", isSubAgent: true }));
+    expect(parser.planMode).toBeUndefined();
+  });
+});
+
+describe("draftPlan", () => {
+  const mode = { file: "/plans/a.md", since: "2026-09-26T08:00:00.000Z", prompt: "Plan the cache" };
+  const at = (time: string) => Date.parse(`2026-09-26T${time}:00.000Z`);
+  const presented = (text: string, time: string) => ({
+    id: "t1",
+    text,
+    timestamp: `2026-09-26T${time}:00.000Z`,
+    status: "rejected" as const,
+  });
+
+  it("shows the plan file written in plan mode", () => {
+    expect(draftPlan(mode, { text: "# Cache\n\n1. Redis", mtime: at("08:05") }, [])).toMatchObject({
+      id: "draft",
+      status: "draft",
+      text: "# Cache\n\n1. Redis",
+      prompt: "Plan the cache",
+    });
+  });
+
+  it("shows nothing outside plan mode, for an older file or an empty one", () => {
+    const file = { text: "# Cache", mtime: at("08:05") };
+    expect(draftPlan(undefined, file, [])).toBeUndefined();
+    expect(draftPlan(mode, { text: "# Old plan", mtime: at("07:00") }, [])).toBeUndefined();
+    expect(draftPlan(mode, { text: "  \n", mtime: at("08:05") }, [])).toBeUndefined();
+  });
+
+  it("hides a draft that is the plan presented last, and shows the rewrite", () => {
+    const rejected = presented("# Cache\n\n1. Redis", "08:06");
+    expect(draftPlan(mode, { text: "# Cache\n\n1. Redis\n", mtime: at("08:05") }, [rejected])).toBeUndefined();
+    expect(draftPlan(mode, { text: "# Cache\n\n1. MemoryCache", mtime: at("08:10") }, [rejected])?.status).toBe("draft");
   });
 });

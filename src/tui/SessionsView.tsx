@@ -61,6 +61,7 @@ interface Props {
 const REFRESH_MS = 3000;
 
 const STATUS_ICON: Record<PlanStatus, string> = {
+  draft: "\u001b[36m✎\u001b[39m",
   approved: "\u001b[32m✓\u001b[39m",
   rejected: "\u001b[31m✗\u001b[39m",
   pending: "\u001b[33m●\u001b[39m",

@@ -9,7 +9,7 @@ import {
   transcriptForSession,
   type ActiveSession,
 } from "../transcript/locate.js";
-import { TranscriptParser, type Plan, type Turn } from "../transcript/parse.js";
+import { TranscriptParser, type Plan, type PlanModeState, type Turn } from "../transcript/parse.js";
 import { FileTail, watchFile } from "../transcript/tail.js";
 
 /**
@@ -50,6 +50,8 @@ export function useSessionPath(cwd: string, sessionId?: string, claudePid?: numb
 export interface Transcript {
   turns: Turn[];
   plans: Plan[];
+  /** Plan mode while it is on: its plan file, for the plan being written. */
+  planMode?: PlanModeState;
   /** Increments on every change. */
   version: number;
 }
@@ -64,7 +66,12 @@ export function useTranscript(path: string | undefined): Transcript {
     if (!path) return;
     const tail = new FileTail(path, (chunk) => {
       if (parser.push(chunk)) {
-        setState((s) => ({ turns: [...parser.turns], plans: parser.plans.map((p) => ({ ...p })), version: s.version + 1 }));
+        setState((s) => ({
+          turns: [...parser.turns],
+          plans: parser.plans.map((p) => ({ ...p })),
+          planMode: parser.planMode && { ...parser.planMode },
+          version: s.version + 1,
+        }));
       }
     });
     tail.start();
