@@ -24,6 +24,7 @@ import {
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
+import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import type { Transcript } from "./useTranscript.js";
 
@@ -115,8 +116,11 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
   );
   const { header, lines } = prompt ?? answer;
 
-  // Each turn remembers where its answer was scrolled to; unvisited turns start at the top.
-  const positions = useRef(new Map<string, number>());
+  // Each turn remembers where its answer was scrolled to, also across restarts; unvisited turns start at the top.
+  const remembered = usePositions(cwd, "chat");
+  // The session whose remembered selection was restored (or found to be missing); nothing is stored before.
+  const restoredFor = useRef<string | undefined>(undefined);
+  const justRestored = useRef(false);
   const [pos, setPos] = useState(0);
   const [promptPos, setPromptPos] = useState(0);
 
@@ -146,9 +150,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
 
   /** Switches to another turn, keeping the position of the one being left. */
   const showTurn = (index: number) => {
-    if (current) positions.current.set(current.id, Math.min(pos, scroll.max));
+    // Before the session's turns were restored, `current` is just the initial first turn, not a place the user left.
+    if (current && restoredFor.current === path) remembered.set(current.id, Math.min(pos, scroll.max));
     setSelected(index);
-    setPos(positions.current.get(turns[index]?.id) ?? 0);
+    setPos(remembered.get(turns[index]?.id));
     setHscroll(0);
   };
 
@@ -170,11 +175,33 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
 
   // A new session starts with an empty transcript: reset the view.
   useEffect(() => {
-    positions.current.clear();
     setSelected(0);
     setPos(0);
     setFollow(true);
   }, [path]);
+
+  // Once the turns of a session are there: back to the turn selected last time, unless the newest was followed.
+  useEffect(() => {
+    if (!path || restoredFor.current === path || turns.length === 0) return;
+    restoredFor.current = path;
+    const at = remembered.follow === false ? turns.findIndex((t) => t.id === remembered.selected) : -1;
+    if (at < 0) return;
+    justRestored.current = true;
+    setFollow(false);
+    setSelected(at);
+    setPos(remembered.get(turns[at].id));
+  }, [path, turns.length]);
+
+  // Keep the selection and this turn's position (the full prompt has its own, not kept).
+  useEffect(() => {
+    if (restoredFor.current !== path || justRestored.current) {
+      justRestored.current = false;
+      return;
+    }
+    if (!current) return;
+    remembered.select(current.id, live);
+    if (!promptOpen) remembered.set(current.id, pos);
+  }, [current?.id, live, pos, promptOpen]);
 
   const select = (index: number) => {
     const next = Math.max(0, Math.min(last, index));

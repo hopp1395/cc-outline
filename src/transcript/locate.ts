@@ -130,6 +130,11 @@ export function restoreFile(cwd: string): string {
   return stateFile(cwd, ".restore");
 }
 
+/** Where each list was left: selection and scroll positions (`src/positions.ts`). */
+export function positionsFile(cwd: string): string {
+  return stateFile(cwd, ".positions");
+}
+
 /** Marked (favourite) turns per session. */
 export function favoritesFile(cwd: string): string {
   return stateFile(cwd, ".favorites");

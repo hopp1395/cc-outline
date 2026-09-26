@@ -1,6 +1,6 @@
 import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { diffLines } from "../git/linediff.js";
 import { renderDiff } from "../render/diff.js";
@@ -9,6 +9,7 @@ import type { Plan, PlanStatus } from "../transcript/parse.js";
 import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
+import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import {
   bold,
@@ -22,7 +23,6 @@ import {
   EntryText,
   Star,
   truncate,
-  useScroll,
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
@@ -96,6 +96,21 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
     if (follow) setSelected(last);
   }, [follow, last]);
 
+  // Selection and each plan's scroll position survive switching plans and restarting the viewer.
+  const positions = usePositions(cwd, "plan");
+  const restored = useRef(false);
+  const justRestored = useRef(false);
+  // Once the plans are there: back to the plan selected last time, unless the newest was being followed.
+  useEffect(() => {
+    if (restored.current || plans.length === 0) return;
+    restored.current = true;
+    const at = positions.follow === false ? plans.findIndex((p) => p.id === positions.selected) : -1;
+    if (at < 0) return;
+    justRestored.current = true;
+    setFollow(false);
+    setSelected(at);
+  }, [plans.length]);
+
   const index = Math.max(0, Math.min(selected, last));
   const plan = plans[index];
   const previous = index > 0 ? plans[index - 1] : undefined;
@@ -121,7 +136,17 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
   }, [plan, previous, diffOpen, previewWidth, wrap]);
   const { lines } = rendered;
   const viewport = bodyHeightBelow(header, bodyHeight);
-  const scroll = useScroll(lines.length, viewport);
+  // A plan and its changes to the previous version each keep their own position.
+  const scroll = positions.scroll(plan && (diffOpen ? `${plan.id}#diff` : plan.id), lines.length, viewport);
+
+  useEffect(() => {
+    // The commit that restored the selection still shows the old one; the next saves the restored one.
+    if (!restored.current || justRestored.current) {
+      justRestored.current = false;
+      return;
+    }
+    if (plan) positions.select(plan.id, follow);
+  }, [plan?.id, follow]);
 
   // How far unwrapped lines can be shifted until the longest one ends at the right edge.
   const maxHscroll = useMemo(
@@ -133,7 +158,6 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
   const toggleDiff = (open: boolean) => {
     setShowDiff(open);
     onDiffOpen?.(open);
-    scroll.set(0);
     setHscroll(0);
   };
   const select = (next: number) => {
@@ -141,7 +165,6 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
     setFollow(target === last);
     if (target === index) return;
     setSelected(target);
-    scroll.set(0);
     setHscroll(0);
   };
   const notify = (msg: string) => {

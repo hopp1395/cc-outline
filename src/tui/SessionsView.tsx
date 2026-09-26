@@ -32,13 +32,13 @@ import {
   EntryText,
   Star,
   truncate,
-  useScroll,
   wrapPath,
   type Layout,
 } from "./layout.js";
 import { planTitle } from "./PlanView.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
+import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { projectSlug } from "../transcript/locate.js";
 
@@ -224,8 +224,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The session moved to the trash last, for u (undo) in the list.
   const [lastTrashed, setLastTrashed] = useState<SessionSummary>();
   const [confirmation, setConfirmation] = useState<Confirmation>();
+  // Selection and each session's scroll position survive switching sessions and restarting the viewer.
+  const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selectedId, setSelectedId] = useState<string | undefined>(positions.selected);
+  // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
+  useEffect(() => positions.select(selectedId), [selectedId]);
   const [trashSelectedId, setTrashSelectedId] = useState<string>();
   const [flash, setFlash] = useState<string>();
   const favorites = useFavorites(cwd, "sessions");
@@ -252,7 +256,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     [session, cwd, previewWidth],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
-  const scroll = useScroll(lines.length, viewport);
+  const scroll = positions.scroll(session?.id, lines.length, viewport);
 
   useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
   useEffect(() => onTrashOpen?.(trashOpen), [trashOpen]);
@@ -261,7 +265,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const target = list[Math.max(0, Math.min(list.length - 1, next))];
     if (!target || target.id === session?.id) return;
     setCurrentId(target.id);
-    scroll.set(0);
   };
   /** After removing the selected entry: select its neighbour. */
   const selectNeighbour = () => setCurrentId((list[index + 1] ?? list[index - 1])?.id);
@@ -285,7 +288,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const toggleTrash = (open: boolean) => {
     if (open) setTrash(listTrash(trashScope));
     setTrashOpen(open);
-    scroll.set(0);
   };
 
   /** Enter: after a confirmation, continues the session in a new terminal tab, unless it already runs somewhere. */
@@ -369,7 +371,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         setAll((a) => !a);
         // The trash follows the scope right away; the list follows with the next scan.
         if (trashOpen) setTrash(listTrash(all ? projectSlug(cwd) : undefined));
-        return scroll.set(0);
+        return;
       }
       if (trashOpen) {
         if (key.escape) return toggleTrash(false);

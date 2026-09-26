@@ -24,7 +24,6 @@ import {
   markFooter,
   markKeys,
   Star,
-  useScroll,
   wrapPath,
   type Layout,
 } from "./layout.js";
@@ -32,6 +31,7 @@ import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
+import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 
 interface Props {
@@ -135,7 +135,9 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const [root, setRoot] = useState<string | null>();
   const [files, setFiles] = useState<FileChange[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string>();
+  // Selection and each file's scroll position survive switching files and restarting the viewer.
+  const positions = usePositions(cwd, "git");
+  const [selectedPath, setSelectedPath] = useState<string | undefined>(positions.selected);
   const [diffText, setDiffText] = useState("");
   const [showFile, setShowFile] = useState(false);
   const [wrap, setWrap] = useSetting("wrap");
@@ -156,8 +158,10 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const selectedIndex = Math.max(0, files.findIndex((f) => f.path === selectedPath));
   const current = files[selectedIndex];
 
-  const currentRef = useRef(current);
-  currentRef.current = current;
+  // The refresh keeps the selected file, also the one restored before the list was read.
+  const selectedRef = useRef(selectedPath);
+  selectedRef.current = selectedPath;
+  useEffect(() => positions.select(selectedPath), [selectedPath]);
   const busy = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -167,7 +171,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       const [next, nextBranch] = await Promise.all([listChanges(root), branchStatus(root)]);
       setFiles((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       setBranch((prev) => (JSON.stringify(prev) === JSON.stringify(nextBranch) ? prev : nextBranch));
-      const file = next.find((f) => f.path === currentRef.current?.path) ?? next[0];
+      const file = next.find((f) => f.path === selectedRef.current) ?? next[0];
       setSelectedPath(file?.path);
       setDiffText(file ? await fileDiff(root, file) : "");
       if (file && showFileRef.current) {
@@ -231,7 +235,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       : renderDiff(parseDiff(diffText), current.path, previewWidth, wrap);
   }, [diffText, content, current?.path, previewWidth, showFile, wrap]);
   const viewport = bodyHeightBelow(header, bodyHeight);
-  const scroll = useScroll(rendered.lines.length, viewport);
+  // The diff and the whole file of a file each keep their own position.
+  const scroll = positions.scroll(current && (showFile ? `${current.path}#file` : current.path), rendered.lines.length, viewport);
 
   // How far unwrapped lines can be shifted until the longest one ends at the right edge.
   const maxHscroll = useMemo(
@@ -244,13 +249,11 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     const file = files[Math.max(0, Math.min(files.length - 1, index))];
     if (!file || file.path === current?.path) return;
     setSelectedPath(file.path);
-    scroll.set(0);
     setHscroll(0);
   };
   const toggleFile = (open: boolean) => {
     setShowFile(open);
     onFileOpen?.(open);
-    scroll.set(0);
     setHscroll(0);
   };
   /** Selects the next or previous marked file. */
