@@ -16,6 +16,7 @@ npm test             # vitest run
 npx vitest run test/git.test.ts            # one file
 npx vitest run -t "breaks after slashes"   # one test by name
 npm link             # expose `cco` globally; it runs dist/, so rebuild after changes
+npm run demo         # re-record the README images in docs/ (headless run on demo/fixture.mjs)
 claude --plugin-dir ./plugin               # load the plugin (hooks + commands) for one session
 claude plugin marketplace update cc-outline && claude plugin update cco@cc-outline   # refresh the installed plugin
 ```

@@ -38,7 +38,8 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "demo": "tsup src/tui/App.tsx --no-config --format esm --platform node --target node20 --out-dir demo/.out --external ink --external react && node demo/record.mjs"
   },
   "dependencies": {
     "chokidar": "^5.0.0",

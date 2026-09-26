@@ -5,16 +5,7 @@
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 
-```
-cco  1 Chat  2 Changes  session 3d061497 · 12 turns · 87% · FOLLOW
-09:56 brainstorm a markdown … │ ❯ add a git changes view
-10:07 create a new git repo   │ ──────────────────────────────────────────
-10:08 go                      │ The view lists every changed file on the
-10:31 add a git changes view  │ left and shows its diff on the right:
-                              │
-                              │   • ←→ switch files, ↑↓ scroll
-alt+←  ←→ turn  ↵ prompt   f follow   w wrap   c copy  i more  q quit
-```
+![cc-outline demo: the chat view with a rendered answer, then the changes view with a C# diff](docs/demo.svg)
 
 ## Installation
 
@@ -72,18 +63,7 @@ Press `1` and `2` to switch between the views. Both keep running in the backgrou
 
 The Chat view shows the session turn by turn. A turn is one prompt plus everything Claude answered to it.
 
-```
-cco  1 Chat  2 Changes  session 3d061497 · 12 turns · 64% · tools
-09:56 brainstorm a markdown … │ ❯ add a git changes view with syntax
-10:07 create a new git repo   │   highlighting, C# first
-10:08 go                      │ ── ↵ full prompt ─────────────────────────
-10:12 ↳ commit everything     │ ## Changes view
-10:31 add a git changes view  │
-                              │ | Key | Action          |
-                              │ |-----|-----------------|
-                              │           ↓ Jump to bottom (ctrl+End)
-alt+←  ←→ turn  ↵ prompt   f follow    t tools   w wrap   i more  q quit
-```
+![Chat view: turn list on the left, the answer rendered as Markdown on the right](docs/chat.svg)
 
 **List (left).** One entry per prompt, with its time.
 - Slash commands appear as `/name args`.
@@ -120,19 +100,7 @@ The viewer switches sessions automatically after `/clear` or `/resume`.
 
 The Changes view shows what Claude has changed in the working tree, compared with `HEAD`.
 
-```
-cco  1 Chat  2 Changes  3 files · +48 -7 · 35%
-M src/Orders/OrderService.cs  +12 -3 │ M src/Orders/OrderService.cs
-A src/Orders/OrderValidator.cs  +31  │   modified · +12 -3 · diff
-? docs/notes.md               +5 -0  │ ── ↵ whole file ─────────────────────
-                                     │ @@ -40,7 +40,9 @@ public class Order…
-                                     │ 40 40   public void Submit(Order o)
-                                     │ 41 41   {
-                                     │ 42    -     Save(o);
-                                     │    42 +     _validator.Check(o);
-                                     │    43 +     Save(o);
-alt+←  ←→ file  ↵ file  [/] hunk   w wrap   r refresh  i more  q quit
-```
+![Changes view: changed files on the left, the diff with line numbers and C# highlighting on the right](docs/changes.svg)
 
 **List (left).** One entry per changed file, with its status and line counts:
 - `M` modified, `A` added, `D` deleted, `R` renamed, `C` copied, `U` conflict
@@ -225,7 +193,10 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 npm run dev         # tsup --watch
 npm test            # vitest
 npm run typecheck
+npm run demo        # re-record docs/demo.svg, chat.svg and changes.svg
 ```
+
+The demo runs the viewer headlessly on a made-up project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG. `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
 
 `cco` runs the built `dist/cli.js`. After a rebuild, close a running viewer with `q` and reopen it. Changes to the plugin (hooks, commands) take effect only after Claude Code restarts.
 
