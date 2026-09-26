@@ -67,7 +67,8 @@ export function useScroll(lineCount: number, height: number): Scroll {
 }
 
 /**
- * Navigation shared by both views: ←→ switch item, ↑↓ scroll the preview.
+ * Navigation shared by both views: ←→ switch item, ↑↓ scroll the preview,
+ * Home/End first/last item, Ctrl+Home/End top/bottom of the preview.
  * Returns true when the key was handled.
  */
 export function handleNavigation(
@@ -82,8 +83,8 @@ export function handleNavigation(
   else if (key.downArrow) scroll.by(1);
   else if (key.pageUp || input === "b") scroll.by(-page);
   else if (key.pageDown || input === " ") scroll.by(page);
-  else if (key.home) scroll.set(0);
-  else if (key.end) scroll.set(scroll.max);
+  else if (key.home) (key.ctrl ? scroll.set(0) : nav.first());
+  else if (key.end) (key.ctrl ? scroll.set(scroll.max) : nav.last());
   else if (input === "g") nav.first();
   else if (input === "G") nav.last();
   else return false;
@@ -367,10 +368,12 @@ export function listWindow(count: number, selected: number, height: number): Lis
   return { from, to, above: from, below: count - to };
 }
 
-function MoreRow({ arrow, count }: { arrow: string; count: number }) {
+/** "▲ 7 more Home": how many entries are hidden and the key that jumps to the far end. */
+function MoreRow({ arrow, count, jumpKey }: { arrow: string; count: number; jumpKey: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more`}
+      {` ${arrow} ${count} more  `}
+      <Text color="yellow">{jumpKey}</Text>
     </Text>
   );
 }
@@ -382,7 +385,7 @@ export function List<T>({ items, selected, height, empty, itemKey, render }: Lis
   const { from, to, above, below } = listWindow(items.length, selected, height);
   return (
     <>
-      {above > 0 && <MoreRow arrow="▲" count={above} />}
+      {above > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" />}
       {items.slice(from, to).map((item, i) => {
         const index = from + i;
         const isSelected = index === selected;
@@ -399,7 +402,7 @@ export function List<T>({ items, selected, height, empty, itemKey, render }: Lis
           </Text>
         );
       })}
-      {below > 0 && <MoreRow arrow="▼" count={below} />}
+      {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="End" />}
     </>
   );
 }

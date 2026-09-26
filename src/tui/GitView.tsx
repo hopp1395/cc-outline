@@ -256,8 +256,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
 
   useInput(
     (input, key) => {
-      // Shift+←/→ scroll sideways; checked first because plain ←/→ switch files.
-      if (key.shift && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      // Shift+←/→ or Ctrl+←/→ scroll sideways; checked first because plain ←/→ switch files.
+      if ((key.shift || key.ctrl) && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
         setWrap((w) => !w);
         return setHscroll(0);
