@@ -266,9 +266,11 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
-    const target =
-      dir === 1 ? starts.find((s) => s > scroll.scroll) : [...starts].reverse().find((s) => s < scroll.scroll);
-    if (target !== undefined) scroll.set(target);
+    // Once scrolled, the first row is the "▲ more" indicator, so the first readable line is one further down.
+    const top = scroll.scroll > 0 ? scroll.scroll + 1 : 0;
+    const target = dir === 1 ? starts.find((s) => s > top) : [...starts].reverse().find((s) => s < top);
+    // Scroll one line less so the hunk header lands below the indicator.
+    if (target !== undefined) scroll.set(Math.max(0, target - 1));
   };
 
   useInput(

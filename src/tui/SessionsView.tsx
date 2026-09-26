@@ -5,6 +5,17 @@ import { basename } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nextMarked } from "../favorites.js";
 import { displayPath, formatDuration, insideProject, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
+import {
+  deleteBlocker,
+  emptyTrash,
+  listTrash,
+  purgeSession,
+  restoreSession,
+  runningSessionIds,
+  trashSession,
+  type TrashEntry,
+} from "../transcript/trash.js";
+import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import type { PlanStatus } from "../transcript/parse.js";
 import { useFocused } from "./focus.js";
 import {
@@ -35,6 +46,10 @@ interface Props {
   visible: boolean;
   /** The view takes keys. */
   active: boolean;
+  /** Reports whether the trash is shown, so Esc leaves it instead of quitting. */
+  onTrashOpen?: (open: boolean) => void;
+  /** Reports whether a confirmation is open; the app then leaves all keys to it. */
+  onModal?: (open: boolean) => void;
 }
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
@@ -46,6 +61,7 @@ const STATUS_ICON: Record<PlanStatus, string> = {
   pending: "\u001b[33m●\u001b[39m",
 };
 const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
+const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
 const heading = (s: string) => `\u001b[1;36m${s}\u001b[22;39m`;
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -118,42 +134,52 @@ export function sessionLines(s: SessionSummary, cwd: string, width: number): str
   return lines;
 }
 
-function sessionHeader(s: SessionSummary, isActive: boolean, width: number): string[] {
+type State = "active" | "running" | "trash" | undefined;
+
+function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt?: number): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
   const counts = [plural(s.prompts.length, "prompt"), plural(s.plans.length, "plan"), plural(s.files.length, "changed file")];
+  const last =
+    state === "trash"
+      ? red(`in the trash since ${dateTime(new Date(deletedAt ?? 0).toISOString())} · u restores it`)
+      : `${state === "active" ? "active · " : state === "running" ? "running elsewhere · " : ""}${resumeCommand(s)}`;
   return previewHeader(sessionTitle(s), width, {
-    marker: isActive ? green("● ") : "  ",
+    marker: state === "active" ? green("● ") : state === "running" ? green("▶ ") : "  ",
     style: bold,
-    details: [
-      when,
-      counts.join(" · "),
-      ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []),
-      `${isActive ? "active · " : ""}${resumeCommand(s)}`,
-    ],
+    details: [when, counts.join(" · "), ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []), last],
   });
 }
 
-/** The project's sessions, read while `visible` and refreshed every few seconds. */
-function useSessions(cwd: string, visible: boolean): SessionSummary[] | undefined {
+/**
+ * The project's sessions and which of them run in a Claude Code process, read
+ * while `visible` and refreshed every few seconds. `refresh` rescans at once.
+ */
+function useSessions(cwd: string, visible: boolean) {
   const index = useRef<SessionIndex>(undefined);
+  const scanRef = useRef<() => Promise<void>>(async () => {});
   const [sessions, setSessions] = useState<SessionSummary[]>();
+  const [running, setRunning] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!visible) return;
     if (index.current?.cwd !== cwd) index.current = new SessionIndex(cwd);
     const current = index.current;
     let cancelled = false;
-    let running = false;
+    let busy = false;
     const scan = async () => {
-      if (running) return;
-      running = true;
+      if (busy) return;
+      busy = true;
       try {
         const result = await current.scan();
-        if (!cancelled) setSessions(result);
+        if (!cancelled) {
+          setSessions(result);
+          setRunning(runningSessionIds());
+        }
       } finally {
-        running = false;
+        busy = false;
       }
     };
+    scanRef.current = scan;
     void scan();
     const timer = setInterval(() => void scan(), REFRESH_MS);
     return () => {
@@ -162,29 +188,42 @@ function useSessions(cwd: string, visible: boolean): SessionSummary[] | undefine
     };
   }, [cwd, visible]);
 
-  return sessions;
+  return { sessions, running, refresh: () => void scanRef.current() };
 }
 
-export function SessionsView({ cwd, activePath, layout, visible, active }: Props) {
+export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
-  const sessions = useSessions(cwd, visible);
-  const list = sessions ?? [];
+  const { sessions, running, refresh } = useSessions(cwd, visible);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trash, setTrash] = useState<TrashEntry[]>([]);
+  // The session moved to the trash last, for u (undo) in the list.
+  const [lastTrashed, setLastTrashed] = useState<string>();
+  const [confirmation, setConfirmation] = useState<Confirmation>();
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
   const [selectedId, setSelectedId] = useState<string>();
+  const [trashSelectedId, setTrashSelectedId] = useState<string>();
   const [flash, setFlash] = useState<string>();
   const favorites = useFavorites(cwd, "sessions");
-  const markedCount = list.filter((s) => favorites.isMarked(s.id)).length;
 
-  const found = list.findIndex((s) => s.id === selectedId);
-  const index = found >= 0 ? found : list.length - 1;
+  const list = trashOpen ? trash.map((e) => e.summary) : (sessions ?? []);
+  const markedCount = (sessions ?? []).filter((s) => favorites.isMarked(s.id)).length;
+  const currentId = trashOpen ? trashSelectedId : selectedId;
+  const setCurrentId = trashOpen ? setTrashSelectedId : setSelectedId;
+
+  const found = list.findIndex((s) => s.id === currentId);
+  // The list starts at the newest session (last); the trash at the latest deletion (first).
+  const index = found >= 0 ? found : trashOpen ? 0 : list.length - 1;
   const session = list[index];
+  const entry = trashOpen ? trash[index] : undefined;
+  const stateOf = (s: SessionSummary): State =>
+    trashOpen ? "trash" : s.id === activeId ? "active" : running.has(s.id) ? "running" : undefined;
 
   const header = useMemo(() => {
     if (!session) return [];
-    return fitHeader(sessionHeader(session, session.id === activeId, previewWidth), bodyHeight);
-  }, [session, activeId, previewWidth, bodyHeight]);
+    return fitHeader(sessionHeader(session, stateOf(session), previewWidth, entry?.deletedAt), bodyHeight);
+  }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight]);
   const lines = useMemo(
     () => (session ? sessionLines(session, cwd, previewWidth) : []),
     [session, cwd, previewWidth],
@@ -192,38 +231,126 @@ export function SessionsView({ cwd, activePath, layout, visible, active }: Props
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = useScroll(lines.length, viewport);
 
+  useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
+  useEffect(() => onTrashOpen?.(trashOpen), [trashOpen]);
+
   const select = (next: number) => {
     const target = list[Math.max(0, Math.min(list.length - 1, next))];
     if (!target || target.id === session?.id) return;
-    setSelectedId(target.id);
+    setCurrentId(target.id);
     scroll.set(0);
   };
+  /** After removing the selected entry: select its neighbour. */
+  const selectNeighbour = () => setCurrentId((list[index + 1] ?? list[index - 1])?.id);
 
   const notify = (msg: string) => {
     setFlash(msg);
-    setTimeout(() => setFlash(undefined), 2000);
+    setTimeout(() => setFlash(undefined), 3000);
+  };
+  /** Runs a trash operation, reporting a failure instead of throwing. */
+  const attempt = (action: () => void, done: string) => {
+    try {
+      action();
+      notify(done);
+    } catch (err) {
+      notify(`failed: ${(err as Error).message}`);
+    }
+    setTrash(listTrash(cwd));
+    refresh();
+  };
+
+  const toggleTrash = (open: boolean) => {
+    if (open) setTrash(listTrash(cwd));
+    setTrashOpen(open);
+    scroll.set(0);
+  };
+
+  const askDelete = (s: SessionSummary) => {
+    const blocker = deleteBlocker(s.id, activeId, runningSessionIds());
+    if (blocker) return notify(blocker);
+    setConfirmation({
+      title: "Move this session to the trash?",
+      lines: [
+        truncate(sessionTitle(s), 56),
+        `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
+        "You can restore it from the trash (T).",
+      ],
+      action: "move to trash",
+      onConfirm: () =>
+        attempt(() => {
+          trashSession(cwd, s, activeId);
+          setLastTrashed(s.id);
+          selectNeighbour();
+        }, "moved to the trash · u undo · T trash"),
+    });
+  };
+  const restore = (id: string, after?: () => void) =>
+    attempt(() => {
+      restoreSession(cwd, id);
+      after?.();
+      setLastTrashed(undefined);
+    }, "restored");
+  const askPurge = (s: SessionSummary) =>
+    setConfirmation({
+      title: "Delete this session for good?",
+      lines: [
+        truncate(sessionTitle(s), 56),
+        "Transcript, file history and subagent data are removed.",
+        "This can't be undone.",
+      ],
+      action: "delete for good",
+      danger: true,
+      onConfirm: () =>
+        attempt(() => {
+          purgeSession(cwd, s.id);
+          selectNeighbour();
+        }, "deleted for good"),
+    });
+  const askEmpty = () => {
+    if (trash.length === 0) return;
+    setConfirmation({
+      title: "Empty the trash?",
+      lines: [`${plural(trash.length, "session")} of this project will be deleted for good.`, "This can't be undone."],
+      action: "empty trash",
+      danger: true,
+      onConfirm: () => attempt(() => void emptyTrash(cwd), "trash emptied"),
+    });
   };
 
   useInput(
     (input, key) => {
-      // Checked first: Space marks instead of paging, Shift+←/→ jump between marked sessions.
-      const mark = markKeys(input, key);
-      if (mark === "toggle") return session && favorites.toggle(session.id);
-      if (mark) {
-        const target = nextMarked(
-          list.map((s) => s.id),
-          favorites.marks,
-          index,
-          mark,
-        );
-        return target !== undefined && select(target);
-      }
-      if (input === "c" && session) {
-        const command = resumeCommand(session);
-        return void clipboard.write(command).then(
-          () => notify(`copied: ${command}`),
-          (err: Error) => notify(`copy failed: ${err.message}`),
-        );
+      if (input === "T") return toggleTrash(!trashOpen);
+      if (trashOpen) {
+        if (key.escape) return toggleTrash(false);
+        if (input === "u" && session) return restore(session.id, selectNeighbour);
+        if (input === "x" && session) return askPurge(session);
+        if (input === "X") return askEmpty();
+      } else {
+        // Checked first: Space marks instead of paging, Shift+←/→ jump between marked sessions.
+        const mark = markKeys(input, key);
+        if (mark === "toggle") return session && favorites.toggle(session.id);
+        if (mark) {
+          const target = nextMarked(
+            list.map((s) => s.id),
+            favorites.marks,
+            index,
+            mark,
+          );
+          return target !== undefined && select(target);
+        }
+        if ((input === "d" || key.delete) && session) return askDelete(session);
+        if (input === "u") {
+          if (!lastTrashed) return notify("nothing to undo");
+          const id = lastTrashed;
+          return restore(id, () => setSelectedId(id));
+        }
+        if (input === "c" && session) {
+          const command = resumeCommand(session);
+          return void clipboard.write(command).then(
+            () => notify(`copied: ${command}`),
+            (err: Error) => notify(`copy failed: ${err.message}`),
+          );
+        }
       }
       handleNavigation(input, key, {
         select: (delta) => select(index + delta),
@@ -233,56 +360,84 @@ export function SessionsView({ cwd, activePath, layout, visible, active }: Props
         page: viewport - 2,
       });
     },
-    { isActive: active },
+    { isActive: active && confirmation === undefined },
   );
 
   let preview;
-  if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
+  if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
+  else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
   else if (!session) preview = <Text dimColor>No Claude Code session found for {cwd}</Text>;
   else preview = <Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} />;
 
+  const footer = trashOpen
+    ? [
+        { text: "←→ session", priority: 4 },
+        { text: "↑↓ scroll", priority: 1 },
+        { text: "u restore", priority: 4 },
+        { text: "x delete", priority: 3 },
+        { text: "X empty", priority: 2 },
+        { text: "T trash", on: true },
+      ]
+    : [
+        { text: "←→ session", priority: 4 },
+        { text: "↑↓ scroll", priority: 1 },
+        ...markFooter(favorites.isMarked(session?.id), markedCount),
+        { text: "c copy resume", priority: 2 },
+        { text: "d delete", priority: 2 },
+        ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
+        { text: "T trash", priority: 2 },
+        { text: "1-4 view", priority: 1 },
+      ];
+
   return (
-    <Screen
-      layout={layout}
-      mode="sessions"
-      status={
-        <Text dimColor={!focused}>
-          {sessions ? plural(list.length, "session") : "…"}
-          {session && ` · ${scroll.position}`}
-          {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
-        </Text>
-      }
-      list={
-        <List
-          items={list}
-          selected={index}
-          height={bodyHeight}
-          empty={sessions ? "No sessions" : "…"}
-          itemKey={(s) => s.id}
-          render={(s, isSelected) => {
-            const marked = favorites.isMarked(s.id);
-            const isActive = s.id === activeId;
-            return (
-              <>
-                {marked && <Star />}
-                <Text dimColor={!isSelected}>{dateTime(s.start)} </Text>
-                {isActive && <Text color="green">● </Text>}
-                {truncate(sessionTitle(s), Math.max(4, listWidth - 13 - (marked ? 2 : 0) - (isActive ? 2 : 0)))}
-              </>
-            );
-          }}
-        />
-      }
-      preview={preview}
-      footer={
-        flash ?? [
-          { text: "←→ session", priority: 4 },
-          { text: "↑↓ scroll", priority: 1 },
-          ...markFooter(favorites.isMarked(session?.id), markedCount),
-          { text: "c copy resume", priority: 2 },
-          { text: "1-4 view", priority: 1 },
-        ]
-      }
-    />
+    <>
+      <Screen
+        layout={layout}
+        mode="sessions"
+        status={
+          <Text dimColor={!focused}>
+            {trashOpen ? (
+              <Text color="red">TRASH · {plural(trash.length, "session")}</Text>
+            ) : sessions ? (
+              plural(list.length, "session")
+            ) : (
+              "…"
+            )}
+            {session && ` · ${scroll.position}`}
+            {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
+          </Text>
+        }
+        list={
+          <List
+            items={list}
+            selected={index}
+            height={bodyHeight}
+            empty={trashOpen ? "Trash is empty" : sessions ? "No sessions" : "…"}
+            itemKey={(s) => s.id}
+            render={(s, isSelected) => {
+              const marked = favorites.isMarked(s.id);
+              const state = stateOf(s);
+              const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
+              const deleted = trashOpen ? trash.find((e) => e.id === s.id)?.deletedAt : undefined;
+              return (
+                <>
+                  {marked && <Star />}
+                  <Text dimColor={!isSelected}>
+                    {dateTime(deleted !== undefined ? new Date(deleted).toISOString() : s.start)}{" "}
+                  </Text>
+                  {badge && <Text color="green">{badge}</Text>}
+                  {truncate(sessionTitle(s), Math.max(4, listWidth - 13 - (marked ? 2 : 0) - badge.length))}
+                </>
+              );
+            }}
+          />
+        }
+        preview={preview}
+        footer={flash ?? footer}
+      />
+      {confirmation && (
+        <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
+      )}
+    </>
   );
 }

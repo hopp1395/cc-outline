@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import sliceAnsi from "slice-ansi";
+import { MoreRow } from "./layout.js";
 
 interface Props {
   /** Sticky lines above the scrolling area, e.g. the prompt or file name. */
@@ -33,6 +34,30 @@ export function fitHeader(header: string[], height: number): string[] {
   return [...header.slice(0, max - 1), header.at(-1)!];
 }
 
+export interface PreviewWindow {
+  /** Lines shown: indices from..to (exclusive). */
+  from: number;
+  to: number;
+  /** Hidden lines counted by the "more" rows above and below; 0 when there is no such row. */
+  above: number;
+  below: number;
+}
+
+/**
+ * Which of `count` lines are shown at `scroll` in `height` rows. Like the list,
+ * the first or last row becomes a "more" indicator when lines are hidden that
+ * way; the bottom one is left out when a footer already sits there.
+ */
+export function previewWindow(count: number, scroll: number, height: number, footer = false): PreviewWindow {
+  const end = Math.min(count, scroll + height);
+  // With fewer than three rows there is no room for indicators around the content.
+  const top = scroll > 0 && height >= 3;
+  const bottom = !footer && end < count && height >= 3;
+  const from = scroll + (top ? 1 : 0);
+  const to = end - (bottom ? 1 : 0);
+  return { from, to, above: top ? from : 0, below: bottom ? count - to : 0 };
+}
+
 /** The part of `line` visible after scrolling `hscroll` columns, keeping `frozen` columns fixed. */
 export function shiftLine(line: string, hscroll: number, frozen: number, width: number): string {
   if (hscroll <= 0) return line;
@@ -51,7 +76,9 @@ export function Preview({
   footer,
 }: Props) {
   const bodyHeight = bodyHeightBelow(header, height, footer !== undefined);
-  const visible = lines.slice(scroll, scroll + bodyHeight);
+  const { from, to, above, below } = previewWindow(lines.length, scroll, bodyHeight, footer !== undefined);
+  const visible = lines.slice(from, to);
+  const rows = visible.length + (above > 0 ? 1 : 0) + (below > 0 ? 1 : 0);
   return (
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
       {header.map((line, i) => (
@@ -59,16 +86,18 @@ export function Preview({
           {line || " "}
         </Text>
       ))}
+      {above > 0 && <MoreRow arrow="▲" count={above} jumpKey="ctrl+Home" unit={above === 1 ? "line" : "lines"} />}
       {visible.map((line, i) => (
         // Lines are pre-wrapped (or shifted) to `width`; a lone space keeps empty lines from collapsing.
-        <Text key={scroll + i} wrap="truncate">
-          {(pinned.includes(scroll + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
+        <Text key={from + i} wrap="truncate">
+          {(pinned.includes(from + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
         </Text>
       ))}
+      {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="ctrl+End" unit={below === 1 ? "line" : "lines"} />}
       {footer !== undefined && (
         <>
           {/* Fill short content so the footer sits at the bottom edge. */}
-          {Array.from({ length: Math.max(0, bodyHeight - visible.length) }, (_, i) => (
+          {Array.from({ length: Math.max(0, bodyHeight - rows) }, (_, i) => (
             <Text key={`f${i}`}> </Text>
           ))}
           <Text wrap="truncate">{footer}</Text>

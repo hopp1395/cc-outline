@@ -41,6 +41,14 @@ export function toggleFavorite(cwd: string, kind: FavoriteKind, id: string): str
   return all[kind];
 }
 
+/** Removes a mark, e.g. of a session deleted for good. */
+export function removeFavorite(cwd: string, kind: FavoriteKind, id: string): void {
+  const all = readAll(cwd);
+  if (!all[kind].includes(id)) return;
+  all[kind] = all[kind].filter((x) => x !== id);
+  writeJson(favoritesFile(cwd), all satisfies Stored);
+}
+
 /** Index of the next (dir 1) or previous (dir -1) marked entry after `from`, if any. */
 export function nextMarked(ids: string[], marks: string[], from: number, dir: 1 | -1): number | undefined {
   for (let i = from + dir; i >= 0 && i < ids.length; i += dir) if (marks.includes(ids[i])) return i;

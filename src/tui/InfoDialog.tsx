@@ -1,12 +1,12 @@
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import { Box, Text } from "ink";
+import { Text } from "ink";
 import stringWidth from "string-width";
 import { detectTerminal } from "../open.js";
 import { settingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
-import type { Layout, Mode } from "./layout.js";
+import { Dialog, type Layout, type Mode } from "./layout.js";
 
 interface Props {
   layout: Layout;
@@ -64,7 +64,15 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["c", "copy the plan"],
     ...COMMON_KEYS,
   ],
-  sessions: [...LIST_KEYS("session"), ["c", "copy resume command"], ...COMMON_KEYS],
+  sessions: [
+    ...LIST_KEYS("session"),
+    ["c", "copy resume command"],
+    ["d Del", "move to trash"],
+    ["u", "undo / restore"],
+    ["T", "trash on / off"],
+    ["x X", "delete / empty trash"],
+    ...COMMON_KEYS,
+  ],
 };
 
 const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions" };
@@ -150,25 +158,11 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
 
   // Title, author and blank line + content, plus the border.
   const height = Math.min(layout.rows - 2, lines.length + 5);
-  const top = Math.max(0, Math.floor((layout.rows - height) / 2));
-  const left = Math.max(0, Math.floor((layout.columns - width) / 2));
   const title = `cc-outline ${VERSION}`;
   const hint = "i / esc close";
 
   return (
-    <Box
-      position="absolute"
-      top={top}
-      left={left}
-      width={width}
-      height={height}
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      backgroundColor="#1b1f27"
-      paddingX={1}
-      overflow="hidden"
-    >
+    <Dialog layout={layout} width={width} height={height}>
       <Text wrap="truncate">
         <Text bold>{title}</Text>
         {" ".repeat(Math.max(1, inner - stringWidth(title) - stringWidth(hint)))}
@@ -179,6 +173,6 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
       </Text>
       <Text> </Text>
       {lines}
-    </Box>
+    </Dialog>
   );
 }

@@ -394,11 +394,14 @@ export function listWindow(count: number, selected: number, height: number): Lis
   return { from, to, above: from, below: count - to };
 }
 
-/** "▲ 7 more Home": how many entries are hidden and the key that jumps to the far end. */
-function MoreRow({ arrow, count, jumpKey }: { arrow: string; count: number; jumpKey: string }) {
+/**
+ * "▲ 7 more Home": how many entries (or, with `unit`, e.g. lines) are hidden
+ * and the key that jumps to the far end.
+ */
+export function MoreRow({ arrow, count, jumpKey, unit }: { arrow: string; count: number; jumpKey: string; unit?: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more  `}
+      {` ${arrow} ${count} more${unit ? ` ${unit}` : ""}  `}
       <Text color="yellow">{jumpKey}</Text>
     </Text>
   );
@@ -430,5 +433,40 @@ export function List<T>({ items, selected, height, empty, itemKey, render }: Lis
       })}
       {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="End" />}
     </>
+  );
+}
+
+/** Modal box centred over the view (info dialog, confirmations). `width` and `height` include the border. */
+export function Dialog({
+  layout,
+  width,
+  height,
+  borderColor = "cyan",
+  children,
+}: {
+  layout: Layout;
+  width: number;
+  height: number;
+  borderColor?: string;
+  children: ReactNode;
+}) {
+  const top = Math.max(0, Math.floor((layout.rows - height) / 2));
+  const left = Math.max(0, Math.floor((layout.columns - width) / 2));
+  return (
+    <Box
+      position="absolute"
+      top={top}
+      left={left}
+      width={width}
+      height={height}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={borderColor}
+      backgroundColor="#1b1f27"
+      paddingX={1}
+      overflow="hidden"
+    >
+      {children}
+    </Box>
   );
 }

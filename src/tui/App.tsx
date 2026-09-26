@@ -31,6 +31,8 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
   const transcript = useTranscript(path);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [infoOpen, setInfoOpen] = useState(false);
+  // A view's confirmation dialog takes all keys while it is open.
+  const [modal, setModal] = useState(false);
   const [gitRoot, setGitRoot] = useState<string | null>();
   // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
   const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
@@ -51,6 +53,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
   }, [cwd]);
 
   useInput((input, key) => {
+    if (modal) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -101,6 +104,8 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
             layout={layout}
             visible={mode === "sessions"}
             active={mode === "sessions" && !infoOpen}
+            onTrashOpen={setDetail("sessions")}
+            onModal={setModal}
           />
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}

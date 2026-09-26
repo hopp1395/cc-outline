@@ -86,7 +86,7 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 All views share one layout:
 - **Top bar:** the view tabs and a status summary.
-- **Body:** a list on the left and a preview on the right.
+- **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
 - **Help line:** the keys of the current view at the bottom.
 
 Press `1` to `4` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
@@ -198,7 +198,7 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 
 The Sessions view is an overview of all sessions of the project. It only reads them: the other views keep showing the active session.
 
-**List (left).** One entry per session, oldest first, with its start date and time and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
+**List (left).** One entry per session, oldest first, with its start date and time and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
 
 **Details (right).** Pinned at the top:
 - the name
@@ -213,6 +213,13 @@ Below it:
 - **Prompts** with their time
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. Only files that changed are read again, and of those only the part that was appended.
+
+**Deleting.** Claude Code has no command to delete a session; cc-outline moves it to a trash of its own first.
+- `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
+- Moved are the transcript, the session's folder next to it (subagents, title), its file history for `/rewind` and its session environment. The shared prompt history (`history.jsonl`) and plan files in `~/.claude/plans/` stay.
+- The active session and sessions running in another Claude Code (per `~/.claude/sessions/`) can't be deleted.
+- `T` shows the trash of the project, most recently deleted first, with the details as before. There, `u` restores the selected session, `x` deletes it for good and `X` empties the trash, each after a confirmation. `T` or `Esc` returns to the list.
+- The trash lives in `~/.claude/cco/trash/<project-slug>/`. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
 ## Keys
 
@@ -230,10 +237,14 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
 | `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | – |
-| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | quit |
+| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | show tool calls / thinking | – | – | – |
 | `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
+| `d` / `Del` | – | – | – | move the session to the trash |
+| `u` | – | – | – | undo the last move; in the trash: restore |
+| `T` | – | – | – | show / leave the trash |
+| `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
 | `r` | – | refresh now | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
