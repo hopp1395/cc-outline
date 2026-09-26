@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
-const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes" };
+const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions" };
 
 export type Terminal = "tmux" | "wt";
 
@@ -19,12 +19,71 @@ export function detectTerminal(env: NodeJS.ProcessEnv = process.env): Terminal |
 }
 
 /**
+ * Variables Claude Code sets for its own child processes. The viewer inherits
+ * them from the Claude Code it was opened from; a Claude Code started with
+ * them thinks it is a child session and, among other things, does not save
+ * its transcript. Settings a user sets themselves (CLAUDE_CONFIG_DIR,
+ * CLAUDE_CODE_USE_BEDROCK, …) are not in this list and stay.
+ */
+const SESSION_BOUND_VARS = [
+  "CLAUDECODE",
+  "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+  "AI_AGENT",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_BRIDGE_SESSION_ID",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+];
+
+/** `env` without the variables that tie a process to the Claude Code session it was started from. */
+export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  // Windows environment names are case-insensitive, and Node keeps the original spelling.
+  for (const key of Object.keys(clean)) if (SESSION_BOUND_VARS.includes(key.toUpperCase())) delete clean[key];
+  return clean;
+}
+
+/**
+ * Continues a session with `claude --resume` in a new tab (Windows Terminal)
+ * or window (tmux), in the folder it ran in. The shell stays open after
+ * Claude Code exits. Returns what happened, for the help line.
+ * The new Claude Code must not inherit the variables of the Claude Code this
+ * viewer was opened from (see `independentEnv`).
+ */
+export function resumeInNewTab(sessionId: string, dir: string, title: string): string {
+  const terminal = detectTerminal();
+  if (terminal === "wt") {
+    // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the tab open afterwards.
+    const args = ["-w", "0", "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
+    // Windows Terminal starts the tab with the environment of the wt call.
+    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: true, env: independentEnv() }).unref();
+    return "started in a new Windows Terminal tab";
+  }
+  if (terminal === "tmux") {
+    const shell = process.env.SHELL || "sh";
+    // tmux takes the environment from its server, which may itself have been started inside Claude Code.
+    const cmd = `unset ${SESSION_BOUND_VARS.join(" ")}; claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
+    spawn("tmux", ["new-window", "-n", title, "-c", dir, cmd], { stdio: "ignore", detached: true }).unref();
+    return "started in a new tmux window";
+  }
+  return `no Windows Terminal or tmux: run claude --resume ${sessionId} in ${dir}`;
+}
+
+/**
  * Opens the viewer in a split pane next to the current terminal (Windows
  * Terminal or tmux). With `keepFocus` the cursor stays in the Claude Code pane.
+ * With `claudePid` the viewer belongs to that Claude Code process: an open
+ * viewer is reused only if it is that process's own.
  */
-export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean } = {}): string {
-  if (runningViewer(cwd) !== undefined) {
-    requestView(cwd, view);
+export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean; claudePid?: number } = {}): string {
+  const { claudePid } = opts;
+  if (runningViewer(cwd, claudePid) !== undefined) {
+    requestView(cwd, view, claudePid);
     return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
   }
 
@@ -32,6 +91,8 @@ export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean } 
   const viewer = [process.execPath, fileURLToPath(import.meta.url), "watch", "--cwd", cwd, "--view", view];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   if (opts.keepFocus) viewer.push("--unfocused");
+  // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
+  if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
   const terminal = detectTerminal();
   if (terminal === "tmux") {

@@ -4,7 +4,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
 
-export type Mode = "chat" | "git";
+export type Mode = "chat" | "git" | "plan" | "sessions";
 
 export interface Layout {
   columns: number;
@@ -91,6 +91,30 @@ export function handleNavigation(
   return true;
 }
 
+/**
+ * Marks (favourites) work the same in every list: Space marks or unmarks the
+ * selected entry, Shift+←/→ jump to the previous / next marked one.
+ */
+export function markKeys(input: string, key: Key): "toggle" | 1 | -1 | undefined {
+  if (input === " ") return "toggle";
+  if (key.shift && key.leftArrow) return -1;
+  if (key.shift && key.rightArrow) return 1;
+  return undefined;
+}
+
+/** Help-line items for marks: highlighted while the selected entry is marked. */
+export function markFooter(currentMarked: boolean, markedCount: number): FooterItem[] {
+  return [
+    { text: "␣ mark", on: currentMarked },
+    ...(markedCount > 0 ? [{ text: "⇧←→ marked", priority: 2 }] : []),
+  ];
+}
+
+/** The ★ that starts a marked entry in a list. */
+export function Star() {
+  return <Text color="yellow">★ </Text>;
+}
+
 /** The part of `text` between columns `start` and `start + width`. */
 export function sliceColumns(text: string, start: number, width: number): string {
   let col = 0;
@@ -106,13 +130,29 @@ export function sliceColumns(text: string, start: number, width: number): string
 const MARQUEE_STEP_MS = 100;
 /** Ticks to rest at either end before moving on. */
 const MARQUEE_PAUSE = 12;
+/** A marquee moves at most this many columns, then starts over; long prompts would take minutes otherwise. */
+export const MARQUEE_MAX_SCROLL = 250;
 
 /**
- * Text that fits `width` columns, scrolling back and forth when it is longer.
+ * Columns a marquee is shifted at `tick`: rest at the start, move one column
+ * per tick up to the end of the text but at most `MARQUEE_MAX_SCROLL`, rest,
+ * then start over.
+ */
+export function marqueeOffset(tick: number, overflow: number): number {
+  const distance = Math.min(overflow, MARQUEE_MAX_SCROLL);
+  if (distance <= 0) return 0;
+  const pos = tick % (distance + 2 * MARQUEE_PAUSE);
+  return Math.min(distance, Math.max(0, pos - MARQUEE_PAUSE));
+}
+
+/**
+ * Text that fits `width` columns on one line, scrolling when it is longer
+ * (see `marqueeOffset`). Line breaks and runs of spaces become one space.
  * Owns its timer so only this element re-renders while it moves.
  */
 export function Marquee({ text, width, active }: { text: string; width: number; active: boolean }) {
-  const overflow = Math.max(0, stringWidth(text) - width);
+  const line = text.replace(/\s+/g, " ").trim();
+  const overflow = Math.max(0, stringWidth(line) - width);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -120,13 +160,18 @@ export function Marquee({ text, width, active }: { text: string; width: number; 
     if (!active || overflow === 0) return;
     const timer = setInterval(() => setTick((n) => n + 1), MARQUEE_STEP_MS);
     return () => clearInterval(timer);
-  }, [text, width, active, overflow]);
+  }, [line, width, active, overflow]);
 
-  if (overflow === 0) return <>{text}</>;
-  // Pause, scroll to the end, pause, jump back to the start.
-  const pos = tick % (overflow + 2 * MARQUEE_PAUSE);
-  const offset = Math.min(overflow, Math.max(0, pos - MARQUEE_PAUSE));
-  return <>{sliceColumns(text, offset, width)}</>;
+  if (overflow === 0) return <>{line}</>;
+  return <>{sliceColumns(line, marqueeOffset(tick, overflow), width)}</>;
+}
+
+/**
+ * A list entry's text in `width` columns: the selected entry scrolls when it
+ * is too long (while the view is `active`), the others are cut with "…".
+ */
+export function EntryText({ text, width, selected, active }: { text: string; width: number; selected: boolean; active: boolean }) {
+  return selected ? <Marquee text={text} width={width} active={active} /> : <>{truncate(text, width)}</>;
 }
 
 export const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
@@ -213,6 +258,8 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       </Text>
       {tab("1", "Chat", "chat")}
       {tab("2", "Changes", "git")}
+      {tab("3", "Plan", "plan")}
+      {tab("4", "Sessions", "sessions")}
     </Text>
   );
 }
@@ -368,11 +415,14 @@ export function listWindow(count: number, selected: number, height: number): Lis
   return { from, to, above: from, below: count - to };
 }
 
-/** "▲ 7 more Home": how many entries are hidden and the key that jumps to the far end. */
-function MoreRow({ arrow, count, jumpKey }: { arrow: string; count: number; jumpKey: string }) {
+/**
+ * "▲ 7 more Home": how many entries (or, with `unit`, e.g. lines) are hidden
+ * and the key that jumps to the far end.
+ */
+export function MoreRow({ arrow, count, jumpKey, unit }: { arrow: string; count: number; jumpKey: string; unit?: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more  `}
+      {` ${arrow} ${count} more${unit ? ` ${unit}` : ""}  `}
       <Text color="yellow">{jumpKey}</Text>
     </Text>
   );
@@ -404,5 +454,40 @@ export function List<T>({ items, selected, height, empty, itemKey, render }: Lis
       })}
       {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="End" />}
     </>
+  );
+}
+
+/** Modal box centred over the view (info dialog, confirmations). `width` and `height` include the border. */
+export function Dialog({
+  layout,
+  width,
+  height,
+  borderColor = "cyan",
+  children,
+}: {
+  layout: Layout;
+  width: number;
+  height: number;
+  borderColor?: string;
+  children: ReactNode;
+}) {
+  const top = Math.max(0, Math.floor((layout.rows - height) / 2));
+  const left = Math.max(0, Math.floor((layout.columns - width) / 2));
+  return (
+    <Box
+      position="absolute"
+      top={top}
+      left={left}
+      width={width}
+      height={height}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={borderColor}
+      backgroundColor="#1b1f27"
+      paddingX={1}
+      overflow="hidden"
+    >
+      {children}
+    </Box>
   );
 }

@@ -14,12 +14,46 @@ export interface Turn {
   queued?: boolean;
 }
 
+/** "draft": being written in plan mode, not presented yet (see `PlanModeState`). */
+export type PlanStatus = "draft" | "pending" | "approved" | "rejected";
+
+/** A plan Claude presented in plan mode (the ExitPlanMode tool call). */
+export interface Plan {
+  /** The tool call id; the user's decision refers to it. */
+  id: string;
+  text: string;
+  timestamp?: string;
+  /** Prompt of the turn the plan was presented in. */
+  prompt?: string;
+  status: PlanStatus;
+  /** What the user said when rejecting the plan, if anything. */
+  feedback?: string;
+}
+
+/**
+ * Plan mode as the transcript shows it. Claude Code writes the ExitPlanMode
+ * call only once the user decided, but it names the plan file when plan mode
+ * starts; Claude writes the plan there first, so the file shows it earlier.
+ */
+export interface PlanModeState {
+  /** The plan file of this plan mode. */
+  file: string;
+  /** When plan mode started; an older file still holds a previous plan. */
+  since?: string;
+  /** Prompt of the turn plan mode started in. */
+  prompt?: string;
+}
+
 interface ContentBlock {
   type: string;
+  id?: string;
   text?: string;
   thinking?: string;
   name?: string;
   input?: unknown;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: unknown;
 }
 
 interface Entry {
@@ -29,7 +63,14 @@ interface Entry {
   isMeta?: boolean;
   isSidechain?: boolean;
   message?: { id?: string; content?: string | ContentBlock[] };
-  attachment?: { type?: string; prompt?: string; humanTurn?: boolean; origin?: { kind?: string } };
+  attachment?: {
+    type?: string;
+    prompt?: string | ContentBlock[];
+    humanTurn?: boolean;
+    origin?: { kind?: string };
+    planFilePath?: string;
+    isSubAgent?: boolean;
+  };
 }
 
 /**
@@ -40,7 +81,18 @@ function queuedPrompt(entry: Entry): string | undefined {
   const a = entry.attachment;
   if (entry.type !== "attachment" || entry.isSidechain || a?.type !== "queued_command") return undefined;
   if (!a.humanTurn && a.origin?.kind !== "human") return undefined;
-  const text = a.prompt?.trim();
+  // A string, or content blocks when the prompt had images pasted into it; only its text counts, as for prompts.
+  const prompt = a.prompt;
+  const text = (
+    typeof prompt === "string"
+      ? prompt
+      : Array.isArray(prompt)
+        ? prompt
+            .filter((b) => b.type === "text" && b.text)
+            .map((b) => b.text)
+            .join("\n")
+        : ""
+  ).trim();
   return text || undefined;
 }
 
@@ -80,9 +132,12 @@ export function promptText(entry: Entry): string | undefined {
  */
 export class TranscriptParser {
   readonly turns: Turn[] = [];
+  readonly plans: Plan[] = [];
+  /** Set while plan mode is on, from its start until it is left. */
+  planMode?: PlanModeState;
   private buffer = "";
 
-  /** Returns true when the turn list changed. */
+  /** Returns true when the turns or plans changed. */
   push(chunk: string): boolean {
     this.buffer += chunk;
     const lines = this.buffer.split("\n");
@@ -103,6 +158,7 @@ export class TranscriptParser {
 
   private add(entry: Entry): boolean {
     const prompt = promptText(entry);
+    if (prompt !== undefined && this.planMode && !this.planMode.prompt) this.planMode.prompt = prompt;
     if (prompt !== undefined) {
       this.turns.push({
         id: entry.uuid ?? String(this.turns.length),
@@ -111,6 +167,10 @@ export class TranscriptParser {
         blocks: [],
       });
       return true;
+    }
+    if (entry.type === "attachment" && !entry.isSidechain) {
+      const changed = this.trackPlanMode(entry);
+      if (changed) return true;
     }
     const queued = queuedPrompt(entry);
     if (queued !== undefined) {
@@ -124,6 +184,7 @@ export class TranscriptParser {
       });
       return true;
     }
+    if (entry.type === "user" && !entry.isSidechain) return this.decidePlans(entry);
     if (entry.type !== "assistant" || entry.isSidechain) return false;
     const content = entry.message?.content;
     if (!Array.isArray(content)) return false;
@@ -142,6 +203,16 @@ export class TranscriptParser {
         turn.blocks.push({ kind: "thinking", text: b.thinking });
       } else if (b.type === "tool_use") {
         turn.blocks.push({ kind: "tool", name: b.name ?? "tool", input: b.input });
+        const plan = (b.input as { plan?: unknown } | undefined)?.plan;
+        if (b.name === "ExitPlanMode" && typeof plan === "string" && plan.trim()) {
+          this.plans.push({
+            id: b.id ?? String(this.plans.length),
+            text: plan,
+            timestamp: entry.timestamp,
+            prompt: turn.id === "start" ? undefined : turn.prompt,
+            status: "pending",
+          });
+        }
       } else {
         continue;
       }
@@ -149,6 +220,51 @@ export class TranscriptParser {
     }
     return changed;
   }
+
+  /** Follows plan mode through its attachments: start (and re-entry) name the plan file, exit ends it. */
+  private trackPlanMode(entry: Entry): boolean {
+    const a = entry.attachment;
+    if (!a || a.isSubAgent) return false;
+    if (a.type === "plan_mode" && a.planFilePath) {
+      // Repeated reminders within the same plan mode keep its start.
+      if (this.planMode?.file === a.planFilePath) return false;
+      this.planMode = { file: a.planFilePath, since: entry.timestamp, prompt: this.turns.at(-1)?.prompt };
+      return true;
+    }
+    if (a.type === "plan_mode_exit" && this.planMode) {
+      this.planMode = undefined;
+      return true;
+    }
+    return false;
+  }
+
+  /** Applies the user's answer to presented plans: approved, or rejected with optional feedback. */
+  private decidePlans(entry: Entry): boolean {
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) return false;
+    let changed = false;
+    for (const b of content) {
+      if (b.type !== "tool_result") continue;
+      const plan = this.plans.find((p) => p.id === b.tool_use_id);
+      if (!plan) continue;
+      plan.status = b.is_error ? "rejected" : "approved";
+      if (b.is_error) plan.feedback = rejectionFeedback(resultText(b.content));
+      changed = true;
+    }
+    return changed;
+  }
+}
+
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("\n");
+  return "";
+}
+
+/** The user's words after "the user said:" in a rejected tool call, if they gave any. */
+function rejectionFeedback(text: string): string | undefined {
+  const said = /the user said:\s*([\s\S]*)$/i.exec(text)?.[1]?.trim();
+  return said || undefined;
 }
 
 /** Builds the Markdown document shown for a turn. */

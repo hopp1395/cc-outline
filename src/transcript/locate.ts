@@ -84,19 +84,55 @@ export function activeFile(cwd: string): string {
   return stateFile(cwd, "");
 }
 
-/** Registration of the running viewer (pid). */
-export function viewerFile(cwd: string): string {
-  return stateFile(cwd, ".viewer");
+/**
+ * Registration of the running viewer (pid). With `claudePid` the viewer
+ * belongs to that Claude Code process; without, to the project (older setup).
+ */
+export function viewerFile(cwd: string, claudePid?: number): string {
+  return stateFile(cwd, claudePid ? `.viewer-${claudePid}` : ".viewer");
 }
 
 /** Requests from `cco open` to a running viewer (e.g. switch view). */
-export function controlFile(cwd: string): string {
-  return stateFile(cwd, ".control");
+export function controlFile(cwd: string, claudePid?: number): string {
+  return stateFile(cwd, claudePid ? `.control-${claudePid}` : ".control");
+}
+
+/**
+ * The session of one Claude Code process, written by the hook. Unlike the
+ * project-wide active session, another Claude Code in the same project does
+ * not overwrite it, so a viewer follows the session of its own pane.
+ */
+export function claudeFile(cwd: string, claudePid: number): string {
+  return stateFile(cwd, `.claude-${claudePid}`);
+}
+
+/** State files of the project whose name continues with `prefix`, e.g. ".viewer-". */
+export function projectStateFiles(cwd: string, prefix: string): string[] {
+  const dir = join(claudeDir(), "cco");
+  const start = `${projectSlug(cwd)}${prefix}`;
+  try {
+    return readdirSync(dir)
+      .filter((n) => n.startsWith(start) && n.endsWith(".json"))
+      .map((n) => join(dir, n));
+  } catch {
+    return [];
+  }
+}
+
+/** The pid of the Claude Code process this one runs under; Claude Code passes it to its commands and hooks. */
+export function claudePidFromEnv(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const pid = Number(env.CLAUDE_PID);
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
 /** Whether the viewer was open when Claude Code last exited in this project. */
 export function restoreFile(cwd: string): string {
   return stateFile(cwd, ".restore");
+}
+
+/** Where each list was left: selection and scroll positions (`src/positions.ts`). */
+export function positionsFile(cwd: string): string {
+  return stateFile(cwd, ".positions");
 }
 
 /** Marked (favourite) turns per session. */

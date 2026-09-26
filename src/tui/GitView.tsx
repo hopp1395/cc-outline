@@ -17,17 +17,21 @@ import {
   bold,
   handleNavigation,
   List,
-  Marquee,
+  EntryText,
   previewHeader,
   rule,
   Screen,
-  truncate,
-  useScroll,
+  markFooter,
+  markKeys,
+  Star,
   wrapPath,
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
+import { useFavorites } from "./useFavorites.js";
+import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 
 interface Props {
@@ -131,7 +135,9 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const [root, setRoot] = useState<string | null>();
   const [files, setFiles] = useState<FileChange[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string>();
+  // Selection and each file's scroll position survive switching files and restarting the viewer.
+  const positions = usePositions(cwd, "git");
+  const [selectedPath, setSelectedPath] = useState<string | undefined>(positions.selected);
   const [diffText, setDiffText] = useState("");
   const [showFile, setShowFile] = useState(false);
   const [wrap, setWrap] = useSetting("wrap");
@@ -139,6 +145,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
   const [error, setError] = useState<string>();
+  // Marked files of the project, by path.
+  const favorites = useFavorites(cwd, "files");
   const [branch, setBranch] = useState<BranchStatus>();
   const showFileRef = useRef(showFile);
   showFileRef.current = showFile;
@@ -150,8 +158,10 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const selectedIndex = Math.max(0, files.findIndex((f) => f.path === selectedPath));
   const current = files[selectedIndex];
 
-  const currentRef = useRef(current);
-  currentRef.current = current;
+  // The refresh keeps the selected file, also the one restored before the list was read.
+  const selectedRef = useRef(selectedPath);
+  selectedRef.current = selectedPath;
+  useEffect(() => positions.select(selectedPath), [selectedPath]);
   const busy = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -161,7 +171,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       const [next, nextBranch] = await Promise.all([listChanges(root), branchStatus(root)]);
       setFiles((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       setBranch((prev) => (JSON.stringify(prev) === JSON.stringify(nextBranch) ? prev : nextBranch));
-      const file = next.find((f) => f.path === currentRef.current?.path) ?? next[0];
+      const file = next.find((f) => f.path === selectedRef.current) ?? next[0];
       setSelectedPath(file?.path);
       setDiffText(file ? await fileDiff(root, file) : "");
       if (file && showFileRef.current) {
@@ -225,7 +235,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       : renderDiff(parseDiff(diffText), current.path, previewWidth, wrap);
   }, [diffText, content, current?.path, previewWidth, showFile, wrap]);
   const viewport = bodyHeightBelow(header, bodyHeight);
-  const scroll = useScroll(rendered.lines.length, viewport);
+  // The diff and the whole file of a file each keep their own position.
+  const scroll = positions.scroll(current && (showFile ? `${current.path}#file` : current.path), rendered.lines.length, viewport);
 
   // How far unwrapped lines can be shifted until the longest one ends at the right edge.
   const maxHscroll = useMemo(
@@ -238,26 +249,39 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     const file = files[Math.max(0, Math.min(files.length - 1, index))];
     if (!file || file.path === current?.path) return;
     setSelectedPath(file.path);
-    scroll.set(0);
     setHscroll(0);
   };
   const toggleFile = (open: boolean) => {
     setShowFile(open);
     onFileOpen?.(open);
-    scroll.set(0);
     setHscroll(0);
+  };
+  /** Selects the next or previous marked file. */
+  const jumpMark = (dir: 1 | -1) => {
+    const target = nextMarked(
+      files.map((f) => f.path),
+      favorites.marks,
+      selectedIndex,
+      dir,
+    );
+    if (target !== undefined) select(target);
   };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
-    const target =
-      dir === 1 ? starts.find((s) => s > scroll.scroll) : [...starts].reverse().find((s) => s < scroll.scroll);
-    if (target !== undefined) scroll.set(target);
+    // Once scrolled, the first row is the "▲ more" indicator, so the first readable line is one further down.
+    const top = scroll.scroll > 0 ? scroll.scroll + 1 : 0;
+    const target = dir === 1 ? starts.find((s) => s > top) : [...starts].reverse().find((s) => s < top);
+    // Scroll one line less so the hunk header lands below the indicator.
+    if (target !== undefined) scroll.set(Math.max(0, target - 1));
   };
 
   useInput(
     (input, key) => {
-      // Shift+←/→ or Ctrl+←/→ scroll sideways; checked first because plain ←/→ switch files.
-      if ((key.shift || key.ctrl) && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      // Checked first because plain ←/→ switch files; Space marks instead of paging.
+      const mark = markKeys(input, key);
+      if (mark === "toggle") return current && favorites.toggle(current.path);
+      if (mark) return jumpMark(mark);
+      if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
         setWrap((w) => !w);
         return setHscroll(0);
@@ -279,6 +303,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     { isActive: active },
   );
 
+  const markedCount = files.filter((f) => favorites.isMarked(f.path)).length;
   const totals = files.reduce((acc, f) => [acc[0] + (f.added ?? 0), acc[1] + (f.removed ?? 0)], [0, 0]);
 
   let preview;
@@ -308,6 +333,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
           <BranchInfo status={branch} bold={focused} />
           {files.length} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
+          {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
         </Text>
       }
@@ -319,16 +345,14 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
           empty={root === undefined ? "Loading…" : "No changes"}
           itemKey={(f) => f.path}
           render={(f, isSelected) => {
+            const marked = favorites.isMarked(f.path);
             const counts = f.added !== undefined ? ` +${f.added} -${f.removed}` : "";
-            const nameWidth = Math.max(4, listWidth - 2 - counts.length);
+            const nameWidth = Math.max(4, listWidth - 2 - counts.length - (marked ? 2 : 0));
             return (
               <>
+                {marked && <Star />}
                 <Text color={STATUS_COLOR[f.status]}>{f.status} </Text>
-                {isSelected ? (
-                  <Marquee text={f.path} width={nameWidth} active={active} />
-                ) : (
-                  truncate(f.path, nameWidth)
-                )}
+                <EntryText text={f.path} width={nameWidth} selected={isSelected} active={active} />
                 <Text dimColor>{counts}</Text>
               </>
             );
@@ -339,12 +363,13 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       footer={[
         { text: "←→ file", priority: 4 },
         { text: "↑↓ scroll", priority: 1 },
-        ...(wrap ? [] : [{ text: "⇧←→ side", priority: 4 }]),
+        ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
         { text: "↵ file", on: showFile },
+        ...markFooter(favorites.isMarked(current?.path), markedCount),
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
         { text: "r refresh", priority: 2 },
-        { text: "1/2 view", priority: 1 },
+        { text: "1-4 view", priority: 1 },
       ]}
     />
   );

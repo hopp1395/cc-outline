@@ -1,12 +1,12 @@
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import { Box, Text } from "ink";
+import { Text } from "ink";
 import stringWidth from "string-width";
 import { detectTerminal } from "../open.js";
 import { settingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
-import type { Layout, Mode } from "./layout.js";
+import { Dialog, type Layout, type Mode } from "./layout.js";
 
 interface Props {
   layout: Layout;
@@ -18,41 +18,66 @@ interface Props {
   gitRoot?: string | null;
 }
 
+/** Keys all three lists share; each view lists them first. */
+const LIST_KEYS = (entry: string): [string, string][] => [
+  ["←→", `previous / next ${entry}`],
+  ["Home End g G", `first / last ${entry}`],
+  ["Space", `mark ${entry} ★`],
+  ["⇧←→", "previous / next marked"],
+  ["↑↓ PgUp PgDn", "scroll"],
+  ["^Home ^End", "top / bottom"],
+];
+
+const COMMON_KEYS: [string, string][] = [
+  ["1 2 3 4", "chat / changes / plan / sessions"],
+  ["i", "this info"],
+  ["q", "quit"],
+];
+
 /** Keys of each view, shown in two columns. */
 const KEYS: Record<Mode, [string, string][]> = {
   chat: [
-    ["←→", "previous / next turn"],
-    ["↑↓ PgUp PgDn", "scroll"],
-    ["^Home ^End", "top / bottom"],
-    ["Home End g G", "first / last turn"],
+    ...LIST_KEYS("turn"),
     ["↵", "full prompt"],
     ["ctrl+End", "jump to bottom"],
     ["f", "follow mode"],
-    ["Space", "mark turn ★"],
-    ["[ ]", "prev / next marked"],
     ["t h", "tools / thinking"],
     ["w", "wrap lines"],
-    ["⇧←→ ^←→", "scroll sideways"],
+    ["^←→", "scroll sideways"],
     ["c", "copy Markdown"],
-    ["1 2", "chat / changes"],
-    ["i", "this info"],
-    ["q", "quit"],
+    ...COMMON_KEYS,
   ],
   git: [
-    ["←→", "previous / next file"],
-    ["↑↓ PgUp PgDn", "scroll"],
-    ["^Home ^End", "top / bottom"],
-    ["Home End g G", "first / last file"],
+    ...LIST_KEYS("file"),
     ["↵", "whole file / diff"],
     ["[ ]", "previous / next hunk"],
     ["w", "wrap lines"],
-    ["⇧←→ ^←→", "scroll sideways"],
+    ["^←→", "scroll sideways"],
     ["r", "refresh"],
-    ["1 2", "chat / changes"],
-    ["i", "this info"],
-    ["q", "quit"],
+    ...COMMON_KEYS,
+  ],
+  plan: [
+    ...LIST_KEYS("plan"),
+    ["↵", "changes to previous"],
+    ["w", "wrap lines"],
+    ["^←→", "scroll sideways"],
+    ["c", "copy the plan"],
+    ...COMMON_KEYS,
+  ],
+  sessions: [
+    ...LIST_KEYS("session"),
+    ["↵", "start in a new tab"],
+    ["c", "copy resume command"],
+    ["d Del", "move to trash"],
+    ["u", "undo / restore"],
+    ["T", "trash on / off"],
+    ["a", "all projects / this one"],
+    ["x X", "delete / empty trash"],
+    ...COMMON_KEYS,
   ],
 };
+
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;
@@ -124,7 +149,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
     row("Terminal", `${terminalName()} · ${paneSwitchKey("left")} / ${paneSwitchKey("right")} switch panes`),
     row("Settings", tilde(settingsFile())),
     <Text key="gap2"> </Text>,
-    heading(`Keys · ${mode === "chat" ? "Chat" : "Changes"}`),
+    heading(`Keys · ${VIEW_TITLES[mode]}`),
     ...Array.from({ length: half }, (_, i) => (
       <Text key={`k${i}`} wrap="truncate">
         {keyCell(keys[i])}
@@ -135,25 +160,11 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
 
   // Title, author and blank line + content, plus the border.
   const height = Math.min(layout.rows - 2, lines.length + 5);
-  const top = Math.max(0, Math.floor((layout.rows - height) / 2));
-  const left = Math.max(0, Math.floor((layout.columns - width) / 2));
   const title = `cc-outline ${VERSION}`;
   const hint = "i / esc close";
 
   return (
-    <Box
-      position="absolute"
-      top={top}
-      left={left}
-      width={width}
-      height={height}
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      backgroundColor="#1b1f27"
-      paddingX={1}
-      overflow="hidden"
-    >
+    <Dialog layout={layout} width={width} height={height}>
       <Text wrap="truncate">
         <Text bold>{title}</Text>
         {" ".repeat(Math.max(1, inner - stringWidth(title) - stringWidth(hint)))}
@@ -164,6 +175,6 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
       </Text>
       <Text> </Text>
       {lines}
-    </Box>
+    </Dialog>
   );
 }

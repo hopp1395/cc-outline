@@ -1,27 +1,56 @@
 import { favoritesFile, readJson, writeJson } from "./transcript/locate.js";
 
 /**
- * Marked turn ids of a project. Turn ids are the prompts' uuids, which Claude
- * Code keeps when a session is continued or resumed under a new session id,
- * so marks are stored per project rather than per session.
+ * What can be marked, per list: chat turns (prompt uuids), changed files
+ * (paths), plans (tool call ids) and sessions (session ids). Turn ids survive `--continue`/`/resume`,
+ * which copy the turns into a new session, so marks are kept per project.
  */
-interface Stored {
-  turns: string[];
-}
+export type FavoriteKind = "turns" | "files" | "plans" | "sessions";
 
-/** Reads the stored ids; the first format kept one list per session id and is merged. */
-export function readFavorites(cwd: string): string[] {
+type Stored = Partial<Record<FavoriteKind, string[]>>;
+
+const KINDS: FavoriteKind[] = ["turns", "files", "plans", "sessions"];
+
+const strings = (list: unknown): string[] => (Array.isArray(list) ? list.filter((id) => typeof id === "string") : []);
+
+function readAll(cwd: string): Record<FavoriteKind, string[]> {
   const stored = readJson<unknown>(favoritesFile(cwd));
-  if (!stored || typeof stored !== "object") return [];
-  const lists = Array.isArray((stored as Stored).turns) ? [(stored as Stored).turns] : Object.values(stored);
-  const ids = lists.flatMap((list) => (Array.isArray(list) ? list : [])).filter((id) => typeof id === "string");
-  return [...new Set(ids)];
+  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [], sessions: [] };
+  if (!stored || typeof stored !== "object") return all;
+  const record = stored as Record<string, unknown>;
+  if (KINDS.some((kind) => kind in record)) {
+    for (const kind of KINDS) all[kind] = [...new Set(strings(record[kind]))];
+  } else {
+    // The first format kept one list of turn ids per session id.
+    all.turns = [...new Set(Object.values(record).flatMap(strings))];
+  }
+  return all;
 }
 
-/** Marks or unmarks a turn and returns the marked ids. Re-reads first so other viewers' marks survive. */
-export function toggleFavorite(cwd: string, turnId: string): string[] {
-  const ids = readFavorites(cwd);
-  const next = ids.includes(turnId) ? ids.filter((id) => id !== turnId) : [...ids, turnId];
-  writeJson(favoritesFile(cwd), { turns: next } satisfies Stored);
-  return next;
+/** Marked ids of one list. */
+export function readFavorites(cwd: string, kind: FavoriteKind): string[] {
+  return readAll(cwd)[kind];
+}
+
+/** Marks or unmarks an entry and returns the list's marked ids. Re-reads first so other viewers' marks survive. */
+export function toggleFavorite(cwd: string, kind: FavoriteKind, id: string): string[] {
+  const all = readAll(cwd);
+  const ids = all[kind];
+  all[kind] = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+  writeJson(favoritesFile(cwd), all satisfies Stored);
+  return all[kind];
+}
+
+/** Removes a mark, e.g. of a session deleted for good. */
+export function removeFavorite(cwd: string, kind: FavoriteKind, id: string): void {
+  const all = readAll(cwd);
+  if (!all[kind].includes(id)) return;
+  all[kind] = all[kind].filter((x) => x !== id);
+  writeJson(favoritesFile(cwd), all satisfies Stored);
+}
+
+/** Index of the next (dir 1) or previous (dir -1) marked entry after `from`, if any. */
+export function nextMarked(ids: string[], marks: string[], from: number, dir: 1 | -1): number | undefined {
+  for (let i = from + dir; i >= 0 && i < ids.length; i += dir) if (marks.includes(ids[i])) return i;
+  return undefined;
 }

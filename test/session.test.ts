@@ -4,18 +4,43 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleHook } from "../src/hook.js";
 import { detectTerminal } from "../src/open.js";
-import { findLatestTranscript, projectDir, readActive, viewerFile, writeJson } from "../src/transcript/locate.js";
-import { readControl, registerViewer, requestView, runningViewer, setViewerView, unregisterViewer } from "../src/viewer.js";
+import {
+  claudeFile,
+  claudePidFromEnv,
+  findLatestTranscript,
+  projectDir,
+  readActive,
+  readJson,
+  viewerFile,
+  writeJson,
+  type ActiveSession,
+} from "../src/transcript/locate.js";
+import {
+  anyRunningViewer,
+  readControl,
+  readRestore,
+  registerViewer,
+  requestView,
+  runningViewer,
+  setViewerView,
+  unregisterViewer,
+} from "../src/viewer.js";
 
 const cwd = join(tmpdir(), "cco-project");
 let saved: string | undefined;
+let savedPid: string | undefined;
 
 beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
+  savedPid = process.env.CLAUDE_PID;
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-config-"));
+  // The tests may run under Claude Code, which sets it; each test decides.
+  delete process.env.CLAUDE_PID;
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
+  if (savedPid === undefined) delete process.env.CLAUDE_PID;
+  else process.env.CLAUDE_PID = savedPid;
 });
 
 const hook = (event: string, session: string, reason?: string) =>
@@ -45,6 +70,86 @@ describe("handleHook", () => {
     hook("SessionEnd", "a", "other");
     hook("SessionStart", "a");
     expect(readActive(cwd)?.ended).toBeUndefined();
+  });
+});
+
+describe("sessions per Claude Code process", () => {
+  // Two Claude Code processes in the same project; ours is process.pid so it counts as alive.
+  const mine = process.pid;
+  const other = process.ppid;
+  const hookOf = (pid: number, event: string, session: string, extra: { reason?: string; source?: string } = {}) =>
+    handleHook(
+      { hook_event_name: event, session_id: session, transcript_path: `/t/${session}.jsonl`, cwd, ...extra },
+      (() => "") as never,
+      pid,
+    );
+  const own = (pid: number) => readJson<ActiveSession>(claudeFile(cwd, pid));
+
+  it("keeps each process's session apart from the project's active one", () => {
+    hookOf(mine, "SessionStart", "a");
+    hookOf(other, "SessionStart", "b");
+    expect(readActive(cwd)?.session_id).toBe("b");
+    expect(own(mine)?.session_id).toBe("a");
+    expect(own(other)?.session_id).toBe("b");
+  });
+
+  it("ending the other session does not end ours", () => {
+    hookOf(mine, "SessionStart", "a");
+    hookOf(other, "SessionStart", "b", { source: "resume" });
+    hookOf(other, "SessionEnd", "b", { reason: "prompt_input_exit" });
+    expect(own(other)?.ended).toBe(true);
+    expect(own(mine)?.ended).toBeUndefined();
+  });
+
+  it("follows /clear within the same process", () => {
+    hookOf(mine, "SessionStart", "a");
+    hookOf(mine, "SessionEnd", "a", { reason: "clear" });
+    hookOf(mine, "SessionStart", "c", { source: "clear" });
+    expect(own(mine)).toMatchObject({ session_id: "c" });
+    expect(own(mine)?.ended).toBeUndefined();
+  });
+
+  it("registers viewers and view requests per process", () => {
+    registerViewer(cwd, "plan", mine);
+    expect(runningViewer(cwd, mine)?.view).toBe("plan");
+    expect(runningViewer(cwd, other)).toBeUndefined();
+    expect(runningViewer(cwd)).toBeUndefined();
+    expect(anyRunningViewer(cwd)).toBe(true);
+    requestView(cwd, "git", mine);
+    expect(readControl(cwd, mine)?.view).toBe("git");
+    expect(readControl(cwd, other)).toBeUndefined();
+  });
+
+  it("a session without its own viewer leaves the restore state alone while another viewer runs", () => {
+    registerViewer(cwd, "sessions", mine);
+    hookOf(mine, "SessionStart", "a");
+    hookOf(mine, "SessionEnd", "a", { reason: "other" });
+    expect(readRestore(cwd)).toEqual({ open: true, view: "sessions" });
+    hookOf(other, "SessionStart", "b", { source: "resume" });
+    hookOf(other, "SessionEnd", "b", { reason: "other" });
+    expect(readRestore(cwd)).toEqual({ open: true, view: "sessions" });
+  });
+
+  it("does not open a viewer for a second session while one runs in the project", () => {
+    const opened: string[] = [];
+    registerViewer(cwd, "chat", mine);
+    handleHook(
+      { hook_event_name: "SessionEnd", session_id: "a", transcript_path: "/t/a.jsonl", cwd, reason: "other" },
+      (() => "") as never,
+      mine,
+    );
+    handleHook(
+      { hook_event_name: "SessionStart", session_id: "b", transcript_path: "/t/b.jsonl", cwd, source: "resume" },
+      ((_c: string, view: string) => (opened.push(view), "")) as never,
+      other,
+    );
+    expect(opened).toEqual([]);
+  });
+
+  it("reads the Claude Code pid from the environment", () => {
+    expect(claudePidFromEnv({ CLAUDE_PID: "28244" })).toBe(28244);
+    expect(claudePidFromEnv({ CLAUDE_PID: "" })).toBeUndefined();
+    expect(claudePidFromEnv({})).toBeUndefined();
   });
 });
 
