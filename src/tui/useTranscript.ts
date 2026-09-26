@@ -2,20 +2,26 @@ import { existsSync } from "node:fs";
 import { useEffect, useState } from "react";
 import {
   activeFile,
+  claudeFile,
   findLatestTranscript,
   readActive,
+  readJson,
   transcriptForSession,
+  type ActiveSession,
 } from "../transcript/locate.js";
 import { TranscriptParser, type Plan, type Turn } from "../transcript/parse.js";
 import { FileTail, watchFile } from "../transcript/tail.js";
 
 /**
- * Resolves which transcript to show. A fixed session wins; otherwise the hook's
+ * Resolves which transcript to show. A fixed session wins; then the session of
+ * the viewer's own Claude Code process (`claudePid`); otherwise the hook's
  * active-session file, falling back to the newest transcript of the project.
  */
-export function useSessionPath(cwd: string, sessionId?: string): string | undefined {
+export function useSessionPath(cwd: string, sessionId?: string, claudePid?: number): string | undefined {
   const resolve = () => {
     if (sessionId) return transcriptForSession(cwd, sessionId);
+    const own = claudePid ? readJson<ActiveSession>(claudeFile(cwd, claudePid)) : undefined;
+    if (own) return own.transcript_path;
     // A new session's transcript is only created with its first message; follow
     // the path anyway so the view switches instead of lingering on the old session.
     const active = readActive(cwd);
@@ -27,7 +33,7 @@ export function useSessionPath(cwd: string, sessionId?: string): string | undefi
   useEffect(() => {
     if (sessionId) return;
     const update = () => setPath((prev) => resolve() ?? prev);
-    const watcher = watchFile(activeFile(cwd), update);
+    const watcher = watchFile(claudePid ? claudeFile(cwd, claudePid) : activeFile(cwd), update);
     // Without the hook installed, pick up new sessions (e.g. after /clear) by polling.
     const timer = setInterval(() => {
       if (!existsSync(activeFile(cwd))) update();
@@ -36,7 +42,7 @@ export function useSessionPath(cwd: string, sessionId?: string): string | undefi
       clearInterval(timer);
       void watcher.close();
     };
-  }, [cwd, sessionId]);
+  }, [cwd, sessionId, claudePid]);
 
   return path;
 }

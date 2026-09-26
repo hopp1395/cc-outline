@@ -43,10 +43,13 @@ export function resumeInNewTab(sessionId: string, dir: string, title: string): s
 /**
  * Opens the viewer in a split pane next to the current terminal (Windows
  * Terminal or tmux). With `keepFocus` the cursor stays in the Claude Code pane.
+ * With `claudePid` the viewer belongs to that Claude Code process: an open
+ * viewer is reused only if it is that process's own.
  */
-export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean } = {}): string {
-  if (runningViewer(cwd) !== undefined) {
-    requestView(cwd, view);
+export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean; claudePid?: number } = {}): string {
+  const { claudePid } = opts;
+  if (runningViewer(cwd, claudePid) !== undefined) {
+    requestView(cwd, view, claudePid);
     return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
   }
 
@@ -54,6 +57,8 @@ export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean } 
   const viewer = [process.execPath, fileURLToPath(import.meta.url), "watch", "--cwd", cwd, "--view", view];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   if (opts.keepFocus) viewer.push("--unfocused");
+  // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
+  if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
   const terminal = detectTerminal();
   if (terminal === "tmux") {

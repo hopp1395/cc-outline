@@ -5,6 +5,7 @@ import { runHook } from "./hook.js";
 import { openPane } from "./open.js";
 import { App } from "./tui/App.js";
 import type { Mode } from "./tui/layout.js";
+import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
 import { registerViewer, unregisterViewer } from "./viewer.js";
 
@@ -23,16 +24,19 @@ program
   .option("--session <id>", "show this session instead of the active one")
   .addOption(viewOption())
   .addOption(new Option("--unfocused", "the pane opens without the keyboard focus").hideHelp())
-  .action(async (opts: { cwd: string; session?: string; view: Mode; unfocused?: boolean }) => {
-    registerViewer(opts.cwd, opts.view);
+  .addOption(new Option("--claude-pid <pid>", "follow the session of this Claude Code process").argParser(Number).hideHelp())
+  .action(async (opts: { cwd: string; session?: string; view: Mode; unfocused?: boolean; claudePid?: number }) => {
+    const claudePid = opts.claudePid && Number.isInteger(opts.claudePid) ? opts.claudePid : undefined;
+    registerViewer(opts.cwd, opts.view, claudePid);
     // Also covers exits that bypass Ink, e.g. the pane being closed.
-    process.on("exit", () => unregisterViewer(opts.cwd));
+    process.on("exit", () => unregisterViewer(opts.cwd, claudePid));
     const app = render(
       createElement(App, {
         cwd: opts.cwd,
         sessionId: opts.session,
         initialMode: opts.view,
         unfocused: opts.unfocused,
+        claudePid,
       }),
       { alternateScreen: true, exitOnCtrlC: true },
     );
@@ -51,7 +55,7 @@ program
   .option("--cwd <dir>", "project directory", process.cwd())
   .addOption(viewOption())
   .action((opts: { cwd: string; view: Mode }) => {
-    console.log(openPane(opts.cwd, opts.view));
+    console.log(openPane(opts.cwd, opts.view, { claudePid: claudePidFromEnv() }));
   });
 
 await program.parseAsync();

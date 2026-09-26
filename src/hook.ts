@@ -1,6 +1,17 @@
+import { rmSync } from "node:fs";
+import { basename } from "node:path";
 import { openPane } from "./open.js";
-import { readActive, writeActive } from "./transcript/locate.js";
-import { readRestore, runningViewer, saveRestore } from "./viewer.js";
+import {
+  claudeFile,
+  claudePidFromEnv,
+  projectStateFiles,
+  readActive,
+  readJson,
+  writeActive,
+  writeJson,
+  type ActiveSession,
+} from "./transcript/locate.js";
+import { anyRunningViewer, isAlive, readRestore, runningViewer, saveRestore } from "./viewer.js";
 
 export interface HookInput {
   hook_event_name?: string;
@@ -19,12 +30,23 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** Removes per-process state files of Claude Code processes and viewers that are gone. */
+function removeStaleFiles(cwd: string): void {
+  for (const prefix of [".claude-", ".viewer-", ".control-"]) {
+    for (const file of projectStateFiles(cwd, prefix)) {
+      const pid = Number(basename(file, ".json").split(prefix).at(-1));
+      if (Number.isInteger(pid) && pid > 0 && !isAlive(pid)) rmSync(file, { force: true });
+    }
+  }
+}
+
 /**
- * Records which session is active in a project so a running viewer can follow
- * it, and marks it ended when Claude Code exits so the viewer closes itself.
- * Whether the viewer was open at exit is remembered and restored on the next start.
+ * Records which session is active, per Claude Code process (`claudePid`) and
+ * for the project, so a running viewer can follow it, and marks it ended when
+ * Claude Code exits so the viewer closes itself. Whether the viewer was open
+ * at exit is remembered and restored on the next start.
  */
-export function handleHook(input: HookInput, open = openPane): void {
+export function handleHook(input: HookInput, open = openPane, claudePid = claudePidFromEnv()): void {
   if (!input.session_id || !input.transcript_path || !input.cwd) return;
   const cwd = input.cwd;
   const updated = new Date().toISOString();
@@ -33,21 +55,30 @@ export function handleHook(input: HookInput, open = openPane): void {
     // /clear ends the session but a new one starts right away in the same terminal.
     if (input.reason === "clear") return;
     const active = readActive(cwd);
-    // Another session of the project may have taken over; leave its state alone.
-    if (active?.session_id !== input.session_id) return;
-    // Checked before marking the session ended: the viewer closes itself afterwards.
-    const viewer = runningViewer(cwd);
-    saveRestore(cwd, { open: viewer !== undefined, view: viewer?.view ?? "chat" });
-    writeActive({ ...active, ended: true, updated });
+    const ownActive = active?.session_id === input.session_id;
+    const own = claudePid ? readJson<ActiveSession>(claudeFile(cwd, claudePid)) : undefined;
+    // Without the process known, the project's active session is the only state; another session may own it.
+    if (claudePid !== undefined || ownActive) {
+      // Checked before marking the session ended: the viewer closes itself afterwards.
+      const viewer = runningViewer(cwd, claudePid);
+      // A session without a viewer of its own leaves the remembered state alone while another session's viewer runs.
+      if (viewer || !anyRunningViewer(cwd)) saveRestore(cwd, { open: viewer !== undefined, view: viewer?.view ?? "chat" });
+    }
+    if (claudePid && own?.session_id === input.session_id) writeJson(claudeFile(cwd, claudePid), { ...own, ended: true, updated });
+    if (ownActive) writeActive({ ...active, ended: true, updated });
     return;
   }
 
-  writeActive({ session_id: input.session_id, transcript_path: input.transcript_path, cwd, updated });
+  const session: ActiveSession = { session_id: input.session_id, transcript_path: input.transcript_path, cwd, updated };
+  writeActive(session);
+  if (claudePid) writeJson(claudeFile(cwd, claudePid), session);
 
   // A fresh Claude Code process (not /clear or compaction): reopen the viewer if it was open at exit.
   if (input.hook_event_name === "SessionStart" && (input.source === "startup" || input.source === "resume")) {
+    removeStaleFiles(cwd);
     const restore = readRestore(cwd);
-    if (restore?.open && runningViewer(cwd) === undefined) open(cwd, restore.view, { keepFocus: true });
+    // Only when no viewer runs in the project, e.g. not for a session started from the Sessions view next to one.
+    if (restore?.open && !anyRunningViewer(cwd)) open(cwd, restore.view, { keepFocus: true, claudePid });
   }
 }
 

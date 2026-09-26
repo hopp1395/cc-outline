@@ -18,15 +18,17 @@ interface Props {
   initialMode?: Mode;
   /** The pane was opened without taking the focus (focus stayed in Claude Code). */
   unfocused?: boolean;
+  /** The Claude Code process the viewer belongs to; its session is shown. */
+  claudePid?: number;
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions" };
 
-export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }: Props) {
+export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, claudePid }: Props) {
   const { exit } = useApp();
   const layout = useLayout();
   const focused = useTerminalFocus(!unfocused);
-  const path = useSessionPath(cwd, sessionId);
+  const path = useSessionPath(cwd, sessionId, claudePid);
   // Parsed once for the chat and the plan view.
   const transcript = useTranscript(path);
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -43,10 +45,10 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
   });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
-  useViewerControl({ cwd, followActive: !sessionId, onView: setMode, onSessionEnd: exit });
+  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: setMode, onSessionEnd: exit });
 
   // Remember the shown view so the viewer reopens with it after a restart.
-  useEffect(() => setViewerView(cwd, mode), [cwd, mode]);
+  useEffect(() => setViewerView(cwd, mode, claudePid), [cwd, mode, claudePid]);
 
   useEffect(() => {
     repoRoot(cwd).then((r) => setGitRoot(r ?? null));

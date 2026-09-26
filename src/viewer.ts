@@ -1,6 +1,6 @@
 import { rmSync } from "node:fs";
 import type { Mode } from "./tui/layout.js";
-import { controlFile, readJson, restoreFile, viewerFile, writeJson } from "./transcript/locate.js";
+import { controlFile, projectStateFiles, readJson, restoreFile, viewerFile, writeJson } from "./transcript/locate.js";
 
 export interface ViewerInfo {
   pid: number;
@@ -30,31 +30,43 @@ export function isAlive(pid: number): boolean {
   }
 }
 
-export function registerViewer(cwd: string, view: Mode): void {
-  writeJson(viewerFile(cwd), { pid: process.pid, view } satisfies ViewerInfo);
+export function registerViewer(cwd: string, view: Mode, claudePid?: number): void {
+  writeJson(viewerFile(cwd, claudePid), { pid: process.pid, view } satisfies ViewerInfo);
 }
 
 /** Records the view the running viewer shows; ignored if another viewer took over. */
-export function setViewerView(cwd: string, view: Mode): void {
-  if (readJson<ViewerInfo>(viewerFile(cwd))?.pid === process.pid) registerViewer(cwd, view);
+export function setViewerView(cwd: string, view: Mode, claudePid?: number): void {
+  if (readJson<ViewerInfo>(viewerFile(cwd, claudePid))?.pid === process.pid) registerViewer(cwd, view, claudePid);
 }
 
-export function unregisterViewer(cwd: string): void {
-  if (readJson<ViewerInfo>(viewerFile(cwd))?.pid === process.pid) rmSync(viewerFile(cwd), { force: true });
+export function unregisterViewer(cwd: string, claudePid?: number): void {
+  const file = viewerFile(cwd, claudePid);
+  if (readJson<ViewerInfo>(file)?.pid === process.pid) rmSync(file, { force: true });
 }
 
-/** The viewer running for the project, ignoring registrations of dead processes. */
-export function runningViewer(cwd: string): ViewerInfo | undefined {
-  const info = readJson<ViewerInfo>(viewerFile(cwd));
+/**
+ * The viewer running for the Claude Code process `claudePid` (or, without it,
+ * for the project), ignoring registrations of dead processes.
+ */
+export function runningViewer(cwd: string, claudePid?: number): ViewerInfo | undefined {
+  const info = readJson<ViewerInfo>(viewerFile(cwd, claudePid));
   return info && isAlive(info.pid) ? info : undefined;
 }
 
-export function requestView(cwd: string, view: Mode): void {
-  writeJson(controlFile(cwd), { view, at: Date.now() } satisfies ControlRequest);
+/** Whether any viewer runs for the project, whichever Claude Code process it belongs to. */
+export function anyRunningViewer(cwd: string): boolean {
+  return [viewerFile(cwd), ...projectStateFiles(cwd, ".viewer-")].some((file) => {
+    const info = readJson<ViewerInfo>(file);
+    return info !== undefined && isAlive(info.pid);
+  });
 }
 
-export function readControl(cwd: string): ControlRequest | undefined {
-  return readJson<ControlRequest>(controlFile(cwd));
+export function requestView(cwd: string, view: Mode, claudePid?: number): void {
+  writeJson(controlFile(cwd, claudePid), { view, at: Date.now() } satisfies ControlRequest);
+}
+
+export function readControl(cwd: string, claudePid?: number): ControlRequest | undefined {
+  return readJson<ControlRequest>(controlFile(cwd, claudePid));
 }
 
 export function saveRestore(cwd: string, state: RestoreState): void {
