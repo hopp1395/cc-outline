@@ -1,6 +1,6 @@
 {
   "name": "cc-outline",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "author": "Jan Hoppe",
   "description": "Rendered Markdown preview of Claude Code sessions and a git changes view with syntax highlighting, in a terminal split pane",
   "keywords": [
