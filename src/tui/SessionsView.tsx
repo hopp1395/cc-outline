@@ -1,5 +1,6 @@
 import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -15,6 +16,7 @@ import {
   trashSession,
   type TrashEntry,
 } from "../transcript/trash.js";
+import { resumeInNewTab } from "../open.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import type { PlanStatus } from "../transcript/parse.js";
 import { useFocused } from "./focus.js";
@@ -265,6 +267,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     scroll.set(0);
   };
 
+  /** Enter: continues the session in a new terminal tab, unless it already runs somewhere. */
+  const start = (s: SessionSummary) => {
+    const state = stateOf(s);
+    if (state === "active") return notify("this is the active session");
+    if (runningSessionIds().has(s.id)) return notify("the session is already running in another Claude Code");
+    const dir = s.cwd ?? cwd;
+    if (!existsSync(dir)) return notify(`folder not found: ${tilde(dir)}`);
+    notify(resumeInNewTab(s.id, dir, truncate(sessionTitle(s), 30)));
+    // Show it as running as soon as Claude Code registers it.
+    setTimeout(refresh, 3000);
+  };
+
   const askDelete = (s: SessionSummary) => {
     const blocker = deleteBlocker(s.id, activeId, runningSessionIds());
     if (blocker) return notify(blocker);
@@ -344,6 +358,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           const id = lastTrashed;
           return restore(id, () => setSelectedId(id));
         }
+        if (key.return && session) return start(session);
         if (input === "c" && session) {
           const command = resumeCommand(session);
           return void clipboard.write(command).then(
@@ -382,6 +397,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "←→ session", priority: 4 },
         { text: "↑↓ scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
+        { text: "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),

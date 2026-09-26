@@ -66,6 +66,7 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   sessions: [
     ...LIST_KEYS("session"),
+    ["↵", "start in a new tab"],
     ["c", "copy resume command"],
     ["d Del", "move to trash"],
     ["u", "undo / restore"],

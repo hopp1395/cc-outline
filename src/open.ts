@@ -19,6 +19,28 @@ export function detectTerminal(env: NodeJS.ProcessEnv = process.env): Terminal |
 }
 
 /**
+ * Continues a session with `claude --resume` in a new tab (Windows Terminal)
+ * or window (tmux), in the folder it ran in. The shell stays open after
+ * Claude Code exits. Returns what happened, for the help line.
+ */
+export function resumeInNewTab(sessionId: string, dir: string, title: string): string {
+  const terminal = detectTerminal();
+  if (terminal === "wt") {
+    // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the tab open afterwards.
+    const args = ["-w", "0", "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
+    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
+    return "started in a new Windows Terminal tab";
+  }
+  if (terminal === "tmux") {
+    const shell = process.env.SHELL || "sh";
+    const cmd = `claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
+    spawn("tmux", ["new-window", "-n", title, "-c", dir, cmd], { stdio: "ignore", detached: true }).unref();
+    return "started in a new tmux window";
+  }
+  return `no Windows Terminal or tmux: run claude --resume ${sessionId} in ${dir}`;
+}
+
+/**
  * Opens the viewer in a split pane next to the current terminal (Windows
  * Terminal or tmux). With `keepFocus` the cursor stays in the Claude Code pane.
  */

@@ -214,6 +214,8 @@ Below it:
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. Only files that changed are read again, and of those only the part that was appended.
 
+**Starting.** `Enter` continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session and sessions already running in another Claude Code are not started a second time. In other terminals the help line names the command to run instead.
+
 **Deleting.** Claude Code has no command to delete a session; cc-outline moves it to a trash of its own first.
 - `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
 - Moved are the transcript, the session's folder next to it (subagents, title), its file history for `/rewind` and its session environment. The shared prompt history (`history.jsonl`) and plan files in `~/.claude/plans/` stay.
@@ -237,7 +239,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `PgUp` / `PgDn`, `b` | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) |
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
-| `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | – |
+| `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | start the session in a new tab |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | show tool calls / thinking | – | – | – |
