@@ -267,16 +267,27 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     scroll.set(0);
   };
 
-  /** Enter: continues the session in a new terminal tab, unless it already runs somewhere. */
+  /** Enter: after a confirmation, continues the session in a new terminal tab, unless it already runs somewhere. */
   const start = (s: SessionSummary) => {
     const state = stateOf(s);
     if (state === "active") return notify("this is the active session");
     if (runningSessionIds().has(s.id)) return notify("the session is already running in another Claude Code");
     const dir = s.cwd ?? cwd;
     if (!existsSync(dir)) return notify(`folder not found: ${tilde(dir)}`);
-    notify(resumeInNewTab(s.id, dir, truncate(sessionTitle(s), 30)));
-    // Show it as running as soon as Claude Code registers it.
-    setTimeout(refresh, 3000);
+    setConfirmation({
+      title: "Continue this session in a new tab?",
+      lines: [
+        truncate(sessionTitle(s), 56),
+        `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
+        truncate(`in ${tilde(dir)}`, 56),
+      ],
+      action: "start",
+      onConfirm: () => {
+        notify(resumeInNewTab(s.id, dir, truncate(sessionTitle(s), 30)));
+        // Show it as running as soon as Claude Code registers it.
+        setTimeout(refresh, 3000);
+      },
+    });
   };
 
   const askDelete = (s: SessionSummary) => {

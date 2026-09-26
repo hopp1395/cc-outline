@@ -214,7 +214,7 @@ Below it:
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. Only files that changed are read again, and of those only the part that was appended.
 
-**Starting.** `Enter` continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session and sessions already running in another Claude Code are not started a second time. In other terminals the help line names the command to run instead.
+**Starting.** `Enter` asks for a confirmation (`Enter` starts, `Esc` cancels) and then continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session and sessions already running in another Claude Code are not started a second time. In other terminals the help line names the command to run instead.
 
 **Deleting.** Claude Code has no command to delete a session; cc-outline moves it to a trash of its own first.
 - `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
