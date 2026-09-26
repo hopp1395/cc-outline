@@ -86,13 +86,14 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
   const [hscroll, setHscroll] = useState(0);
   const [flash, setFlash] = useState<string>();
   const [promptOpen, setPromptOpen] = useState(false);
-  const sessionId = path ? basename(path, ".jsonl") : undefined;
-  // Marked (favourite) turns, kept across restarts.
-  const [marks, setMarks] = useState<string[]>([]);
+  // Marked (favourite) turns of the project; they carry over into continued sessions.
+  const [marks, setMarks] = useState<string[]>(() => readFavorites(cwd));
 
   useEffect(() => {
-    setMarks(sessionId ? readFavorites(cwd, sessionId) : []);
-  }, [cwd, sessionId]);
+    setMarks(readFavorites(cwd));
+  }, [cwd, path]);
+
+  const markedCount = turns.filter((t) => marks.includes(t.id)).length;
 
   const last = turns.length - 1;
   const current = turns[Math.min(selected, Math.max(0, last))];
@@ -182,7 +183,7 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
     setTimeout(() => setFlash(undefined), 2000);
   };
   const toggleMark = () => {
-    if (current && sessionId) setMarks(toggleFavorite(cwd, sessionId, current.id));
+    if (current) setMarks(toggleFavorite(cwd, current.id));
   };
   /** Selects the next or previous marked turn. */
   const jumpMark = (dir: 1 | -1) => {
@@ -252,7 +253,7 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
             session {session} · {turns.length} turns · {scroll.position}
           </Text>
           {follow && <Text color="green"> · FOLLOW</Text>}
-          {marks.length > 0 && <Text color="yellow"> · ★ {marks.length}</Text>}
+          {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {showTools && <Text color="yellow"> · tools</Text>}
           {showThinking && <Text color="magenta"> · thinking</Text>}
           {!wrap && (
@@ -304,7 +305,7 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
           { text: "␣ mark", on: current !== undefined && marks.includes(current.id) },
-          ...(marks.length > 0 ? [{ text: "[/] marked", priority: 2 }] : []),
+          ...(markedCount > 0 ? [{ text: "[/] marked", priority: 2 }] : []),
           { text: "t tools", on: showTools, priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
