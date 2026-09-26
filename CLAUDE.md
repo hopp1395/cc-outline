@@ -16,10 +16,11 @@ npm test             # vitest run
 npx vitest run test/git.test.ts            # one file
 npx vitest run -t "breaks after slashes"   # one test by name
 npm link             # expose `cco` globally; it runs dist/, so rebuild after changes
-claude --plugin-dir ./plugin               # load the plugin (hooks + commands) into Claude Code
+claude --plugin-dir ./plugin               # load the plugin (hooks + commands) for one session
+claude plugin marketplace update cc-outline && claude plugin update cco@cc-outline   # refresh the installed plugin
 ```
 
-The plugin calls `cco` by name, so `npm link` is required for the hooks and commands to work. A running viewer pane keeps the code it was started with: after a rebuild, close it with `q` and reopen it. Plugin changes (hooks, commands) only load when Claude Code restarts.
+The plugin is installed from this repo, which is its own marketplace (`.claude-plugin/marketplace.json`). Claude Code runs a cached copy, so changes under `plugin/` need the update command above. The plugin calls `cco` by name, so `npm link` is required for the hooks and commands to work. A running viewer pane keeps the code it was started with: after a rebuild, close it with `q` and reopen it. Plugin changes (hooks, commands) only load when Claude Code restarts.
 
 ## Architecture
 

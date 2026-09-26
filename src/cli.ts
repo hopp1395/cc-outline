@@ -13,7 +13,7 @@ const viewOption = () =>
 
 const program = new Command()
   .name("cco")
-  .description("cc-outline: rendered session preview and git diff view")
+  .description("cc-outline: rendered Claude Code session preview and git changes view")
   .version(VERSION);
 
 program

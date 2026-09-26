@@ -1,0 +1,11 @@
+{
+  "name": "cc-outline",
+  "owner": { "name": "Jan Hoppe" },
+  "plugins": [
+    {
+      "name": "cco",
+      "source": "./plugin",
+      "description": "cc-outline: rendered session preview and git diff view in a split pane"
+    }
+  ]
+}

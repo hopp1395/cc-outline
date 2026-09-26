@@ -18,17 +18,40 @@ alt+← Claude · ←→ turn · ↑↓ scroll · ↵ full prompt · f follow ·
 
 ## Installation
 
+Requirements:
+- Node.js 20 or later
+- Claude Code
+- Windows Terminal or tmux, to open the viewer in a split pane
+
+**1. Install the CLI:**
+
+```sh
+npm install -g cc-outline
+cco --version
+```
+
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat` and `/cco:git` commands. The npm package is its own plugin marketplace:
+
+```sh
+claude plugin marketplace add "$(npm root -g)/cc-outline"
+claude plugin install cco@cc-outline
+```
+
+**3. Restart Claude Code**, then run `/cco:chat` or `/cco:git`.
+
+To uninstall, run `claude plugin uninstall cco@cc-outline`, `claude plugin marketplace remove cc-outline` and `npm rm -g cc-outline`, then delete `~/.claude/cco/`.
+
+### From source
+
 ```sh
 npm install
 npm run build
 npm link            # makes `cco` available globally
+claude plugin marketplace add <path-to-this-repo>
+claude plugin install cco@cc-outline
 ```
 
-Load the plugin into Claude Code. It provides the hooks and the `/cco:chat` and `/cco:git` commands:
-
-```sh
-claude --plugin-dir ./plugin
-```
+To load the plugin for a single session without installing it, run `claude --plugin-dir ./plugin` instead.
 
 ## Usage
 
@@ -203,3 +226,5 @@ npm run typecheck
 ## License
 
 [MIT](LICENSE) © 2026 Jan Hoppe
+
+cc-outline is an independent community tool. It is not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.

@@ -2,14 +2,25 @@
   "name": "cc-outline",
   "version": "0.1.0",
   "author": "Jan Hoppe",
-  "description": "cc-outline: rendered session preview and git diff view in a terminal pane",
+  "description": "Rendered Markdown preview of Claude Code sessions and a git changes view with syntax highlighting, in a terminal split pane",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "markdown",
+    "terminal",
+    "tui",
+    "git-diff",
+    "ink"
+  ],
+  "license": "MIT",
   "type": "module",
   "bin": {
     "cco": "dist/cli.js"
   },
   "files": [
     "dist",
-    "plugin"
+    "plugin",
+    ".claude-plugin"
   ],
   "engines": {
     "node": ">=20"
@@ -18,9 +29,9 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
-  "license": "MIT",
   "dependencies": {
     "chokidar": "^5.0.0",
     "cli-highlight": "^2.1.11",
