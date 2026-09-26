@@ -14,12 +14,31 @@ export interface Turn {
   queued?: boolean;
 }
 
+export type PlanStatus = "pending" | "approved" | "rejected";
+
+/** A plan Claude presented in plan mode (the ExitPlanMode tool call). */
+export interface Plan {
+  /** The tool call id; the user's decision refers to it. */
+  id: string;
+  text: string;
+  timestamp?: string;
+  /** Prompt of the turn the plan was presented in. */
+  prompt?: string;
+  status: PlanStatus;
+  /** What the user said when rejecting the plan, if anything. */
+  feedback?: string;
+}
+
 interface ContentBlock {
   type: string;
+  id?: string;
   text?: string;
   thinking?: string;
   name?: string;
   input?: unknown;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: unknown;
 }
 
 interface Entry {
@@ -80,9 +99,10 @@ export function promptText(entry: Entry): string | undefined {
  */
 export class TranscriptParser {
   readonly turns: Turn[] = [];
+  readonly plans: Plan[] = [];
   private buffer = "";
 
-  /** Returns true when the turn list changed. */
+  /** Returns true when the turns or plans changed. */
   push(chunk: string): boolean {
     this.buffer += chunk;
     const lines = this.buffer.split("\n");
@@ -124,6 +144,7 @@ export class TranscriptParser {
       });
       return true;
     }
+    if (entry.type === "user" && !entry.isSidechain) return this.decidePlans(entry);
     if (entry.type !== "assistant" || entry.isSidechain) return false;
     const content = entry.message?.content;
     if (!Array.isArray(content)) return false;
@@ -142,6 +163,16 @@ export class TranscriptParser {
         turn.blocks.push({ kind: "thinking", text: b.thinking });
       } else if (b.type === "tool_use") {
         turn.blocks.push({ kind: "tool", name: b.name ?? "tool", input: b.input });
+        const plan = (b.input as { plan?: unknown } | undefined)?.plan;
+        if (b.name === "ExitPlanMode" && typeof plan === "string" && plan.trim()) {
+          this.plans.push({
+            id: b.id ?? String(this.plans.length),
+            text: plan,
+            timestamp: entry.timestamp,
+            prompt: turn.id === "start" ? undefined : turn.prompt,
+            status: "pending",
+          });
+        }
       } else {
         continue;
       }
@@ -149,6 +180,34 @@ export class TranscriptParser {
     }
     return changed;
   }
+
+  /** Applies the user's answer to presented plans: approved, or rejected with optional feedback. */
+  private decidePlans(entry: Entry): boolean {
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) return false;
+    let changed = false;
+    for (const b of content) {
+      if (b.type !== "tool_result") continue;
+      const plan = this.plans.find((p) => p.id === b.tool_use_id);
+      if (!plan) continue;
+      plan.status = b.is_error ? "rejected" : "approved";
+      if (b.is_error) plan.feedback = rejectionFeedback(resultText(b.content));
+      changed = true;
+    }
+    return changed;
+  }
+}
+
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("\n");
+  return "";
+}
+
+/** The user's words after "the user said:" in a rejected tool call, if they gave any. */
+function rejectionFeedback(text: string): string | undefined {
+  const said = /the user said:\s*([\s\S]*)$/i.exec(text)?.[1]?.trim();
+  return said || undefined;
 }
 
 /** Builds the Markdown document shown for a turn. */

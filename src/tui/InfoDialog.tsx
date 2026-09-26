@@ -18,41 +18,53 @@ interface Props {
   gitRoot?: string | null;
 }
 
+/** Keys all three lists share; each view lists them first. */
+const LIST_KEYS = (entry: string): [string, string][] => [
+  ["←→", `previous / next ${entry}`],
+  ["Home End g G", `first / last ${entry}`],
+  ["Space", `mark ${entry} ★`],
+  ["⇧←→", "previous / next marked"],
+  ["↑↓ PgUp PgDn", "scroll"],
+  ["^Home ^End", "top / bottom"],
+];
+
+const COMMON_KEYS: [string, string][] = [
+  ["1 2 3", "chat / changes / plan"],
+  ["i", "this info"],
+  ["q", "quit"],
+];
+
 /** Keys of each view, shown in two columns. */
 const KEYS: Record<Mode, [string, string][]> = {
   chat: [
-    ["←→", "previous / next turn"],
-    ["↑↓ PgUp PgDn", "scroll"],
-    ["^Home ^End", "top / bottom"],
-    ["Home End g G", "first / last turn"],
+    ...LIST_KEYS("turn"),
     ["↵", "full prompt"],
     ["ctrl+End", "jump to bottom"],
     ["f", "follow mode"],
-    ["Space", "mark turn ★"],
-    ["[ ]", "prev / next marked"],
     ["t h", "tools / thinking"],
     ["w", "wrap lines"],
-    ["⇧←→ ^←→", "scroll sideways"],
+    ["^←→", "scroll sideways"],
     ["c", "copy Markdown"],
-    ["1 2", "chat / changes"],
-    ["i", "this info"],
-    ["q", "quit"],
+    ...COMMON_KEYS,
   ],
   git: [
-    ["←→", "previous / next file"],
-    ["↑↓ PgUp PgDn", "scroll"],
-    ["^Home ^End", "top / bottom"],
-    ["Home End g G", "first / last file"],
+    ...LIST_KEYS("file"),
     ["↵", "whole file / diff"],
     ["[ ]", "previous / next hunk"],
     ["w", "wrap lines"],
-    ["⇧←→ ^←→", "scroll sideways"],
+    ["^←→", "scroll sideways"],
     ["r", "refresh"],
-    ["1 2", "chat / changes"],
-    ["i", "this info"],
-    ["q", "quit"],
+    ...COMMON_KEYS,
+  ],
+  plan: [
+    ...LIST_KEYS("plan"),
+    ["↵", "changes to previous"],
+    ["c", "copy the plan"],
+    ...COMMON_KEYS,
   ],
 };
+
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;
@@ -124,7 +136,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
     row("Terminal", `${terminalName()} · ${paneSwitchKey("left")} / ${paneSwitchKey("right")} switch panes`),
     row("Settings", tilde(settingsFile())),
     <Text key="gap2"> </Text>,
-    heading(`Keys · ${mode === "chat" ? "Chat" : "Changes"}`),
+    heading(`Keys · ${VIEW_TITLES[mode]}`),
     ...Array.from({ length: half }, (_, i) => (
       <Text key={`k${i}`} wrap="truncate">
         {keyCell(keys[i])}

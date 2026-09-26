@@ -1,9 +1,10 @@
 # cc-outline
 
-`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has two views:
+`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has three views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
+- **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat and then the changes view with a C# diff](docs/demo.gif)
 
@@ -15,7 +16,7 @@ Working with Claude Code in the terminal has two blind spots. cc-outline fills b
 
 **The problem.** Claude answers in Markdown, but the terminal shows much of it as plain text. Tables lose their shape, and headings and emphasis blend into the text. A plan with several steps looks like a wall of text. Long answers scroll past while Claude keeps working. To read an earlier answer again you scroll back through tool calls and output, and the prompt that answer belongs to is somewhere above it.
 
-**How cc-outline solves it.** The Chat view renders each answer as Markdown, with real tables, headings, lists and highlighted code. The session is organised by prompt: every prompt is one entry in a list. Select one and you see exactly its answer, with the prompt pinned above it and tool noise hidden. The view follows the running session live and stays at the bottom like Claude Code. You can scroll up at any time without losing your place, and each turn remembers where you left it. Important answers can be marked with `Space` and found again after a restart.
+**How cc-outline solves it.** The Chat view renders each answer as Markdown, with real tables, headings, lists and highlighted code. The session is organised by prompt: every prompt is one entry in a list. Select one and you see exactly its answer, with the prompt pinned above it and tool noise hidden. The view follows the running session live and stays at the bottom like Claude Code. You can scroll up at any time without losing your place, and each turn remembers where you left it. Important answers can be marked with `Space` and found again after a restart. Plans from plan mode get a view of their own. They stay readable next to the session while Claude carries them out, and a revised plan shows exactly what changed.
 
 ### 2. You don't see what Claude changed
 
@@ -25,11 +26,11 @@ Working with Claude Code in the terminal has two blind spots. cc-outline fills b
 
 ### In daily work
 
-- **Review while Claude works.** Read the plan in the Chat view and check the resulting diff in the Changes view, both next to the running session.
-- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`/`2`) switches views, `alt+←` returns to Claude Code.
+- **Review while Claude works.** Keep the approved plan in the Plan view and check the resulting diff in the Changes view, both next to the running session.
+- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`/`2`/`3`) switches views, `alt+←` returns to Claude Code.
 - **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
-- **Nothing to manage.** The plugin opens the pane with `/cco:chat` or `/cco:git`, follows the active session, closes it with the session and reopens it next time if it was open.
+- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git` or `/cco:plan`, follows the active session, closes it with the session and reopens it next time if it was open.
 
 ## Installation
 
@@ -45,7 +46,7 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat` and `/cco:git` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git` and `/cco:plan` commands. The npm package is its own plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
@@ -70,18 +71,18 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 ## Usage
 
-- **`/cco:chat`** or **`/cco:git`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in the Chat or Changes view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
+- **`/cco:chat`**, **`/cco:git`** or **`/cco:plan`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in the Chat, Changes or Plan view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
-  - `--view chat|git`: view to start with (default: `chat`)
+  - `--view chat|git|plan`: view to start with (default: `chat`)
 
-Both views share one layout:
+All views share one layout:
 - **Top bar:** the view tabs and a status summary.
 - **Body:** a list on the left and a preview on the right.
 - **Help line:** the keys of the current view at the bottom.
 
-Press `1` and `2` to switch between the views. Both keep running in the background, so the chat keeps following the session while you look at the changes.
+Press `1`, `2` and `3` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
 ## Chat view
 
@@ -93,9 +94,11 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 - Slash commands appear as `/name args`.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
 
-**Marks.** `Space` marks the selected turn as a favourite (`★` in the list) or removes the mark.
-- `]` and `[` jump to the next and previous marked turn.
-- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`. They survive restarts and carry over when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
+**Marks.** All three lists work the same way here:
+- `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark.
+- `Shift+←` and `Shift+→` jump to the previous and next marked entry.
+- The top bar counts the marked entries (`★ 2`).
+- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id. Turns keep their marks across restarts and when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
 
 **Prompt (top right).** The selected prompt stays pinned above the answer while you scroll.
 - It shows at most 1000 characters and never more than half the pane height.
@@ -103,7 +106,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 **Answer.** The answer is rendered as Markdown and wrapped to the pane width. List items keep their indentation when they wrap.
 - Tool calls (`t`) and thinking blocks (`h`) are hidden by default.
-- With `w`, wrapping is switched off: paragraphs and code lines stay whole, and `Shift+←/→` (or `Ctrl+←/→`) scrolls sideways.
+- With `w`, wrapping is switched off: paragraphs and code lines stay whole, and `Ctrl+←/→` scrolls sideways.
 - `c` copies the turn's Markdown (without tools and thinking) to the clipboard.
 
 **Follow mode** is on by default.
@@ -126,7 +129,7 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 ![Changes view: changed files on the left, the diff with line numbers and C# highlighting on the right](docs/changes.svg)
 
-**List (left).** One entry per changed file, with its status and line counts (hidden entries are shown as `▲`/`▼ N more`, as in the chat list):
+**List (left).** One entry per changed file, with its status and line counts. Hidden entries (`▲`/`▼ N more`) and marks (`Space`, `Shift+←/→`) work as in the chat list; a marked file keeps its mark by path, also after it was committed and changed again. The statuses:
 - `M` modified, `A` added, `D` deleted, `R` renamed, `C` copied, `U` conflict
 - `?` untracked, counted as all-added lines
 
@@ -145,7 +148,7 @@ If the path of the selected file is too long for the list, it scrolls back and f
 
 **Whole file.** `Enter` switches to the complete file as it is now, with line numbers and highlighting but without change markers. There, `]` and `[` jump between the changed blocks. `Enter` or `Esc` returns to the diff. Deleted files have no content after the change, so the view says so.
 
-**Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Shift+←/→` (or `Ctrl+←/→`) scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
+**Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Ctrl+←/→` scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
 
 **Status.** The top bar shows the current branch, the files and line counts, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
 
@@ -153,31 +156,51 @@ If the path of the selected file is too long for the list, it scrolls back and f
 
 **Syntax highlighting** exists so far for C# (`.cs`, `.csx`). Add more languages through the `LANGUAGES` map in `src/render/diff.ts`.
 
+## Plan view
+
+In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks for approval. When you ask for changes, it writes a new version. The Plan view keeps every plan of the session.
+
+**List (left).** One entry per plan, with its time, its title (the first heading) and its status:
+- `✓` approved
+- `✗` rejected
+- `●` waiting for your decision
+
+**Plan (right).** The selected plan rendered as Markdown. Above it, pinned while you scroll:
+- the title
+- the version, status and time
+- the prompt the plan answers
+- your feedback, if you rejected it with a comment
+
+**Changes between versions.** `Enter` shows what changed compared with the previous version, as a diff with line numbers. `Enter` or `Esc` returns to the plan.
+
+**Following.** The newest plan stays selected while Claude presents new ones; selecting an older plan stops that, and `End` resumes it. `c` copies the plan's Markdown. `Space` marks a plan and `Shift+←/→` jumps between marked plans, as in the other lists. Plans are read from the session transcript, so they appear as soon as Claude presents them, before you decide.
+
 ## Keys
 
 The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
 
-| Key | Chat | Changes |
-|---|---|---|
-| `1` / `2` | switch to Chat / Changes | switch to Chat / Changes |
-| `←` / `→` | previous / next turn | previous / next file |
-| `↑` / `↓` | scroll by line | scroll by line |
-| `PgDn` / `PgUp` | scroll by page | scroll by page |
-| `Space` / `b` | mark the turn ★ / scroll up a page | scroll down / up a page |
-| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file |
-| `Ctrl+Home` | top of the answer | top of the diff |
-| `Enter` | full prompt ↔ answer | whole file ↔ diff |
-| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit |
-| `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff |
-| `f` | toggle follow mode | – |
-| `t` / `h` | show tool calls / thinking | – |
-| `c` | copy the turn's Markdown | – |
-| `]` / `[` | next / previous marked turn | next / previous hunk (changed block in whole-file mode) |
-| `r` | – | refresh now |
-| `w` | toggle wrapping | toggle wrapping |
-| `Shift+←` / `Shift+→` (or `Ctrl+`) | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
-| `i` | info dialog | info dialog |
-| `q` | quit | quit |
+| Key | Chat | Changes | Plan |
+|---|---|---|---|
+| `1` / `2` / `3` | switch view | switch view | switch view |
+| `←` / `→` | previous / next turn | previous / next file | previous / next plan |
+| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan |
+| `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ |
+| `Shift+←` / `Shift+→` | previous / next marked turn | previous / next marked file | previous / next marked plan |
+| `↑` / `↓` | scroll by line | scroll by line | scroll by line |
+| `PgUp` / `PgDn`, `b` | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) |
+| `Ctrl+Home` | top of the answer | top of the diff | top of the plan |
+| `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan |
+| `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version |
+| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit |
+| `f` | toggle follow mode | – | – |
+| `t` / `h` | show tool calls / thinking | – | – |
+| `c` | copy the turn's Markdown | – | copy the plan |
+| `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – |
+| `r` | – | refresh now | – |
+| `w` | toggle wrapping | toggle wrapping | – |
+| `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
+| `i` | info dialog | info dialog | info dialog |
+| `q` | quit | quit | quit |
 
 `t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Chat and Changes each keep their own `w` setting.
 

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown } from "../render/markdown.js";
-import { readFavorites, toggleFavorite } from "../favorites.js";
+import { nextMarked } from "../favorites.js";
 import { turnMarkdown } from "../transcript/parse.js";
 import {
   dim,
@@ -14,19 +14,25 @@ import {
   previewHeader,
   rule,
   Screen,
+  markFooter,
+  markKeys,
+  Star,
   truncate,
   makeScroll,
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFocused } from "./focus.js";
+import { useFavorites } from "./useFavorites.js";
 import { useSetting } from "./useSetting.js";
-import { useTranscript } from "./useTranscript.js";
+import type { Transcript } from "./useTranscript.js";
 
 interface Props {
   cwd: string;
   /** Transcript of the session to show (resolved by App). */
   path?: string;
+  /** The parsed session (read by App, shared with the plan view). */
+  transcript: Transcript;
   layout: Layout;
   active: boolean;
   /** Reports whether the full-prompt view is open, so Esc closes it instead of quitting. */
@@ -75,8 +81,8 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
-  const { turns, version } = useTranscript(path);
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }: Props) {
+  const { turns, version } = transcript;
   const { listWidth, previewWidth, bodyHeight } = layout;
 
   const [selected, setSelected] = useState(0);
@@ -89,13 +95,8 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
   const [flash, setFlash] = useState<string>();
   const [promptOpen, setPromptOpen] = useState(false);
   // Marked (favourite) turns of the project; they carry over into continued sessions.
-  const [marks, setMarks] = useState<string[]>(() => readFavorites(cwd));
-
-  useEffect(() => {
-    setMarks(readFavorites(cwd));
-  }, [cwd, path]);
-
-  const markedCount = turns.filter((t) => marks.includes(t.id)).length;
+  const favorites = useFavorites(cwd, "turns", path);
+  const markedCount = turns.filter((t) => favorites.isMarked(t.id)).length;
 
   const last = turns.length - 1;
   const current = turns[Math.min(selected, Math.max(0, last))];
@@ -184,29 +185,29 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
     setFlash(msg);
     setTimeout(() => setFlash(undefined), 2000);
   };
-  const toggleMark = () => {
-    if (current) setMarks(toggleFavorite(cwd, current.id));
-  };
   /** Selects the next or previous marked turn. */
   const jumpMark = (dir: 1 | -1) => {
-    const marked = turns.flatMap((t, i) => (marks.includes(t.id) ? [i] : []));
-    const target = dir === 1 ? marked.find((i) => i > selected) : marked.reverse().find((i) => i < selected);
+    const target = nextMarked(
+      turns.map((t) => t.id),
+      favorites.marks,
+      selected,
+      dir,
+    );
     if (target !== undefined) select(target);
   };
 
   useInput(
     (input, key) => {
       if (key.ctrl && key.end) return jumpToBottom();
-      // Shift+←/→ or Ctrl+←/→ scroll sideways; checked first because plain ←/→ switch turns.
-      if ((key.shift || key.ctrl) && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      // Checked first because plain ←/→ switch turns.
+      const mark = markKeys(input, key);
+      if (mark === "toggle") return current && favorites.toggle(current.id);
+      if (mark) return jumpMark(mark);
+      if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
         setWrap((w) => !w);
         return setHscroll(0);
       }
-      // Space marks the turn here instead of paging down.
-      if (input === " ") return toggleMark();
-      if (input === "]") return jumpMark(1);
-      if (input === "[") return jumpMark(-1);
       const page = viewport - 2;
       if (!promptOpen && selected === last) {
         // Scrolling up leaves the live end; scrolling back to the bottom rejoins it.
@@ -270,11 +271,11 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
           empty="Waiting for prompts…"
           itemKey={(t, i) => t.id + i}
           render={(t, isSelected) => {
-            const marked = marks.includes(t.id);
+            const marked = favorites.isMarked(t.id);
             return (
               <>
+                {marked && <Star />}
                 <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
-                {marked && <Text color="yellow">★ </Text>}
                 {/* ↳ marks prompts sent while Claude was still working. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
                 {truncate(t.prompt, Math.max(4, listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0)))}
@@ -302,16 +303,15 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
         flash ?? [
           { text: "←→ turn", priority: 4 },
           { text: "↑↓ scroll", priority: 1 },
-          ...(wrap ? [] : [{ text: "⇧←→ side", priority: 4 }]),
+          ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
-          { text: "␣ mark", on: current !== undefined && marks.includes(current.id) },
-          ...(markedCount > 0 ? [{ text: "[/] marked", priority: 2 }] : []),
+          ...markFooter(favorites.isMarked(current?.id), markedCount),
           { text: "t tools", on: showTools, priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
-          { text: "1/2 view", priority: 1 },
+          { text: "1/2/3 view", priority: 1 },
         ]
       }
     />

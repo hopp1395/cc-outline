@@ -4,7 +4,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
 
-export type Mode = "chat" | "git";
+export type Mode = "chat" | "git" | "plan";
 
 export interface Layout {
   columns: number;
@@ -89,6 +89,30 @@ export function handleNavigation(
   else if (input === "G") nav.last();
   else return false;
   return true;
+}
+
+/**
+ * Marks (favourites) work the same in every list: Space marks or unmarks the
+ * selected entry, Shift+←/→ jump to the previous / next marked one.
+ */
+export function markKeys(input: string, key: Key): "toggle" | 1 | -1 | undefined {
+  if (input === " ") return "toggle";
+  if (key.shift && key.leftArrow) return -1;
+  if (key.shift && key.rightArrow) return 1;
+  return undefined;
+}
+
+/** Help-line items for marks: highlighted while the selected entry is marked. */
+export function markFooter(currentMarked: boolean, markedCount: number): FooterItem[] {
+  return [
+    { text: "␣ mark", on: currentMarked },
+    ...(markedCount > 0 ? [{ text: "⇧←→ marked", priority: 2 }] : []),
+  ];
+}
+
+/** The ★ that starts a marked entry in a list. */
+export function Star() {
+  return <Text color="yellow">★ </Text>;
 }
 
 /** The part of `text` between columns `start` and `start + width`. */
@@ -213,6 +237,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       </Text>
       {tab("1", "Chat", "chat")}
       {tab("2", "Changes", "git")}
+      {tab("3", "Plan", "plan")}
     </Text>
   );
 }

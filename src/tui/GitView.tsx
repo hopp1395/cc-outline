@@ -21,13 +21,18 @@ import {
   previewHeader,
   rule,
   Screen,
+  markFooter,
+  markKeys,
+  Star,
   truncate,
   useScroll,
   wrapPath,
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
+import { useFavorites } from "./useFavorites.js";
 import { useSetting } from "./useSetting.js";
 
 interface Props {
@@ -139,6 +144,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
   const [error, setError] = useState<string>();
+  // Marked files of the project, by path.
+  const favorites = useFavorites(cwd, "files");
   const [branch, setBranch] = useState<BranchStatus>();
   const showFileRef = useRef(showFile);
   showFileRef.current = showFile;
@@ -247,6 +254,16 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     scroll.set(0);
     setHscroll(0);
   };
+  /** Selects the next or previous marked file. */
+  const jumpMark = (dir: 1 | -1) => {
+    const target = nextMarked(
+      files.map((f) => f.path),
+      favorites.marks,
+      selectedIndex,
+      dir,
+    );
+    if (target !== undefined) select(target);
+  };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
     const target =
@@ -256,8 +273,11 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
 
   useInput(
     (input, key) => {
-      // Shift+←/→ or Ctrl+←/→ scroll sideways; checked first because plain ←/→ switch files.
-      if ((key.shift || key.ctrl) && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      // Checked first because plain ←/→ switch files; Space marks instead of paging.
+      const mark = markKeys(input, key);
+      if (mark === "toggle") return current && favorites.toggle(current.path);
+      if (mark) return jumpMark(mark);
+      if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
         setWrap((w) => !w);
         return setHscroll(0);
@@ -279,6 +299,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     { isActive: active },
   );
 
+  const markedCount = files.filter((f) => favorites.isMarked(f.path)).length;
   const totals = files.reduce((acc, f) => [acc[0] + (f.added ?? 0), acc[1] + (f.removed ?? 0)], [0, 0]);
 
   let preview;
@@ -308,6 +329,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
           <BranchInfo status={branch} bold={focused} />
           {files.length} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
+          {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
         </Text>
       }
@@ -319,10 +341,12 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
           empty={root === undefined ? "Loading…" : "No changes"}
           itemKey={(f) => f.path}
           render={(f, isSelected) => {
+            const marked = favorites.isMarked(f.path);
             const counts = f.added !== undefined ? ` +${f.added} -${f.removed}` : "";
-            const nameWidth = Math.max(4, listWidth - 2 - counts.length);
+            const nameWidth = Math.max(4, listWidth - 2 - counts.length - (marked ? 2 : 0));
             return (
               <>
+                {marked && <Star />}
                 <Text color={STATUS_COLOR[f.status]}>{f.status} </Text>
                 {isSelected ? (
                   <Marquee text={f.path} width={nameWidth} active={active} />
@@ -339,12 +363,13 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       footer={[
         { text: "←→ file", priority: 4 },
         { text: "↑↓ scroll", priority: 1 },
-        ...(wrap ? [] : [{ text: "⇧←→ side", priority: 4 }]),
+        ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
         { text: "↵ file", on: showFile },
+        ...markFooter(favorites.isMarked(current?.path), markedCount),
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
         { text: "r refresh", priority: 2 },
-        { text: "1/2 view", priority: 1 },
+        { text: "1/2/3 view", priority: 1 },
       ]}
     />
   );

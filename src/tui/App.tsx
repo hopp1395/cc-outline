@@ -7,7 +7,8 @@ import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
 import { useLayout, type Mode } from "./layout.js";
-import { useSessionPath } from "./useTranscript.js";
+import { PlanView } from "./PlanView.js";
+import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
 
 interface Props {
@@ -18,16 +19,20 @@ interface Props {
   unfocused?: boolean;
 }
 
+const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan" };
+
 export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }: Props) {
   const { exit } = useApp();
   const layout = useLayout();
   const focused = useTerminalFocus(!unfocused);
   const path = useSessionPath(cwd, sessionId);
+  // Parsed once for the chat and the plan view.
+  const transcript = useTranscript(path);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [infoOpen, setInfoOpen] = useState(false);
   const [gitRoot, setGitRoot] = useState<string | null>();
-  // While a view shows a detail (full prompt, whole file), Esc closes it instead of quitting.
-  const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({ chat: false, git: false });
+  // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
+  const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({ chat: false, git: false, plan: false });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
   useViewerControl({ cwd, followActive: !sessionId, onView: setMode, onSessionEnd: exit });
@@ -48,11 +53,10 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
     }
     if (input === "q" || (key.escape && !detailOpen[mode])) exit();
     else if (input === "i") setInfoOpen(true);
-    else if (input === "1") setMode("chat");
-    else if (input === "2") setMode("git");
+    else if (VIEW_KEYS[input]) setMode(VIEW_KEYS[input]);
   });
 
-  // Both views stay mounted so the chat keeps following the transcript while hidden.
+  // All views stay mounted so the chat keeps following the transcript while hidden.
   return (
     <FocusContext.Provider value={focused}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
@@ -60,6 +64,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
           <ChatView
             cwd={cwd}
             path={path}
+            transcript={transcript}
             layout={layout}
             active={mode === "chat" && !infoOpen}
             onPromptOpen={setDetail("chat")}
@@ -71,6 +76,16 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
             layout={layout}
             active={mode === "git" && !infoOpen}
             onFileOpen={setDetail("git")}
+          />
+        </Box>
+        <Box display={mode === "plan" ? "flex" : "none"}>
+          <PlanView
+            cwd={cwd}
+            plans={transcript.plans}
+            hasSession={path !== undefined}
+            layout={layout}
+            active={mode === "plan" && !infoOpen}
+            onDiffOpen={setDetail("plan")}
           />
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}

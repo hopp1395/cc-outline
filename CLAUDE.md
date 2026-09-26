@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`cc-outline` (command `cco`) is a terminal viewer that runs in a split pane next to Claude Code. It has two views: **Chat** (the session's turns rendered as Markdown, following live) and **Changes** (git status plus diffs against `HEAD` with syntax highlighting, C# only so far). It ships as an npm CLI (`cco`) plus a Claude Code plugin in `plugin/` (hooks and the `/cco:chat` and `/cco:git` commands). User-facing docs and key bindings are in `README.md`.
+`cc-outline` (command `cco`) is a terminal viewer that runs in a split pane next to Claude Code. It has three views: **Chat** (the session's turns rendered as Markdown, following live), **Changes** (git status plus diffs against `HEAD` with syntax highlighting, C# only so far) and **Plan** (the plans Claude presented in plan mode, with status and a diff between versions). It ships as an npm CLI (`cco`) plus a Claude Code plugin in `plugin/` (hooks and the `/cco:chat`, `/cco:git` and `/cco:plan` commands). User-facing docs and key bindings are in `README.md`.
 
 ## Commands
 
@@ -32,13 +32,14 @@ The plugin is installed from this repo, which is its own marketplace (`.claude-p
 - `user` entries also carry tool results, `isMeta` reminders, interrupt markers and `<local-command…>` output. Only real prompts start a turn; slash commands are shown as `/name args`.
 - Sidechain entries (subagents) are skipped.
 - Prompts typed while Claude is working are not stored as `user` entries. When Claude takes them in mid-turn, they appear as `type: "attachment"` with `attachment.type: "queued_command"` and `attachment.prompt`; `queue-operation` lines only record the queueing. They start their own turn with `queued: true`, shown as `↳` in the list.
+- Plans are `ExitPlanMode` tool calls (`input.plan`). The user's decision is the matching `tool_result` in a later `user` entry: `is_error: false` means approved, `is_error: true` rejected, with optional feedback after "the user said:". `TranscriptParser.plans` collects them; Claude Code also writes plans to `~/.claude/plans/`, but with random names and no project, so the transcript is the source.
 
 **Hooks and state files.** `cco hook` (`src/hook.ts`) handles `SessionStart`, `UserPromptSubmit` and `SessionEnd` and writes per-project state files to `~/.claude/cco/<slug>*.json`. All of them are written atomically via rename (`writeJson` in `locate.ts`):
 - `<slug>.json`: the active session. `ended: true` is set on `SessionEnd`, except when the reason is `clear`, and only if that session is still the active one.
 - `<slug>.viewer.json`: pid and current view of the running viewer. `cco open` checks it and reuses a live viewer instead of opening a second pane.
 - `<slug>.restore.json`: whether a viewer was running at `SessionEnd`, and with which view. On `SessionStart` with source `startup` or `resume`, the hook reopens it with `keepFocus`, which sends a `move-focus left` to wt or passes `-d` to tmux. The hook must not print to stdout, because SessionStart output is added to Claude's context.
 - `<slug>.control.json`: view-switch requests from `cco open` to the running viewer.
-- `<slug>.favorites.json`: marked turn ids (`src/favorites.ts`), toggled with Space in the chat view. Kept per project, not per session: `--continue`/`/resume` start a new session id but copy the turns with their uuids.
+- `<slug>.favorites.json`: marks of all three lists (`src/favorites.ts`): `turns` (prompt uuids), `files` (paths) and `plans` (tool call ids). Kept per project, not per session: `--continue`/`/resume` start a new session id but copy the turns with their uuids. The first format (one list per session id) is merged into `turns` on read. Views use it through `useFavorites()`; `markKeys()`/`markFooter()`/`Star` in `layout.tsx` keep Space and Shift+←/→ the same everywhere.
 
 Display preferences (`t`, `h`, and `w` separately for chat and changes) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
 
@@ -47,7 +48,7 @@ Focus indication (`src/tui/focus.ts`): the viewer enables terminal focus reporti
 The viewer (`src/tui/useViewerControl.ts`) only reacts to changes that happen after it started. It exits when the session ends, after a 1.5 s grace period. Without hooks it falls back to the newest transcript that contains messages; Claude Code also creates tiny bookkeeping `.jsonl` files that must be ignored.
 
 **TUI** (Ink 7 + React 19, `src/tui/`):
-- `App.tsx` keeps both views mounted (hidden with `display="none"`) so the chat keeps following while the git view is shown. Views use `useInput(..., { isActive })`.
+- `App.tsx` reads the transcript once (`useTranscript`) for the chat and plan views and keeps all views mounted (hidden with `display="none"`) so the chat keeps following while the git view is shown. Views use `useInput(..., { isActive })`.
 - `layout.tsx` holds the shared pieces: the `Screen` frame, the `List`, `useScroll`, `handleNavigation`, `previewHeader`, `Marquee` and `wrapPath`. Both views share the same navigation: `←→` switch item, `↑↓` scroll.
 - `Preview.tsx` renders a sticky `header` (prompt or file path, capped by `fitHeader`) above the scrolled lines.
 - All content is pre-rendered into ANSI strings that are already wrapped to the preview width, then sliced by scroll offset. Ink does no wrapping of its own here (`wrap="truncate"`).
