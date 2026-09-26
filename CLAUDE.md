@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`cc-outline` (command `cco`) is a terminal viewer that runs in a split pane next to Claude Code. It has three views: **Chat** (the session's turns rendered as Markdown, following live), **Changes** (git status plus diffs against `HEAD` with syntax highlighting, C# only so far) and **Plan** (the plans Claude presented in plan mode, with status and a diff between versions). It ships as an npm CLI (`cco`) plus a Claude Code plugin in `plugin/` (hooks and the `/cco:chat`, `/cco:git` and `/cco:plan` commands). User-facing docs and key bindings are in `README.md`.
+`cc-outline` (command `cco`) is a terminal viewer that runs in a split pane next to Claude Code. It has four views: **Chat** (the session's turns rendered as Markdown, following live), **Changes** (git status plus diffs against `HEAD` with syntax highlighting, C# only so far) **Plan** (the plans Claude presented in plan mode, with status and a diff between versions) and **Sessions** (an overview of the project's sessions: time span, plans, changed files, prompts and the resume command). It ships as an npm CLI (`cco`) plus a Claude Code plugin in `plugin/` (hooks and the `/cco:chat`, `/cco:git`, `/cco:plan` and `/cco:session` commands). User-facing docs and key bindings are in `README.md`.
 
 ## Commands
 
@@ -39,7 +39,7 @@ The plugin is installed from this repo, which is its own marketplace (`.claude-p
 - `<slug>.viewer.json`: pid and current view of the running viewer. `cco open` checks it and reuses a live viewer instead of opening a second pane.
 - `<slug>.restore.json`: whether a viewer was running at `SessionEnd`, and with which view. On `SessionStart` with source `startup` or `resume`, the hook reopens it with `keepFocus`, which sends a `move-focus left` to wt or passes `-d` to tmux. The hook must not print to stdout, because SessionStart output is added to Claude's context.
 - `<slug>.control.json`: view-switch requests from `cco open` to the running viewer.
-- `<slug>.favorites.json`: marks of all three lists (`src/favorites.ts`): `turns` (prompt uuids), `files` (paths) and `plans` (tool call ids). Kept per project, not per session: `--continue`/`/resume` start a new session id but copy the turns with their uuids. The first format (one list per session id) is merged into `turns` on read. Views use it through `useFavorites()`; `markKeys()`/`markFooter()`/`Star` in `layout.tsx` keep Space and Shift+←/→ the same everywhere.
+- `<slug>.favorites.json`: marks of all four lists (`src/favorites.ts`): `turns` (prompt uuids), `files` (paths), `plans` (tool call ids) and `sessions` (session ids). Kept per project, not per session: `--continue`/`/resume` start a new session id but copy the turns with their uuids. The first format (one list per session id) is merged into `turns` on read. Views use it through `useFavorites()`; `markKeys()`/`markFooter()`/`Star` in `layout.tsx` keep Space and Shift+←/→ the same everywhere.
 
 Display preferences (`t`, `h`, and `w` separately for chat, changes and plan) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
 
@@ -49,7 +49,8 @@ The viewer (`src/tui/useViewerControl.ts`) only reacts to changes that happen af
 
 **TUI** (Ink 7 + React 19, `src/tui/`):
 - `App.tsx` reads the transcript once (`useTranscript`) for the chat and plan views and keeps all views mounted (hidden with `display="none"`) so the chat keeps following while the git view is shown. Views use `useInput(..., { isActive })`.
-- `layout.tsx` holds the shared pieces: the `Screen` frame, the `List`, `useScroll`, `handleNavigation`, `previewHeader`, `Marquee` and `wrapPath`. Both views share the same navigation: `←→` switch item, `↑↓` scroll.
+- `SessionsView.tsx` reads all transcripts of the project through `SessionIndex` (`src/transcript/sessions.ts`) only while it is visible, every 3 s. One `SessionReader` per file keeps a byte offset and a `TranscriptParser`, so a rescan only parses what was appended. It adds what the parser ignores: the `/rename` title (`custom-title` entries), `gitBranch`, the time span and the files of `Edit`/`Write`/`MultiEdit`/`NotebookEdit` calls. Sessions with only slash commands and no changes are left out.
+- `layout.tsx` holds the shared pieces: the `Screen` frame, the `List`, `useScroll`, `handleNavigation`, `previewHeader`, `Marquee` and `wrapPath`. All views share the same navigation: `←→` switch item, `↑↓` scroll.
 - `Preview.tsx` renders a sticky `header` (prompt or file path, capped by `fitHeader`) above the scrolled lines.
 - All content is pre-rendered into ANSI strings that are already wrapped to the preview width, then sliced by scroll offset. Ink does no wrapping of its own here (`wrap="truncate"`).
 

@@ -369,7 +369,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
         { text: "r refresh", priority: 2 },
-        { text: "1/2/3 view", priority: 1 },
+        { text: "1-4 view", priority: 1 },
       ]}
     />
   );

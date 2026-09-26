@@ -24,6 +24,7 @@ const COMMANDS = [
   ["/cco:chat", "Open the cco chat view (rendered session preview) in a split pane"],
   ["/cco:git", "Open the cco git changes view (diffs with syntax highlighting) in a split pane"],
   ["/cco:plan", "Open the cco plan view (the plans Claude presented in plan mode) in a split pane"],
+  ["/cco:session", "Open the cco sessions view (overview of the project's sessions) in a split pane"],
 ];
 
 /** Wraps `text` to `width` with a first-line prefix and an indent for the rest. */

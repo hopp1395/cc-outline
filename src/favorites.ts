@@ -2,20 +2,20 @@ import { favoritesFile, readJson, writeJson } from "./transcript/locate.js";
 
 /**
  * What can be marked, per list: chat turns (prompt uuids), changed files
- * (paths) and plans (tool call ids). Turn ids survive `--continue`/`/resume`,
+ * (paths), plans (tool call ids) and sessions (session ids). Turn ids survive `--continue`/`/resume`,
  * which copy the turns into a new session, so marks are kept per project.
  */
-export type FavoriteKind = "turns" | "files" | "plans";
+export type FavoriteKind = "turns" | "files" | "plans" | "sessions";
 
 type Stored = Partial<Record<FavoriteKind, string[]>>;
 
-const KINDS: FavoriteKind[] = ["turns", "files", "plans"];
+const KINDS: FavoriteKind[] = ["turns", "files", "plans", "sessions"];
 
 const strings = (list: unknown): string[] => (Array.isArray(list) ? list.filter((id) => typeof id === "string") : []);
 
 function readAll(cwd: string): Record<FavoriteKind, string[]> {
   const stored = readJson<unknown>(favoritesFile(cwd));
-  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [] };
+  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [], sessions: [] };
   if (!stored || typeof stored !== "object") return all;
   const record = stored as Record<string, unknown>;
   if (KINDS.some((kind) => kind in record)) {

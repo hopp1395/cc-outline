@@ -261,7 +261,7 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
-          { text: "1/2/3 view", priority: 1 },
+          { text: "1-4 view", priority: 1 },
         ]
       }
     />

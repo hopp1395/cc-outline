@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
-const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan" };
+const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions" };
 
 export type Terminal = "tmux" | "wt";
 

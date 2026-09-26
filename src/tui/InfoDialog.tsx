@@ -29,7 +29,7 @@ const LIST_KEYS = (entry: string): [string, string][] => [
 ];
 
 const COMMON_KEYS: [string, string][] = [
-  ["1 2 3", "chat / changes / plan"],
+  ["1 2 3 4", "chat / changes / plan / sessions"],
   ["i", "this info"],
   ["q", "quit"],
 ];
@@ -64,9 +64,10 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["c", "copy the plan"],
     ...COMMON_KEYS,
   ],
+  sessions: [...LIST_KEYS("session"), ["c", "copy resume command"], ...COMMON_KEYS],
 };
 
-const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan" };
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;

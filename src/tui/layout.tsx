@@ -4,7 +4,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
 
-export type Mode = "chat" | "git" | "plan";
+export type Mode = "chat" | "git" | "plan" | "sessions";
 
 export interface Layout {
   columns: number;
@@ -238,6 +238,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       {tab("1", "Chat", "chat")}
       {tab("2", "Changes", "git")}
       {tab("3", "Plan", "plan")}
+      {tab("4", "Sessions", "sessions")}
     </Text>
   );
 }

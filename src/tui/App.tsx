@@ -8,6 +8,7 @@ import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
 import { useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
+import { SessionsView } from "./SessionsView.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
 
@@ -19,7 +20,7 @@ interface Props {
   unfocused?: boolean;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan" };
+const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions" };
 
 export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }: Props) {
   const { exit } = useApp();
@@ -32,7 +33,12 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
   const [infoOpen, setInfoOpen] = useState(false);
   const [gitRoot, setGitRoot] = useState<string | null>();
   // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
-  const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({ chat: false, git: false, plan: false });
+  const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
+    chat: false,
+    git: false,
+    plan: false,
+    sessions: false,
+  });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
   useViewerControl({ cwd, followActive: !sessionId, onView: setMode, onSessionEnd: exit });
@@ -86,6 +92,15 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false }:
             layout={layout}
             active={mode === "plan" && !infoOpen}
             onDiffOpen={setDetail("plan")}
+          />
+        </Box>
+        <Box display={mode === "sessions" ? "flex" : "none"}>
+          <SessionsView
+            cwd={cwd}
+            activePath={path}
+            layout={layout}
+            visible={mode === "sessions"}
+            active={mode === "sessions" && !infoOpen}
           />
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}

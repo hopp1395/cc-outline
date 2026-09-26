@@ -1,10 +1,11 @@
 # cc-outline
 
-`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has three views:
+`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has four views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
+- **Sessions** gives an overview of the project's sessions: when, how long, which plans, which changed files, and the command to resume each one.
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff and the plan view](docs/demo.gif)
 
@@ -33,10 +34,10 @@ Working with Claude Code in the terminal has three blind spots. cc-outline fills
 ### In daily work
 
 - **Review while Claude works.** Keep the approved plan in the Plan view and check the resulting diff in the Changes view, both next to the running session.
-- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`/`2`/`3`) switches views, `alt+←` returns to Claude Code.
+- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`4`) switches views, `alt+←` returns to Claude Code.
 - **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
-- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git` or `/cco:plan`, follows the active session, closes it with the session and reopens it next time if it was open.
+- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan` or `/cco:session`, follows the active session, closes it with the session and reopens it next time if it was open.
 
 ## Installation
 
@@ -52,14 +53,14 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git` and `/cco:plan` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan` and `/cco:session` commands. The npm package is its own plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
 claude plugin install cco@cc-outline
 ```
 
-**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git` or `/cco:plan`.
+**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan` or `/cco:session`.
 
 To uninstall, run `claude plugin uninstall cco@cc-outline`, `claude plugin marketplace remove cc-outline` and `npm rm -g cc-outline`, then delete `~/.claude/cco/`.
 
@@ -77,24 +78,24 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 ## Usage
 
-- **`/cco:chat`**, **`/cco:git`** or **`/cco:plan`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in the Chat, Changes or Plan view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
+- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`** or **`/cco:session`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
-  - `--view chat|git|plan`: view to start with (default: `chat`)
+  - `--view chat|git|plan|sessions`: view to start with (default: `chat`)
 
 All views share one layout:
 - **Top bar:** the view tabs and a status summary.
 - **Body:** a list on the left and a preview on the right.
 - **Help line:** the keys of the current view at the bottom.
 
-Press `1`, `2` and `3` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
+Press `1` to `4` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
-**Lists.** The three lists work the same way:
+**Lists.** All lists work the same way:
 - `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
 - `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
-- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id.
+- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id.
 
 ## Chat view
 
@@ -193,32 +194,51 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 - `nowrap` while wrapping is off
 - `FOLLOW` while the newest plan is followed
 
+## Sessions view
+
+The Sessions view is an overview of all sessions of the project. It only reads them: the other views keep showing the active session.
+
+**List (left).** One entry per session, oldest first, with its start date and time and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
+
+**Details (right).** Pinned at the top:
+- the name
+- the date, start and end time, duration and git branch
+- the number of prompts, plans and changed files
+- the command that continues the session: `claude --resume <session-id>`. `c` copies it to the clipboard. In a running Claude Code, `/resume <session-id>` does the same.
+
+Below it:
+- **Plans** with their status (`✓` approved, `✗` rejected, `●` waiting), time and title
+- **Changed files**: every file Claude edited or wrote. Files of the project come first, relative to it; files elsewhere (such as plan files) are dimmed.
+- **Prompts** with their time
+
+**Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. Only files that changed are read again, and of those only the part that was appended.
+
 ## Keys
 
 The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
 
-| Key | Chat | Changes | Plan |
-|---|---|---|---|
-| `1` / `2` / `3` | switch view | switch view | switch view |
-| `←` / `→` | previous / next turn | previous / next file | previous / next plan |
-| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) |
-| `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ |
-| `Shift+←` / `Shift+→` | previous / next marked turn | previous / next marked file | previous / next marked plan |
-| `↑` / `↓` | scroll by line | scroll by line | scroll by line |
-| `PgUp` / `PgDn`, `b` | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) |
-| `Ctrl+Home` | top of the answer | top of the diff | top of the plan |
-| `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan |
-| `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version |
-| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit |
-| `f` | toggle follow mode | – | – |
-| `t` / `h` | show tool calls / thinking | – | – |
-| `c` | copy the turn's Markdown | – | copy the plan |
-| `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – |
-| `r` | – | refresh now | – |
-| `w` | toggle wrapping | toggle wrapping | toggle wrapping |
-| `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
-| `i` | info dialog | info dialog | info dialog |
-| `q` | quit | quit | quit |
+| Key | Chat | Changes | Plan | Sessions |
+|---|---|---|---|---|
+| `1` – `4` | switch view | switch view | switch view | switch view |
+| `←` / `→` | previous / next turn | previous / next file | previous / next plan | previous / next session |
+| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |
+| `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ | mark the session ★ |
+| `Shift+←` / `Shift+→` | previous / next marked turn | previous / next marked file | previous / next marked plan | previous / next marked session |
+| `↑` / `↓` | scroll by line | scroll by line | scroll by line | scroll by line |
+| `PgUp` / `PgDn`, `b` | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) |
+| `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
+| `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
+| `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | – |
+| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | quit |
+| `f` | toggle follow mode | – | – | – |
+| `t` / `h` | show tool calls / thinking | – | – | – |
+| `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
+| `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
+| `r` | – | refresh now | – | – |
+| `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
+| `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
+| `i` | info dialog | info dialog | info dialog | info dialog |
+| `q` | quit | quit | quit | quit |
 
 `t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Each view keeps its own `w` setting.
 

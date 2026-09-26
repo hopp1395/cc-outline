@@ -311,7 +311,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
-          { text: "1/2/3 view", priority: 1 },
+          { text: "1-4 view", priority: 1 },
         ]
       }
     />
