@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
@@ -35,6 +36,10 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
   const [infoOpen, setInfoOpen] = useState(false);
   // A view's confirmation dialog takes all keys while it is open.
   const [modal, setModal] = useState(false);
+  // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
+  const [quitAsked, setQuitAsked] = useState(false);
+  // Views take no keys while a dialog of the app is open.
+  const blocked = infoOpen || quitAsked;
   const [gitRoot, setGitRoot] = useState<string | null>();
   // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
   const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
@@ -55,14 +60,14 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
   }, [cwd]);
 
   useInput((input, key) => {
-    if (modal) return;
+    if (modal || quitAsked) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
-      else if (input === "q") exit();
+      else if (input === "q") setQuitAsked(true);
       return;
     }
-    if (input === "q" || (key.escape && !detailOpen[mode])) exit();
+    if (input === "q" || (key.escape && !detailOpen[mode])) setQuitAsked(true);
     else if (input === "i") setInfoOpen(true);
     else if (VIEW_KEYS[input]) setMode(VIEW_KEYS[input]);
   });
@@ -77,7 +82,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             path={path}
             transcript={transcript}
             layout={layout}
-            active={mode === "chat" && !infoOpen}
+            active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
           />
         </Box>
@@ -85,7 +90,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
           <GitView
             cwd={cwd}
             layout={layout}
-            active={mode === "git" && !infoOpen}
+            active={mode === "git" && !blocked}
             onFileOpen={setDetail("git")}
           />
         </Box>
@@ -95,7 +100,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             plans={transcript.plans}
             hasSession={path !== undefined}
             layout={layout}
-            active={mode === "plan" && !infoOpen}
+            active={mode === "plan" && !blocked}
             onDiffOpen={setDetail("plan")}
           />
         </Box>
@@ -105,12 +110,23 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             activePath={path}
             layout={layout}
             visible={mode === "sessions"}
-            active={mode === "sessions" && !infoOpen}
+            active={mode === "sessions" && !blocked}
             onTrashOpen={setDetail("sessions")}
             onModal={setModal}
           />
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
+        {quitAsked && (
+          <ConfirmDialog
+            layout={layout}
+            confirmation={{
+              title: "Quit cco?",
+              lines: ["The pane closes; a /cco:… command opens it again."],
+              onConfirm: exit,
+            }}
+            onClose={() => setQuitAsked(false)}
+          />
+        )}
       </Box>
     </FocusContext.Provider>
   );

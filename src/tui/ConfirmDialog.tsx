@@ -5,8 +5,6 @@ export interface Confirmation {
   title: string;
   /** A few lines of detail below the title. */
   lines: string[];
-  /** Label of the action, e.g. "move to trash". */
-  action: string;
   /** Destructive for good: shown in red. */
   danger?: boolean;
   onConfirm: () => void;
@@ -14,7 +12,7 @@ export interface Confirmation {
 
 const MAX_WIDTH = 64;
 
-/** Asks before an action: Enter confirms, Esc cancels. Takes all keys while open. */
+/** Asks a yes/no question: Enter is yes, Esc is no. Takes all keys while open. */
 export function ConfirmDialog({
   layout,
   confirmation,
@@ -48,9 +46,9 @@ export function ConfirmDialog({
       ))}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color={color}>Enter</Text> {confirmation.action}
+        <Text color={color}>Enter</Text> yes
         {"   "}
-        <Text color="yellow">Esc</Text> cancel
+        <Text color="yellow">Esc</Text> no
       </Text>
     </Dialog>
   );

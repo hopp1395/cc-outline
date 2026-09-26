@@ -281,7 +281,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
         truncate(`in ${tilde(dir)}`, 56),
       ],
-      action: "start",
       onConfirm: () => {
         notify(resumeInNewTab(s.id, dir, truncate(sessionTitle(s), 30)));
         // Show it as running as soon as Claude Code registers it.
@@ -300,7 +299,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
         "You can restore it from the trash (T).",
       ],
-      action: "move to trash",
       onConfirm: () =>
         attempt(() => {
           trashSession(cwd, s, activeId);
@@ -323,7 +321,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         "Transcript, file history and subagent data are removed.",
         "This can't be undone.",
       ],
-      action: "delete for good",
       danger: true,
       onConfirm: () =>
         attempt(() => {
@@ -336,7 +333,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     setConfirmation({
       title: "Empty the trash?",
       lines: [`${plural(trash.length, "session")} of this project will be deleted for good.`, "This can't be undone."],
-      action: "empty trash",
       danger: true,
       onConfirm: () => attempt(() => void emptyTrash(cwd), "trash emptied"),
     });

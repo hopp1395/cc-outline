@@ -214,14 +214,14 @@ Below it:
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. Only files that changed are read again, and of those only the part that was appended.
 
-**Starting.** `Enter` asks for a confirmation (`Enter` starts, `Esc` cancels) and then continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session and sessions already running in another Claude Code are not started a second time. In other terminals the help line names the command to run instead.
+**Starting.** `Enter` asks for a confirmation (`Enter` yes, `Esc` no) and then continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session and sessions already running in another Claude Code are not started a second time. In other terminals the help line names the command to run instead.
 
 **Deleting.** Claude Code has no command to delete a session; cc-outline moves it to a trash of its own first.
 - `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
 - Moved are the transcript, the session's folder next to it (subagents, title), its file history for `/rewind` and its session environment. The shared prompt history (`history.jsonl`) and plan files in `~/.claude/plans/` stay.
 - The active session and sessions running in another Claude Code (per `~/.claude/sessions/`) can't be deleted.
 - `T` shows the trash of the project, most recently deleted first, with the details as before. There, `u` restores the selected session, `x` deletes it for good and `X` empties the trash, each after a confirmation. `T` or `Esc` returns to the list.
-- In the confirmation, `Enter` confirms and `Esc` cancels. While it is open, no other key does anything.
+- In the confirmation, `Enter` means yes and `Esc` means no. While it is open, no other key does anything.
 - The trash lives in `~/.claude/cco/trash/<project-slug>/`. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
 ## Keys
@@ -254,6 +254,8 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
 | `i` | info dialog | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit | quit |
+
+Quitting with `q` or `Esc` asks first. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
 
 `t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Each view keeps its own `w` setting.
 
