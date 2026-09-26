@@ -26,6 +26,19 @@ describe("TranscriptParser", () => {
     expect(queued.blocks).toEqual([{ kind: "text", text: "Tests added." }]);
   });
 
+  it("takes the text of a queued prompt with a pasted image", () => {
+    const queued = (uuid: string, prompt: unknown) =>
+      JSON.stringify({ type: "attachment", uuid, attachment: { type: "queued_command", prompt, humanTurn: true } }) + "\n";
+    const p = new TranscriptParser();
+    p.push(
+      queued("q1", [
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+        { type: "text", text: "what is on this screenshot?" },
+      ]) + queued("q2", [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }]),
+    );
+    expect(p.turns.map((t) => t.prompt)).toEqual(["what is on this screenshot?"]);
+  });
+
   it("collects assistant blocks in order and skips sidechains", () => {
     const p = new TranscriptParser();
     p.push(fixture);

@@ -2,7 +2,7 @@ import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nextMarked } from "../favorites.js";
 import { displayPath, formatDuration, insideProject, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
@@ -38,6 +38,8 @@ import {
 import { planTitle } from "./PlanView.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
+import { useSetting } from "./useSetting.js";
+import { projectSlug } from "../transcript/locate.js";
 
 interface Props {
   cwd: string;
@@ -108,7 +110,9 @@ export function resumeCommand(s: SessionSummary): string {
 }
 
 /** Plans, changed files and prompts of a session, as lines of `width` columns. */
-export function sessionLines(s: SessionSummary, cwd: string, width: number): string[] {
+export function sessionLines(s: SessionSummary, viewerCwd: string, width: number): string[] {
+  // Paths are shown relative to the folder the session ran in.
+  const cwd = s.cwd ?? viewerCwd;
   const lines: string[] = [];
   const section = (title: string, count: number, body: string[]) => {
     if (lines.length) lines.push("");
@@ -153,28 +157,38 @@ function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt
 }
 
 /**
- * The project's sessions and which of them run in a Claude Code process, read
- * while `visible` and refreshed every few seconds. `refresh` rescans at once.
+ * The sessions of the project (or, with `all`, of every project) and which of
+ * them run in a Claude Code process, read while `visible` and refreshed every
+ * few seconds. The first scan fills the list as it goes; `progress` counts the
+ * transcripts read so far. `refresh` rescans at once.
  */
-function useSessions(cwd: string, visible: boolean) {
-  const index = useRef<SessionIndex>(undefined);
+function useSessions(cwd: string, visible: boolean, all: boolean) {
+  const index = useRef(new SessionIndex());
   const scanRef = useRef<() => Promise<void>>(async () => {});
   const [sessions, setSessions] = useState<SessionSummary[]>();
+  const [progress, setProgress] = useState<{ done: number; total: number }>();
   const [running, setRunning] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!visible) return;
-    if (index.current?.cwd !== cwd) index.current = new SessionIndex(cwd);
     const current = index.current;
     let cancelled = false;
     let busy = false;
+    let first = true;
     const scan = async () => {
       if (busy) return;
       busy = true;
       try {
-        const result = await current.scan();
+        const result = await current.scan(all ? undefined : cwd, (partial, done, total) => {
+          // Only the first scan shows partial lists; later ones just update the finished list.
+          if (cancelled || !first) return;
+          setSessions(partial);
+          setProgress({ done, total });
+        });
         if (!cancelled) {
+          first = false;
           setSessions(result);
+          setProgress(undefined);
           setRunning(runningSessionIds());
         }
       } finally {
@@ -188,20 +202,26 @@ function useSessions(cwd: string, visible: boolean) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [cwd, visible]);
+  }, [cwd, visible, all]);
 
-  return { sessions, running, refresh: () => void scanRef.current() };
+  return { sessions, progress, running, refresh: () => void scanRef.current() };
+}
+
+/** Short name of the project a session belongs to: its folder name. */
+function projectName(s: SessionSummary): string {
+  return s.cwd ? basename(s.cwd) : basename(dirname(s.path));
 }
 
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
-  const { sessions, running, refresh } = useSessions(cwd, visible);
+  const [all, setAll] = useSetting("allProjects");
+  const { sessions, progress, running, refresh } = useSessions(cwd, visible, all);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   const [trashOpen, setTrashOpen] = useState(false);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
   // The session moved to the trash last, for u (undo) in the list.
-  const [lastTrashed, setLastTrashed] = useState<string>();
+  const [lastTrashed, setLastTrashed] = useState<SessionSummary>();
   const [confirmation, setConfirmation] = useState<Confirmation>();
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
   const [selectedId, setSelectedId] = useState<string>();
@@ -257,12 +277,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     } catch (err) {
       notify(`failed: ${(err as Error).message}`);
     }
-    setTrash(listTrash(cwd));
+    setTrash(listTrash(trashScope));
     refresh();
   };
 
   const toggleTrash = (open: boolean) => {
-    if (open) setTrash(listTrash(cwd));
+    if (open) setTrash(listTrash(trashScope));
     setTrashOpen(open);
     scroll.set(0);
   };
@@ -301,15 +321,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       ],
       onConfirm: () =>
         attempt(() => {
-          trashSession(cwd, s, activeId);
-          setLastTrashed(s.id);
+          trashSession(s, activeId);
+          setLastTrashed(s);
           selectNeighbour();
         }, "moved to the trash · u undo · T trash"),
     });
   };
-  const restore = (id: string, after?: () => void) =>
+  /** The trash shows the same scope as the list: this project or all. */
+  const trashScope = all ? undefined : projectSlug(cwd);
+  const slugOf = (s: SessionSummary) => basename(dirname(s.path));
+  const restore = (s: SessionSummary, after?: () => void) =>
     attempt(() => {
-      restoreSession(cwd, id);
+      restoreSession(slugOf(s), s.id);
       after?.();
       setLastTrashed(undefined);
     }, "restored");
@@ -324,7 +347,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       danger: true,
       onConfirm: () =>
         attempt(() => {
-          purgeSession(cwd, s.id);
+          purgeSession(slugOf(s), s.id, cwd);
           selectNeighbour();
         }, "deleted for good"),
     });
@@ -332,18 +355,24 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (trash.length === 0) return;
     setConfirmation({
       title: "Empty the trash?",
-      lines: [`${plural(trash.length, "session")} of this project will be deleted for good.`, "This can't be undone."],
+      lines: [`${plural(trash.length, "session")} ${all ? "of all projects" : "of this project"} will be deleted for good.`, "This can't be undone."],
       danger: true,
-      onConfirm: () => attempt(() => void emptyTrash(cwd), "trash emptied"),
+      onConfirm: () => attempt(() => void emptyTrash(trashScope, cwd), "trash emptied"),
     });
   };
 
   useInput(
     (input, key) => {
       if (input === "T") return toggleTrash(!trashOpen);
+      if (input === "a") {
+        setAll((a) => !a);
+        // The trash follows the scope right away; the list follows with the next scan.
+        if (trashOpen) setTrash(listTrash(all ? projectSlug(cwd) : undefined));
+        return scroll.set(0);
+      }
       if (trashOpen) {
         if (key.escape) return toggleTrash(false);
-        if (input === "u" && session) return restore(session.id, selectNeighbour);
+        if (input === "u" && session) return restore(session, selectNeighbour);
         if (input === "x" && session) return askPurge(session);
         if (input === "X") return askEmpty();
       } else {
@@ -362,8 +391,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         if ((input === "d" || key.delete) && session) return askDelete(session);
         if (input === "u") {
           if (!lastTrashed) return notify("nothing to undo");
-          const id = lastTrashed;
-          return restore(id, () => setSelectedId(id));
+          const s = lastTrashed;
+          return restore(s, () => setSelectedId(s.id));
         }
         if (key.return && session) return start(session);
         if (input === "c" && session) {
@@ -388,7 +417,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   let preview;
   if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
-  else if (!session) preview = <Text dimColor>No Claude Code session found for {cwd}</Text>;
+  else if (!session) preview = <Text dimColor>{all ? "No Claude Code sessions found" : `No Claude Code session found for ${cwd}`}</Text>;
   else preview = <Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} />;
 
   const footer = trashOpen
@@ -398,6 +427,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "u restore", priority: 4 },
         { text: "x delete", priority: 3 },
         { text: "X empty", priority: 2 },
+        { text: "a all", on: all, priority: 2 },
         { text: "T trash", on: true },
       ]
     : [
@@ -408,6 +438,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
+        { text: "a all", on: all, priority: 2 },
         { text: "T trash", priority: 2 },
         { text: "1-4 view", priority: 1 },
       ];
@@ -426,7 +457,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             ) : (
               "…"
             )}
-            {session && ` · ${scroll.position}`}
+            {all ? " · all projects" : " · this project"}
+            {progress && <Text color="yellow">{` · reading ${progress.done}/${progress.total}`}</Text>}
+            {session && !progress && ` · ${scroll.position}`}
             {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           </Text>
         }
@@ -449,7 +482,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                     {dateTime(deleted !== undefined ? new Date(deleted).toISOString() : s.start)}{" "}
                   </Text>
                   {badge && <Text color="green">{badge}</Text>}
-                  {truncate(sessionTitle(s), Math.max(4, listWidth - 13 - (marked ? 2 : 0) - badge.length))}
+                  {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
+                  {truncate(
+                    sessionTitle(s),
+                    Math.max(4, listWidth - 13 - (marked ? 2 : 0) - badge.length - (all ? Math.min(12, projectName(s).length) + 1 : 0)),
+                  )}
                 </>
               );
             }}

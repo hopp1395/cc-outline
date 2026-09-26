@@ -1,10 +1,10 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
-import { projectDir } from "./locate.js";
+import { claudeDir, projectDir } from "./locate.js";
 import { TranscriptParser, type Plan } from "./parse.js";
 
-/** What the Sessions view shows about one session of the project. */
+/** What the Sessions view shows about one session. */
 export interface SessionSummary {
   id: string;
   path: string;
@@ -55,6 +55,7 @@ export class SessionReader {
   private cwd?: string;
   private start?: string;
   private end?: string;
+  private files: string[] = [];
   private summary?: SessionSummary;
 
   constructor(readonly path: string) {}
@@ -89,6 +90,7 @@ export class SessionReader {
     this.decoder = new TextDecoder("utf-8");
     this.parser = new TranscriptParser();
     this.title = this.branch = this.cwd = this.start = this.end = undefined;
+    this.files = [];
   }
 
   private read(size: number): void {
@@ -126,19 +128,32 @@ export class SessionReader {
           this.end = entry.timestamp;
         }
       }
-      this.parser.push(line + "\n");
+      try {
+        this.parser.push(line + "\n");
+      } catch {
+        // An entry in a shape the parser does not know must not stop the overview.
+      }
+      this.takeBlocks();
     }
   }
 
-  private summarize(): SessionSummary {
-    const files: string[] = [];
-    for (const turn of this.parser.turns) {
-      for (const b of turn.blocks) {
-        if (b.kind !== "tool" || !EDIT_TOOLS[b.name]) continue;
-        const file = (b.input as Record<string, unknown> | undefined)?.[EDIT_TOOLS[b.name]];
-        if (typeof file === "string" && !files.includes(file)) files.push(file);
-      }
+  /**
+   * Collects the changed files from the blocks the last line added and drops
+   * the blocks: the overview needs no answers or thinking, and keeping them
+   * for every session of every project would cost hundreds of MB.
+   */
+  private takeBlocks(): void {
+    const turn = this.parser.turns.at(-1);
+    if (!turn?.blocks.length) return;
+    for (const b of turn.blocks) {
+      if (b.kind !== "tool" || !EDIT_TOOLS[b.name]) continue;
+      const file = (b.input as Record<string, unknown> | undefined)?.[EDIT_TOOLS[b.name]];
+      if (typeof file === "string" && !this.files.includes(file)) this.files.push(file);
     }
+    turn.blocks.length = 0;
+  }
+
+  private summarize(): SessionSummary {
     return {
       id: basename(this.path, ".jsonl"),
       path: this.path,
@@ -147,7 +162,7 @@ export class SessionReader {
         .filter((t) => t.id !== "start")
         .map((t) => ({ text: t.prompt, timestamp: t.timestamp })),
       plans: this.parser.plans.map((p) => ({ ...p })),
-      files,
+      files: [...this.files],
       branch: this.branch,
       cwd: this.cwd,
       start: this.start,
@@ -156,34 +171,60 @@ export class SessionReader {
   }
 }
 
-/** All sessions of a project, kept up to date by re-reading only files that changed. */
-export class SessionIndex {
-  private readers = new Map<string, SessionReader>();
-
-  constructor(readonly cwd: string) {}
-
-  /**
-   * Sessions with work in them (see `hasWork`), oldest first. Yields between files so a
-   * first scan over many large transcripts does not freeze the viewer.
-   */
-  async scan(): Promise<SessionSummary[]> {
-    const dir = projectDir(this.cwd);
-    let names: string[];
+/** Transcripts of one project (`cwd`) or, without it, of all projects. */
+function transcriptFiles(cwd?: string): string[] {
+  const root = join(claudeDir(), "projects");
+  let dirs: string[];
+  try {
+    dirs = cwd ? [projectDir(cwd)] : readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => join(root, d.name));
+  } catch {
+    return [];
+  }
+  return dirs.flatMap((dir) => {
     try {
-      names = readdirSync(dir).filter((n) => n.endsWith(".jsonl"));
+      return readdirSync(dir)
+        .filter((n) => n.endsWith(".jsonl"))
+        .map((n) => join(dir, n));
     } catch {
       return [];
     }
+  });
+}
+
+const byStart = (a: SessionSummary, b: SessionSummary) => (a.start ?? "").localeCompare(b.start ?? "");
+
+/** Sessions of one project or of all, kept up to date by re-reading only files that changed. */
+export class SessionIndex {
+  private readers = new Map<string, SessionReader>();
+
+  /**
+   * Sessions with work in them (see `hasWork`), oldest first, of the project
+   * `cwd` or, without it, of all projects. Yields between files so a first
+   * scan over many large transcripts does not freeze the viewer, and reports
+   * what it has so far through `onProgress`.
+   */
+  async scan(
+    cwd?: string,
+    onProgress?: (sessions: SessionSummary[], done: number, total: number) => void,
+  ): Promise<SessionSummary[]> {
+    const files = transcriptFiles(cwd);
     const sessions: SessionSummary[] = [];
-    for (const name of names) {
-      const path = join(dir, name);
+    let reported = Date.now();
+    for (const [i, path] of files.entries()) {
       let reader = this.readers.get(path);
       if (!reader) this.readers.set(path, (reader = new SessionReader(path)));
       const summary = reader.update();
       if (hasWork(summary)) sessions.push(summary);
+      if (onProgress && Date.now() - reported > 250) {
+        reported = Date.now();
+        onProgress([...sessions].sort(byStart), i + 1, files.length);
+      }
       await new Promise((r) => setImmediate(r));
     }
-    return sessions.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
+    // Forget transcripts that are gone (deleted, moved to the trash).
+    const present = new Set(files);
+    for (const path of this.readers.keys()) if (!present.has(path) && (!cwd || path.startsWith(projectDir(cwd)))) this.readers.delete(path);
+    return sessions.sort(byStart);
   }
 }
 

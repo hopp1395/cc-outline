@@ -48,7 +48,7 @@ interface Entry {
   isMeta?: boolean;
   isSidechain?: boolean;
   message?: { id?: string; content?: string | ContentBlock[] };
-  attachment?: { type?: string; prompt?: string; humanTurn?: boolean; origin?: { kind?: string } };
+  attachment?: { type?: string; prompt?: string | ContentBlock[]; humanTurn?: boolean; origin?: { kind?: string } };
 }
 
 /**
@@ -59,7 +59,18 @@ function queuedPrompt(entry: Entry): string | undefined {
   const a = entry.attachment;
   if (entry.type !== "attachment" || entry.isSidechain || a?.type !== "queued_command") return undefined;
   if (!a.humanTurn && a.origin?.kind !== "human") return undefined;
-  const text = a.prompt?.trim();
+  // A string, or content blocks when the prompt had images pasted into it; only its text counts, as for prompts.
+  const prompt = a.prompt;
+  const text = (
+    typeof prompt === "string"
+      ? prompt
+      : Array.isArray(prompt)
+        ? prompt
+            .filter((b) => b.type === "text" && b.text)
+            .map((b) => b.text)
+            .join("\n")
+        : ""
+  ).trim();
   return text || undefined;
 }
 

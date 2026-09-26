@@ -71,6 +71,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["d Del", "move to trash"],
     ["u", "undo / restore"],
     ["T", "trash on / off"],
+    ["a", "all projects / this one"],
     ["x X", "delete / empty trash"],
     ...COMMON_KEYS,
   ],

@@ -13,9 +13,11 @@ export interface Settings {
   wrap: boolean;
   /** Plan: wrap long lines (w). */
   planWrap: boolean;
+  /** Sessions: show the sessions of all projects, not only this one (a). */
+  allProjects: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { showTools: false, showThinking: false, chatWrap: true, wrap: true, planWrap: true };
+export const DEFAULT_SETTINGS: Settings = { showTools: false, showThinking: false, chatWrap: true, wrap: true, planWrap: true, allProjects: true };
 
 export function settingsFile(): string {
   return join(claudeDir(), "cco", "settings.json");

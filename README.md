@@ -196,9 +196,9 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 
 ## Sessions view
 
-The Sessions view is an overview of all sessions of the project. It only reads them: the other views keep showing the active session.
+The Sessions view is an overview of your Claude Code sessions: of all projects by default, or only of this one after `a` (remembered in `settings.json`). It only reads them: the other views keep showing the active session.
 
-**List (left).** One entry per session, oldest first, with its start date and time and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
+**List (left).** One entry per session, oldest first, with its start date and time, with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
 
 **Details (right).** Pinned at the top:
 - the name
@@ -212,7 +212,7 @@ Below it:
 - **Changed files**: every file Claude edited or wrote. Files of the project come first, relative to it; files elsewhere (such as plan files) are dimmed.
 - **Prompts** with their time
 
-**Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. Only files that changed are read again, and of those only the part that was appended.
+**Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. The first read fills the list as it goes (`reading 42/97` in the top bar); with many projects it takes a few seconds. After that only files that changed are read again, and of those only the part that was appended. Only what the overview shows is kept in memory, not the answers.
 
 **Starting.** `Enter` asks for a confirmation (`Enter` yes, `Esc` no) and then continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session and sessions already running in another Claude Code are not started a second time. In other terminals the help line names the command to run instead.
 
@@ -220,9 +220,9 @@ Below it:
 - `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
 - Moved are the transcript, the session's folder next to it (subagents, title), its file history for `/rewind` and its session environment. The shared prompt history (`history.jsonl`) and plan files in `~/.claude/plans/` stay.
 - The active session and sessions running in another Claude Code (per `~/.claude/sessions/`) can't be deleted.
-- `T` shows the trash of the project, most recently deleted first, with the details as before. There, `u` restores the selected session, `x` deletes it for good and `X` empties the trash, each after a confirmation. `T` or `Esc` returns to the list.
+- `T` shows the trash, of all projects or of this one like the list, most recently deleted first, with the details as before. There, `u` restores the selected session, `x` deletes it for good and `X` empties the trash, each after a confirmation. `T` or `Esc` returns to the list.
 - In the confirmation, `Enter` means yes and `Esc` means no. While it is open, no other key does anything.
-- The trash lives in `~/.claude/cco/trash/<project-slug>/`. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
+- The trash lives in `~/.claude/cco/trash/<project-slug>/`, per project of the session. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
 ## Keys
 
@@ -247,6 +247,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |
 | `T` | – | – | – | show / leave the trash |
+| `a` | – | – | – | all projects ↔ this project |
 | `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
 | `r` | – | refresh now | – | – |

@@ -93,21 +93,42 @@ describe("SessionIndex", () => {
       join(dir, "cmd.jsonl"),
       prompt("u1", "10:00", "<command-name>/fix</command-name>") + tool("e1", "10:01", "Edit", { file_path: "/a.cs" }),
     );
-    const sessions = await new SessionIndex(cwd).scan();
+    const sessions = await new SessionIndex().scan(cwd);
     expect(sessions.map((s) => s.id)).toEqual(["early", "cmd", "late"]);
+  });
+
+  it("lists the sessions of all projects without a cwd", async () => {
+    writeFileSync(join(projectDir(cwd), "here.jsonl"), prompt("u1", "09:00", "Here"));
+    const other = join(tmpdir(), "cco-sessions-other");
+    mkdirSync(projectDir(other), { recursive: true });
+    writeFileSync(join(projectDir(other), "there.jsonl"), prompt("u1", "08:00", "There"));
+    const index = new SessionIndex();
+    expect((await index.scan(cwd)).map((s) => s.id)).toEqual(["here"]);
+    const seen: number[] = [];
+    const all = await index.scan(undefined, (_s, done) => seen.push(done));
+    expect(all.map((s) => s.id)).toEqual(["there", "here"]);
+  });
+
+  it("keeps no answer text in memory, only what the overview shows", () => {
+    const reader = new SessionReader("x.jsonl");
+    reader.push(prompt("u1", "09:00", "Go") + tool("e1", "09:01", "Edit", { file_path: "/a.cs" }));
+    const s = reader.push(tool("e2", "09:02", "Write", { file_path: "/b.cs" }));
+    expect(s.files).toEqual(["/a.cs", "/b.cs"]);
+    // The parser's turns carry no blocks any more.
+    expect((reader as unknown as { parser: { turns: { blocks: unknown[] }[] } }).parser.turns[0].blocks).toEqual([]);
   });
 
   it("reads only what was appended to a growing transcript", async () => {
     const file = join(projectDir(cwd), "live.jsonl");
     writeFileSync(file, prompt("u1", "09:00", "First"));
-    const index = new SessionIndex(cwd);
-    expect((await index.scan())[0].prompts).toHaveLength(1);
+    const index = new SessionIndex();
+    expect((await index.scan(cwd))[0].prompts).toHaveLength(1);
     // Written in two parts, the second completing a line split mid-way.
     const next = prompt("u2", "09:10", "Second");
     appendFileSync(file, next.slice(0, 20));
-    expect((await index.scan())[0].prompts).toHaveLength(1);
+    expect((await index.scan(cwd))[0].prompts).toHaveLength(1);
     appendFileSync(file, next.slice(20));
-    const [s] = await index.scan();
+    const [s] = await index.scan(cwd);
     expect(s.prompts.map((p) => p.text)).toEqual(["First", "Second"]);
     expect(s.end).toBe("2026-09-26T09:10:00.000Z");
   });
