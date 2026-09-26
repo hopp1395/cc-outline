@@ -19,21 +19,55 @@ export function detectTerminal(env: NodeJS.ProcessEnv = process.env): Terminal |
 }
 
 /**
+ * Variables Claude Code sets for its own child processes. The viewer inherits
+ * them from the Claude Code it was opened from; a Claude Code started with
+ * them thinks it is a child session and, among other things, does not save
+ * its transcript. Settings a user sets themselves (CLAUDE_CONFIG_DIR,
+ * CLAUDE_CODE_USE_BEDROCK, …) are not in this list and stay.
+ */
+const SESSION_BOUND_VARS = [
+  "CLAUDECODE",
+  "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+  "AI_AGENT",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_BRIDGE_SESSION_ID",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+];
+
+/** `env` without the variables that tie a process to the Claude Code session it was started from. */
+export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  // Windows environment names are case-insensitive, and Node keeps the original spelling.
+  for (const key of Object.keys(clean)) if (SESSION_BOUND_VARS.includes(key.toUpperCase())) delete clean[key];
+  return clean;
+}
+
+/**
  * Continues a session with `claude --resume` in a new tab (Windows Terminal)
  * or window (tmux), in the folder it ran in. The shell stays open after
  * Claude Code exits. Returns what happened, for the help line.
+ * The new Claude Code must not inherit the variables of the Claude Code this
+ * viewer was opened from (see `independentEnv`).
  */
 export function resumeInNewTab(sessionId: string, dir: string, title: string): string {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the tab open afterwards.
     const args = ["-w", "0", "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
-    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
+    // Windows Terminal starts the tab with the environment of the wt call.
+    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: true, env: independentEnv() }).unref();
     return "started in a new Windows Terminal tab";
   }
   if (terminal === "tmux") {
     const shell = process.env.SHELL || "sh";
-    const cmd = `claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
+    // tmux takes the environment from its server, which may itself have been started inside Claude Code.
+    const cmd = `unset ${SESSION_BOUND_VARS.join(" ")}; claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
     spawn("tmux", ["new-window", "-n", title, "-c", dir, cmd], { stdio: "ignore", detached: true }).unref();
     return "started in a new tmux window";
   }
