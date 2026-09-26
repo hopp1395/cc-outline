@@ -5,7 +5,7 @@
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 
-![cc-outline demo: the chat view with a rendered answer, then the changes view with a C# diff](docs/demo.svg)
+![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat and then the changes view with a C# diff](docs/demo.svg)
 
 ## Installation
 
@@ -196,7 +196,7 @@ npm run typecheck
 npm run demo        # re-record docs/demo.svg, chat.svg and changes.svg
 ```
 
-The demo runs the viewer headlessly on a made-up project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG. `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
+The demo runs the viewer headlessly on a made-up project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG. The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
 
 `cco` runs the built `dist/cli.js`. After a rebuild, close a running viewer with `q` and reopen it. Changes to the plugin (hooks, commands) take effect only after Claude Code restarts.
 
