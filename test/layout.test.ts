@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { fitFooter, listWindow, sliceColumns, truncate, wrapPath, type FooterItem } from "../src/tui/layout.js";
+import {
+  fitFooter,
+  listWindow,
+  MARQUEE_MAX_SCROLL,
+  marqueeOffset,
+  sliceColumns,
+  truncate,
+  wrapPath,
+  type FooterItem,
+} from "../src/tui/layout.js";
 
 describe("wrapPath", () => {
   it("breaks after slashes", () => {
@@ -99,5 +108,29 @@ describe("fitFooter", () => {
         .join("  ");
       expect(line.length).toBeLessThanOrEqual(width);
     }
+  });
+});
+
+describe("marqueeOffset", () => {
+  it("rests at the start, moves to the end, rests and starts over", () => {
+    // 12 ticks rest, 5 columns to move, 12 ticks rest: 29 ticks per round.
+    expect(marqueeOffset(0, 5)).toBe(0);
+    expect(marqueeOffset(12, 5)).toBe(0);
+    expect(marqueeOffset(15, 5)).toBe(3);
+    expect(marqueeOffset(20, 5)).toBe(5);
+    expect(marqueeOffset(28, 5)).toBe(5);
+    expect(marqueeOffset(29, 5)).toBe(0);
+  });
+
+  it("moves at most MARQUEE_MAX_SCROLL columns, then starts over", () => {
+    const overflow = 2000;
+    const round = MARQUEE_MAX_SCROLL + 24;
+    const offsets = Array.from({ length: round }, (_, t) => marqueeOffset(t, overflow));
+    expect(Math.max(...offsets)).toBe(MARQUEE_MAX_SCROLL);
+    expect(marqueeOffset(round, overflow)).toBe(0);
+  });
+
+  it("stays put when the text fits", () => {
+    expect(marqueeOffset(40, 0)).toBe(0);
   });
 });

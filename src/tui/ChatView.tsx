@@ -16,8 +16,8 @@ import {
   Screen,
   markFooter,
   markKeys,
+  EntryText,
   Star,
-  truncate,
   makeScroll,
   type Layout,
 } from "./layout.js";
@@ -278,7 +278,12 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
                 <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
                 {/* ↳ marks prompts sent while Claude was still working. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
-                {truncate(t.prompt, Math.max(4, listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0)))}
+                <EntryText
+                  text={t.prompt}
+                  width={Math.max(4, listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0))}
+                  selected={isSelected}
+                  active={active}
+                />
               </>
             );
           }}

@@ -19,6 +19,7 @@ import {
   previewHeader,
   rule,
   Screen,
+  EntryText,
   Star,
   truncate,
   useScroll,
@@ -245,7 +246,12 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
                 {marked && <Star />}
                 <Text dimColor={!isSelected}>{time(p.timestamp)} </Text>
                 <Text color={status.color}>{status.icon} </Text>
-                {truncate(planTitle(p.text), Math.max(4, listWidth - 8 - (marked ? 2 : 0)))}
+                <EntryText
+                  text={planTitle(p.text)}
+                  width={Math.max(4, listWidth - 8 - (marked ? 2 : 0))}
+                  selected={isSelected}
+                  active={active}
+                />
               </>
             );
           }}

@@ -93,6 +93,7 @@ Press `1` to `4` to switch between the views. All of them keep running in the ba
 
 **Lists.** All lists work the same way:
 - `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
+- If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
 - `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
 - Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id.
@@ -140,8 +141,6 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 **List (left).** One entry per changed file, with its status and line counts. A marked file keeps its mark by path, also after it was committed and changed again. The statuses:
 - `M` modified, `A` added, `D` deleted, `R` renamed, `C` copied, `U` conflict
 - `?` untracked, counted as all-added lines
-
-If the path of the selected file is too long for the list, it scrolls back and forth as a marquee.
 
 **File header (top right).** It stays in place while you scroll, like the prompt in the Chat view. It shows:
 - the full path, wrapped at `/`

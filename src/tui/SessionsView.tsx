@@ -29,6 +29,7 @@ import {
   markKeys,
   previewHeader,
   Screen,
+  EntryText,
   Star,
   truncate,
   useScroll,
@@ -483,10 +484,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   </Text>
                   {badge && <Text color="green">{badge}</Text>}
                   {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
-                  {truncate(
-                    sessionTitle(s),
-                    Math.max(4, listWidth - 13 - (marked ? 2 : 0) - badge.length - (all ? Math.min(12, projectName(s).length) + 1 : 0)),
-                  )}
+                  <EntryText
+                    text={sessionTitle(s)}
+                    width={Math.max(
+                      4,
+                      listWidth - 13 - (marked ? 2 : 0) - badge.length - (all ? Math.min(12, projectName(s).length) + 1 : 0),
+                    )}
+                    selected={isSelected}
+                    active={active && confirmation === undefined}
+                  />
                 </>
               );
             }}

@@ -17,14 +17,13 @@ import {
   bold,
   handleNavigation,
   List,
-  Marquee,
+  EntryText,
   previewHeader,
   rule,
   Screen,
   markFooter,
   markKeys,
   Star,
-  truncate,
   useScroll,
   wrapPath,
   type Layout,
@@ -350,11 +349,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
               <>
                 {marked && <Star />}
                 <Text color={STATUS_COLOR[f.status]}>{f.status} </Text>
-                {isSelected ? (
-                  <Marquee text={f.path} width={nameWidth} active={active} />
-                ) : (
-                  truncate(f.path, nameWidth)
-                )}
+                <EntryText text={f.path} width={nameWidth} selected={isSelected} active={active} />
                 <Text dimColor>{counts}</Text>
               </>
             );

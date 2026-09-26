@@ -130,13 +130,29 @@ export function sliceColumns(text: string, start: number, width: number): string
 const MARQUEE_STEP_MS = 100;
 /** Ticks to rest at either end before moving on. */
 const MARQUEE_PAUSE = 12;
+/** A marquee moves at most this many columns, then starts over; long prompts would take minutes otherwise. */
+export const MARQUEE_MAX_SCROLL = 250;
 
 /**
- * Text that fits `width` columns, scrolling back and forth when it is longer.
+ * Columns a marquee is shifted at `tick`: rest at the start, move one column
+ * per tick up to the end of the text but at most `MARQUEE_MAX_SCROLL`, rest,
+ * then start over.
+ */
+export function marqueeOffset(tick: number, overflow: number): number {
+  const distance = Math.min(overflow, MARQUEE_MAX_SCROLL);
+  if (distance <= 0) return 0;
+  const pos = tick % (distance + 2 * MARQUEE_PAUSE);
+  return Math.min(distance, Math.max(0, pos - MARQUEE_PAUSE));
+}
+
+/**
+ * Text that fits `width` columns on one line, scrolling when it is longer
+ * (see `marqueeOffset`). Line breaks and runs of spaces become one space.
  * Owns its timer so only this element re-renders while it moves.
  */
 export function Marquee({ text, width, active }: { text: string; width: number; active: boolean }) {
-  const overflow = Math.max(0, stringWidth(text) - width);
+  const line = text.replace(/\s+/g, " ").trim();
+  const overflow = Math.max(0, stringWidth(line) - width);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -144,13 +160,18 @@ export function Marquee({ text, width, active }: { text: string; width: number; 
     if (!active || overflow === 0) return;
     const timer = setInterval(() => setTick((n) => n + 1), MARQUEE_STEP_MS);
     return () => clearInterval(timer);
-  }, [text, width, active, overflow]);
+  }, [line, width, active, overflow]);
 
-  if (overflow === 0) return <>{text}</>;
-  // Pause, scroll to the end, pause, jump back to the start.
-  const pos = tick % (overflow + 2 * MARQUEE_PAUSE);
-  const offset = Math.min(overflow, Math.max(0, pos - MARQUEE_PAUSE));
-  return <>{sliceColumns(text, offset, width)}</>;
+  if (overflow === 0) return <>{line}</>;
+  return <>{sliceColumns(line, marqueeOffset(tick, overflow), width)}</>;
+}
+
+/**
+ * A list entry's text in `width` columns: the selected entry scrolls when it
+ * is too long (while the view is `active`), the others are cut with "…".
+ */
+export function EntryText({ text, width, selected, active }: { text: string; width: number; selected: boolean; active: boolean }) {
+  return selected ? <Marquee text={text} width={width} active={active} /> : <>{truncate(text, width)}</>;
 }
 
 export const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
