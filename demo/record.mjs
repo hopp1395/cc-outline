@@ -1,15 +1,17 @@
 // Records the README demo: Claude Code (a simplified stand-in) runs /cco:chat,
 // the window splits, and the real viewer runs headlessly on a demo project in
-// the right pane while a key script plays. Writes the frames to docs/ as SVG.
-// Run with `npm run demo` (builds demo/.out/App.js first).
+// the right pane while a key script plays. Writes docs/demo.gif and stills of
+// both views as SVG. Run with `npm run demo` (builds demo/.out/App.js first);
+// the GIF needs Chrome or Edge.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { framesToSvg, frameToSvg } from "./ansi-svg.mjs";
+import { frameSize, frameToSvg } from "./ansi-svg.mjs";
 import { claudeScreen } from "./claude-mock.mjs";
 import { createDemo } from "./fixture.mjs";
+import { writeGif } from "./gif.mjs";
 
 /** Claude Code pane, pane border, viewer pane. */
 const LEFT = 46;
@@ -90,9 +92,14 @@ for (const shot of viewer) frames.push({ lines: split(shot.lines), duration: sho
 
 const docs = join(dirname(fileURLToPath(import.meta.url)), "..", "docs");
 mkdirSync(docs, { recursive: true });
-writeFileSync(join(docs, "demo.svg"), framesToSvg(frames, { columns: COLUMNS, rows: ROWS, title: TITLE }));
 const still = { columns: RIGHT, rows: ROWS, title: "cco" };
 writeFileSync(join(docs, "chat.svg"), frameToSvg(viewer[2].lines, still));
 writeFileSync(join(docs, "changes.svg"), frameToSvg(viewer[4].lines, still));
-console.log(`Wrote ${frames.length} frames to docs/demo.svg, plus docs/chat.svg and docs/changes.svg`);
+const window = { columns: COLUMNS, rows: ROWS, title: TITLE };
+writeGif(
+  frames.map((f) => ({ svg: frameToSvg(f.lines, window), duration: f.duration })),
+  frameSize(COLUMNS, ROWS),
+  join(docs, "demo.gif"),
+);
+console.log(`Wrote docs/demo.gif (${frames.length} frames), docs/chat.svg and docs/changes.svg`);
 process.exit(0);

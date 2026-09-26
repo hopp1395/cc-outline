@@ -1,5 +1,4 @@
-// Turns terminal frames (lines with ANSI SGR codes) into an SVG: one frame as a
-// still image, or several as a looping animation.
+// Turns a terminal frame (lines with ANSI SGR codes) into an SVG image.
 import stringWidth from "string-width";
 
 const CELL_W = 8.4;
@@ -162,7 +161,7 @@ function renderFrame(lines) {
   return rects.join("") + texts.join("");
 }
 
-function frameSize(columns, rows) {
+export function frameSize(columns, rows) {
   return { width: columns * CELL_W + PAD * 2, height: rows * CELL_H + PAD * 2 + TITLE_H };
 }
 
@@ -189,36 +188,5 @@ export function frameToSvg(lines, { columns, rows, title = "" }) {
     svgOpen(width, height) +
     windowChrome(width, height, title) +
     `<g transform="translate(${PAD} ${PAD + TITLE_H})">${renderFrame(lines)}</g></svg>\n`
-  );
-}
-
-/**
- * A looping animation: each frame is shown for its duration (ms). Frames are
- * stacked and switched with CSS keyframes, which GitHub renders in <img>.
- */
-export function framesToSvg(frames, { columns, rows, title = "" }) {
-  const { width, height } = frameSize(columns, rows);
-  const total = frames.reduce((sum, f) => sum + f.duration, 0);
-  const pct = (ms) => ((ms / total) * 100).toFixed(3);
-  let start = 0;
-  const styles = [];
-  const groups = [];
-  frames.forEach((frame, i) => {
-    const end = start + frame.duration;
-    styles.push(
-      `@keyframes f${i}{0%{visibility:hidden}${start === 0 ? "" : `${pct(start)}%{visibility:hidden}`}` +
-        `${pct(start)}%{visibility:visible}${pct(end)}%{visibility:hidden}100%{visibility:hidden}}` +
-        `.f${i}{visibility:hidden;animation:f${i} ${total}ms steps(1,end) infinite}`,
-    );
-    // The first frame is visible without animation support, e.g. in a still preview.
-    const fallback = i === 0 ? ` style="visibility:visible"` : "";
-    groups.push(`<g class="f${i}"${fallback}>${renderFrame(frame.lines)}</g>`);
-    start = end;
-  });
-  return (
-    svgOpen(width, height) +
-    `<style>${styles.join("")}</style>` +
-    windowChrome(width, height, title) +
-    `<g transform="translate(${PAD} ${PAD + TITLE_H})">${groups.join("")}</g></svg>\n`
   );
 }

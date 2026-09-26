@@ -16,7 +16,7 @@ npm test             # vitest run
 npx vitest run test/git.test.ts            # one file
 npx vitest run -t "breaks after slashes"   # one test by name
 npm link             # expose `cco` globally; it runs dist/, so rebuild after changes
-npm run demo         # re-record the README images in docs/ (headless run on demo/fixture.mjs)
+npm run demo         # re-record the README images in docs/ (headless run on demo/fixture.mjs; the GIF needs Chrome)
 claude --plugin-dir ./plugin               # load the plugin (hooks + commands) for one session
 claude plugin marketplace update cc-outline && claude plugin update cco@cc-outline   # refresh the installed plugin
 ```
@@ -38,7 +38,7 @@ The plugin is installed from this repo, which is its own marketplace (`.claude-p
 - `<slug>.viewer.json`: pid and current view of the running viewer. `cco open` checks it and reuses a live viewer instead of opening a second pane.
 - `<slug>.restore.json`: whether a viewer was running at `SessionEnd`, and with which view. On `SessionStart` with source `startup` or `resume`, the hook reopens it with `keepFocus`, which sends a `move-focus left` to wt or passes `-d` to tmux. The hook must not print to stdout, because SessionStart output is added to Claude's context.
 - `<slug>.control.json`: view-switch requests from `cco open` to the running viewer.
-- `<slug>.favorites.json`: marked turn ids by session id (`src/favorites.ts`), toggled with Space in the chat view.
+- `<slug>.favorites.json`: marked turn ids (`src/favorites.ts`), toggled with Space in the chat view. Kept per project, not per session: `--continue`/`/resume` start a new session id but copy the turns with their uuids.
 
 Display preferences (`t`, `h`, and `w` separately for chat and changes) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
 
