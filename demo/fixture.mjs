@@ -23,6 +23,56 @@ const tool = (uuid, id, command) => ({
   message: { id, role: "assistant", content: [{ type: "tool_use", name: "Bash", input: { command } }] },
 });
 
+const exitPlan = (id, time, plan) => ({
+  type: "assistant",
+  uuid: `a-${id}`,
+  timestamp: `2026-09-26T${time}:00.000Z`,
+  message: { id: `m-${id}`, role: "assistant", content: [{ type: "tool_use", id, name: "ExitPlanMode", input: { plan } }] },
+});
+const planResult = (id, isError, text) => ({
+  type: "user",
+  uuid: `r-${id}`,
+  message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, is_error: isError, content: text }] },
+});
+
+const PLAN_V1 = `# Validate orders before saving
+
+## Context
+
+\`OrderService.Submit\` saves every order as it is. Orders without a customer or lines end up in the database.
+
+## Steps
+
+1. **Create** \`OrderValidator\` with one method per rule
+2. **Inject** it into \`OrderService\` and reject invalid orders early
+
+| Rule | Error code |
+|------|------------|
+| Customer is set | \`CustomerRequired\` |
+| At least one line | \`EmptyOrder\` |`;
+
+const PLAN_V2 = `# Validate orders before saving
+
+## Context
+
+\`OrderService.Submit\` saves every order as it is. Orders without a customer or lines end up in the database.
+
+## Steps
+
+1. **Create** \`OrderValidator\` with one method per rule
+2. **Inject** it into \`OrderService\` and reject invalid orders early
+3. **Cover** every rule with a unit test in \`OrderValidatorTests\`
+
+| Rule | Error code |
+|------|------------|
+| Customer is set | \`CustomerRequired\` |
+| At least one line | \`EmptyOrder\` |
+| Quantities above zero | \`InvalidQuantity\` |
+
+## Verification
+
+Run \`dotnet test\`; the new tests and the existing 38 must pass.`;
+
 const PLAN = `## Plan
 
 I'll move the checks into a dedicated \`OrderValidator\` and call it from \`OrderService\` before anything is saved.
@@ -76,6 +126,14 @@ const TESTS = `All **42 tests** pass, including the new ones:
 const entries = [
   user("u1", "09:12", "Add input validation to OrderService before orders are saved"),
   tool("a1", "m1", "grep -rn Save src/Orders"),
+  exitPlan("p1", "09:13", PLAN_V1),
+  planResult(
+    "p1",
+    true,
+    "The user doesn't want to proceed with this tool use. To tell you how to proceed, the user said:\nalso check that quantities are above zero, and add tests",
+  ),
+  exitPlan("p2", "09:15", PLAN_V2),
+  planResult("p2", false, "User has approved your plan. You can now start coding."),
   assistant("a2", "m2", PLAN),
   user("u2", "09:18", "Why not use FluentValidation for this?"),
   assistant("a3", "m3", FLUENT),

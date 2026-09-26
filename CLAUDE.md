@@ -41,7 +41,7 @@ The plugin is installed from this repo, which is its own marketplace (`.claude-p
 - `<slug>.control.json`: view-switch requests from `cco open` to the running viewer.
 - `<slug>.favorites.json`: marks of all three lists (`src/favorites.ts`): `turns` (prompt uuids), `files` (paths) and `plans` (tool call ids). Kept per project, not per session: `--continue`/`/resume` start a new session id but copy the turns with their uuids. The first format (one list per session id) is merged into `turns` on read. Views use it through `useFavorites()`; `markKeys()`/`markFooter()`/`Star` in `layout.tsx` keep Space and Shift+←/→ the same everywhere.
 
-Display preferences (`t`, `h`, and `w` separately for chat and changes) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
+Display preferences (`t`, `h`, and `w` separately for chat, changes and plan) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
 
 Focus indication (`src/tui/focus.ts`): the viewer enables terminal focus reporting (DECSET 1004). Ink passes the reports to `useInput` as `"[I"` and `"[O"`, with the ESC stripped and no key flags set, so no view binding reacts to them. `FocusContext` feeds `Screen` (top bar, footer) and `List` (selection style). A pane opened with `keepFocus` starts with `--unfocused`, because the terminal sends no initial report.
 

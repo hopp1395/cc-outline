@@ -1,6 +1,7 @@
 import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useState } from "react";
+import stringWidth from "string-width";
 import { diffLines } from "../git/linediff.js";
 import { renderDiff } from "../render/diff.js";
 import { renderMarkdown } from "../render/markdown.js";
@@ -8,6 +9,7 @@ import type { Plan, PlanStatus } from "../transcript/parse.js";
 import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
+import { useSetting } from "./useSetting.js";
 import {
   bold,
   handleNavigation,
@@ -54,6 +56,9 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Columns moved per Ctrl+←/→ when lines are not wrapped. */
+const HSCROLL_STEP = 8;
+
 const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
 
 /** Title, status and origin of a plan above its text; the rule names what Enter switches to. */
@@ -80,6 +85,8 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
   const [follow, setFollow] = useState(true);
   const [showDiff, setShowDiff] = useState(false);
   const [flash, setFlash] = useState<string>();
+  const [wrap, setWrap] = useSetting("planWrap");
+  const [hscroll, setHscroll] = useState(0);
   // Marked plans of the project, by tool call id.
   const favorites = useFavorites(cwd, "plans");
   const markedCount = plans.filter((p) => favorites.isMarked(p.id)).length;
@@ -100,21 +107,33 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
   }, [plan, index, previewWidth, bodyHeight, diffOpen, previous]);
-  const lines = useMemo(() => {
-    if (!plan) return [];
+  const rendered = useMemo(() => {
+    const none = { lines: [] as string[], hunkStarts: [] as number[], gutterWidth: 0 };
+    if (!plan) return none;
     if (diffOpen) {
       const diff = diffLines(previous!.text, plan.text);
-      return diff.hunks.length ? renderDiff(diff, "plan.md", previewWidth).lines : [dim("Same text as the previous version.")];
+      return diff.hunks.length
+        ? renderDiff(diff, "plan.md", previewWidth, wrap)
+        : { ...none, lines: [dim("Same text as the previous version.")] };
     }
-    return renderMarkdown(plan.text, previewWidth);
-  }, [plan, previous, diffOpen, previewWidth]);
+    return { ...none, lines: renderMarkdown(plan.text, previewWidth, wrap) };
+  }, [plan, previous, diffOpen, previewWidth, wrap]);
+  const { lines } = rendered;
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = useScroll(lines.length, viewport);
+
+  // How far unwrapped lines can be shifted until the longest one ends at the right edge.
+  const maxHscroll = useMemo(
+    () => (wrap ? 0 : Math.max(0, ...lines.map((l) => stringWidth(l))) - previewWidth),
+    [lines, wrap, previewWidth],
+  );
+  const shift = (delta: number) => setHscroll((h) => Math.max(0, Math.min(maxHscroll, h + delta)));
 
   const toggleDiff = (open: boolean) => {
     setShowDiff(open);
     onDiffOpen?.(open);
     scroll.set(0);
+    setHscroll(0);
   };
   const select = (next: number) => {
     const target = Math.max(0, Math.min(last, next));
@@ -122,6 +141,7 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
     if (target === index) return;
     setSelected(target);
     scroll.set(0);
+    setHscroll(0);
   };
   const notify = (msg: string) => {
     setFlash(msg);
@@ -141,6 +161,11 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
           mark,
         );
         return target !== undefined && select(target);
+      }
+      if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      if (input === "w") {
+        setWrap((w) => !w);
+        return setHscroll(0);
       }
       const nav = {
         select: (delta: number) => select(index + delta),
@@ -172,7 +197,16 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
     );
   else
     preview = (
-      <Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} />
+      <Preview
+        header={header}
+        lines={lines}
+        scroll={scroll.scroll}
+        width={previewWidth}
+        height={bodyHeight}
+        hscroll={Math.min(hscroll, maxHscroll)}
+        frozen={rendered.gutterWidth}
+        pinned={rendered.hunkStarts}
+      />
     );
 
   const counts = plans.reduce<Record<PlanStatus, number>>(
@@ -192,6 +226,7 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
           {counts.pending > 0 && <Text color="yellow">{` · ${counts.pending} waiting`}</Text>}
           {plan && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
+          {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
           {follow && plans.length > 0 && <Text color="green"> · FOLLOW</Text>}
         </Text>
       }
@@ -223,6 +258,8 @@ export function PlanView({ cwd, plans, hasSession, layout, active, onDiffOpen }:
           { text: "↑↓ scroll", priority: 1 },
           ...(previous ? [{ text: "↵ changes", on: diffOpen }] : []),
           ...markFooter(favorites.isMarked(plan?.id), markedCount),
+          ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
+          { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
           { text: "1/2/3 view", priority: 1 },
         ]

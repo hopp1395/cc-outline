@@ -6,23 +6,29 @@
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 
-![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat and then the changes view with a C# diff](docs/demo.gif)
+![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff and the plan view](docs/demo.gif)
 
 ## Why
 
-Working with Claude Code in the terminal has two blind spots. cc-outline fills both without leaving the terminal and without interrupting Claude.
+Working with Claude Code in the terminal has three blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
 
 ### 1. Answers are hard to read and quickly gone
 
 **The problem.** Claude answers in Markdown, but the terminal shows much of it as plain text. Tables lose their shape, and headings and emphasis blend into the text. A plan with several steps looks like a wall of text. Long answers scroll past while Claude keeps working. To read an earlier answer again you scroll back through tool calls and output, and the prompt that answer belongs to is somewhere above it.
 
-**How cc-outline solves it.** The Chat view renders each answer as Markdown, with real tables, headings, lists and highlighted code. The session is organised by prompt: every prompt is one entry in a list. Select one and you see exactly its answer, with the prompt pinned above it and tool noise hidden. The view follows the running session live and stays at the bottom like Claude Code. You can scroll up at any time without losing your place, and each turn remembers where you left it. Important answers can be marked with `Space` and found again after a restart. Plans from plan mode get a view of their own. They stay readable next to the session while Claude carries them out, and a revised plan shows exactly what changed.
+**How cc-outline solves it.** The Chat view renders each answer as Markdown, with real tables, headings, lists and highlighted code. The session is organised by prompt: every prompt is one entry in a list. Select one and you see exactly its answer, with the prompt pinned above it and tool noise hidden. The view follows the running session live and stays at the bottom like Claude Code. You can scroll up at any time without losing your place, and each turn remembers where you left it. Important answers can be marked with `Space` and found again after a restart.
 
 ### 2. You don't see what Claude changed
 
 **The problem.** Claude edits files as it goes. The terminal only shows short summaries such as "Updated with 10 additions and 1 removal". To review the actual change you open an editor or run `git diff` in another window, and then find your way back to the conversation. Claude often touches several files, so reviewing them costs time and focus. Changes also get accepted without a real look.
 
 **How cc-outline solves it.** The Changes view lists every changed file of the repository: modified, added, deleted and untracked. It shows each diff with line numbers and syntax highlighting, right next to the conversation that caused it. It refreshes every two seconds while Claude works, so you watch the changes appear. You can jump between hunks or open the whole file as it is now. The branch shows at a glance how many commits are waiting to be pushed or pulled.
+
+### 3. Plans get lost once work starts
+
+**The problem.** In plan mode Claude writes a plan and asks for approval. Once you approve it, Claude starts working and the plan scrolls away under tool calls and output. To check what was agreed, or whether a step was skipped, you have to scroll back and find it. If you reject a plan with feedback, Claude writes a new version, and nothing shows what changed compared with the one you rejected. Which versions were approved or rejected, and why, is hard to reconstruct later.
+
+**How cc-outline solves it.** The Plan view lists every plan of the session with its time, title and status: approved, rejected or waiting for your decision. The selected plan stays readable next to the session while Claude carries it out, with the prompt it answers pinned above it, and for a rejected plan your feedback. `Enter` shows what changed compared with the previous version as a diff, so you only review the changes. Plans appear as soon as Claude presents them, before you decide, and can be marked like answers and files.
 
 ### In daily work
 
@@ -53,7 +59,7 @@ claude plugin marketplace add "$(npm root -g)/cc-outline"
 claude plugin install cco@cc-outline
 ```
 
-**3. Restart Claude Code**, then run `/cco:chat` or `/cco:git`.
+**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git` or `/cco:plan`.
 
 To uninstall, run `claude plugin uninstall cco@cc-outline`, `claude plugin marketplace remove cc-outline` and `npm rm -g cc-outline`, then delete `~/.claude/cco/`.
 
@@ -84,21 +90,22 @@ All views share one layout:
 
 Press `1`, `2` and `3` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
+**Lists.** The three lists work the same way:
+- `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
+- If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
+- `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
+- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id.
+
 ## Chat view
 
 The Chat view shows the session turn by turn. A turn is one prompt plus everything Claude answered to it.
 
 ![Chat view: turn list on the left, the answer rendered as Markdown on the right](docs/chat.svg)
 
-**List (left).** One entry per prompt, with its time. If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps to the first or last entry.
+**List (left).** One entry per prompt, with its time.
 - Slash commands appear as `/name args`.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
-
-**Marks.** All three lists work the same way here:
-- `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark.
-- `Shift+←` and `Shift+→` jump to the previous and next marked entry.
-- The top bar counts the marked entries (`★ 2`).
-- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id. Turns keep their marks across restarts and when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
+- Turns keep their marks across restarts and when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
 
 **Prompt (top right).** The selected prompt stays pinned above the answer while you scroll.
 - It shows at most 1000 characters and never more than half the pane height.
@@ -129,7 +136,7 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 ![Changes view: changed files on the left, the diff with line numbers and C# highlighting on the right](docs/changes.svg)
 
-**List (left).** One entry per changed file, with its status and line counts. Hidden entries (`▲`/`▼ N more`) and marks (`Space`, `Shift+←/→`) work as in the chat list; a marked file keeps its mark by path, also after it was committed and changed again. The statuses:
+**List (left).** One entry per changed file, with its status and line counts. A marked file keeps its mark by path, also after it was committed and changed again. The statuses:
 - `M` modified, `A` added, `D` deleted, `R` renamed, `C` copied, `U` conflict
 - `?` untracked, counted as all-added lines
 
@@ -160,6 +167,8 @@ If the path of the selected file is too long for the list, it scrolls back and f
 
 In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks for approval. When you ask for changes, it writes a new version. The Plan view keeps every plan of the session.
 
+![Plan view: plans with their status on the left, the approved second version rendered as Markdown on the right](docs/plan.svg)
+
 **List (left).** One entry per plan, with its time, its title (the first heading) and its status:
 - `✓` approved
 - `✗` rejected
@@ -167,23 +176,32 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 
 **Plan (right).** The selected plan rendered as Markdown. Above it, pinned while you scroll:
 - the title
-- the version, status and time
+- the version, status and time (`v2 · approved · 11:15`)
 - the prompt the plan answers
 - your feedback, if you rejected it with a comment
 
-**Changes between versions.** `Enter` shows what changed compared with the previous version, as a diff with line numbers. `Enter` or `Esc` returns to the plan.
+**Changes between versions.** If there is an earlier version, the separator below the header reads `↵ changes to v1`. `Enter` then shows what changed compared with that version, as a diff with line numbers. `Enter` or `Esc` returns to the plan.
 
-**Following.** The newest plan stays selected while Claude presents new ones; selecting an older plan stops that, and `End` resumes it. `c` copies the plan's Markdown. `Space` marks a plan and `Shift+←/→` jumps between marked plans, as in the other lists. Plans are read from the session transcript, so they appear as soon as Claude presents them, before you decide.
+**Following.** The newest plan stays selected while Claude presents new ones; selecting an older plan stops that, and `End` resumes it. Plans are read from the session transcript, so they appear as soon as Claude presents them, before you decide. `c` copies the plan's Markdown.
+
+**Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Ctrl+←/→` scrolls sideways; in the changes between versions the line numbers stay in place.
+
+**Status.** The top bar shows:
+- the number of plans, and how many are approved, rejected and waiting
+- the scroll position
+- the number of marked plans (`★ 2`)
+- `nowrap` while wrapping is off
+- `FOLLOW` while the newest plan is followed
 
 ## Keys
 
-The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
+The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
 
 | Key | Chat | Changes | Plan |
 |---|---|---|---|
 | `1` / `2` / `3` | switch view | switch view | switch view |
 | `←` / `→` | previous / next turn | previous / next file | previous / next plan |
-| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan |
+| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) |
 | `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ |
 | `Shift+←` / `Shift+→` | previous / next marked turn | previous / next marked file | previous / next marked plan |
 | `↑` / `↓` | scroll by line | scroll by line | scroll by line |
@@ -197,12 +215,12 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `c` | copy the turn's Markdown | – | copy the plan |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – |
 | `r` | – | refresh now | – |
-| `w` | toggle wrapping | toggle wrapping | – |
-| `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
+| `w` | toggle wrapping | toggle wrapping | toggle wrapping |
+| `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
 | `i` | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit |
 
-`t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Chat and Changes each keep their own `w` setting.
+`t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Each view keeps its own `w` setting.
 
 ## Info dialog
 
@@ -242,7 +260,7 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 npm run dev         # tsup --watch
 npm test            # vitest
 npm run typecheck
-npm run demo        # re-record docs/demo.gif, chat.svg and changes.svg
+npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg and plan.svg
 ```
 
 The demo runs the viewer headlessly on a made-up project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).

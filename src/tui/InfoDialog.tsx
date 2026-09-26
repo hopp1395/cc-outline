@@ -59,6 +59,8 @@ const KEYS: Record<Mode, [string, string][]> = {
   plan: [
     ...LIST_KEYS("plan"),
     ["↵", "changes to previous"],
+    ["w", "wrap lines"],
+    ["^←→", "scroll sideways"],
     ["c", "copy the plan"],
     ...COMMON_KEYS,
   ],

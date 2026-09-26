@@ -11,9 +11,11 @@ export interface Settings {
   chatWrap: boolean;
   /** Changes: wrap long lines (w). */
   wrap: boolean;
+  /** Plan: wrap long lines (w). */
+  planWrap: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { showTools: false, showThinking: false, chatWrap: true, wrap: true };
+export const DEFAULT_SETTINGS: Settings = { showTools: false, showThinking: false, chatWrap: true, wrap: true, planWrap: true };
 
 export function settingsFile(): string {
   return join(claudeDir(), "cco", "settings.json");
