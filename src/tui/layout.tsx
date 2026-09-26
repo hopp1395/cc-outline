@@ -192,8 +192,8 @@ export function truncate(text: string, width: number): string {
   return out + "…";
 }
 
-/** Background of the top bar while the viewer has the focus (same blue as the jump hint). */
-const FOCUS_BAR = "#264f78";
+/** Background of the top bar while the viewer has the focus: a dark blue that keeps its text readable. */
+const FOCUS_BAR = "#0e2f55";
 /** Background of the list selection while the focus is elsewhere, like an inactive editor list. */
 const INACTIVE_SELECTION = "#3a3d41";
 
@@ -202,7 +202,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
     m === mode ? (
       <Text inverse bold>{` ${key} ${label} `}</Text>
     ) : (
-      <Text dimColor>{` ${key} ${label} `}</Text>
+      <Text dimColor={!focused}>{` ${key} ${label} `}</Text>
     );
   return (
     <Text>
@@ -305,7 +305,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
   return (
     <Box flexDirection="column" width={layout.columns} height={layout.rows}>
       <Box width={layout.columns} backgroundColor={focused ? FOCUS_BAR : undefined}>
-        <Text wrap="truncate" dimColor={!focused}>
+        <Text wrap="truncate">
           <Tabs mode={mode} focused={focused} />
           <Text> </Text>
           {status}
@@ -343,15 +343,48 @@ interface ListProps<T> {
   render: (item: T, selected: boolean) => ReactNode;
 }
 
+export interface ListWindow {
+  /** Items shown as entries: indices from..to (exclusive). */
+  from: number;
+  to: number;
+  /** Items hidden above and below; a row with ▲/▼ takes the place of the first/last entry. */
+  above: number;
+  below: number;
+}
+
+/**
+ * Which of `count` items fit in `height` rows with the selection roughly centred.
+ * When items are cut off, the first or last row becomes a "more" indicator.
+ */
+export function listWindow(count: number, selected: number, height: number): ListWindow {
+  if (count <= height) return { from: 0, to: count, above: 0, below: 0 };
+  const start = Math.max(0, Math.min(selected - Math.floor(height / 2), count - height));
+  // With fewer than three rows there is no room for indicators around the selection.
+  const top = start > 0 && height >= 3;
+  const bottom = start + height < count && height >= 3;
+  const from = start + (top ? 1 : 0);
+  const to = start + height - (bottom ? 1 : 0);
+  return { from, to, above: from, below: count - to };
+}
+
+function MoreRow({ arrow, count }: { arrow: string; count: number }) {
+  return (
+    <Text dimColor wrap="truncate">
+      {` ${arrow} ${count} more`}
+    </Text>
+  );
+}
+
 /** Selectable list that keeps the selection roughly centred. */
 export function List<T>({ items, selected, height, empty, itemKey, render }: ListProps<T>) {
   const focused = useFocused();
-  const start = Math.max(0, Math.min(selected - Math.floor(height / 2), items.length - height));
   if (items.length === 0) return <Text dimColor>{empty}</Text>;
+  const { from, to, above, below } = listWindow(items.length, selected, height);
   return (
     <>
-      {items.slice(start, start + height).map((item, i) => {
-        const index = start + i;
+      {above > 0 && <MoreRow arrow="▲" count={above} />}
+      {items.slice(from, to).map((item, i) => {
+        const index = from + i;
         const isSelected = index === selected;
         // Without focus the selection stays visible but quiet.
         return (
@@ -366,6 +399,7 @@ export function List<T>({ items, selected, height, empty, itemKey, render }: Lis
           </Text>
         );
       })}
+      {below > 0 && <MoreRow arrow="▼" count={below} />}
     </>
   );
 }

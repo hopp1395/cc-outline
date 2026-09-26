@@ -60,7 +60,7 @@ The viewer (`src/tui/useViewerControl.ts`) only reacts to changes that happen af
 
 **Git** (`src/git/git.ts`): uses porcelain v1 `-z` plus `numstat`. It diffs against `HEAD`, or against git's empty tree in repos without commits. Untracked files get a synthetic all-added hunk and are counted manually.
 
-**Opening panes** (`src/open.ts`): calls `wt -w 0 split-pane` on Windows Terminal (`WT_SESSION`) or `tmux split-window`. It launches `process.execPath dist/cli.js` directly, because Windows Terminal cannot run npm's `.cmd` shims by bare name.
+**Opening panes** (`src/open.ts`): calls `wt -w 0 split-pane` on Windows Terminal or `tmux split-window` (`detectTerminal`: `TMUX`, else `WT_SESSION` or `WT_PROFILE_ID`; `WT_SESSION` alone is not reliable, Claude Code can lose it when it restarts itself). It launches `process.execPath dist/cli.js` directly, because Windows Terminal cannot run npm's `.cmd` shims by bare name.
 
 ## Gotchas
 

@@ -7,6 +7,30 @@
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat and then the changes view with a C# diff](docs/demo.gif)
 
+## Why
+
+Working with Claude Code in the terminal has two blind spots. cc-outline fills both without leaving the terminal and without interrupting Claude.
+
+### 1. Answers are hard to read and quickly gone
+
+**The problem.** Claude answers in Markdown, but the terminal shows much of it as plain text. Tables lose their shape, and headings and emphasis blend into the text. A plan with several steps looks like a wall of text. Long answers scroll past while Claude keeps working. To read an earlier answer again you scroll back through tool calls and output, and the prompt that answer belongs to is somewhere above it.
+
+**How cc-outline solves it.** The Chat view renders each answer as Markdown, with real tables, headings, lists and highlighted code. The session is organised by prompt: every prompt is one entry in a list. Select one and you see exactly its answer, with the prompt pinned above it and tool noise hidden. The view follows the running session live and stays at the bottom like Claude Code. You can scroll up at any time without losing your place, and each turn remembers where you left it. Important answers can be marked with `Space` and found again after a restart.
+
+### 2. You don't see what Claude changed
+
+**The problem.** Claude edits files as it goes. The terminal only shows short summaries such as "Updated with 10 additions and 1 removal". To review the actual change you open an editor or run `git diff` in another window, and then find your way back to the conversation. Claude often touches several files, so reviewing them costs time and focus. Changes also get accepted without a real look.
+
+**How cc-outline solves it.** The Changes view lists every changed file of the repository: modified, added, deleted and untracked. It shows each diff with line numbers and syntax highlighting, right next to the conversation that caused it. It refreshes every two seconds while Claude works, so you watch the changes appear. You can jump between hunks or open the whole file as it is now. The branch shows at a glance how many commits are waiting to be pushed or pulled.
+
+### In daily work
+
+- **Review while Claude works.** Read the plan in the Chat view and check the resulting diff in the Changes view, both next to the running session.
+- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`/`2`) switches views, `alt+←` returns to Claude Code.
+- **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
+- **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
+- **Nothing to manage.** The plugin opens the pane with `/cco:chat` or `/cco:git`, follows the active session, closes it with the session and reopens it next time if it was open.
+
 ## Installation
 
 Requirements:
@@ -65,7 +89,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 ![Chat view: turn list on the left, the answer rendered as Markdown on the right](docs/chat.svg)
 
-**List (left).** One entry per prompt, with its time.
+**List (left).** One entry per prompt, with its time. If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more`) or below (`▼ 5 more`).
 - Slash commands appear as `/name args`.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
 
@@ -102,7 +126,7 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 ![Changes view: changed files on the left, the diff with line numbers and C# highlighting on the right](docs/changes.svg)
 
-**List (left).** One entry per changed file, with its status and line counts:
+**List (left).** One entry per changed file, with its status and line counts (hidden entries are shown as `▲`/`▼ N more`, as in the chat list):
 - `M` modified, `A` added, `D` deleted, `R` renamed, `C` copied, `U` conflict
 - `?` untracked, counted as all-added lines
 
@@ -122,6 +146,8 @@ If the path of the selected file is too long for the list, it scrolls back and f
 **Whole file.** `Enter` switches to the complete file as it is now, with line numbers and highlighting but without change markers. There, `]` and `[` jump between the changed blocks. `Enter` or `Esc` returns to the diff. Deleted files have no content after the change, so the view says so.
 
 **Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Shift+←/→` scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
+
+**Status.** The top bar shows the current branch, the files and line counts, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
 
 **Refresh.** While the view is visible, it re-reads git every 2 seconds; `r` refreshes at once. The selected file stays selected as long as it is still changed.
 

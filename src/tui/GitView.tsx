@@ -2,7 +2,16 @@ import { Text, useInput } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { parseDiff } from "../git/diff.js";
-import { fileContent, fileDiff, listChanges, repoRoot, type FileChange, type FileContent } from "../git/git.js";
+import {
+  branchStatus,
+  fileContent,
+  fileDiff,
+  listChanges,
+  repoRoot,
+  type BranchStatus,
+  type FileChange,
+  type FileContent,
+} from "../git/git.js";
 import { addedLines, renderDiff, renderFile, type RenderedDiff } from "../render/diff.js";
 import {
   bold,
@@ -18,6 +27,7 @@ import {
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { useFocused } from "./focus.js";
 import { useSetting } from "./useSetting.js";
 
 interface Props {
@@ -85,6 +95,34 @@ function renderContent(
   return renderFile(content.text, path, width, addedLines(parseDiff(diffText)), wrap);
 }
 
+/**
+ * Branch with outgoing (↑, to push) and incoming (↓, to pull) commit counts.
+ * Counts appear only with an upstream; incoming ones are as of the last fetch.
+ */
+function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) {
+  if (!status) return null;
+  const count = (arrow: string, n: number, color: string) =>
+    n > 0 ? (
+      <Text color={color} bold={bold}>
+        {` ${arrow}${n}`}
+      </Text>
+    ) : (
+      <Text>{` ${arrow}${n}`}</Text>
+    );
+  return (
+    <>
+      <Text color="cyan">{status.branch ?? "(detached)"}</Text>
+      {status.upstream && (
+        <>
+          {count("↑", status.ahead, "yellow")}
+          {count("↓", status.behind, "magenta")}
+        </>
+      )}
+      {" · "}
+    </>
+  );
+}
+
 const POLL_MS = 2000;
 /** Columns moved per Shift+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
@@ -97,9 +135,11 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const [diffText, setDiffText] = useState("");
   const [showFile, setShowFile] = useState(false);
   const [wrap, setWrap] = useSetting("wrap");
+  const focused = useFocused();
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
   const [error, setError] = useState<string>();
+  const [branch, setBranch] = useState<BranchStatus>();
   const showFileRef = useRef(showFile);
   showFileRef.current = showFile;
 
@@ -118,8 +158,9 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     if (!root || busy.current) return;
     busy.current = true;
     try {
-      const next = await listChanges(root);
+      const [next, nextBranch] = await Promise.all([listChanges(root), branchStatus(root)]);
       setFiles((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      setBranch((prev) => (JSON.stringify(prev) === JSON.stringify(nextBranch) ? prev : nextBranch));
       const file = next.find((f) => f.path === currentRef.current?.path) ?? next[0];
       setSelectedPath(file?.path);
       setDiffText(file ? await fileDiff(root, file) : "");
@@ -263,7 +304,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       layout={layout}
       mode="git"
       status={
-        <Text dimColor>
+        <Text dimColor={!focused}>
+          <BranchInfo status={branch} bold={focused} />
           {files.length} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
           {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
