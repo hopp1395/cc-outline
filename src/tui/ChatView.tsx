@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown } from "../render/markdown.js";
+import { readFavorites, toggleFavorite } from "../favorites.js";
 import { turnMarkdown } from "../transcript/parse.js";
 import {
   dim,
@@ -85,6 +86,13 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
   const [hscroll, setHscroll] = useState(0);
   const [flash, setFlash] = useState<string>();
   const [promptOpen, setPromptOpen] = useState(false);
+  const sessionId = path ? basename(path, ".jsonl") : undefined;
+  // Marked (favourite) turns, kept across restarts.
+  const [marks, setMarks] = useState<string[]>([]);
+
+  useEffect(() => {
+    setMarks(sessionId ? readFavorites(cwd, sessionId) : []);
+  }, [cwd, sessionId]);
 
   const last = turns.length - 1;
   const current = turns[Math.min(selected, Math.max(0, last))];
@@ -173,6 +181,15 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
     setFlash(msg);
     setTimeout(() => setFlash(undefined), 2000);
   };
+  const toggleMark = () => {
+    if (current && sessionId) setMarks(toggleFavorite(cwd, sessionId, current.id));
+  };
+  /** Selects the next or previous marked turn. */
+  const jumpMark = (dir: 1 | -1) => {
+    const marked = turns.flatMap((t, i) => (marks.includes(t.id) ? [i] : []));
+    const target = dir === 1 ? marked.find((i) => i > selected) : marked.reverse().find((i) => i < selected);
+    if (target !== undefined) select(target);
+  };
 
   useInput(
     (input, key) => {
@@ -183,11 +200,15 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
         setWrap((w) => !w);
         return setHscroll(0);
       }
+      // Space marks the turn here instead of paging down.
+      if (input === " ") return toggleMark();
+      if (input === "]") return jumpMark(1);
+      if (input === "[") return jumpMark(-1);
       const page = viewport - 2;
       if (!promptOpen && selected === last) {
         // Scrolling up leaves the live end; scrolling back to the bottom rejoins it.
         const up = key.upArrow || key.pageUp || input === "b" || key.home;
-        const down = key.downArrow ? 1 : key.pageDown || input === " " ? page : key.end ? scroll.max : 0;
+        const down = key.downArrow ? 1 : key.pageDown ? page : key.end ? scroll.max : 0;
         if (up && follow) setFollow(false);
         if (down && scroll.scroll + down >= scroll.max) setFollow(true);
       }
@@ -231,6 +252,7 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
             session {session} · {turns.length} turns · {scroll.position}
           </Text>
           {follow && <Text color="green"> · FOLLOW</Text>}
+          {marks.length > 0 && <Text color="yellow"> · ★ {marks.length}</Text>}
           {showTools && <Text color="yellow"> · tools</Text>}
           {showThinking && <Text color="magenta"> · thinking</Text>}
           {!wrap && (
@@ -245,14 +267,18 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
           height={bodyHeight}
           empty="Waiting for prompts…"
           itemKey={(t, i) => t.id + i}
-          render={(t, isSelected) => (
-            <>
-              <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
-              {/* ↳ marks prompts sent while Claude was still working. */}
-              {t.queued && <Text color="cyan">↳ </Text>}
-              {truncate(t.prompt, Math.max(4, listWidth - 7 - (t.queued ? 2 : 0)))}
-            </>
-          )}
+          render={(t, isSelected) => {
+            const marked = marks.includes(t.id);
+            return (
+              <>
+                <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
+                {marked && <Text color="yellow">★ </Text>}
+                {/* ↳ marks prompts sent while Claude was still working. */}
+                {t.queued && <Text color="cyan">↳ </Text>}
+                {truncate(t.prompt, Math.max(4, listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0)))}
+              </>
+            );
+          }}
         />
       }
       preview={
@@ -272,18 +298,18 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
       }
       footer={
         flash ?? [
-          { text: "←→ turn" },
-          { text: "↑↓ scroll" },
-          ...(wrap ? [] : [{ text: "⇧←→ sideways" }]),
-          { text: "↵ full prompt", on: promptOpen },
+          { text: "←→ turn", priority: 4 },
+          { text: "↑↓ scroll", priority: 1 },
+          ...(wrap ? [] : [{ text: "⇧←→ side", priority: 4 }]),
+          { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
-          { text: "t tools", on: showTools },
-          { text: "h thinking", on: showThinking },
-          { text: "w wrap", on: wrap },
-          { text: "c copy" },
-          { text: "i info" },
-          { text: "1/2 view" },
-          { text: "q quit" },
+          { text: "␣ mark", on: current !== undefined && marks.includes(current.id) },
+          ...(marks.length > 0 ? [{ text: "[/] marked", priority: 2 }] : []),
+          { text: "t tools", on: showTools, priority: 2 },
+          { text: "h think", on: showThinking, priority: 2 },
+          { text: "w wrap", on: wrap, priority: 2 },
+          { text: "c copy", priority: 2 },
+          { text: "1/2 view", priority: 1 },
         ]
       }
     />

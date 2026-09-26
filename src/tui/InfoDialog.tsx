@@ -27,6 +27,8 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["↵", "full prompt"],
     ["ctrl+End", "jump to bottom"],
     ["f", "follow mode"],
+    ["Space", "mark turn ★"],
+    ["[ ]", "prev / next marked"],
     ["t h", "tools / thinking"],
     ["w", "wrap lines"],
     ["⇧←→", "scroll sideways"],

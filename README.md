@@ -13,7 +13,7 @@ cco  1 Chat  2 Changes  session 3d061497 · 12 turns · 87% · FOLLOW
 10:31 add a git changes view  │ left and shows its diff on the right:
                               │
                               │   • ←→ switch files, ↑↓ scroll
-alt+← Claude · ←→ turn · ↑↓ scroll · ↵ full prompt · f follow · t tools · …
+alt+←  ←→ turn  ↵ prompt   f follow   w wrap   c copy  i more  q quit
 ```
 
 ## Installation
@@ -82,12 +82,16 @@ cco  1 Chat  2 Changes  session 3d061497 · 12 turns · 64% · tools
                               │ | Key | Action          |
                               │ |-----|-----------------|
                               │           ↓ Jump to bottom (ctrl+End)
-alt+← Claude · ←→ turn · ↑↓ scroll · ↵ full prompt · f follow · t tools · …
+alt+←  ←→ turn  ↵ prompt   f follow    t tools   w wrap   i more  q quit
 ```
 
 **List (left).** One entry per prompt, with its time.
 - Slash commands appear as `/name args`.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
+
+**Marks.** `Space` marks the selected turn as a favourite (`★` in the list) or removes the mark.
+- `]` and `[` jump to the next and previous marked turn.
+- Marks are saved per session in `~/.claude/cco/<project-slug>.favorites.json`, so they survive restarts and `/resume`.
 
 **Prompt (top right).** The selected prompt stays pinned above the answer while you scroll.
 - It shows at most 1000 characters and never more than half the pane height.
@@ -108,6 +112,7 @@ alt+← Claude · ←→ turn · ↑↓ scroll · ↵ full prompt · f follow ·
 - the number of turns
 - the scroll position (`all` or a percentage)
 - the active options: `FOLLOW`, `tools`, `thinking`, `nowrap`
+- the number of marked turns (`★ 2`)
 
 The viewer switches sessions automatically after `/clear` or `/resume`.
 
@@ -126,7 +131,7 @@ A src/Orders/OrderValidator.cs  +31  │   modified · +12 -3 · diff
                                      │ 42    -     Save(o);
                                      │    42 +     _validator.Check(o);
                                      │    43 +     Save(o);
-alt+← Claude · ←→ file · ↑↓ scroll · ↵ whole file · [/] hunk · w wrap · …
+alt+←  ←→ file  ↵ file  [/] hunk   w wrap   r refresh  i more  q quit
 ```
 
 **List (left).** One entry per changed file, with its status and line counts:
@@ -156,14 +161,15 @@ If the path of the selected file is too long for the list, it scrolls back and f
 
 ## Keys
 
-The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ full prompt`, `↵ whole file`) are highlighted.
+The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
 
 | Key | Chat | Changes |
 |---|---|---|
 | `1` / `2` | switch to Chat / Changes | switch to Chat / Changes |
 | `←` / `→` | previous / next turn | previous / next file |
 | `↑` / `↓` | scroll by line | scroll by line |
-| `Space` / `b`, `PgDn` / `PgUp` | scroll by page | scroll by page |
+| `PgDn` / `PgUp` | scroll by page | scroll by page |
+| `Space` / `b` | mark the turn ★ / scroll up a page | scroll down / up a page |
 | `Home` / `End` | top / bottom of the answer | top / bottom of the diff |
 | `g` / `G` | first / last turn (`G` resumes follow mode) | first / last file |
 | `Enter` | full prompt ↔ answer | whole file ↔ diff |
@@ -172,7 +178,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `f` | toggle follow mode | – |
 | `t` / `h` | show tool calls / thinking | – |
 | `c` | copy the turn's Markdown | – |
-| `]` / `[` | – | next / previous hunk (changed block in whole-file mode) |
+| `]` / `[` | next / previous marked turn | next / previous hunk (changed block in whole-file mode) |
 | `r` | – | refresh now |
 | `w` | toggle wrapping | toggle wrapping |
 | `Shift+←` / `Shift+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
@@ -201,7 +207,7 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 |---|---|---|
 | Top bar | blue background | dimmed |
 | Selected list entry | inverted | gray background |
-| Help line | starts with `alt+← Claude`, then the keys | only `alt+→ focus cco` |
+| Help line | starts with `alt+←` (back to Claude Code), then the keys | only `alt+→ focus cco` |
 
 `alt+←/→` is Windows Terminal's default for moving between panes; under tmux the help line shows `ctrl+b ←/→`. The focus comes from the terminal's focus events (`ESC[?1004h`). tmux needs `set -g focus-events on`. Terminals without focus events always show the viewer as focused.
 

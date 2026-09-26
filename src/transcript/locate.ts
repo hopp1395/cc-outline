@@ -99,6 +99,11 @@ export function restoreFile(cwd: string): string {
   return stateFile(cwd, ".restore");
 }
 
+/** Marked (favourite) turns per session. */
+export function favoritesFile(cwd: string): string {
+  return stateFile(cwd, ".favorites");
+}
+
 export function readActive(cwd: string): ActiveSession | undefined {
   return readJson<ActiveSession>(activeFile(cwd));
 }

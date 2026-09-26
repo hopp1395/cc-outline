@@ -37,6 +37,7 @@ The plugin is installed from this repo, which is its own marketplace (`.claude-p
 - `<slug>.viewer.json`: pid and current view of the running viewer. `cco open` checks it and reuses a live viewer instead of opening a second pane.
 - `<slug>.restore.json`: whether a viewer was running at `SessionEnd`, and with which view. On `SessionStart` with source `startup` or `resume`, the hook reopens it with `keepFocus`, which sends a `move-focus left` to wt or passes `-d` to tmux. The hook must not print to stdout, because SessionStart output is added to Claude's context.
 - `<slug>.control.json`: view-switch requests from `cco open` to the running viewer.
+- `<slug>.favorites.json`: marked turn ids by session id (`src/favorites.ts`), toggled with Space in the chat view.
 
 Display preferences (`t`, `h`, and `w` separately for chat and changes) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
 

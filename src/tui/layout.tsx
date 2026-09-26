@@ -231,6 +231,43 @@ export interface FooterItem {
   text: string;
   /** The option is currently on or open; shown highlighted. */
   on?: boolean;
+  /**
+   * 1 (dropped first) to 4 (kept longest) when the line is too narrow;
+   * default 3. Items that are on are never dropped.
+   */
+  priority?: number;
+}
+
+const SEPARATOR = "  ";
+const INFO_ITEM: FooterItem = { text: "i info" };
+const MORE_ITEM: FooterItem = { text: "i more" };
+const QUIT_ITEM: FooterItem = { text: "q quit" };
+
+const itemWidth = (item: FooterItem) => stringWidth(item.text) + (item.on ? 2 : 0);
+const lineWidth = (items: FooterItem[]) =>
+  items.reduce((sum, item) => sum + itemWidth(item), 0) + SEPARATOR.length * Math.max(0, items.length - 1);
+/**
+ * The key help that fits `width` columns. `i` and `q` always stay at the end.
+ * When not everything fits, the lowest-priority items (rightmost first) are
+ * dropped and `i` points to the full key list in the info dialog. Switched-on
+ * options stay, since they also show state; if the line is still too long,
+ * the terminal cuts it off.
+ */
+export function fitFooter(items: FooterItem[], width: number): FooterItem[] {
+  const all = [...items, INFO_ITEM, QUIT_ITEM];
+  if (lineWidth(all) <= width) return all;
+  const tail = [MORE_ITEM, QUIT_ITEM];
+  const dropOrder = items
+    .map((item, index) => ({ index, item }))
+    .filter(({ item }) => !item.on)
+    .sort((a, b) => (a.item.priority ?? 3) - (b.item.priority ?? 3) || b.index - a.index);
+  const dropped = new Set<number>();
+  const kept = () => items.filter((_, i) => !dropped.has(i));
+  for (const { index } of dropOrder) {
+    if (lineWidth([...kept(), ...tail]) <= width) break;
+    dropped.add(index);
+  }
+  return [...kept(), ...tail];
 }
 
 function Footer({ items }: { items: string | FooterItem[] }) {
@@ -239,7 +276,7 @@ function Footer({ items }: { items: string | FooterItem[] }) {
     <>
       {items.map((item, i) => (
         <Text key={item.text}>
-          {i > 0 && <Text dimColor> · </Text>}
+          {i > 0 && <Text>{SEPARATOR}</Text>}
           {item.on ? (
             <Text inverse bold>
               {` ${item.text} `}
@@ -263,8 +300,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
   const help = focused
     ? typeof footer === "string"
       ? footer
-      : // First, because a narrow pane cuts the end of the line off.
-        [{ text: `${paneSwitchKey("left")} Claude` }, ...footer]
+      : fitFooter([{ text: paneSwitchKey("left"), priority: 3 }, ...footer], layout.columns)
     : `${paneSwitchKey("right")} focus cco`;
   return (
     <Box flexDirection="column" width={layout.columns} height={layout.rows}>

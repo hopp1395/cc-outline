@@ -295,16 +295,14 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       }
       preview={preview}
       footer={[
-        { text: "←→ file" },
-        { text: "↑↓ scroll" },
-        ...(wrap ? [] : [{ text: "⇧←→ sideways" }]),
-        { text: "↵ whole file", on: showFile },
+        { text: "←→ file", priority: 4 },
+        { text: "↑↓ scroll", priority: 1 },
+        ...(wrap ? [] : [{ text: "⇧←→ side", priority: 4 }]),
+        { text: "↵ file", on: showFile },
         { text: showFile ? "[/] change" : "[/] hunk" },
-        { text: "w wrap", on: wrap },
-        { text: "r refresh" },
-        { text: "i info" },
-        { text: "1/2 view" },
-        { text: "q quit" },
+        { text: "w wrap", on: wrap, priority: 2 },
+        { text: "r refresh", priority: 2 },
+        { text: "1/2 view", priority: 1 },
       ]}
     />
   );
