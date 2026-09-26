@@ -19,6 +19,7 @@ import {
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { useFocused } from "./focus.js";
 import { useSetting } from "./useSetting.js";
 import { useTranscript } from "./useTranscript.js";
 
@@ -83,6 +84,7 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
   const [showTools, setShowTools] = useSetting("showTools");
   const [showThinking, setShowThinking] = useSetting("showThinking");
   const [wrap, setWrap] = useSetting("chatWrap");
+  const focused = useFocused();
   const [hscroll, setHscroll] = useState(0);
   const [flash, setFlash] = useState<string>();
   const [promptOpen, setPromptOpen] = useState(false);
@@ -248,10 +250,9 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
       layout={layout}
       mode="chat"
       status={
-        <>
-          <Text dimColor>
-            session {session} · {turns.length} turns · {scroll.position}
-          </Text>
+        // Full brightness on the focused (blue) bar, dimmed otherwise.
+        <Text dimColor={!focused}>
+          session {session} · {turns.length} turns · {scroll.position}
           {follow && <Text color="green"> · FOLLOW</Text>}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {showTools && <Text color="yellow"> · tools</Text>}
@@ -259,7 +260,7 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
           {!wrap && (
             <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>
           )}
-        </>
+        </Text>
       }
       list={
         <List

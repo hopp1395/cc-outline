@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseDiff } from "../src/git/diff.js";
-import { fileDiff, listChanges, parseNumstat, parseStatus } from "../src/git/git.js";
+import { branchStatus, fileDiff, listChanges, parseBranch, parseNumstat, parseStatus } from "../src/git/git.js";
 
 describe("parseStatus", () => {
   it("maps porcelain entries including renames and untracked files", () => {
@@ -85,5 +85,35 @@ describe("git integration", () => {
       ["add", 1],
       ["add", 2],
     ]);
+  });
+
+  it("counts outgoing and incoming commits against the upstream", async () => {
+    const base = mkdtempSync(join(tmpdir(), "cco-branch-"));
+    const run = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+    const origin = join(base, "origin");
+    const clone = join(base, "clone");
+    execFileSync("git", ["init", "-q", "-b", "main", origin]);
+    run(origin, "commit", "-q", "--allow-empty", "-m", "one");
+    run(base, "clone", "-q", origin, clone);
+    expect(await branchStatus(clone)).toEqual({ branch: "main", upstream: "origin/main", ahead: 0, behind: 0 });
+
+    run(clone, "commit", "-q", "--allow-empty", "-m", "local 1");
+    run(clone, "commit", "-q", "--allow-empty", "-m", "local 2");
+    run(origin, "commit", "-q", "--allow-empty", "-m", "remote");
+    run(clone, "fetch", "-q");
+    expect(await branchStatus(clone)).toEqual({ branch: "main", upstream: "origin/main", ahead: 2, behind: 1 });
+  });
+});
+
+describe("parseBranch", () => {
+  it("reads branch, upstream and ahead/behind", () => {
+    const out = ["# branch.oid abc", "# branch.head main", "# branch.upstream origin/main", "# branch.ab +3 -0", ""].join("\0");
+    expect(parseBranch(out)).toEqual({ branch: "main", upstream: "origin/main", ahead: 3, behind: 0 });
+  });
+
+  it("handles a detached HEAD and a branch without upstream", () => {
+    expect(parseBranch("# branch.oid abc\0# branch.head (detached)\0")).toEqual({ ahead: 0, behind: 0 });
+    expect(parseBranch("# branch.oid (initial)\0# branch.head main\0")).toEqual({ branch: "main", ahead: 0, behind: 0 });
   });
 });

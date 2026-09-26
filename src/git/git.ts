@@ -110,6 +110,38 @@ async function untrackedStat(root: string, path: string): Promise<[number, numbe
   }
 }
 
+export interface BranchStatus {
+  /** Branch name; undefined when HEAD is detached. */
+  branch?: string;
+  /** Upstream such as origin/main; undefined when none is set. */
+  upstream?: string;
+  /** Commits to push (outgoing). */
+  ahead: number;
+  /** Commits to pull (incoming), as of the last fetch. */
+  behind: number;
+}
+
+/** Parses the `# branch.*` headers of `git status --porcelain=v2 --branch -z`. */
+export function parseBranch(out: string): BranchStatus {
+  const status: BranchStatus = { ahead: 0, behind: 0 };
+  for (const entry of out.split("\0")) {
+    const [marker, name, ...args] = entry.split(" ");
+    if (marker !== "#") continue;
+    if (name === "branch.head" && args[0] !== "(detached)") status.branch = args.join(" ");
+    else if (name === "branch.upstream") status.upstream = args.join(" ");
+    else if (name === "branch.ab") {
+      const m = /^\+(\d+) -(\d+)$/.exec(args.join(" "));
+      if (m) [status.ahead, status.behind] = [Number(m[1]), Number(m[2])];
+    }
+  }
+  return status;
+}
+
+/** Current branch and how far it is ahead of and behind its upstream. Does not fetch. */
+export async function branchStatus(root: string): Promise<BranchStatus> {
+  return parseBranch(await git(root, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=no"]));
+}
+
 /** Unified diff of one file against HEAD. Untracked files are shown as entirely added. */
 export async function fileDiff(root: string, change: FileChange): Promise<string> {
   if (change.status === "?") return untrackedDiff(root, change.path);

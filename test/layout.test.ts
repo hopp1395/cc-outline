@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitFooter, sliceColumns, truncate, wrapPath, type FooterItem } from "../src/tui/layout.js";
+import { fitFooter, listWindow, sliceColumns, truncate, wrapPath, type FooterItem } from "../src/tui/layout.js";
 
 describe("wrapPath", () => {
   it("breaks after slashes", () => {
@@ -40,6 +40,32 @@ describe("truncate", () => {
   it("keeps short text and ellipsises long text to the width", () => {
     expect(truncate("short.cs", 20)).toBe("short.cs");
     expect(truncate("src/Infrastructure/Repo.cs", 10)).toBe("src/Infra…");
+  });
+});
+
+describe("listWindow", () => {
+  it("shows everything without indicators when it fits", () => {
+    expect(listWindow(5, 2, 5)).toEqual({ from: 0, to: 5, above: 0, below: 0 });
+  });
+
+  it("replaces the last entry with an indicator at the top of a long list", () => {
+    expect(listWindow(20, 0, 6)).toEqual({ from: 0, to: 5, above: 0, below: 15 });
+  });
+
+  it("replaces the first entry at the bottom", () => {
+    expect(listWindow(20, 19, 6)).toEqual({ from: 15, to: 20, above: 15, below: 0 });
+  });
+
+  it("uses both indicators in the middle and keeps the selection visible", () => {
+    for (let selected = 0; selected < 20; selected++) {
+      const w = listWindow(20, selected, 6);
+      expect(selected).toBeGreaterThanOrEqual(w.from);
+      expect(selected).toBeLessThan(w.to);
+      // Entries plus indicator rows fill exactly the height.
+      expect(w.to - w.from + (w.above > 0 ? 1 : 0) + (w.below > 0 ? 1 : 0)).toBe(6);
+      expect(w.above + (w.to - w.from) + w.below).toBe(20);
+    }
+    expect(listWindow(20, 10, 6)).toEqual({ from: 8, to: 12, above: 8, below: 8 });
   });
 });
 

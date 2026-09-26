@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleHook } from "../src/hook.js";
+import { detectTerminal } from "../src/open.js";
 import { findLatestTranscript, projectDir, readActive, viewerFile, writeJson } from "../src/transcript/locate.js";
 import { readControl, registerViewer, requestView, runningViewer, setViewerView, unregisterViewer } from "../src/viewer.js";
 
@@ -122,5 +123,14 @@ describe("restore on restart", () => {
     run("SessionStart", { source: "clear" });
     run("SessionStart", { source: "compact" });
     expect(opened).toEqual([]);
+  });
+});
+
+describe("detectTerminal", () => {
+  it("recognises tmux and Windows Terminal, also without WT_SESSION", () => {
+    expect(detectTerminal({ TMUX: "/tmp/tmux-1/default,1,0" })).toBe("tmux");
+    expect(detectTerminal({ WT_SESSION: "abc" })).toBe("wt");
+    expect(detectTerminal({ WT_PROFILE_ID: "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}" })).toBe("wt");
+    expect(detectTerminal({})).toBeUndefined();
   });
 });
