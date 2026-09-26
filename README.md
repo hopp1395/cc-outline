@@ -89,7 +89,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 ![Chat view: turn list on the left, the answer rendered as Markdown on the right](docs/chat.svg)
 
-**List (left).** One entry per prompt, with its time. If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more`) or below (`▼ 5 more`).
+**List (left).** One entry per prompt, with its time. If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps to the first or last entry.
 - Slash commands appear as `/name args`.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
 
@@ -103,7 +103,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 **Answer.** The answer is rendered as Markdown and wrapped to the pane width. List items keep their indentation when they wrap.
 - Tool calls (`t`) and thinking blocks (`h`) are hidden by default.
-- With `w`, wrapping is switched off: paragraphs and code lines stay whole, and `Shift+←/→` scrolls sideways.
+- With `w`, wrapping is switched off: paragraphs and code lines stay whole, and `Shift+←/→` (or `Ctrl+←/→`) scrolls sideways.
 - `c` copies the turn's Markdown (without tools and thinking) to the clipboard.
 
 **Follow mode** is on by default.
@@ -145,7 +145,7 @@ If the path of the selected file is too long for the list, it scrolls back and f
 
 **Whole file.** `Enter` switches to the complete file as it is now, with line numbers and highlighting but without change markers. There, `]` and `[` jump between the changed blocks. `Enter` or `Esc` returns to the diff. Deleted files have no content after the change, so the view says so.
 
-**Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Shift+←/→` scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
+**Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Shift+←/→` (or `Ctrl+←/→`) scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
 
 **Status.** The top bar shows the current branch, the files and line counts, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
 
@@ -164,18 +164,18 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `↑` / `↓` | scroll by line | scroll by line |
 | `PgDn` / `PgUp` | scroll by page | scroll by page |
 | `Space` / `b` | mark the turn ★ / scroll up a page | scroll down / up a page |
-| `Home` / `End` | top / bottom of the answer | top / bottom of the diff |
-| `g` / `G` | first / last turn (`G` resumes follow mode) | first / last file |
+| `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file |
+| `Ctrl+Home` | top of the answer | top of the diff |
 | `Enter` | full prompt ↔ answer | whole file ↔ diff |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit |
-| `Ctrl+End` | jump to the bottom; on the newest turn also resume follow mode | – |
+| `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff |
 | `f` | toggle follow mode | – |
 | `t` / `h` | show tool calls / thinking | – |
 | `c` | copy the turn's Markdown | – |
 | `]` / `[` | next / previous marked turn | next / previous hunk (changed block in whole-file mode) |
 | `r` | – | refresh now |
 | `w` | toggle wrapping | toggle wrapping |
-| `Shift+←` / `Shift+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
+| `Shift+←` / `Shift+→` (or `Ctrl+`) | scroll sideways (wrapping off) | scroll sideways (wrapping off) |
 | `i` | info dialog | info dialog |
 | `q` | quit | quit |
 

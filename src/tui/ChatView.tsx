@@ -197,8 +197,8 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
   useInput(
     (input, key) => {
       if (key.ctrl && key.end) return jumpToBottom();
-      // Shift+←/→ scroll sideways; checked first because plain ←/→ switch turns.
-      if (key.shift && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      // Shift+←/→ or Ctrl+←/→ scroll sideways; checked first because plain ←/→ switch turns.
+      if ((key.shift || key.ctrl) && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
         setWrap((w) => !w);
         return setHscroll(0);
@@ -210,8 +210,8 @@ export function ChatView({ cwd, path, layout, active, onPromptOpen }: Props) {
       const page = viewport - 2;
       if (!promptOpen && selected === last) {
         // Scrolling up leaves the live end; scrolling back to the bottom rejoins it.
-        const up = key.upArrow || key.pageUp || input === "b" || key.home;
-        const down = key.downArrow ? 1 : key.pageDown ? page : key.end ? scroll.max : 0;
+        const up = key.upArrow || key.pageUp || input === "b" || (key.ctrl && key.home);
+        const down = key.downArrow ? 1 : key.pageDown ? page : 0;
         if (up && follow) setFollow(false);
         if (down && scroll.scroll + down >= scroll.max) setFollow(true);
       }
