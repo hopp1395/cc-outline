@@ -47,9 +47,14 @@ function wrapLine(line: string, width: number): string[] {
   return [first, ...cont.map((l) => " ".repeat(indent) + l)];
 }
 
-/** Renders Markdown to ANSI-styled lines no wider than `width` columns. */
-export function renderMarkdown(markdown: string, width: number): string[] {
+/**
+ * Renders Markdown to ANSI-styled lines. With `wrap`, no line is wider than
+ * `width` columns; without it, paragraphs and code keep their source lines
+ * (tables and rules are still sized to `width`).
+ */
+export function renderMarkdown(markdown: string, width: number, wrap = true): string[] {
   const w = Math.max(20, width);
   const ansi = rendererFor(w).parse(markdown, { async: false }) as string;
-  return ansi.replace(/\n+$/, "").split("\n").flatMap((l) => wrapLine(l, w));
+  const lines = ansi.replace(/\n+$/, "").split("\n");
+  return wrap ? lines.flatMap((l) => wrapLine(l, w)) : lines;
 }

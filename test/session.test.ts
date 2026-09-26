@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleHook } from "../src/hook.js";
 import { findLatestTranscript, projectDir, readActive, viewerFile, writeJson } from "../src/transcript/locate.js";
-import { readControl, registerViewer, requestView, runningViewer, unregisterViewer } from "../src/viewer.js";
+import { readControl, registerViewer, requestView, runningViewer, setViewerView, unregisterViewer } from "../src/viewer.js";
 
-const cwd = join(tmpdir(), "cce-project");
+const cwd = join(tmpdir(), "cco-project");
 let saved: string | undefined;
 
 beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
-  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cce-config-"));
+  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-config-"));
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
@@ -63,8 +63,10 @@ describe("findLatestTranscript", () => {
 describe("viewer registration", () => {
   it("reports the running viewer and forgets dead ones", () => {
     expect(runningViewer(cwd)).toBeUndefined();
-    registerViewer(cwd);
-    expect(runningViewer(cwd)).toBe(process.pid);
+    registerViewer(cwd, "chat");
+    expect(runningViewer(cwd)).toEqual({ pid: process.pid, view: "chat" });
+    setViewerView(cwd, "git");
+    expect(runningViewer(cwd)?.view).toBe("git");
     unregisterViewer(cwd);
     expect(runningViewer(cwd)).toBeUndefined();
     writeJson(viewerFile(cwd), { pid: 2 ** 22 + 12345 });
@@ -77,5 +79,48 @@ describe("viewer registration", () => {
     const req = readControl(cwd);
     expect(req?.view).toBe("git");
     expect(req!.at).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("restore on restart", () => {
+  const opened: string[] = [];
+  const fakeOpen = (_cwd: string, view: string, opts?: { keepFocus?: boolean }) => {
+    opened.push(`${view}${opts?.keepFocus ? " keepFocus" : ""}`);
+    return "";
+  };
+  const run = (event: string, extra: { reason?: string; source?: string } = {}) =>
+    handleHook(
+      { hook_event_name: event, session_id: "a", transcript_path: "/t/a.jsonl", cwd, ...extra },
+      fakeOpen as never,
+    );
+  beforeEach(() => {
+    opened.length = 0;
+  });
+
+  it("reopens the viewer with its last view when it was open at exit", () => {
+    run("SessionStart", { source: "startup" });
+    registerViewer(cwd, "git");
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    unregisterViewer(cwd); // the viewer closes itself after the session ended
+    run("SessionStart", { source: "startup" });
+    expect(opened).toEqual(["git keepFocus"]);
+  });
+
+  it("stays closed when the viewer was closed at exit", () => {
+    run("SessionStart", { source: "startup" });
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    run("SessionStart", { source: "resume" });
+    expect(opened).toEqual([]);
+  });
+
+  it("does not open a second viewer or react to /clear and compaction", () => {
+    registerViewer(cwd, "chat");
+    run("SessionStart", { source: "startup" });
+    run("SessionEnd", { reason: "other" });
+    run("SessionStart", { source: "startup" }); // quick restart: viewer still running
+    unregisterViewer(cwd);
+    run("SessionStart", { source: "clear" });
+    run("SessionStart", { source: "compact" });
+    expect(opened).toEqual([]);
   });
 });

@@ -10,6 +10,8 @@ export interface Turn {
   prompt: string;
   timestamp?: string;
   blocks: Block[];
+  /** Sent while Claude was still working on the previous prompt. */
+  queued?: boolean;
 }
 
 interface ContentBlock {
@@ -27,6 +29,19 @@ interface Entry {
   isMeta?: boolean;
   isSidechain?: boolean;
   message?: { id?: string; content?: string | ContentBlock[] };
+  attachment?: { type?: string; prompt?: string; humanTurn?: boolean; origin?: { kind?: string } };
+}
+
+/**
+ * Prompts typed while Claude is working are not stored as user entries: once
+ * Claude takes them in mid-turn they appear as a `queued_command` attachment.
+ */
+function queuedPrompt(entry: Entry): string | undefined {
+  const a = entry.attachment;
+  if (entry.type !== "attachment" || entry.isSidechain || a?.type !== "queued_command") return undefined;
+  if (!a.humanTurn && a.origin?.kind !== "human") return undefined;
+  const text = a.prompt?.trim();
+  return text || undefined;
 }
 
 /**
@@ -94,6 +109,18 @@ export class TranscriptParser {
         prompt,
         timestamp: entry.timestamp,
         blocks: [],
+      });
+      return true;
+    }
+    const queued = queuedPrompt(entry);
+    if (queued !== undefined) {
+      // Claude's following output responds to it, so it starts a turn of its own.
+      this.turns.push({
+        id: entry.uuid ?? String(this.turns.length),
+        prompt: queued,
+        timestamp: entry.timestamp,
+        blocks: [],
+        queued: true,
       });
       return true;
     }

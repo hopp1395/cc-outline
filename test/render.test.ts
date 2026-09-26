@@ -18,6 +18,13 @@ describe("renderMarkdown", () => {
     expect(plain[1]).toMatch(/^ {4}word/);
   });
 
+  it("keeps long lines whole without wrapping", () => {
+    const lines = renderMarkdown(`${"word ".repeat(20).trim()}\n\n\`\`\`\n${"x".repeat(100)}\n\`\`\``, 30, false);
+    const plain = lines.map(strip);
+    expect(plain.some((l) => l.includes("word ".repeat(19) + "word"))).toBe(true);
+    expect(plain.some((l) => l.includes("x".repeat(100)))).toBe(true);
+  });
+
   it("does not start wrapped paragraph lines with a space", () => {
     const plain = renderMarkdown("word ".repeat(40), 30).map(strip);
     expect(plain.length).toBeGreaterThan(1);

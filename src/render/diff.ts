@@ -92,14 +92,19 @@ export interface RenderedDiff {
   lines: string[];
   /** Indices of hunk header lines, for jumping between hunks. */
   hunkStarts: number[];
+  /** Width of the line-number gutter, which stays in place when scrolling sideways. */
+  gutterWidth: number;
 }
 
-/** Renders a parsed diff as ANSI lines of exactly `width` columns. */
-export function renderDiff(diff: ParsedDiff, path: string, width: number): RenderedDiff {
+/**
+ * Renders a parsed diff as ANSI lines. With `wrap` they are exactly `width`
+ * columns; without, long lines stay whole for horizontal scrolling.
+ */
+export function renderDiff(diff: ParsedDiff, path: string, width: number, wrap = true): RenderedDiff {
   const lines: string[] = [];
   const hunkStarts: number[] = [];
-  if (diff.binary) return { lines: [dim("Binary file changed")], hunkStarts };
-  if (diff.hunks.length === 0) return { lines: [dim("No content changes")], hunkStarts };
+  if (diff.binary) return { lines: [dim("Binary file changed")], hunkStarts, gutterWidth: 0 };
+  if (diff.hunks.length === 0) return { lines: [dim("No content changes")], hunkStarts, gutterWidth: 0 };
 
   const language = languageFor(path);
   const maxNo = Math.max(
@@ -107,7 +112,6 @@ export function renderDiff(diff: ParsedDiff, path: string, width: number): Rende
   );
   const numWidth = String(maxNo).length;
   const gutterWidth = numWidth * 2 + 4;
-  const codeWidth = Math.max(10, width - gutterWidth);
 
   diff.hunks.forEach((hunk, i) => {
     if (i > 0) lines.push("");
@@ -117,14 +121,53 @@ export function renderDiff(diff: ParsedDiff, path: string, width: number): Rende
     hunk.lines.forEach((l, j) => {
       const gutter =
         String(l.oldNo ?? "").padStart(numWidth) + " " + String(l.newNo ?? "").padStart(numWidth) + " ";
-      const wrapped = wrapAnsi(code[j], codeWidth, { hard: true, trim: false }).split("\n");
-      wrapped.forEach((part, k) => {
-        const prefix = k === 0 ? dim(gutter) + SIGN[l.kind] + " " : " ".repeat(gutterWidth);
-        const bg = BG[l.kind];
-        const row = prefix + part;
-        lines.push(bg ? bg + pad(row, width) + "\u001b[49m" : row);
-      });
+      lines.push(...codeRows(dim(gutter) + SIGN[l.kind] + " ", gutterWidth, code[j], width, wrap, BG[l.kind]));
     });
   });
-  return { lines, hunkStarts };
+  return { lines, hunkStarts, gutterWidth };
+}
+
+/**
+ * One code line as rows: gutter prefix, then the code wrapped to `width` or
+ * kept whole. A background fills the row to at least `width`.
+ */
+function codeRows(prefix: string, gutterWidth: number, code: string, width: number, wrap: boolean, bg = ""): string[] {
+  const parts = wrap ? wrapAnsi(code, Math.max(10, width - gutterWidth), { hard: true, trim: false }).split("\n") : [code];
+  return parts.map((part, k) => {
+    const row = (k === 0 ? prefix : " ".repeat(gutterWidth)) + part;
+    return bg ? bg + pad(row, width) + "\u001b[49m" : row;
+  });
+}
+
+/** Line numbers of the new file that the diff adds or changes. */
+export function addedLines(diff: ParsedDiff): Set<number> {
+  const added = new Set<number>();
+  for (const hunk of diff.hunks) for (const l of hunk.lines) if (l.kind === "add") added.add(l.newNo!);
+  return added;
+}
+
+/**
+ * Renders the whole file after the change, highlighted and numbered, without
+ * change markers. `hunkStarts` still point at the changed blocks for jumping.
+ */
+export function renderFile(
+  content: string,
+  path: string,
+  width: number,
+  added: Set<number>,
+  wrap = true,
+): RenderedDiff {
+  const source = content.replace(/^\uFEFF/, "").split(/\r?\n/);
+  if (source.at(-1) === "") source.pop();
+  const code = highlightLines(source.map(expandTabs), languageFor(path));
+  const numWidth = String(source.length).length;
+  const gutterWidth = numWidth + 1;
+  const lines: string[] = [];
+  const hunkStarts: number[] = [];
+  code.forEach((c, i) => {
+    const no = i + 1;
+    if (added.has(no) && !added.has(no - 1)) hunkStarts.push(lines.length);
+    lines.push(...codeRows(dim(String(no).padStart(numWidth) + " "), gutterWidth, c, width, wrap));
+  });
+  return { lines, hunkStarts, gutterWidth };
 }

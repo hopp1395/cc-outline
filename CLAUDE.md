@@ -1,0 +1,67 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+`cc-outline` (command `cco`) is a terminal viewer that runs in a split pane next to Claude Code. It has two views: **Chat** (the session's turns rendered as Markdown, following live) and **Changes** (git status plus diffs against `HEAD` with syntax highlighting, C# only so far). It ships as an npm CLI (`cco`) plus a Claude Code plugin in `plugin/` (hooks and the `/cco:chat` and `/cco:git` commands). User-facing docs and key bindings are in `README.md`.
+
+## Commands
+
+```sh
+npm run build        # tsup → dist/cli.js (single ESM bundle with shebang)
+npm run dev          # tsup --watch
+npm run typecheck    # tsc --noEmit (TypeScript 7)
+npm test             # vitest run
+npx vitest run test/git.test.ts            # one file
+npx vitest run -t "breaks after slashes"   # one test by name
+npm link             # expose `cco` globally; it runs dist/, so rebuild after changes
+claude --plugin-dir ./plugin               # load the plugin (hooks + commands) into Claude Code
+```
+
+The plugin calls `cco` by name, so `npm link` is required for the hooks and commands to work. A running viewer pane keeps the code it was started with: after a rebuild, close it with `q` and reopen it. Plugin changes (hooks, commands) only load when Claude Code restarts.
+
+## Architecture
+
+**Data flow.** Claude Code writes every session as JSONL to `~/.claude/projects/<slug>/<session-id>.jsonl`. The slug is the cwd with every non-alphanumeric character replaced by `-`, see `projectSlug` in `src/transcript/locate.ts`. The viewer never talks to Claude Code directly. It tails that file (`FileTail` in `src/transcript/tail.ts`, reading from a byte offset) and feeds chunks to `TranscriptParser` (`src/transcript/parse.ts`). The parser groups entries into turns (a real user prompt plus all assistant blocks until the next prompt) and buffers incomplete trailing lines.
+
+**Transcript format quirks** (handled in `parse.ts`):
+- One assistant message is split across several lines that share `message.id`, one line per content block.
+- `user` entries also carry tool results, `isMeta` reminders, interrupt markers and `<local-command…>` output. Only real prompts start a turn; slash commands are shown as `/name args`.
+- Sidechain entries (subagents) are skipped.
+- Prompts typed while Claude is working are not stored as `user` entries. When Claude takes them in mid-turn, they appear as `type: "attachment"` with `attachment.type: "queued_command"` and `attachment.prompt`; `queue-operation` lines only record the queueing. They start their own turn with `queued: true`, shown as `↳` in the list.
+
+**Hooks and state files.** `cco hook` (`src/hook.ts`) handles `SessionStart`, `UserPromptSubmit` and `SessionEnd` and writes per-project state files to `~/.claude/cco/<slug>*.json`. All of them are written atomically via rename (`writeJson` in `locate.ts`):
+- `<slug>.json`: the active session. `ended: true` is set on `SessionEnd`, except when the reason is `clear`, and only if that session is still the active one.
+- `<slug>.viewer.json`: pid and current view of the running viewer. `cco open` checks it and reuses a live viewer instead of opening a second pane.
+- `<slug>.restore.json`: whether a viewer was running at `SessionEnd`, and with which view. On `SessionStart` with source `startup` or `resume`, the hook reopens it with `keepFocus`, which sends a `move-focus left` to wt or passes `-d` to tmux. The hook must not print to stdout, because SessionStart output is added to Claude's context.
+- `<slug>.control.json`: view-switch requests from `cco open` to the running viewer.
+
+Display preferences (`t`, `h`, and `w` separately for chat and changes) are global rather than per project: `~/.claude/cco/settings.json` (`src/settings.ts`). Views use them through `useSetting()`, which writes on every change.
+
+Focus indication (`src/tui/focus.ts`): the viewer enables terminal focus reporting (DECSET 1004). Ink passes the reports to `useInput` as `"[I"` and `"[O"`, with the ESC stripped and no key flags set, so no view binding reacts to them. `FocusContext` feeds `Screen` (top bar, footer) and `List` (selection style). A pane opened with `keepFocus` starts with `--unfocused`, because the terminal sends no initial report.
+
+The viewer (`src/tui/useViewerControl.ts`) only reacts to changes that happen after it started. It exits when the session ends, after a 1.5 s grace period. Without hooks it falls back to the newest transcript that contains messages; Claude Code also creates tiny bookkeeping `.jsonl` files that must be ignored.
+
+**TUI** (Ink 7 + React 19, `src/tui/`):
+- `App.tsx` keeps both views mounted (hidden with `display="none"`) so the chat keeps following while the git view is shown. Views use `useInput(..., { isActive })`.
+- `layout.tsx` holds the shared pieces: the `Screen` frame, the `List`, `useScroll`, `handleNavigation`, `previewHeader`, `Marquee` and `wrapPath`. Both views share the same navigation: `←→` switch item, `↑↓` scroll.
+- `Preview.tsx` renders a sticky `header` (prompt or file path, capped by `fitHeader`) above the scrolled lines.
+- All content is pre-rendered into ANSI strings that are already wrapped to the preview width, then sliced by scroll offset. Ink does no wrapping of its own here (`wrap="truncate"`).
+
+**Rendering.**
+- `src/render/markdown.ts` uses `marked` with `marked-terminal`, plus two fixes:
+  - A `text` renderer override, because marked ≥13 hands list items nested inline tokens that marked-terminal prints raw.
+  - A wrapper that indents the continuation lines of list items.
+- `src/render/diff.ts` highlights each hunk side as one text, so multi-line comments are colored correctly, and then maps the lines back. Its truecolor theme applies styles per line (`style()`), because highlighted output is split into lines afterwards. Add languages via the `LANGUAGES` map.
+
+**Git** (`src/git/git.ts`): uses porcelain v1 `-z` plus `numstat`. It diffs against `HEAD`, or against git's empty tree in repos without commits. Untracked files get a synthetic all-added hunk and are counted manually.
+
+**Opening panes** (`src/open.ts`): calls `wt -w 0 split-pane` on Windows Terminal (`WT_SESSION`) or `tmux split-window`. It launches `process.execPath dist/cli.js` directly, because Windows Terminal cannot run npm's `.cmd` shims by bare name.
+
+## Gotchas
+
+- `CLAUDE_CONFIG_DIR` may be set to an empty string. Use `||`, not `??`, when falling back to `~/.claude`.
+- chokidar does not notice files created later if their directory does not exist yet; `watchFile` creates the directory first. On Windows it uses polling. `FileTail` also stats the file every second so it catches a transcript that does not exist yet.
+- On this Windows machine, the Bash tool mangles backslashes in heredocs and inline scripts (`\\`, `\u001b`, `\n`). Write files containing escape sequences with the Write/Edit tools.
+- TUI changes can be checked headlessly: render `App` from a tsup build into a `PassThrough` stdout with `isTTY = true` and `debug: true`, write key sequences to a fake stdin (e.g. `\u001b[C` for →), and inspect the output with ANSI codes stripped.

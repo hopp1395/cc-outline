@@ -9,7 +9,7 @@ const END_GRACE_MS = 1500;
 
 /**
  * Wires the viewer to its surroundings: switches view on requests from
- * `cce open`, and exits when the followed Claude Code session ends.
+ * `cco open`, and exits when the followed Claude Code session ends.
  * Only changes after the viewer started count, so stale state is ignored.
  */
 export function useViewerControl(opts: {

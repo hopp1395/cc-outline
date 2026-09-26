@@ -1,15 +1,31 @@
 import { Text, useInput } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import stringWidth from "string-width";
 import { parseDiff } from "../git/diff.js";
-import { fileDiff, listChanges, repoRoot, type FileChange } from "../git/git.js";
-import { renderDiff } from "../render/diff.js";
-import { List, Screen, truncate, useScroll, type Layout } from "./layout.js";
-import { Preview } from "./Preview.js";
+import { fileContent, fileDiff, listChanges, repoRoot, type FileChange, type FileContent } from "../git/git.js";
+import { addedLines, renderDiff, renderFile, type RenderedDiff } from "../render/diff.js";
+import {
+  bold,
+  handleNavigation,
+  List,
+  Marquee,
+  previewHeader,
+  rule,
+  Screen,
+  truncate,
+  useScroll,
+  wrapPath,
+  type Layout,
+} from "./layout.js";
+import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { useSetting } from "./useSetting.js";
 
 interface Props {
   cwd: string;
   layout: Layout;
   active: boolean;
+  /** Reports whether the whole-file view is open, so Esc closes it instead of quitting. */
+  onFileOpen?: (open: boolean) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -22,16 +38,70 @@ const STATUS_COLOR: Record<string, string> = {
   U: "magenta",
 };
 
-const POLL_MS = 2000;
+const STATUS_ANSI: Record<string, string> = { yellow: "33", green: "32", red: "31", blue: "34", magenta: "35" };
 
-export function GitView({ cwd, layout, active }: Props) {
+const STATUS_LABEL: Record<string, string> = {
+  M: "modified",
+  A: "added",
+  "?": "untracked",
+  D: "deleted",
+  R: "renamed",
+  C: "copied",
+  U: "conflict",
+};
+
+/**
+ * Full path of the file above its diff, like the prompt above a chat answer.
+ * The rule names what Enter switches to.
+ */
+function fileHeader(file: FileChange, width: number, showFile: boolean): string[] {
+  const color = STATUS_ANSI[STATUS_COLOR[file.status]] ?? "39";
+  const counts = file.added !== undefined ? ` · +${file.added} -${file.removed}` : "";
+  const details = [(STATUS_LABEL[file.status] ?? file.status) + counts + (showFile ? " · whole file" : " · diff")];
+  if (file.oldPath) details.push(`from ${file.oldPath}`);
+  const header = previewHeader(file.path, width, {
+    marker: `\u001b[${color}m${file.status}\u001b[39m `,
+    style: bold,
+    details,
+    wrap: wrapPath,
+  });
+  return [...header.slice(0, -1), rule(width, showFile ? "↵ diff" : "↵ whole file")];
+}
+
+const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
+
+const message = (text: string): RenderedDiff => ({ lines: [dim(text)], hunkStarts: [], gutterWidth: 0 });
+
+function renderContent(
+  content: FileContent | undefined,
+  diffText: string,
+  path: string,
+  width: number,
+  wrap: boolean,
+): RenderedDiff {
+  if (!content) return message("Loading…");
+  if (content.kind === "deleted") return message("File was deleted; there is no content after the change.");
+  if (content.kind === "binary") return message("Binary file");
+  return renderFile(content.text, path, width, addedLines(parseDiff(diffText)), wrap);
+}
+
+const POLL_MS = 2000;
+/** Columns moved per Shift+←/→ when lines are not wrapped. */
+const HSCROLL_STEP = 8;
+
+export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const [root, setRoot] = useState<string | null>();
   const [files, setFiles] = useState<FileChange[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [diffText, setDiffText] = useState("");
-  const [listFocused, setListFocused] = useState(true);
+  const [showFile, setShowFile] = useState(false);
+  const [wrap, setWrap] = useSetting("wrap");
+  const [hscroll, setHscroll] = useState(0);
+  const [content, setContent] = useState<FileContent>();
   const [error, setError] = useState<string>();
+  const showFileRef = useRef(showFile);
+  showFileRef.current = showFile;
 
   useEffect(() => {
     repoRoot(cwd).then((r) => setRoot(r ?? null));
@@ -53,6 +123,10 @@ export function GitView({ cwd, layout, active }: Props) {
       const file = next.find((f) => f.path === currentRef.current?.path) ?? next[0];
       setSelectedPath(file?.path);
       setDiffText(file ? await fileDiff(root, file) : "");
+      if (file && showFileRef.current) {
+        const next = await fileContent(root, file);
+        setContent((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      }
       setError(undefined);
     } catch (err) {
       setError((err as Error).message.split("\n")[0]);
@@ -82,17 +156,55 @@ export function GitView({ cwd, layout, active }: Props) {
     };
   }, [root, current?.path]);
 
-  const rendered = useMemo(
-    () => (current ? renderDiff(parseDiff(diffText), current.path, previewWidth) : { lines: [], hunkStarts: [] }),
-    [diffText, current?.path, previewWidth],
+  // The whole file is only read while that view is open.
+  useEffect(() => {
+    setContent(undefined);
+    if (!root || !current || !showFile) return;
+    let cancelled = false;
+    fileContent(root, current).then(
+      (c) => !cancelled && setContent(c),
+      (err: Error) => !cancelled && setError(err.message.split("\n")[0]),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [root, current?.path, showFile]);
+
+  const header = useMemo(() => {
+    if (!current) return [];
+    const full = fileHeader(current, previewWidth, showFile);
+    const fitted = fitHeader(full, bodyHeight);
+    // Keep the labelled rule even when the header had to be shortened.
+    return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
+  }, [current, previewWidth, bodyHeight, showFile]);
+  const rendered = useMemo(() => {
+    if (!current) return message("");
+    return showFile
+      ? renderContent(content, diffText, current.path, previewWidth, wrap)
+      : renderDiff(parseDiff(diffText), current.path, previewWidth, wrap);
+  }, [diffText, content, current?.path, previewWidth, showFile, wrap]);
+  const viewport = bodyHeightBelow(header, bodyHeight);
+  const scroll = useScroll(rendered.lines.length, viewport);
+
+  // How far unwrapped lines can be shifted until the longest one ends at the right edge.
+  const maxHscroll = useMemo(
+    () => (wrap ? 0 : Math.max(0, ...rendered.lines.map((l) => stringWidth(l))) - previewWidth),
+    [rendered, wrap, previewWidth],
   );
-  const scroll = useScroll(rendered.lines.length, bodyHeight);
+  const shift = (delta: number) => setHscroll((h) => Math.max(0, Math.min(maxHscroll, h + delta)));
 
   const select = (index: number) => {
     const file = files[Math.max(0, Math.min(files.length - 1, index))];
     if (!file || file.path === current?.path) return;
     setSelectedPath(file.path);
     scroll.set(0);
+    setHscroll(0);
+  };
+  const toggleFile = (open: boolean) => {
+    setShowFile(open);
+    onFileOpen?.(open);
+    scroll.set(0);
+    setHscroll(0);
   };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
@@ -103,19 +215,22 @@ export function GitView({ cwd, layout, active }: Props) {
 
   useInput(
     (input, key) => {
-      if (key.tab) return setListFocused((f) => !f);
-      if (key.upArrow || input === "k") return listFocused ? select(selectedIndex - 1) : scroll.by(-1);
-      if (key.downArrow || input === "j") return listFocused ? select(selectedIndex + 1) : scroll.by(1);
-      if (input === "p") return select(selectedIndex - 1);
-      if (input === "n") return select(selectedIndex + 1);
-      if (key.pageUp || input === "b") return scroll.by(-(bodyHeight - 2));
-      if (key.pageDown || input === " ") return scroll.by(bodyHeight - 2);
-      if (key.ctrl && input === "u") return scroll.by(-Math.floor(bodyHeight / 2));
-      if (key.ctrl && input === "d") return scroll.by(Math.floor(bodyHeight / 2));
-      if (key.home) return scroll.set(0);
-      if (key.end) return scroll.set(scroll.max);
-      if (input === "g") return select(0);
-      if (input === "G") return select(files.length - 1);
+      // Shift+←/→ scroll sideways; checked first because plain ←/→ switch files.
+      if (key.shift && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
+      if (input === "w") {
+        setWrap((w) => !w);
+        return setHscroll(0);
+      }
+      const nav = {
+        select: (delta: number) => select(selectedIndex + delta),
+        first: () => select(0),
+        last: () => select(files.length - 1),
+        scroll,
+        page: viewport - 2,
+      };
+      if (handleNavigation(input, key, nav)) return;
+      if (key.return && current) return toggleFile(!showFile);
+      if (key.escape && showFile) return toggleFile(false);
       if (input === "]") return jumpHunk(1);
       if (input === "[") return jumpHunk(-1);
       if (input === "r") return void refresh();
@@ -129,7 +244,19 @@ export function GitView({ cwd, layout, active }: Props) {
   if (root === null) preview = <Text dimColor>{cwd} is not inside a git repository</Text>;
   else if (error) preview = <Text color="red">git: {error}</Text>;
   else if (!current) preview = <Text dimColor>Working tree clean</Text>;
-  else preview = <Preview lines={rendered.lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} />;
+  else
+    preview = (
+      <Preview
+        header={header}
+        lines={rendered.lines}
+        scroll={scroll.scroll}
+        width={previewWidth}
+        height={bodyHeight}
+        hscroll={Math.min(hscroll, maxHscroll)}
+        frozen={rendered.gutterWidth}
+        pinned={showFile ? [] : rendered.hunkStarts}
+      />
+    );
 
   return (
     <Screen
@@ -138,7 +265,8 @@ export function GitView({ cwd, layout, active }: Props) {
       status={
         <Text dimColor>
           {files.length} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
-          {current && ` · ${current.path} · ${scroll.position}`}
+          {current && ` · ${scroll.position}`}
+          {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
         </Text>
       }
       list={
@@ -146,15 +274,19 @@ export function GitView({ cwd, layout, active }: Props) {
           items={files}
           selected={selectedIndex}
           height={bodyHeight}
-          focused={listFocused}
           empty={root === undefined ? "Loading…" : "No changes"}
           itemKey={(f) => f.path}
-          render={(f) => {
+          render={(f, isSelected) => {
             const counts = f.added !== undefined ? ` +${f.added} -${f.removed}` : "";
+            const nameWidth = Math.max(4, listWidth - 2 - counts.length);
             return (
               <>
                 <Text color={STATUS_COLOR[f.status]}>{f.status} </Text>
-                {truncate(f.path, Math.max(4, listWidth - 2 - counts.length))}
+                {isSelected ? (
+                  <Marquee text={f.path} width={nameWidth} active={active} />
+                ) : (
+                  truncate(f.path, nameWidth)
+                )}
                 <Text dimColor>{counts}</Text>
               </>
             );
@@ -162,7 +294,17 @@ export function GitView({ cwd, layout, active }: Props) {
         />
       }
       preview={preview}
-      footer="↑↓/jk file · tab focus · space/b page · [/] hunk · n/p file · r refresh · 1/2 view · q quit"
+      footer={[
+        { text: "←→ file" },
+        { text: "↑↓ scroll" },
+        ...(wrap ? [] : [{ text: "⇧←→ sideways" }]),
+        { text: "↵ whole file", on: showFile },
+        { text: showFile ? "[/] change" : "[/] hunk" },
+        { text: "w wrap", on: wrap },
+        { text: "r refresh" },
+        { text: "1/2 view" },
+        { text: "q quit" },
+      ]}
     />
   );
 }

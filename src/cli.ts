@@ -11,8 +11,8 @@ const viewOption = () =>
   new Option("--view <view>", "view to start with").choices(["chat", "git"]).default("chat");
 
 const program = new Command()
-  .name("cce")
-  .description("Claude Code extensions: rendered session preview and git diff view")
+  .name("cco")
+  .description("cc-outline: rendered session preview and git diff view")
   .version("0.1.0");
 
 program
@@ -21,12 +21,18 @@ program
   .option("--cwd <dir>", "project directory the Claude Code session runs in", process.cwd())
   .option("--session <id>", "show this session instead of the active one")
   .addOption(viewOption())
-  .action(async (opts: { cwd: string; session?: string; view: Mode }) => {
-    registerViewer(opts.cwd);
+  .addOption(new Option("--unfocused", "the pane opens without the keyboard focus").hideHelp())
+  .action(async (opts: { cwd: string; session?: string; view: Mode; unfocused?: boolean }) => {
+    registerViewer(opts.cwd, opts.view);
     // Also covers exits that bypass Ink, e.g. the pane being closed.
     process.on("exit", () => unregisterViewer(opts.cwd));
     const app = render(
-      createElement(App, { cwd: opts.cwd, sessionId: opts.session, initialMode: opts.view }),
+      createElement(App, {
+        cwd: opts.cwd,
+        sessionId: opts.session,
+        initialMode: opts.view,
+        unfocused: opts.unfocused,
+      }),
       { alternateScreen: true, exitOnCtrlC: true },
     );
     await app.waitUntilExit();

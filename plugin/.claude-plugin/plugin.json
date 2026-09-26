@@ -1,6 +1,6 @@
 {
-  "name": "cce",
+  "name": "cco",
   "version": "0.1.0",
-  "description": "Claude Code extensions: rendered session preview and git diff view in a split pane",
+  "description": "cc-outline: rendered session preview and git diff view in a split pane",
   "license": "MIT"
 }

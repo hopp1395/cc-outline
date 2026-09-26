@@ -58,9 +58,9 @@ export function transcriptForSession(cwd: string, sessionId: string): string {
   return join(projectDir(cwd), `${sessionId}.jsonl`);
 }
 
-/** Per-project state files live in ~/.claude/cce so parallel projects don't clash. */
+/** Per-project state files live in ~/.claude/cco so parallel projects don't clash. */
 function stateFile(cwd: string, suffix: string): string {
-  return join(claudeDir(), "cce", `${projectSlug(cwd)}${suffix}.json`);
+  return join(claudeDir(), "cco", `${projectSlug(cwd)}${suffix}.json`);
 }
 
 export function readJson<T>(file: string): T | undefined {
@@ -73,7 +73,7 @@ export function readJson<T>(file: string): T | undefined {
 
 /** Writes via rename so watchers never see a half-written file. */
 export function writeJson(file: string, value: unknown): void {
-  mkdirSync(join(claudeDir(), "cce"), { recursive: true });
+  mkdirSync(join(claudeDir(), "cco"), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(value, null, 2));
   renameSync(tmp, file);
@@ -89,9 +89,14 @@ export function viewerFile(cwd: string): string {
   return stateFile(cwd, ".viewer");
 }
 
-/** Requests from `cce open` to a running viewer (e.g. switch view). */
+/** Requests from `cco open` to a running viewer (e.g. switch view). */
 export function controlFile(cwd: string): string {
   return stateFile(cwd, ".control");
+}
+
+/** Whether the viewer was open when Claude Code last exited in this project. */
+export function restoreFile(cwd: string): string {
+  return stateFile(cwd, ".restore");
 }
 
 export function readActive(cwd: string): ActiveSession | undefined {

@@ -1,8 +1,8 @@
 ---
-description: Open the cce git changes view (diffs with syntax highlighting) in a split pane
-allowed-tools: Bash(cce open:*)
+description: Open the cco git changes view (diffs with syntax highlighting) in a split pane
+allowed-tools: Bash(cco open:*)
 ---
 
-!`cce open --view git`
+!`cco open --view git`
 
 Reply with the line above only. Do not run any tools.

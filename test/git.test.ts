@@ -61,7 +61,7 @@ describe("parseDiff", () => {
 
 describe("git integration", () => {
   it("lists tracked and untracked changes with diffs", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cce-git-"));
+    const root = mkdtempSync(join(tmpdir(), "cco-git-"));
     const git = (...args: string[]) =>
       execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.autocrlf=false", ...args], {
         cwd: root,

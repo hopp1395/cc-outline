@@ -8,7 +8,22 @@ describe("TranscriptParser", () => {
   it("builds one turn per real prompt", () => {
     const p = new TranscriptParser();
     p.push(fixture);
-    expect(p.turns.map((t) => t.prompt)).toEqual(["Explain **hooks**", "/color green", "Second prompt"]);
+    expect(p.turns.map((t) => t.prompt)).toEqual([
+      "Explain **hooks**",
+      "/color green",
+      "Second prompt",
+      "also add tests",
+    ]);
+  });
+
+  it("starts a turn for a prompt sent while Claude was working", () => {
+    const p = new TranscriptParser();
+    p.push(fixture);
+    const [before, queued] = p.turns.slice(-2);
+    expect(before.queued).toBeUndefined();
+    expect(before.blocks).toEqual([{ kind: "text", text: "Working on it." }]);
+    expect(queued).toMatchObject({ id: "q1", prompt: "also add tests", queued: true });
+    expect(queued.blocks).toEqual([{ kind: "text", text: "Tests added." }]);
   });
 
   it("collects assistant blocks in order and skips sidechains", () => {
@@ -24,7 +39,7 @@ describe("TranscriptParser", () => {
     expect(p.push(fixture.slice(0, cut))).toBe(true);
     expect(p.turns).toHaveLength(2);
     expect(p.push(fixture.slice(cut))).toBe(true);
-    expect(p.turns).toHaveLength(3);
+    expect(p.turns).toHaveLength(4);
   });
 
   it("builds Markdown with optional tools and thinking", () => {

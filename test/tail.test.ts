@@ -6,7 +6,7 @@ import { FileTail } from "../src/transcript/tail.js";
 
 describe("FileTail", () => {
   it("reads existing content and then only appended bytes", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "cce-")), "t.jsonl");
+    const file = join(mkdtempSync(join(tmpdir(), "cco-")), "t.jsonl");
     writeFileSync(file, "a\n");
     const chunks: string[] = [];
     const tail = new FileTail(file, (c) => chunks.push(c));

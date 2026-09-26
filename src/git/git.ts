@@ -118,6 +118,21 @@ export async function fileDiff(root: string, change: FileChange): Promise<string
   return git(root, ["diff", base, "-M", "--no-color", "--no-ext-diff", "-U3", "--", ...paths]);
 }
 
+export type FileContent = { kind: "text"; text: string } | { kind: "deleted" } | { kind: "binary" };
+
+/** The file as it is in the working tree now, i.e. after the change. */
+export async function fileContent(root: string, change: FileChange): Promise<FileContent> {
+  if (change.status === "D") return { kind: "deleted" };
+  let buf: Buffer;
+  try {
+    buf = await readFile(join(root, change.path));
+  } catch {
+    return { kind: "deleted" };
+  }
+  if (buf.subarray(0, 8000).includes(0)) return { kind: "binary" };
+  return { kind: "text", text: buf.toString("utf8") };
+}
+
 async function untrackedDiff(root: string, path: string): Promise<string> {
   const buf = await readFile(join(root, path));
   if (buf.subarray(0, 8000).includes(0)) return "Binary files differ\n";

@@ -25,7 +25,7 @@ export function parseDiff(text: string): ParsedDiff {
   let newNo = 0;
   for (const raw of text.split("\n")) {
     // CRLF files keep their \r in git's output; a BOM would shift the first line.
-    const line = raw.replace(/\r$/, "").replace(/^([ +-]?)﻿/, "$1");
+    const line = raw.replace(/\r$/, "").replace(/^([ +-]?)\uFEFF/, "$1");
     const header = HUNK.exec(line);
     if (header) {
       oldNo = Number(header[1]);
