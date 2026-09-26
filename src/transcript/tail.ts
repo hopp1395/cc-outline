@@ -1,4 +1,5 @@
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { watch, type FSWatcher } from "chokidar";
 
 /**
@@ -8,6 +9,7 @@ import { watch, type FSWatcher } from "chokidar";
 export class FileTail {
   private offset = 0;
   private watcher?: FSWatcher;
+  private timer?: NodeJS.Timeout;
   private decoder = new TextDecoder("utf-8");
 
   constructor(
@@ -25,9 +27,12 @@ export class FileTail {
     });
     this.watcher.on("add", () => this.read());
     this.watcher.on("change", () => this.read());
+    // Watchers can miss a file that does not exist yet; a cheap stat catches its creation.
+    this.timer = setInterval(() => this.read(), 1000);
   }
 
   async stop(): Promise<void> {
+    clearInterval(this.timer);
     await this.watcher?.close();
   }
 
@@ -56,6 +61,8 @@ export class FileTail {
 
 /** Calls back whenever a small file (e.g. the hook's active-session file) changes. */
 export function watchFile(path: string, onChange: () => void): FSWatcher {
+  // chokidar misses files created later if their directory does not exist yet.
+  mkdirSync(dirname(path), { recursive: true });
   const w = watch(path, { usePolling: process.platform === "win32", interval: 500 });
   w.on("add", onChange);
   w.on("change", onChange);

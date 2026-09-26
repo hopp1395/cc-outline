@@ -1,6 +1,6 @@
 {
-  "name": "ccmd",
+  "name": "cce",
   "version": "0.1.0",
-  "description": "Rendered Markdown preview of the current session in a terminal split pane",
+  "description": "Claude Code extensions: rendered session preview and git diff view in a split pane",
   "license": "MIT"
 }

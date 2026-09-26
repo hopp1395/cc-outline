@@ -1,9 +1,12 @@
-import { writeActive } from "./transcript/locate.js";
+import { readActive, writeActive } from "./transcript/locate.js";
 
-interface HookInput {
+export interface HookInput {
+  hook_event_name?: string;
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
+  /** SessionEnd only: why the session ended ("clear", "logout", "prompt_input_exit", …). */
+  reason?: string;
 }
 
 async function readStdin(): Promise<string> {
@@ -13,20 +16,36 @@ async function readStdin(): Promise<string> {
 }
 
 /**
- * Claude Code hook entry point: records the session that is currently active in a
- * project so a running viewer can switch to it. Never fails the hook.
+ * Records which session is active in a project so a running viewer can follow
+ * it, and marks it ended when Claude Code exits so the viewer closes itself.
  */
+export function handleHook(input: HookInput): void {
+  if (!input.session_id || !input.transcript_path || !input.cwd) return;
+  const updated = new Date().toISOString();
+
+  if (input.hook_event_name === "SessionEnd") {
+    // /clear ends the session but a new one starts right away in the same terminal.
+    if (input.reason === "clear") return;
+    const active = readActive(input.cwd);
+    // Another session of the project may have taken over; leave its state alone.
+    if (active?.session_id !== input.session_id) return;
+    writeActive({ ...active, ended: true, updated });
+    return;
+  }
+
+  writeActive({
+    session_id: input.session_id,
+    transcript_path: input.transcript_path,
+    cwd: input.cwd,
+    updated,
+  });
+}
+
+/** Claude Code hook entry point. Never fails the hook. */
 export async function runHook(): Promise<void> {
   try {
-    const input = JSON.parse(await readStdin()) as HookInput;
-    if (!input.session_id || !input.transcript_path || !input.cwd) return;
-    writeActive({
-      session_id: input.session_id,
-      transcript_path: input.transcript_path,
-      cwd: input.cwd,
-      updated: new Date().toISOString(),
-    });
+    handleHook(JSON.parse(await readStdin()) as HookInput);
   } catch (err) {
-    process.stderr.write(`ccmd hook: ${(err as Error).message}\n`);
+    process.stderr.write(`cce hook: ${(err as Error).message}\n`);
   }
 }

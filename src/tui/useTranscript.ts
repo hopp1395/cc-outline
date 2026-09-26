@@ -16,8 +16,10 @@ import { FileTail, watchFile } from "../transcript/tail.js";
 export function useSessionPath(cwd: string, sessionId?: string): string | undefined {
   const resolve = () => {
     if (sessionId) return transcriptForSession(cwd, sessionId);
+    // A new session's transcript is only created with its first message; follow
+    // the path anyway so the view switches instead of lingering on the old session.
     const active = readActive(cwd);
-    if (active && existsSync(active.transcript_path)) return active.transcript_path;
+    if (active && !active.ended) return active.transcript_path;
     return findLatestTranscript(cwd);
   };
   const [path, setPath] = useState(resolve);

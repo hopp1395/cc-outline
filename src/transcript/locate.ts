@@ -7,6 +7,8 @@ export interface ActiveSession {
   transcript_path: string;
   cwd: string;
   updated: string;
+  /** Set when the Claude Code session exited; a running viewer closes itself. */
+  ended?: boolean;
 }
 
 export function claudeDir(): string {
@@ -22,46 +24,80 @@ export function projectDir(cwd: string): string {
   return join(claudeDir(), "projects", projectSlug(cwd));
 }
 
-/** Most recently modified transcript of the project, if any. */
+/**
+ * Claude Code creates small bookkeeping files per start (e.g. only a
+ * "bridge-session" line). Large files are assumed to hold a conversation.
+ */
+function hasMessages(path: string, size: number): boolean {
+  if (size > 64 * 1024) return true;
+  const text = readFileSync(path, "utf8");
+  return text.includes('"type":"user"') || text.includes('"type":"assistant"');
+}
+
+/** Most recently modified transcript of the project that contains messages, if any. */
 export function findLatestTranscript(cwd: string): string | undefined {
   const dir = projectDir(cwd);
-  let best: { path: string; mtime: number } | undefined;
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
     return undefined;
   }
-  for (const name of names) {
-    if (!name.endsWith(".jsonl")) continue;
-    const path = join(dir, name);
-    const mtime = statSync(path).mtimeMs;
-    if (!best || mtime > best.mtime) best = { path, mtime };
-  }
-  return best?.path;
+  const candidates = names
+    .filter((name) => name.endsWith(".jsonl"))
+    .map((name) => {
+      const path = join(dir, name);
+      const { mtimeMs, size } = statSync(path);
+      return { path, mtimeMs, size };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates.find((c) => hasMessages(c.path, c.size))?.path;
 }
 
 export function transcriptForSession(cwd: string, sessionId: string): string {
   return join(projectDir(cwd), `${sessionId}.jsonl`);
 }
 
-/** State written by the hook: one file per project so parallel sessions don't clash. */
-export function activeFile(cwd: string): string {
-  return join(claudeDir(), "ccmd", `${projectSlug(cwd)}.json`);
+/** Per-project state files live in ~/.claude/cce so parallel projects don't clash. */
+function stateFile(cwd: string, suffix: string): string {
+  return join(claudeDir(), "cce", `${projectSlug(cwd)}${suffix}.json`);
 }
 
-export function readActive(cwd: string): ActiveSession | undefined {
+export function readJson<T>(file: string): T | undefined {
   try {
-    return JSON.parse(readFileSync(activeFile(cwd), "utf8")) as ActiveSession;
+    return JSON.parse(readFileSync(file, "utf8")) as T;
   } catch {
     return undefined;
   }
 }
 
-export function writeActive(session: ActiveSession): void {
-  const file = activeFile(session.cwd);
-  mkdirSync(join(claudeDir(), "ccmd"), { recursive: true });
+/** Writes via rename so watchers never see a half-written file. */
+export function writeJson(file: string, value: unknown): void {
+  mkdirSync(join(claudeDir(), "cce"), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(session, null, 2));
+  writeFileSync(tmp, JSON.stringify(value, null, 2));
   renameSync(tmp, file);
+}
+
+/** Session state written by the hook. */
+export function activeFile(cwd: string): string {
+  return stateFile(cwd, "");
+}
+
+/** Registration of the running viewer (pid). */
+export function viewerFile(cwd: string): string {
+  return stateFile(cwd, ".viewer");
+}
+
+/** Requests from `cce open` to a running viewer (e.g. switch view). */
+export function controlFile(cwd: string): string {
+  return stateFile(cwd, ".control");
+}
+
+export function readActive(cwd: string): ActiveSession | undefined {
+  return readJson<ActiveSession>(activeFile(cwd));
+}
+
+export function writeActive(session: ActiveSession): void {
+  writeJson(activeFile(session.cwd), session);
 }
