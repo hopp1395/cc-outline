@@ -67,11 +67,17 @@ export function renderMarkdown(markdown: string, width: number, wrap = true): st
  */
 export const BOX_START = "\uE000";
 export const BOX_END = "\uE001";
+/** A line of its own inside a frame: drawn as a dimmed rule across it. */
+export const BOX_RULE = "\uE002";
 const BOX = /\uE000([^\n]*)\n([\s\S]*?)\n?\uE001/g;
 
-/** `markdown` without the frame marks, e.g. for copying. */
+/** `markdown` without the frame marks and the colours inside frames, e.g. for copying. */
 export function stripBoxes(markdown: string): string {
-  return markdown.replace(BOX, "$2");
+  return markdown
+    .replace(BOX, "$2")
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/\n\n\uE002\n\n/g, "\n\n---\n\n")
+    .replace(/\u00a0/g, " ");
 }
 
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
@@ -91,7 +97,10 @@ function renderWithBoxes(markdown: string, width: number, wrap: boolean): string
     const top = `╭─${title ? ` ${title} ` : ""}`;
     if (lines.length) lines.push("");
     lines.push(yellow(top + "─".repeat(Math.max(0, w - stringWidth(top)))));
-    for (const line of renderMarkdown(m[2], w - 2, wrap)) lines.push(`${yellow("│")} ${line}`);
+    for (const line of renderMarkdown(m[2], w - 2, wrap)) {
+      const rule = line.replace(ANSI, "").trim() === BOX_RULE;
+      lines.push(`${yellow("│")} ${rule ? `\u001b[2m${"┄".repeat(w - 2)}\u001b[22m` : line}`);
+    }
     lines.push(yellow("╰" + "─".repeat(w - 1)));
   }
   plain(markdown.slice(at));

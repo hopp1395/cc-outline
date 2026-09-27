@@ -1,5 +1,5 @@
 import { isAbsolute, relative } from "node:path";
-import { BOX_END, BOX_START } from "../render/markdown.js";
+import { BOX_END, BOX_RULE, BOX_START } from "../render/markdown.js";
 
 /** How much of Claude's tool calls the chat shows: nothing, a line each, or with command and output. */
 export const TOOL_LEVELS = ["off", "compact", "full"] as const;
@@ -276,36 +276,55 @@ export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome 
   return [line, ...(command ? [command] : []), ...(outcome?.detail ? [outcome.detail] : [])].join("\n\n");
 }
 
-/** An AskUserQuestion call, framed: every question with its options, then the user's answer. */
+// Colours inside the Markdown of a question block; the renderer keeps them.
+const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
+const faint = (s: string) => `\u001b[2m${s}\u001b[22m`;
+/** Yellow, inverted; padded with no-break spaces, since a leading space would indent the wrapped lines. */
+const badge = (s: string) => `\u001b[7m\u001b[33m\u00a0${s}\u00a0\u001b[39m\u001b[27m`;
+
+/**
+ * An AskUserQuestion call, framed. Per question: a badge with its number and
+ * header, the question, the options (the chosen one ● in green, the others
+ * dimmed), then the user's answer in green as "You: …", and a dimmed rule
+ * (BOX_RULE) between questions.
+ */
 function questionMarkdown(input: unknown, outcome: ToolOutcome | undefined): string {
   const questions = Array.isArray(obj(input).questions) ? (obj(input).questions as unknown[]) : [];
   if (questions.length === 0) return "";
   const title = questions.length === 1 ? "Claude asks" : `Claude asks ${questions.length} questions`;
   const body = questions
-    .map((raw) => {
+    .map((raw, i) => {
       const q = obj(raw);
       const question = str(q.question) ?? "";
       const header = str(q.header);
-      const options = (Array.isArray(q.options) ? q.options : []).map((o) => {
-        const label = str(obj(o).label) ?? "";
+      const answer = outcome?.status === "ok" ? outcome.answers?.[question] : undefined;
+      // Several choices come back joined with ", ".
+      const chosen = new Set(answer === undefined ? [] : [answer, ...answer.split(", ")]);
+      const labels = (Array.isArray(q.options) ? q.options : []).map((o) => str(obj(o).label) ?? "");
+      const options = (Array.isArray(q.options) ? q.options : []).map((o, j) => {
+        const label = labels[j];
         const description = str(obj(o).description);
-        return `- ${escapeMd(label)}${description ? ` — *${escapeMd(description)}*` : ""}`;
+        // Markdown emphasis is not recognised next to colour codes: the others are only dimmed.
+        return chosen.has(label)
+          ? `- ${green("●")} **${escapeMd(label)}**${description ? ` — *${escapeMd(description)}*` : ""}`
+          : `- ${faint(`○ ${escapeMd(label)}${description ? ` — ${escapeMd(description)}` : ""}`)}`;
       });
-      const answer =
+      const own = answer !== undefined && !labels.some((l) => chosen.has(l));
+      const reply =
         outcome === undefined
-          ? "*waiting for your answer*"
-          : outcome.status !== "ok"
-            ? "⊘ *not answered*"
-            : outcome.answers?.[question] !== undefined
-              ? `**→ ${escapeMd(outcome.answers[question])}**`
-              : "⊘ *not answered*";
+          ? faint("┃ waiting for your answer")
+          : answer === undefined
+            ? faint("┃ not answered")
+            : green(`┃ You: ${escapeMd(answer)}`) + (own ? faint(" (own answer)") : "");
       const note = outcome?.notes?.[question];
+      const number = questions.length > 1 ? `${i + 1}/${questions.length}` : "";
+      const tag = [number, header ? escapeMd(header) : ""].filter(Boolean).join(" ") || "?";
       return [
-        header ? `**? ${escapeMd(header)}** — ${escapeMd(question)}` : `**? ${escapeMd(question)}**`,
+        `${badge(tag)} ${escapeMd(question)}`,
         ...(options.length ? [options.join("\n")] : []),
-        answer + (note ? `  \n*note:* ${escapeMd(note)}` : ""),
+        reply + (note ? `  \n${green("┃")} ${faint(`note: ${escapeMd(note)}`)}` : ""),
       ].join("\n\n");
     })
-    .join("\n\n");
+    .join(`\n\n${BOX_RULE}\n\n`);
   return `${BOX_START}${title}\n${body}\n${BOX_END}`;
 }
