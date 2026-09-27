@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type SetStateAction } from "react";
 import { readPositions, rememberScroll, savePositions, type ListPositions, type PositionList } from "../positions.js";
 import { makeScroll, type Scroll } from "./layout.js";
+import { useSetting } from "./useSetting.js";
 
 /** Delay before positions are written, so scrolling does not write on every line. */
 const SAVE_DELAY_MS = 400;
@@ -11,10 +12,14 @@ const SAVE_DELAY_MS = 400;
  * per entry key. Stored per project in `<slug>.positions.json`.
  */
 export function usePositions(cwd: string, list: PositionList) {
+  // Off: positions are kept only while the viewer runs; the file is neither read nor written.
+  const [remember] = useSetting("rememberPositions");
+  const persist = useRef(remember);
+  persist.current = remember;
   const store = useRef<ListPositions>(undefined);
   const storeCwd = useRef<string>(undefined);
   if (!store.current || storeCwd.current !== cwd) {
-    store.current = readPositions(cwd, list);
+    store.current = remember ? readPositions(cwd, list) : { scroll: {} };
     storeCwd.current = cwd;
   }
   const [, rerender] = useState(0);
@@ -22,13 +27,14 @@ export function usePositions(cwd: string, list: PositionList) {
 
   const save = () => {
     clearTimeout(timer.current);
+    if (!persist.current) return;
     timer.current = setTimeout(() => savePositions(cwd, list, store.current!), SAVE_DELAY_MS);
   };
   // Written right away when the view goes (the viewer quits).
   useEffect(
     () => () => {
       clearTimeout(timer.current);
-      savePositions(cwd, list, store.current!);
+      if (persist.current) savePositions(cwd, list, store.current!);
     },
     [cwd, list],
   );

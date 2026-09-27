@@ -10,7 +10,7 @@ import { VERSION } from "./version.js";
 import { registerViewer, unregisterViewer } from "./viewer.js";
 
 const viewOption = () =>
-  new Option("--view <view>", "view to start with").choices(["chat", "git", "plan", "sessions"]).default("chat");
+  new Option("--view <view>", "view to start with").choices(["chat", "git", "plan", "sessions", "settings"]).default("chat");
 
 const program = new Command()
   .name("cco")

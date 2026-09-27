@@ -1,11 +1,12 @@
 # cc-outline
 
-`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has four views:
+`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has five views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 - **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, or goes to the trash.
+- **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
@@ -86,26 +87,26 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 ## Usage
 
-- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`** or **`/cco:session`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
+- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`** or **`/cco:settings`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
-  - `--view chat|git|plan|sessions`: view to start with (default: `chat`)
+  - `--view chat|git|plan|sessions|settings`: view to start with (default: `chat`)
 
 All views share one layout:
 - **Top bar:** the view tabs and a status summary.
 - **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
 - **Help line:** the keys of the current view at the bottom.
 
-Press `1` to `4` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
+Press `1` to `5` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
 **Lists.** All lists work the same way:
 - `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
-- If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`.
+- If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
 - `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
 - Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id.
-- Every list remembers its selected entry, and the preview remembers its scroll position for each entry: switch to another entry and back, and you are where you left it. Detail views keep their own position (the whole file of a changed file, the changes to a plan's previous version). Both survive closing and reopening the viewer; they are saved per project in `~/.claude/cco/<project-slug>.positions.json`. A list that was following the newest entry (Chat, Plan) follows it again.
+- Every list remembers its selected entry, and the preview remembers its scroll position for each entry: switch to another entry and back, and you are where you left it. Detail views keep their own position (the whole file of a changed file, the changes to a plan's previous version). Both survive closing and reopening the viewer; they are saved per project in `~/.claude/cco/<project-slug>.positions.json`. A list that was following the newest entry (Chat, Plan) follows it again. With *remember positions* off in the Settings view, they are kept only while the viewer runs.
 
 ## Chat view
 
@@ -237,13 +238,34 @@ Below it:
 - In the confirmation, `Enter` means yes and `Esc` means no. While it is open, no other key does anything.
 - The trash lives in `~/.claude/cco/trash/<project-slug>/`, per project of the session. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
+## Settings view
+
+The Settings view (`5`, or `/cco:settings`) shows every option with its value on the left and, on the right, what it does, all possible values (the current one marked `●`, the default named) and the key that switches it in its own view. Values that differ from the default are yellow, and the top bar counts them.
+
+| Setting | Values | Default | Also |
+|---|---|---|---|
+| Start: auto open | `remember` / `always` / `never` | `remember` | – |
+| General: confirm quit | on / off | on | – |
+| General: marquee (long list entries scroll) | on / off | on | – |
+| General: remember positions (across restarts) | on / off | on | – |
+| Chat: tool calls | on / off | off | `t` in Chat |
+| Chat: thinking | on / off | off | `h` in Chat |
+| Chat: wrap | on / off | on | `w` in Chat |
+| Changes: wrap | on / off | on | `w` in Changes |
+| Plan: wrap | on / off | on | `w` in Plan |
+| Sessions: all projects | on / off | on | `a` in Sessions |
+
+- `←`/`→` select a setting, `Enter` or `Space` switches to the next value. A change applies right away in all views.
+- `r` sets the selected setting back to its default, `R` resets all of them after a confirmation.
+- Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
+
 ## Keys
 
 The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
 
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
-| `1` – `4` | switch view | switch view | switch view | switch view |
+| `1` – `5` | switch view | switch view | switch view | switch view |
 | `←` / `→` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |
 | `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ | mark the session ★ |
@@ -269,9 +291,9 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `i` | info dialog | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit | quit |
 
-Quitting with `q` or `Esc` asks first. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
+Quitting with `q` or `Esc` asks first, unless *confirm quit* is off in the Settings view. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
 
-`t`, `h` and `w` are saved globally for all projects in `~/.claude/cco/settings.json`. Each view keeps its own `w` setting.
+`t`, `h`, `w` and `a` are saved globally for all projects in `~/.claude/cco/settings.json`, like everything in the Settings view. Each view keeps its own `w` setting.
 
 ## Info dialog
 
@@ -302,7 +324,12 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 - **Reading sessions.** Claude Code stores every session as JSONL in `~/.claude/projects/<project-slug>/<session-id>.jsonl`. cc-outline reads this file incrementally and groups it into turns.
 - **Tracking the session.** The plugin hooks (`SessionStart`, `UserPromptSubmit`, `SessionEnd`) run `cco hook`, which records the session of each Claude Code process in `~/.claude/cco/<project-slug>.claude-<pid>.json`. A viewer opened with `/cco:…` belongs to the Claude Code it was opened from and follows only that one, also through `/clear` and `/resume`. Other sessions in the same project, for example one started from the Sessions view, don't affect it.
 - **Closing with the session.** When its session ends or its Claude Code process is gone, the viewer closes itself. After `/clear` it continues with the new session instead.
-- **Reopening on start.** If the viewer was open when Claude Code exited, the next start reopens it in the view it last showed; this also works with `--resume` and `--continue`. The focus stays in Claude Code. If the viewer was closed, it stays closed, and no second viewer is opened while one already runs in the project.
+- **Opening on start.** The *auto open* setting decides what happens when Claude Code starts, also with `--resume` and `--continue`:
+  - `remember` (default): if the viewer was open when Claude Code last exited in this project, it reopens in the view it last showed. If it was closed, it stays closed.
+  - `always`: the viewer opens on every start, in every project, even in one it never ran in; in the chat, or in the view it showed last in the project.
+  - `never`: it only opens through a `/cco:…` command.
+
+  The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
 - **Without hooks**, the viewer uses the project's most recently modified transcript that contains messages.
 
 ## Development

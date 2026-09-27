@@ -10,6 +10,8 @@ import { InfoDialog } from "./InfoDialog.js";
 import { useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { SessionsView } from "./SessionsView.js";
+import { SettingsView } from "./SettingsView.js";
+import { useSetting } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
 
@@ -23,7 +25,7 @@ interface Props {
   claudePid?: number;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions" };
+const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings" };
 
 export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, claudePid }: Props) {
   const { exit } = useApp();
@@ -38,6 +40,8 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
   const [modal, setModal] = useState(false);
   // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
   const [quitAsked, setQuitAsked] = useState(false);
+  const [confirmQuit] = useSetting("confirmQuit");
+  const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
   // Views take no keys while a dialog of the app is open.
   const blocked = infoOpen || quitAsked;
   const [gitRoot, setGitRoot] = useState<string | null>();
@@ -47,6 +51,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
     git: false,
     plan: false,
     sessions: false,
+    settings: false,
   });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
@@ -64,10 +69,10 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
-      else if (input === "q") setQuitAsked(true);
+      else if (input === "q") quit();
       return;
     }
-    if (input === "q" || (key.escape && !detailOpen[mode])) setQuitAsked(true);
+    if (input === "q" || (key.escape && !detailOpen[mode])) quit();
     else if (input === "i") setInfoOpen(true);
     else if (VIEW_KEYS[input]) setMode(VIEW_KEYS[input]);
   });
@@ -115,6 +120,9 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             onTrashOpen={setDetail("sessions")}
             onModal={setModal}
           />
+        </Box>
+        <Box display={mode === "settings" ? "flex" : "none"}>
+          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} />
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
         {quitAsked && (

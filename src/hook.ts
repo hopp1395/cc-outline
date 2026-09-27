@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { basename } from "node:path";
 import { openPane } from "./open.js";
+import { readSettings } from "./settings.js";
 import {
   claudeFile,
   claudePidFromEnv,
@@ -73,12 +74,15 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
   writeActive(session);
   if (claudePid) writeJson(claudeFile(cwd, claudePid), session);
 
-  // A fresh Claude Code process (not /clear or compaction): reopen the viewer if it was open at exit.
+  // A fresh Claude Code process (not /clear or compaction): open the viewer as the autoOpen setting says.
   if (input.hook_event_name === "SessionStart" && (input.source === "startup" || input.source === "resume")) {
     removeStaleFiles(cwd);
     const restore = readRestore(cwd);
+    const { autoOpen } = readSettings();
+    // "remember": only if it was open at exit; "always": also in projects it never ran in, with the chat.
+    const wanted = autoOpen === "always" || (autoOpen === "remember" && restore?.open === true);
     // Only when no viewer runs in the project, e.g. not for a session started from the Sessions view next to one.
-    if (restore?.open && !anyRunningViewer(cwd)) open(cwd, restore.view, { keepFocus: true, claudePid });
+    if (wanted && !anyRunningViewer(cwd)) open(cwd, restore?.view ?? "chat", { keepFocus: true, claudePid });
   }
 }
 

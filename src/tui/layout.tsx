@@ -3,8 +3,9 @@ import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
+import { useSetting } from "./useSetting.js";
 
-export type Mode = "chat" | "git" | "plan" | "sessions";
+export type Mode = "chat" | "git" | "plan" | "sessions" | "settings";
 
 export interface Layout {
   columns: number;
@@ -168,10 +169,12 @@ export function Marquee({ text, width, active }: { text: string; width: number; 
 
 /**
  * A list entry's text in `width` columns: the selected entry scrolls when it
- * is too long (while the view is `active`), the others are cut with "…".
+ * is too long (while the view is `active` and the `marquee` setting is on),
+ * the others are cut with "…".
  */
 export function EntryText({ text, width, selected, active }: { text: string; width: number; selected: boolean; active: boolean }) {
-  return selected ? <Marquee text={text} width={width} active={active} /> : <>{truncate(text, width)}</>;
+  const [marquee] = useSetting("marquee");
+  return selected && marquee ? <Marquee text={text} width={width} active={active} /> : <>{truncate(text, width)}</>;
 }
 
 export const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
@@ -260,6 +263,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       {tab("2", "Changes", "git")}
       {tab("3", "Plan", "plan")}
       {tab("4", "Sessions", "sessions")}
+      {tab("5", "Settings", "settings")}
     </Text>
   );
 }
