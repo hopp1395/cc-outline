@@ -12,6 +12,10 @@ export interface Turn {
   blocks: Block[];
   /** Sent while Claude was still working on the previous prompt. */
   queued?: boolean;
+  /** Claude finished answering (or a local command ran); only the last turn can still be running. */
+  done?: boolean;
+  /** The user stopped Claude: while it wrote (`user`) or during a tool call (`tool`). */
+  interrupted?: "user" | "tool";
 }
 
 /** "draft": being written in plan mode, not presented yet (see `PlanModeState`). */
@@ -58,11 +62,12 @@ interface ContentBlock {
 
 interface Entry {
   type?: string;
+  subtype?: string;
   uuid?: string;
   timestamp?: string;
   isMeta?: boolean;
   isSidechain?: boolean;
-  message?: { id?: string; content?: string | ContentBlock[] };
+  message?: { id?: string; content?: string | ContentBlock[]; stop_reason?: string | null };
   attachment?: {
     type?: string;
     prompt?: string | ContentBlock[];
@@ -126,6 +131,14 @@ export function promptText(entry: Entry): string | undefined {
   return text;
 }
 
+/** The texts of a user entry that is not a tool result: its string content or its text blocks. */
+function userTexts(entry: Entry): string[] {
+  const content = entry.message?.content;
+  if (typeof content === "string") return [content.trim()];
+  if (!Array.isArray(content)) return [];
+  return content.filter((b) => b.type === "text" && b.text).map((b) => b.text!.trim());
+}
+
 /**
  * Incrementally builds turns from transcript JSONL. Feed raw chunks as they are
  * appended to the file; incomplete trailing lines are buffered until completed.
@@ -184,8 +197,10 @@ export class TranscriptParser {
       });
       return true;
     }
-    if (entry.type === "user" && !entry.isSidechain) return this.decidePlans(entry);
-    if (entry.type !== "assistant" || entry.isSidechain) return false;
+    if (entry.isSidechain) return false;
+    if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
+    if (entry.type === "user") return this.trackInterrupt(entry) || this.decidePlans(entry);
+    if (entry.type !== "assistant") return false;
     const content = entry.message?.content;
     if (!Array.isArray(content)) return false;
 
@@ -195,7 +210,11 @@ export class TranscriptParser {
       turn = { id: "start", prompt: "(session start)", timestamp: entry.timestamp, blocks: [] };
       this.turns.push(turn);
     }
-    let changed = false;
+    // Each line of a message carries its stop reason; the last one says whether Claude stopped or calls a tool.
+    const stop = entry.message?.stop_reason;
+    const done = stop === "end_turn" || stop === "stop_sequence";
+    let changed = done !== (turn.done ?? false);
+    turn.done = done;
     for (const b of content) {
       if (b.type === "text" && b.text?.trim()) {
         turn.blocks.push({ kind: "text", text: b.text });
@@ -219,6 +238,29 @@ export class TranscriptParser {
       changed = true;
     }
     return changed;
+  }
+
+  /** Marks the last turn finished when `finished`; returns whether that changed anything. */
+  private finish(finished: boolean): boolean {
+    const turn = this.turns.at(-1);
+    if (!finished || !turn || turn.done) return false;
+    turn.done = true;
+    return true;
+  }
+
+  /** "[Request interrupted by user…]": the user stopped the last turn. Local command output ends it too. */
+  private trackInterrupt(entry: Entry): boolean {
+    for (const text of userTexts(entry)) {
+      if (text.startsWith("[Request interrupted")) {
+        const turn = this.turns.at(-1);
+        if (!turn) return false;
+        turn.interrupted = text.startsWith("[Request interrupted by user for tool use") ? "tool" : "user";
+        turn.done = true;
+        return true;
+      }
+      if (text.startsWith("<local-command-stdout>")) return this.finish(true);
+    }
+    return false;
   }
 
   /** Follows plan mode through its attachments: start (and re-entry) name the plan file, exit ends it. */

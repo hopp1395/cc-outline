@@ -167,6 +167,20 @@ export function Marquee({ text, width, active }: { text: string; width: number; 
   return <>{sliceColumns(line, marqueeOffset(tick, overflow), width)}</>;
 }
 
+const SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+const SPINNER_STEP_MS = 80;
+
+/** One column that spins while `active`, like Claude Code's own; owns its timer so only it re-renders. */
+export function Spinner({ active }: { active: boolean }) {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setFrame((n) => (n + 1) % SPINNER_FRAMES.length), SPINNER_STEP_MS);
+    return () => clearInterval(timer);
+  }, [active]);
+  return <Text color="#d97757">{SPINNER_FRAMES[frame]}</Text>;
+}
+
 /**
  * A list entry's text in `width` columns: the selected entry scrolls when it
  * is too long (while the view is `active` and the `marquee` setting is on),

@@ -39,6 +39,57 @@ describe("TranscriptParser", () => {
     expect(p.turns.map((t) => t.prompt)).toEqual(["what is on this screenshot?"]);
   });
 
+  describe("turn state", () => {
+    const line = (entry: object) => JSON.stringify(entry) + "\n";
+    const prompt = (uuid: string, text: string) => line({ type: "user", uuid, message: { role: "user", content: text } });
+    const assistant = (stop: string | null, content: object[] = [{ type: "text", text: "…" }], extra = {}) =>
+      line({ type: "assistant", message: { id: "m", content, stop_reason: stop }, ...extra });
+    const userText = (text: string, extra = {}) =>
+      line({ type: "user", message: { role: "user", content: [{ type: "text", text }] }, ...extra });
+
+    it("is running until Claude ends its turn", () => {
+      const p = new TranscriptParser();
+      p.push(prompt("a", "fix it") + assistant("tool_use", [{ type: "tool_use", id: "t1", name: "Bash", input: {} }]));
+      expect(p.turns[0].done).toBe(false);
+      p.push(assistant("end_turn"));
+      expect(p.turns[0].done).toBe(true);
+      expect(p.turns[0].interrupted).toBeUndefined();
+    });
+
+    it("is done after the turn_duration entry", () => {
+      const p = new TranscriptParser();
+      p.push(prompt("a", "fix it") + assistant(null));
+      expect(p.turns[0].done).toBe(false);
+      expect(p.push(line({ type: "system", subtype: "turn_duration", durationMs: 5 }))).toBe(true);
+      expect(p.turns[0].done).toBe(true);
+    });
+
+    it("marks interrupts without starting a turn", () => {
+      const p = new TranscriptParser();
+      p.push(prompt("a", "one") + assistant("tool_use") + userText("[Request interrupted by user for tool use]"));
+      p.push(prompt("b", "two") + userText("[Request interrupted by user]"));
+      expect(p.turns.map((t) => [t.prompt, t.interrupted, t.done])).toEqual([
+        ["one", "tool", true],
+        ["two", "user", true],
+      ]);
+    });
+
+    it("ignores interrupts of subagents", () => {
+      const p = new TranscriptParser();
+      p.push(prompt("a", "one") + userText("[Request interrupted by user]", { isSidechain: true }));
+      expect(p.turns[0].interrupted).toBeUndefined();
+      expect(p.turns[0].done).toBeUndefined();
+    });
+
+    it("ends local commands with their output", () => {
+      const p = new TranscriptParser();
+      p.push(prompt("a", "<command-name>/color</command-name><command-args>green</command-args>"));
+      expect(p.turns[0].done).toBeUndefined();
+      p.push(userText("<local-command-stdout>Session color set</local-command-stdout>"));
+      expect(p.turns[0].done).toBe(true);
+    });
+  });
+
   it("collects assistant blocks in order and skips sidechains", () => {
     const p = new TranscriptParser();
     p.push(fixture);

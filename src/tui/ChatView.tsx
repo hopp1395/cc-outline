@@ -6,7 +6,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown } from "../render/markdown.js";
 import { nextMarked } from "../favorites.js";
-import { turnMarkdown } from "../transcript/parse.js";
+import { turnMarkdown, type Turn } from "../transcript/parse.js";
 import {
   dim,
   handleNavigation,
@@ -17,6 +17,7 @@ import {
   markFooter,
   markKeys,
   EntryText,
+  Spinner,
   Star,
   makeScroll,
   type Layout,
@@ -38,6 +39,17 @@ interface Props {
   active: boolean;
   /** Reports whether the full-prompt view is open, so Esc closes it instead of quitting. */
   onPromptOpen?: (open: boolean) => void;
+  /** The viewer follows the running session, so its last unfinished turn is one Claude works on. */
+  liveSession?: boolean;
+}
+
+const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
+
+/** What ended a turn early, shown below its answer. */
+function interruptLine(turn: Turn): string | undefined {
+  if (turn.interrupted === "tool") return red("⊘ Interrupted by user during a tool call");
+  if (turn.interrupted === "user") return red("⊘ Interrupted by user");
+  return undefined;
 }
 
 const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
@@ -82,7 +94,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false }: Props) {
   const { turns, version } = transcript;
   const { listWidth, previewWidth, bodyHeight } = layout;
 
@@ -101,15 +113,19 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
 
   const last = turns.length - 1;
   const current = turns[Math.min(selected, Math.max(0, last))];
+  // Claude works on the last turn until it is done or interrupted.
+  const isRunning = (t: Turn | undefined) => liveSession && t !== undefined && t === turns[last] && !t.done && !t.interrupted;
 
   const answer = useMemo(() => {
     if (!current) return { header: [], lines: [] };
     const body = turnMarkdown(current, { tools: showTools, thinking: showThinking });
+    const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
+    const lines = body ? renderMarkdown(body, previewWidth, wrap) : status ? [] : [dim("(no text output yet)")];
     return {
       header: promptHeader(current.prompt, previewWidth, bodyHeight),
-      lines: body ? renderMarkdown(body, previewWidth, wrap) : [dim("(no text output yet)")],
+      lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
     };
-  }, [current, version, previewWidth, bodyHeight, showTools, showThinking, wrap]);
+  }, [current, version, previewWidth, bodyHeight, showTools, showThinking, wrap, liveSession]);
   const prompt = useMemo(
     () => (current && promptOpen ? fullPrompt(current.prompt, previewWidth) : undefined),
     [current, promptOpen, previewWidth],
@@ -299,15 +315,26 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen }
           itemKey={(t, i) => t.id + i}
           render={(t, isSelected) => {
             const marked = favorites.isMarked(t.id);
+            const running = isRunning(t);
             return (
               <>
                 {marked && <Star />}
+                {/* The turn Claude works on spins; one the user stopped shows ⊘. */}
+                {running && (
+                  <>
+                    <Spinner active={active} />{" "}
+                  </>
+                )}
+                {t.interrupted && <Text color="red">⊘ </Text>}
                 <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
                 {/* ↳ marks prompts sent while Claude was still working. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
                 <EntryText
                   text={t.prompt}
-                  width={Math.max(4, listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0))}
+                  width={Math.max(
+                    4,
+                    listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0) - (running || t.interrupted ? 2 : 0),
+                  )}
                   selected={isSelected}
                   active={active}
                 />

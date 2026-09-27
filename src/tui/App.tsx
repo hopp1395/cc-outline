@@ -89,6 +89,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             layout={layout}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
+            liveSession={!sessionId}
           />
         </Box>
         <Box display={mode === "git" ? "flex" : "none"}>
