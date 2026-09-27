@@ -53,8 +53,48 @@ function wrapLine(line: string, width: number): string[] {
  * (tables and rules are still sized to `width`).
  */
 export function renderMarkdown(markdown: string, width: number, wrap = true): string[] {
+  if (markdown.includes(BOX_START)) return renderWithBoxes(markdown, width, wrap);
   const w = Math.max(20, width);
   const ansi = rendererFor(w).parse(markdown, { async: false }) as string;
   const lines = ansi.replace(/\n+$/, "").split("\n");
   return wrap ? lines.flatMap((l) => wrapLine(l, w)) : lines;
 }
+
+/**
+ * Marks a part of the Markdown that is drawn in a frame (Claude's questions):
+ * a line of BOX_START, optionally followed by the frame's title, and a line of
+ * BOX_END. Private-use characters, so they never occur in real text.
+ */
+export const BOX_START = "\uE000";
+export const BOX_END = "\uE001";
+const BOX = /\uE000([^\n]*)\n([\s\S]*?)\n?\uE001/g;
+
+/** `markdown` without the frame marks, e.g. for copying. */
+export function stripBoxes(markdown: string): string {
+  return markdown.replace(BOX, "$2");
+}
+
+const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
+
+/** Renders the parts between the marks narrower, inside a frame open to the right, and the rest as usual. */
+function renderWithBoxes(markdown: string, width: number, wrap: boolean): string[] {
+  const w = Math.max(20, width);
+  const lines: string[] = [];
+  const plain = (md: string) => {
+    if (md.trim()) lines.push(...(lines.length ? [""] : []), ...renderMarkdown(md, w, wrap));
+  };
+  let at = 0;
+  for (const m of markdown.matchAll(BOX)) {
+    plain(markdown.slice(at, m.index));
+    at = m.index + m[0].length;
+    const title = m[1].trim();
+    const top = `╭─${title ? ` ${title} ` : ""}`;
+    if (lines.length) lines.push("");
+    lines.push(yellow(top + "─".repeat(Math.max(0, w - stringWidth(top)))));
+    for (const line of renderMarkdown(m[2], w - 2, wrap)) lines.push(`${yellow("│")} ${line}`);
+    lines.push(yellow("╰" + "─".repeat(w - 1)));
+  }
+  plain(markdown.slice(at));
+  return lines;
+}
+

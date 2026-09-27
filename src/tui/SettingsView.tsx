@@ -111,8 +111,12 @@ export const SETTING_ROWS: Row[] = [
     key: "showTools",
     group: "Chat",
     label: "tool calls",
-    description: "Whether the chat shows Claude's tool calls (reads, edits, commands) between the text.",
-    values: ON_OFF("show them", "hide them"),
+    description: "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. Claude's questions and your answers (AskUserQuestion) always show.",
+    values: [
+      ["off", "hide them"],
+      ["compact", "a line each, with the result: lines read, +/− of an edit, ✓ or ✗ of a command"],
+      ["full", "also the command, the last 10 lines of its output, and found files"],
+    ],
     viewKey: "t in Chat",
   },
   {

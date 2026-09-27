@@ -1,8 +1,21 @@
+import { fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
+
+/** A tool call; `outcome` is set once its result arrives (Claude Code writes the call only then). */
+export interface ToolBlock {
+  kind: "tool";
+  id?: string;
+  name: string;
+  input: unknown;
+  /** The session's folder when the call was made, for short paths. */
+  cwd?: string;
+  outcome?: ToolOutcome;
+}
+
 /** One block of assistant output, in transcript order. */
 export type Block =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
-  | { kind: "tool"; name: string; input: unknown }
+  | ToolBlock
   | { kind: "agent"; agent: AgentRun };
 
 /** "running" until the tool result (foreground) or the task notification (background) says otherwise. */
@@ -127,6 +140,7 @@ interface Entry {
   timestamp?: string;
   isMeta?: boolean;
   isSidechain?: boolean;
+  cwd?: string;
   message?: { id?: string; content?: string | ContentBlock[]; stop_reason?: string | null };
   /** Claude Code's structured copy of a tool result; for Agent calls with agentId, status and totals. */
   toolUseResult?: unknown;
@@ -283,8 +297,7 @@ export function shellOutput(text: string): string | undefined {
   const output = [part("bash-stdout"), part("bash-stderr")].filter((s) => s.trim()).join("\n");
   if (!output) return "*(no output)*";
   // A fence longer than any run of backticks in the output.
-  const fence = "`".repeat(Math.max(3, ...[...output.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-  return `${fence}\n${output}\n${fence}`;
+  return fence(output);
 }
 
 /** The texts of a user entry that is not a tool result: its string content or its text blocks. */
@@ -307,6 +320,8 @@ export class TranscriptParser {
   /** Subagents started in this transcript, in order. */
   readonly agents: AgentRun[] = [];
   private buffer = "";
+  /** Tool calls waiting for their result, by tool call id. */
+  private pendingTools = new Map<string, ToolBlock>();
   /** The last entry was a prompt (or one of its attachments): attachments that follow belong to it. */
   private takesAttachments = false;
   /**
@@ -376,7 +391,8 @@ export class TranscriptParser {
     if (entry.type === "user") {
       if (this.trackInterrupt(entry)) return true;
       const agents = this.trackAgentResults(entry);
-      return this.decidePlans(entry) || agents;
+      const tools = this.trackToolResults(entry);
+      return this.decidePlans(entry) || agents || tools;
     }
     if (entry.type !== "assistant") return false;
     const content = entry.message?.content;
@@ -401,7 +417,9 @@ export class TranscriptParser {
       } else if (b.type === "tool_use" && (b.name === "Agent" || b.name === "Task")) {
         turn.blocks.push({ kind: "agent", agent: this.startAgent(b, entry.timestamp) });
       } else if (b.type === "tool_use") {
-        turn.blocks.push({ kind: "tool", name: b.name ?? "tool", input: b.input });
+        const block: ToolBlock = { kind: "tool", id: b.id, name: b.name ?? "tool", input: b.input, cwd: entry.cwd };
+        turn.blocks.push(block);
+        if (b.id) this.pendingTools.set(b.id, block);
         const plan = (b.input as { plan?: unknown } | undefined)?.plan;
         if (b.name === "ExitPlanMode" && typeof plan === "string" && plan.trim()) {
           this.plans.push({
@@ -442,6 +460,22 @@ export class TranscriptParser {
    * Applies the Agent tool's result: a background agent only reports its
    * launch (and its agentId); a foreground agent's result is its report.
    */
+  /** Gives each tool call its outcome when its result arrives. */
+  private trackToolResults(entry: Entry): boolean {
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) return false;
+    let changed = false;
+    for (const b of content) {
+      if (b.type !== "tool_result" || !b.tool_use_id) continue;
+      const block = this.pendingTools.get(b.tool_use_id);
+      if (!block) continue;
+      this.pendingTools.delete(b.tool_use_id);
+      block.outcome = toolOutcome(block.name, block.input, entry.toolUseResult, b.content, b.is_error, block.cwd);
+      changed = true;
+    }
+    return changed;
+  }
+
   private trackAgentResults(entry: Entry): boolean {
     const content = entry.message?.content;
     if (!Array.isArray(content)) return false;
@@ -607,15 +641,17 @@ function rejectionFeedback(text: string): string | undefined {
 }
 
 /** Builds the Markdown document shown for a turn. */
-export function turnMarkdown(turn: Turn, opts: { tools: boolean; thinking: boolean; agents?: boolean }): string {
+export function turnMarkdown(turn: Turn, opts: { tools: ToolLevel; thinking: boolean; agents?: boolean }): string {
   const parts: string[] = [];
   for (const b of turn.blocks) {
     if (b.kind === "text") {
       parts.push(b.text);
     } else if (b.kind === "thinking" && opts.thinking) {
       parts.push(b.text.split("\n").map((l) => `> ${l}`).join("\n"));
-    } else if (b.kind === "tool" && opts.tools) {
-      parts.push(`**⚙ ${b.name}** \`${toolSummary(b.input)}\``);
+    } else if (b.kind === "tool") {
+      // Questions and answers are part of the conversation: shown at every level.
+      const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd);
+      if (md) parts.push(md);
     } else if (b.kind === "agent" && opts.agents) {
       parts.push(agentMarkdown(b.agent));
     }
@@ -665,17 +701,4 @@ export function agentTitle(agent: AgentRun): string {
 function agentMarkdown(agent: AgentRun): string {
   const escape = (s: string) => s.replace(/([\\`*_[\]<>])/g, "\\$1");
   return `**◆ ${escape(agentTitle(agent))}**  \n${escape(agentStatusLine(agent))}`;
-}
-
-function toolSummary(input: unknown): string {
-  if (input && typeof input === "object") {
-    const o = input as Record<string, unknown>;
-    const key = ["command", "file_path", "pattern", "path", "url", "description"].find(
-      (k) => typeof o[k] === "string",
-    );
-    const value = key ? (o[key] as string) : JSON.stringify(input);
-    const oneLine = value.replace(/\s+/g, " ").replace(/`/g, "'");
-    return oneLine.length > 100 ? oneLine.slice(0, 99) + "…" : oneLine;
-  }
-  return String(input ?? "");
 }

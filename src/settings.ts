@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
+import { TOOL_LEVELS, type ToolLevel } from "./transcript/tools.js";
 
 /** When the hook opens the viewer as Claude Code starts. */
 export const AUTO_OPEN_VALUES = ["remember", "always", "never"] as const;
@@ -28,8 +29,8 @@ export interface Settings {
   rememberView: boolean;
   /** The viewer takes the mouse: click opens links and selects entries, the wheel scrolls. */
   mouse: boolean;
-  /** Chat: show tool calls (t). */
-  showTools: boolean;
+  /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. Questions always show. */
+  showTools: ToolLevel;
   /** Chat: show thinking blocks (h). */
   showThinking: boolean;
   /** Chat: show the subagents Claude started, with their status. */
@@ -52,7 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rememberPositions: true,
   rememberView: true,
   mouse: true,
-  showTools: false,
+  showTools: "off",
   showThinking: false,
   showAgents: true,
   chatWrap: true,
@@ -62,7 +63,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 /** Allowed values of the settings that are not on/off. */
-const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = { autoOpen: AUTO_OPEN_VALUES, placement: PLACEMENT_VALUES };
+const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = { autoOpen: AUTO_OPEN_VALUES, placement: PLACEMENT_VALUES, showTools: TOOL_LEVELS };
 
 export function settingsFile(): string {
   return join(claudeDir(), "cco", "settings.json");
@@ -71,6 +72,8 @@ export function settingsFile(): string {
 /** Stored settings over the defaults; unknown or mistyped values fall back to the default. */
 export function readSettings(): Settings {
   const stored = readJson<Partial<Record<keyof Settings, unknown>>>(settingsFile()) ?? {};
+  // showTools was on/off before it got levels.
+  if (typeof stored.showTools === "boolean") stored.showTools = stored.showTools ? "compact" : "off";
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];

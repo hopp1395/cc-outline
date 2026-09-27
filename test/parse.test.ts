@@ -148,10 +148,10 @@ describe("TranscriptParser", () => {
     const p = new TranscriptParser();
     p.push(fixture);
     const turn = p.turns[0];
-    expect(turnMarkdown(turn, { tools: false, thinking: false })).toBe(
+    expect(turnMarkdown(turn, { tools: "off", thinking: false })).toBe(
       "## Hooks\n\n- **Stop** runs after a reply\n\nDone.",
     );
-    const full = turnMarkdown(turn, { tools: true, thinking: true });
+    const full = turnMarkdown(turn, { tools: "compact", thinking: true });
     expect(full).toContain("> Let me think");
     expect(full).toContain("**⚙ Bash** `ls -la`");
   });

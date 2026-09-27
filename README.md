@@ -146,6 +146,14 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 - If it is cut, the separator reads `↵ full prompt`. Press `Enter` to read the whole prompt, then `Enter` or `Esc` to return to the answer.
 
 **Answer.** The answer is rendered as Markdown and wrapped to the pane width. List items keep their indentation when they wrap.
+
+- **Questions.** When Claude asks you something (a multiple-choice question in Claude Code), the answer shows it in a yellow frame (`╭─ Claude asks`): the question with its options and, below it, your answer (`→ …`, with a note if you added one). Questions always show, whatever `t` is set to.
+- **Tool calls.** `t` steps through three levels:
+  - *off* (default): no tool calls.
+  - *compact*: one line each, with its result: `⚙ Read src/open.ts · lines 85–145 of 300`, `⚙ Edit src/open.ts · +12 −3`, `⚙ Bash Run the tests · ✓ · 14 lines`, `⚙ Grep TODO in src · 3 files`, `▤ Plan presented → approved`. `✗` marks a tool that failed, `⊘ denied` one you rejected.
+  - *full*: also the command, the last 10 lines of its output, the files found and the pages a web search returned.
+
+  Claude Code writes a tool call to the transcript only once it has finished, so a call shows up together with its result: a question appears when you have answered it.
 - Tool calls (`t`) and thinking blocks (`h`) are hidden by default.
 - With `w`, wrapping is switched off: paragraphs and code lines stay whole, and `Ctrl+←/→` scrolls sideways.
 - `c` copies the turn's Markdown (without tools and thinking) to the clipboard.
@@ -277,7 +285,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | General: remember positions (across restarts) | on / off | on | – |
 | General: view per session | on / off | on | – |
 | General: mouse | on / off | on | – |
-| Chat: tool calls | on / off | off | `t` in Chat |
+| Chat: tool calls | off / compact / full | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
 | Chat: agents | on / off | on | – |
 | Chat: wrap | on / off | on | `w` in Chat |
@@ -318,7 +326,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | start the session in a new tab |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
-| `t` / `h` | show tool calls / thinking | – | – | – |
+| `t` / `h` | tool calls off / compact / full; thinking | – | – | – |
 | `o` | open the turn's pasted images | – | – | – |
 | `a` | the turn's subagents (`←`/`→` between them, `a`/`Esc` back) | – | – | – |
 | `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
