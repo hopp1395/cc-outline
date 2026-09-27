@@ -421,6 +421,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             height={bodyHeight}
             hscroll={Math.min(hscroll, maxHscroll)}
             footer={showJump ? jumpHint(previewWidth) : undefined}
+            // The "Claude is working…" line ends the answer of the running turn.
+            spinner={!promptOpen && isRunning(current) ? { line: lines.length - 1, active } : undefined}
           />
         ) : (
           <Text dimColor>No Claude Code session found for {cwd}</Text>

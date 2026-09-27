@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import sliceAnsi from "slice-ansi";
-import { MoreRow } from "./layout.js";
+import { MoreRow, Spinner } from "./layout.js";
 
 interface Props {
   /** Sticky lines above the scrolling area, e.g. the prompt or file name. */
@@ -17,6 +17,11 @@ interface Props {
   pinned?: number[];
   /** Sticky line below the scrolling area, e.g. a "jump to bottom" hint. */
   footer?: string;
+  /**
+   * A line whose first character is replaced by a spinning `Spinner` while
+   * it is visible ("Claude is working…"); the lines themselves stay static.
+   */
+  spinner?: { line: number; active: boolean };
 }
 
 /** Height left for the scrolling lines between `header` and an optional footer line. */
@@ -74,6 +79,7 @@ export function Preview({
   frozen = 0,
   pinned = [],
   footer,
+  spinner,
 }: Props) {
   const bodyHeight = bodyHeightBelow(header, height, footer !== undefined);
   const { from, to, above, below } = previewWindow(lines.length, scroll, bodyHeight, footer !== undefined);
@@ -87,12 +93,19 @@ export function Preview({
         </Text>
       ))}
       {above > 0 && <MoreRow arrow="▲" count={above} jumpKey="ctrl+Home" unit={above === 1 ? "line" : "lines"} />}
-      {visible.map((line, i) => (
-        // Lines are pre-wrapped (or shifted) to `width`; a lone space keeps empty lines from collapsing.
-        <Text key={from + i} wrap="truncate">
-          {(pinned.includes(from + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
-        </Text>
-      ))}
+      {visible.map((line, i) =>
+        spinner?.line === from + i ? (
+          <Text key={from + i} wrap="truncate">
+            <Spinner active={spinner.active} />
+            {sliceAnsi(line, 1)}
+          </Text>
+        ) : (
+          // Lines are pre-wrapped (or shifted) to `width`; a lone space keeps empty lines from collapsing.
+          <Text key={from + i} wrap="truncate">
+            {(pinned.includes(from + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
+          </Text>
+        ),
+      )}
       {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="ctrl+End" unit={below === 1 ? "line" : "lines"} />}
       {footer !== undefined && (
         <>
