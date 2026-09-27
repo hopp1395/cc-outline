@@ -285,6 +285,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   else
     preview = (
       <Preview
+        onWheel={(d) => scroll.by(d)}
+        onLink={(url) => notify(`opened ${url}`)}
         header={header}
         lines={lines}
         scroll={scroll.scroll}
@@ -319,6 +321,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       }
       list={
         <List
+            onPick={select}
           items={plans}
           selected={index}
           height={bodyHeight}

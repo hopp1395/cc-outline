@@ -313,6 +313,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   else
     preview = (
       <Preview
+        onWheel={(d) => scroll.by(d)}
         header={header}
         lines={rendered.lines}
         scroll={scroll.scroll}
@@ -339,6 +340,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       }
       list={
         <List
+            onPick={select}
           items={files}
           selected={selectedIndex}
           height={bodyHeight}

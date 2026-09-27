@@ -30,6 +30,8 @@ const LIST_KEYS = (entry: string): [string, string][] => [
 
 const COMMON_KEYS: [string, string][] = [
   ["1 2 3 4 5", "chat / changes / plan / sessions / settings"],
+  ["click", "select / open a link"],
+  ["wheel", "scroll"],
   ["i", "this info"],
   ["q", "quit"],
 ];

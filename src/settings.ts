@@ -20,6 +20,8 @@ export interface Settings {
   rememberPositions: boolean;
   /** Each session reopens in the view it was shown in last. */
   rememberView: boolean;
+  /** The viewer takes the mouse: click opens links and selects entries, the wheel scrolls. */
+  mouse: boolean;
   /** Chat: show tool calls (t). */
   showTools: boolean;
   /** Chat: show thinking blocks (h). */
@@ -42,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   marquee: true,
   rememberPositions: true,
   rememberView: true,
+  mouse: true,
   showTools: false,
   showThinking: false,
   showAgents: true,

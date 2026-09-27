@@ -84,6 +84,13 @@ export const SETTING_ROWS: Row[] = [
     notes: ["Stored per project in ~/.claude/cco/<project>.views.json."],
   },
   {
+    key: "mouse",
+    group: "General",
+    label: "mouse",
+    description: "Whether the viewer takes the mouse: a click on a web address opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview (or moves through the list). While it is on, the terminal leaves clicks to the viewer: select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier).",
+    values: ON_OFF("clicks and wheel go to the viewer", "the terminal keeps the mouse (Ctrl+click opens links)"),
+  },
+  {
     key: "showTools",
     group: "Chat",
     label: "tool calls",
@@ -241,6 +248,7 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
         }
         list={
           <List
+            onPick={select}
             items={SETTING_ROWS}
             selected={index}
             height={bodyHeight}
@@ -264,7 +272,16 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
             }}
           />
         }
-        preview={<Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} />}
+        preview={
+          <Preview
+            header={header}
+            lines={lines}
+            scroll={scroll.scroll}
+            width={previewWidth}
+            height={bodyHeight}
+            onWheel={(d) => scroll.by(d)}
+          />
+        }
         footer={[
           { text: "←→ setting", priority: 4 },
           { text: "↵ change", priority: 4 },

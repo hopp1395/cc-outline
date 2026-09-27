@@ -426,6 +426,14 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     for (const file of files) openInDefaultApp(file);
     notify(`opened ${plural(files.length, "image")}`);
   };
+  /** Mouse wheel over the answer: like ↑/↓, scrolling up leaves the live end and scrolling back down rejoins it. */
+  const wheel = (delta: number) => {
+    if (!detailOpen && selected === last) {
+      if (delta < 0 && follow) setFollow(false);
+      if (delta > 0 && scroll.scroll + delta >= scroll.max) setFollow(true);
+    }
+    scroll.by(delta);
+  };
   /** Selects the next or previous marked turn. */
   const jumpMark = (dir: 1 | -1) => {
     const target = nextMarked(
@@ -520,6 +528,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       }
       list={
         <List
+            onPick={select}
           items={turns}
           selected={selected}
           height={bodyHeight}
@@ -568,6 +577,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       preview={
         path ? (
           <Preview
+            onWheel={wheel}
+            onLink={(url) => notify(`opened ${url}`)}
             header={header}
             lines={lines}
             scroll={scroll.scroll}

@@ -448,7 +448,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
   else if (!session) preview = <Text dimColor>{all ? "No Claude Code sessions found" : `No Claude Code session found for ${cwd}`}</Text>;
-  else preview = <Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} />;
+  else
+    preview = (
+      <Preview
+        header={header}
+        lines={lines}
+        scroll={scroll.scroll}
+        width={previewWidth}
+        height={bodyHeight}
+        onWheel={(d) => scroll.by(d)}
+        onLink={(url) => notify(`opened ${url}`)}
+      />
+    );
 
   const footer = trashOpen
     ? [
@@ -494,6 +505,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         }
         list={
           <List
+            onPick={select}
             items={list}
             selected={index}
             height={bodyHeight}
