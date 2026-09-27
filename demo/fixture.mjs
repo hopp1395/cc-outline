@@ -311,6 +311,53 @@ const OLDER_SESSIONS = (shop, docs) => [
   },
 ];
 
+/**
+ * A month of API responses for the Monitor view, ending on the demo day
+ * (2026-09-26, local time): mornings faster than usual, a slow afternoon and
+ * one usage limit error. Written as a subagent transcript of the current
+ * session, which only the Monitor reads.
+ */
+function monitorHistory() {
+  let seed = 42;
+  const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const lines = [];
+  const DAYS = 31;
+  for (let back = DAYS - 1; back >= 0; back--) {
+    const date = new Date(2026, 8, 26 - back);
+    if (back > 0 && (date.getDay() === 0 || date.getDay() === 6)) continue;
+    const demoDay = back === 0;
+    for (let minute = 8 * 60 + Math.floor(random() * 30); minute < 19 * 60; minute += 2 + Math.floor(random() * 5)) {
+      const hour = minute / 60;
+      // Usual: ~70 tokens/s, slower while the US is awake. The demo day is quicker in the morning and slower after 14:00.
+      let speed = 70 - (hour > 15 ? 18 : 0) + (random() - 0.5) * 30;
+      if (demoDay) speed *= hour < 12 ? 1.25 : hour >= 14 && hour < 17 ? 0.6 : 1;
+      const wait = (demoDay && hour >= 14 && hour < 17 ? 5 : 2) + random() * 3;
+      const tokens = 150 + Math.floor(random() * 900);
+      const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, minute, Math.floor(random() * 60));
+      const first = new Date(start.getTime() + wait * 1000);
+      const end = new Date(start.getTime() + (wait + tokens / speed) * 1000);
+      const id = `msg_${lines.length}`;
+      const model = random() < 0.8 ? "claude-opus-5-5" : "claude-sonnet-5";
+      const base = { isSidechain: true, sessionId: SESSION };
+      lines.push({ ...base, type: "user", timestamp: start.toISOString(), message: { role: "user", content: "…" } });
+      for (const [at, out] of [[first, 1], [end, tokens]]) {
+        lines.push({ ...base, type: "assistant", timestamp: at.toISOString(), message: { id, model, role: "assistant", content: [], usage: { output_tokens: out } } });
+      }
+    }
+    if (demoDay) {
+      lines.push({
+        isSidechain: true,
+        sessionId: SESSION,
+        type: "assistant",
+        isApiErrorMessage: true,
+        timestamp: new Date(2026, 8, 26, 15, 42).toISOString(),
+        message: { model: "<synthetic>", role: "assistant", content: [{ type: "text", text: "API Error: Rate limit reached" }] },
+      });
+    }
+  }
+  return lines;
+}
+
 export function createDemo(root) {
   const cwd = join(root, "shop");
   const configDir = join(root, "claude");
@@ -323,6 +370,9 @@ export function createDemo(root) {
     ...entries.map((e) => ({ ...e, cwd, gitBranch: "main", sessionId: SESSION })),
   ];
   writeFileSync(join(projectDir, `${SESSION}.jsonl`), current.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const subagents = join(projectDir, SESSION, "subagents");
+  mkdirSync(subagents, { recursive: true });
+  writeFileSync(join(subagents, "agent-history.jsonl"), monitorHistory().map((e) => JSON.stringify(e)).join("\n") + "\n");
 
   const docs = join(root, "docs-site");
   for (const session of OLDER_SESSIONS(cwd, docs)) {

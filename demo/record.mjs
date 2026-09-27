@@ -77,6 +77,7 @@ await shot(3500, ["3"], 1000); // plan view: the approved second version
 await shot(3000, ["enter"], 1000); // changes to the rejected first version
 await shot(2500, ["esc", "4"], 1800); // sessions view: all projects, the active session selected
 await shot(4000, ["left", "left", "left"], 1000); // an older session with plans and changed files
+await shot(4500, ["5", "right"], 2500); // monitor: the demo day's speed against the usual one
 await shot(2000, ["1"]); // back to the chat
 
 app.unmount();
@@ -106,11 +107,12 @@ writeFileSync(join(docs, "chat.svg"), frameToSvg(viewer[2].lines, still));
 writeFileSync(join(docs, "changes.svg"), frameToSvg(viewer[4].lines, still));
 writeFileSync(join(docs, "plan.svg"), frameToSvg(viewer[7].lines, still));
 writeFileSync(join(docs, "sessions.svg"), frameToSvg(viewer[10].lines, still));
+writeFileSync(join(docs, "monitor.svg"), frameToSvg(viewer[11].lines, still));
 const window = { columns: COLUMNS, rows: ROWS, title: TITLE };
 writeGif(
   frames.map((f) => ({ svg: frameToSvg(f.lines, window), duration: f.duration })),
   frameSize(COLUMNS, ROWS),
   join(docs, "demo.gif"),
 );
-console.log(`Wrote docs/demo.gif (${frames.length} frames), docs/chat.svg, docs/changes.svg, docs/plan.svg and docs/sessions.svg`);
+console.log(`Wrote docs/demo.gif (${frames.length} frames), docs/chat.svg, docs/changes.svg, docs/plan.svg, docs/sessions.svg and docs/monitor.svg`);
 process.exit(0);
