@@ -41,12 +41,13 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 ### In daily work
 
 - **Review while Claude works.** Keep the approved plan in the Plan view and check the resulting diff in the Changes view, both next to the running session.
-- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`4`) switches views, `alt+←` returns to Claude Code.
+- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`5`) switches views, `alt+←` returns to Claude Code.
 - **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
 - **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a new tab next to the current one.
 - **Everything stays where you left it.** Every list keeps its selected entry and each entry's scroll position, also across restarts.
-- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan` or `/cco:session`, follows the active session, closes it with the session and reopens it next time if it was open.
+- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session` or `/cco:settings`, follows the active session, closes it with the session and reopens it next time if it was open, or on every start if you set *auto open* to `always`.
+- **Set up once, in one place.** The Settings view (`5` or `/cco:settings`) lists every option with its default: whether the viewer opens by itself, whether quitting asks first, whether long entries scroll and positions are remembered, and the display options of the other views. A change applies at once in all views and all projects.
 
 ## Installation
 
@@ -62,14 +63,22 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan` and `/cco:session` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session` and `/cco:settings` commands. The npm package is its own plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
 claude plugin install cco@cc-outline
 ```
 
-**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan` or `/cco:session`.
+**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session` or `/cco:settings`. To have the viewer open on every start, set *auto open* to `always` in the Settings view.
+
+**Updating.** Update the CLI and the plugin, then restart Claude Code. New commands such as `/cco:settings` only appear after the plugin update:
+
+```sh
+npm install -g cc-outline
+claude plugin marketplace update cc-outline
+claude plugin update cco@cc-outline
+```
 
 To uninstall, run `claude plugin uninstall cco@cc-outline`, `claude plugin marketplace remove cc-outline` and `npm rm -g cc-outline`, then delete `~/.claude/cco/`.
 
@@ -261,13 +270,21 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | Plan: wrap | on / off | on | `w` in Plan |
 | Sessions: all projects | on / off | on | `a` in Sessions |
 
+What they do:
+- **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
+- **confirm quit** makes `q` and `Esc` ask before the viewer closes.
+- **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
+- **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
+- The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
+
+Keys:
 - `←`/`→` select a setting, `Enter` or `Space` switches to the next value. A change applies right away in all views.
 - `r` sets the selected setting back to its default, `R` resets all of them after a confirmation.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
 
 ## Keys
 
-The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on.
+The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on. The keys of the Settings view are listed in [its section](#settings-view).
 
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
