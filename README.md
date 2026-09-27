@@ -113,6 +113,7 @@ Press `1` to `5` to switch between the views. All of them keep running in the ba
 - `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
 - If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
+- **Mouse:** a click selects an entry, the wheel moves to the previous or next one. In the preview the wheel scrolls, and a click on a web address (`https://…`, also one wrapped over two lines) opens it in the browser. To select text, hold `Shift` while dragging. The *mouse* setting turns this off.
 - `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
 - Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id.
 - Every list remembers its selected entry, and the preview remembers its scroll position for each entry: switch to another entry and back, and you are where you left it. Detail views keep their own position (the whole file of a changed file, the changes to a plan's previous version). Both survive closing and reopening the viewer; they are saved per project in `~/.claude/cco/<project-slug>.positions.json`. A list that was following the newest entry (Chat, Plan) follows it again. With *remember positions* off in the Settings view, they are kept only while the viewer runs.
@@ -267,6 +268,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | General: marquee (long list entries scroll) | on / off | on | – |
 | General: remember positions (across restarts) | on / off | on | – |
 | General: view per session | on / off | on | – |
+| General: mouse | on / off | on | – |
 | Chat: tool calls | on / off | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
 | Chat: agents | on / off | on | – |
@@ -280,6 +282,7 @@ What they do:
 - **confirm quit** makes `q` and `Esc` ask before the viewer closes.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
 - **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
+- **mouse** lets the viewer take the mouse: a click on a web address in the preview opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview or, over the list, moves to the previous or next entry. While it is on, the terminal leaves clicks to the viewer, so select text with `Shift`+drag (Windows Terminal). Off, the terminal keeps the mouse and opens addresses with `Ctrl`+click.
 - **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
 - The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 

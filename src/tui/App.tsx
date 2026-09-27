@@ -10,6 +10,7 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
+import { MouseContext, useMouseReporting } from "./mouse.js";
 import { useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { SessionsView } from "./SessionsView.js";
@@ -50,6 +51,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
   // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
   const [quitAsked, setQuitAsked] = useState(false);
   const [confirmQuit] = useSetting("confirmQuit");
+  const [mouse] = useSetting("mouse");
+  useMouseReporting(mouse);
+  // Mouse events go to the shown view only, and to none while a dialog is open.
+  const mouseFor = (m: Mode) => mouse && mode === m && !blocked && !modal;
   const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
   // Views take no keys while a dialog of the app is open.
   const blocked = infoOpen || quitAsked;
@@ -105,6 +110,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
     <FocusContext.Provider value={focused}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Box display={mode === "chat" ? "flex" : "none"}>
+          <MouseContext.Provider value={mouseFor("chat")}>
           <ChatView
             cwd={cwd}
             path={path}
@@ -114,16 +120,20 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
             onPromptOpen={setDetail("chat")}
             liveSession={!sessionId}
           />
+          </MouseContext.Provider>
         </Box>
         <Box display={mode === "git" ? "flex" : "none"}>
+          <MouseContext.Provider value={mouseFor("git")}>
           <GitView
             cwd={cwd}
             layout={layout}
             active={mode === "git" && !blocked}
             onFileOpen={setDetail("git")}
           />
+          </MouseContext.Provider>
         </Box>
         <Box display={mode === "plan" ? "flex" : "none"}>
+          <MouseContext.Provider value={mouseFor("plan")}>
           <PlanView
             cwd={cwd}
             plans={transcript.plans}
@@ -133,8 +143,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
             active={mode === "plan" && !blocked}
             onDiffOpen={setDetail("plan")}
           />
+          </MouseContext.Provider>
         </Box>
         <Box display={mode === "sessions" ? "flex" : "none"}>
+          <MouseContext.Provider value={mouseFor("sessions")}>
           <SessionsView
             cwd={cwd}
             activePath={path}
@@ -144,9 +156,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
             onTrashOpen={setDetail("sessions")}
             onModal={setModal}
           />
+          </MouseContext.Provider>
         </Box>
         <Box display={mode === "settings" ? "flex" : "none"}>
+          <MouseContext.Provider value={mouseFor("settings")}>
           <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} />
+          </MouseContext.Provider>
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
         {quitAsked && (

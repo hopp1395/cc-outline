@@ -1,6 +1,13 @@
 import { Box, Text } from "ink";
 import sliceAnsi from "slice-ansi";
-import { MoreRow, Spinner } from "./layout.js";
+import { useContext } from "react";
+import { openInDefaultApp } from "../open.js";
+import { AreaContext, inArea, MoreRow, Spinner } from "./layout.js";
+import { linkAt } from "./links.js";
+import { useMouse } from "./mouse.js";
+
+/** Lines scrolled per wheel step. */
+const WHEEL_LINES = 3;
 
 interface Props {
   /** Sticky lines above the scrolling area, e.g. the prompt or file name. */
@@ -23,6 +30,10 @@ interface Props {
    * `col` counts columns of the line without its ANSI codes.
    */
   spinner?: { at: { line: number; col: number }[]; active: boolean };
+  /** Mouse wheel over the preview: lines to scroll (negative is up). */
+  onWheel?: (delta: number) => void;
+  /** A link was clicked and opened. */
+  onLink?: (url: string) => void;
 }
 
 /** Height left for the scrolling lines between `header` and an optional footer line. */
@@ -81,9 +92,29 @@ export function Preview({
   pinned = [],
   footer,
   spinner,
+  onWheel,
+  onLink,
 }: Props) {
   const bodyHeight = bodyHeightBelow(header, height, footer !== undefined);
   const { from, to, above, below } = previewWindow(lines.length, scroll, bodyHeight, footer !== undefined);
+  const area = useContext(AreaContext);
+  // A click on a web address opens it; the wheel scrolls.
+  useMouse((e) => {
+    const at = inArea(area, e.x, e.y);
+    if (!at) return;
+    if (e.kind === "wheel") return onWheel?.(e.delta * WHEEL_LINES);
+    let url: string | undefined;
+    if (at.row < header.length) url = linkAt(header, at.row, at.col, width);
+    else {
+      const index = from + at.row - header.length - (above > 0 ? 1 : 0);
+      if (index < from || index >= to) return;
+      const shifted = pinned.includes(index) || at.col < frozen ? at.col : at.col + hscroll;
+      url = linkAt(lines, index, shifted, width);
+    }
+    if (!url) return;
+    openInDefaultApp(url);
+    onLink?.(url);
+  });
   const visible = lines.slice(from, to);
   const rows = visible.length + (above > 0 ? 1 : 0) + (below > 0 ? 1 : 0);
   return (

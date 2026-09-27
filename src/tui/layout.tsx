@@ -1,9 +1,10 @@
 import { Box, Text, useWindowSize, type Key } from "ink";
-import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
 import { useSetting } from "./useSetting.js";
+import { useMouse } from "./mouse.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings";
 
@@ -379,7 +380,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
       </Box>
       <Box height={layout.bodyHeight}>
         <Box flexDirection="column" width={layout.listWidth} height={layout.bodyHeight}>
-          {list}
+          <AreaContext.Provider value={{ x: 0, y: 1, width: layout.listWidth, height: layout.bodyHeight }}>{list}</AreaContext.Provider>
         </Box>
         <Box
           borderStyle="single"
@@ -390,7 +391,9 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
           paddingLeft={1}
           height={layout.bodyHeight}
         >
-          {preview}
+          <AreaContext.Provider value={{ x: layout.listWidth + 2, y: 1, width: layout.previewWidth, height: layout.bodyHeight }}>
+            {preview}
+          </AreaContext.Provider>
         </Box>
       </Box>
       <Text wrap="truncate">
@@ -407,6 +410,24 @@ interface ListProps<T> {
   empty: string;
   itemKey: (item: T, index: number) => string;
   render: (item: T, selected: boolean) => ReactNode;
+  /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
+  onPick?: (index: number) => void;
+}
+
+/** Where a part of the Screen (list or preview) sits on the terminal, for mapping mouse positions to it. */
+export interface Area {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export const AreaContext = createContext<Area>({ x: 0, y: 0, width: 0, height: 0 });
+
+/** The position of a mouse event inside `area`, or undefined when it is outside. */
+export function inArea(area: Area, x: number, y: number): { col: number; row: number } | undefined {
+  const col = x - area.x;
+  const row = y - area.y;
+  return col >= 0 && col < area.width && row >= 0 && row < area.height ? { col, row } : undefined;
 }
 
 export interface ListWindow {
@@ -447,10 +468,21 @@ export function MoreRow({ arrow, count, jumpKey, unit }: { arrow: string; count:
 }
 
 /** Selectable list that keeps the selection roughly centred. */
-export function List<T>({ items, selected, height, empty, itemKey, render }: ListProps<T>) {
+export function List<T>({ items, selected, height, empty, itemKey, render, onPick }: ListProps<T>) {
   const focused = useFocused();
-  if (items.length === 0) return <Text dimColor>{empty}</Text>;
+  const area = useContext(AreaContext);
   const { from, to, above, below } = listWindow(items.length, selected, height);
+  useMouse((e) => {
+    const at = inArea(area, e.x, e.y);
+    if (!at || !onPick || items.length === 0) return;
+    if (e.kind === "wheel") return onPick(Math.max(0, Math.min(items.length - 1, selected + e.delta)));
+    // The ▲/▼ rows jump to the far end, like Home and End.
+    if (above > 0 && at.row === 0) return onPick(0);
+    const index = from + at.row - (above > 0 ? 1 : 0);
+    if (index >= to) return below > 0 && at.row === height - 1 ? onPick(items.length - 1) : undefined;
+    onPick(index);
+  });
+  if (items.length === 0) return <Text dimColor>{empty}</Text>;
   return (
     <>
       {above > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" />}
