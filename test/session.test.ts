@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleHook } from "../src/hook.js";
-import { saveSessionView } from "../src/sessionViews.js";
+import { saveSessionPlacement, saveSessionView } from "../src/sessionViews.js";
 import { updateSettings } from "../src/settings.js";
 import { detectTerminal } from "../src/open.js";
 import {
@@ -264,6 +264,18 @@ describe("restore on restart", () => {
     updateSettings({ rememberView: false });
     run("SessionStart", { source: "resume" });
     expect(opened).toEqual(["plan keepFocus", "git keepFocus"]);
+  });
+
+  it("opens where the session was moved with p, else as the setting says", () => {
+    const placed: string[] = [];
+    const openAt = (_cwd: string, _view: string, opts?: { placement?: string }) => (placed.push(opts?.placement ?? "?"), "");
+    const start = () =>
+      handleHook({ hook_event_name: "SessionStart", session_id: "a", transcript_path: "/t/a.jsonl", cwd, source: "resume" }, openAt as never);
+    updateSettings({ autoOpen: "always", placement: "left" });
+    start();
+    saveSessionPlacement(cwd, "a", "window");
+    start();
+    expect(placed).toEqual(["left", "window"]);
   });
 
   it("never: stays closed even if it was open at exit", () => {

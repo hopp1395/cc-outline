@@ -102,10 +102,12 @@ To load the plugin for a single session without installing it, run `claude --plu
 ## Usage
 
 - **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`** or **`/cco:settings`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
+- **Where it opens:** docked right of Claude Code (default), docked left, or in a window of its own, as the *placement* setting says. `p` in the viewer moves it: `1` right, `2` left, `3` window. The viewer closes and reopens there, keeping its selection and scroll positions, and the session remembers the place for the next time it opens (on start, `/resume` in a new Claude Code, `/cco:…`). A window takes the keyboard focus from Claude Code, also when it opens on start, since Windows Terminal cannot hand the focus back to another window. In tmux, *window* is a tmux window. A viewer that already runs stays where it is when you change the setting or `/resume` another session.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
   - `--view chat|git|plan|sessions|settings`: view to start with (default: the session's last view, see *view per session*, else `chat`)
+- **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
 
 All views share one layout:
 - **Top bar:** the view tabs and a status summary. Options that are on are not repeated there; the help line highlights them.
@@ -269,6 +271,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | Setting | Values | Default | Also |
 |---|---|---|---|
 | Start: auto open | `remember` / `always` / `never` | `remember` | – |
+| Start: placement | `right` / `left` / `window` | `right` | `p` in any view |
 | General: confirm quit | on / off | on | – |
 | General: marquee (long list entries scroll) | on / off | on | – |
 | General: remember positions (across restarts) | on / off | on | – |
@@ -284,6 +287,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
+- **placement** is where the viewer opens for sessions that have no place of their own: docked right or left of Claude Code, or in a window. `p` in the viewer moves it and remembers the place for the session (see [Usage](#usage)).
 - **confirm quit** makes `q` and `Esc` ask before the viewer closes.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
 - **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
@@ -327,6 +331,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `r` | – | refresh now | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
 | `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
+| `p` | move the viewer: right, left or own window | move the viewer | move the viewer | move the viewer |
 | `i` | info dialog | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit | quit |
 

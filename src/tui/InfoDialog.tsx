@@ -32,6 +32,7 @@ const COMMON_KEYS: [string, string][] = [
   ["1 2 3 4 5", "chat / changes / plan / sessions / settings"],
   ["click", "select / open a link"],
   ["wheel", "scroll"],
+  ["p", "move: right / left / window"],
   ["i", "this info"],
   ["q", "quit"],
 ];

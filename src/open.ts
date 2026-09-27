@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type { Placement } from "./settings.js";
+import { resolvePlacement } from "./sessionViews.js";
+import { claudeFile, readActive, readJson, type ActiveSession } from "./transcript/locate.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
@@ -83,40 +86,85 @@ export function resumeInNewTab(sessionId: string, dir: string, title: string): s
   return `no Windows Terminal or tmux: run claude --resume ${sessionId} in ${dir}`;
 }
 
+const PLACE_NAMES: Record<Placement, string> = { right: "", left: " on the left", window: " in a window of its own" };
+
+export interface OpenOptions {
+  /** Leave the keyboard focus where it is (in Claude Code); not possible for a Windows Terminal window. */
+  keepFocus?: boolean;
+  /** The Claude Code process the viewer belongs to: an open viewer is reused only if it is that process's own. */
+  claudePid?: number;
+  /** Where to open; default: the placement of the process's session, else the setting (`resolvePlacement`). */
+  placement?: Placement;
+  /** Open a new viewer even if one runs, because it is about to quit (moving with p). */
+  replace?: boolean;
+}
+
 /**
- * Opens the viewer in a split pane next to the current terminal (Windows
- * Terminal or tmux). With `keepFocus` the cursor stays in the Claude Code pane.
- * With `claudePid` the viewer belongs to that Claude Code process: an open
- * viewer is reused only if it is that process's own.
+ * Opens the viewer next to the current terminal pane (Windows Terminal or
+ * tmux): docked right or left, or in a window of its own.
  */
-export function openPane(cwd: string, view: Mode, opts: { keepFocus?: boolean; claudePid?: number } = {}): string {
+export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): string {
   const { claudePid } = opts;
-  if (runningViewer(cwd, claudePid) !== undefined) {
+  if (!opts.replace && runningViewer(cwd, claudePid) !== undefined) {
     requestView(cwd, view, claudePid);
     return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
   }
+  const placement = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid));
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
-  const viewer = [process.execPath, fileURLToPath(import.meta.url), "watch", "--cwd", cwd, "--view", view];
+  const viewer = [process.execPath, fileURLToPath(import.meta.url), "watch", "--cwd", cwd, "--view", view, "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
-  if (opts.keepFocus) viewer.push("--unfocused");
+  const unfocused = opts.keepFocus && !(placement === "window" && detectTerminal() === "wt");
+  if (unfocused) viewer.push("--unfocused");
   // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
   if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
   const terminal = detectTerminal();
+  const where = PLACE_NAMES[placement];
   if (terminal === "tmux") {
     const cmd = viewer.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-    // -d leaves the current pane active.
-    const args = ["split-window", "-h", ...(opts.keepFocus ? ["-d"] : []), "-c", cwd, cmd];
+    // -d leaves the current pane active; -b puts the new pane before (left of) it.
+    const keep = opts.keepFocus ? ["-d"] : [];
+    const args =
+      placement === "window"
+        ? ["new-window", ...keep, "-n", "cco", "-c", cwd, cmd]
+        : ["split-window", "-h", ...(placement === "left" ? ["-b"] : []), ...keep, "-c", cwd, cmd];
     spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
-    return `Opened cco ${VIEW_NAMES[view]} in a tmux pane.`;
+    return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a tmux window.` : `Opened cco ${VIEW_NAMES[view]} in a tmux pane${where}.`;
   }
   if (terminal === "wt") {
-    // The new pane opens to the right; moving focus left returns to Claude Code.
-    const args = ["-w", "0", "split-pane", "-V", "--title", "cco", "-d", cwd, ...viewer];
-    if (opts.keepFocus) args.push(";", "move-focus", "left");
-    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
-    return `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal pane.`;
+    let args: string[];
+    if (placement === "window") {
+      // A window per Claude Code process: wt creates it under this name, or adds a tab if it still exists.
+      args = ["-w", claudePid ? `cco-${claudePid}` : "cco", "new-tab", "--title", "cco", "-d", cwd, ...viewer];
+    } else {
+      // split-pane only opens to the right; swap-pane moves the new (active) pane to the left.
+      args = ["-w", "0", "split-pane", "-V", "--title", "cco", "-d", cwd, ...viewer];
+      if (placement === "left") args.push(";", "swap-pane", "left");
+      if (opts.keepFocus) args.push(";", "move-focus", placement === "left" ? "right" : "left");
+    }
+    // windowsHide asks Windows to start hidden, which Windows Terminal applies to a new window: only for panes.
+    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
+    return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window.` : `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal pane${where}.`;
   }
   return `No supported terminal detected (Windows Terminal or tmux). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
+}
+
+/** The session the Claude Code process `claudePid` (else the project) is in, from the hook's state files. */
+function sessionOfProcess(cwd: string, claudePid: number | undefined): string | undefined {
+  const own = claudePid ? readJson<ActiveSession>(claudeFile(cwd, claudePid)) : undefined;
+  return (own ?? readActive(cwd))?.session_id;
+}
+
+/**
+ * Moves the running viewer (this process) to `placement`: starts `cco open`
+ * detached, which waits until this process has exited and then opens the
+ * viewer there. The caller quits right after. False without a supported terminal.
+ */
+export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined): boolean {
+  if (!detectTerminal()) return false;
+  const args = [fileURLToPath(import.meta.url), "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
+  if (claudePid) args.push("--claude-pid", String(claudePid));
+  spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
+  return true;
 }

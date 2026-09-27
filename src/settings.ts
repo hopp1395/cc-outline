@@ -5,6 +5,10 @@ import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
 export const AUTO_OPEN_VALUES = ["remember", "always", "never"] as const;
 export type AutoOpen = (typeof AUTO_OPEN_VALUES)[number];
 
+/** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
+export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
+export type Placement = (typeof PLACEMENT_VALUES)[number];
+
 /** Preferences kept across restarts, shared by all projects. */
 export interface Settings {
   /**
@@ -12,6 +16,8 @@ export interface Settings {
    * exited in the project, `always` opens it on every start, `never` not at all.
    */
   autoOpen: AutoOpen;
+  /** Where the viewer opens, unless the session has its own placement (chosen with p in the viewer). */
+  placement: Placement;
   /** q and Esc ask before the viewer quits. */
   confirmQuit: boolean;
   /** The selected list entry scrolls when it is too long. */
@@ -40,6 +46,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   autoOpen: "remember",
+  placement: "right",
   confirmQuit: true,
   marquee: true,
   rememberPositions: true,
@@ -55,7 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 /** Allowed values of the settings that are not on/off. */
-const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = { autoOpen: AUTO_OPEN_VALUES };
+const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = { autoOpen: AUTO_OPEN_VALUES, placement: PLACEMENT_VALUES };
 
 export function settingsFile(): string {
   return join(claudeDir(), "cco", "settings.json");

@@ -2,8 +2,9 @@ import { Box, useApp, useInput } from "ink";
 import { basename } from "node:path";
 import { useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
-import { readSessionView, saveSessionView } from "../sessionViews.js";
-import { readSettings } from "../settings.js";
+import { detectTerminal, moveViewer } from "../open.js";
+import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
+import { readSettings, type Placement } from "../settings.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -11,6 +12,7 @@ import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
 import { MouseContext, useMouseReporting } from "./mouse.js";
+import { PlacementDialog } from "./PlacementDialog.js";
 import { useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { SessionsView } from "./SessionsView.js";
@@ -28,13 +30,15 @@ interface Props {
   unfocused?: boolean;
   /** The Claude Code process the viewer belongs to; its session is shown. */
   claudePid?: number;
+  /** Where the viewer was opened (passed on by `cco open`); p moves it elsewhere. */
+  placement?: Placement;
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings" };
 
 const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement }: Props) {
   const { exit } = useApp();
   const layout = useLayout();
   const focused = useTerminalFocus(!unfocused);
@@ -46,6 +50,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
     () => initialMode ?? (readSettings().rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat",
   );
   const [infoOpen, setInfoOpen] = useState(false);
+  // p: where the viewer runs (right, left, own window).
+  const [placementOpen, setPlacementOpen] = useState(false);
   // A view's confirmation dialog takes all keys while it is open.
   const [modal, setModal] = useState(false);
   // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
@@ -57,7 +63,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
   const mouseFor = (m: Mode) => mouse && mode === m && !blocked && !modal;
   const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
   // Views take no keys while a dialog of the app is open.
-  const blocked = infoOpen || quitAsked;
+  const blocked = infoOpen || quitAsked || placementOpen;
   const [gitRoot, setGitRoot] = useState<string | null>();
   // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
   const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
@@ -92,8 +98,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
     repoRoot(cwd).then((r) => setGitRoot(r ?? null));
   }, [cwd]);
 
+  // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
+  const choosePlacement = (choice: Placement) => {
+    const id = sessionOf(path);
+    if (id) saveSessionPlacement(cwd, id, choice);
+    if (choice !== placement && moveViewer(cwd, mode, choice, claudePid)) exit();
+  };
+
   useInput((input, key) => {
-    if (modal || quitAsked) return;
+    if (modal || quitAsked || placementOpen) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -102,6 +115,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
     }
     if (input === "q" || (key.escape && !detailOpen[mode])) quit();
     else if (input === "i") setInfoOpen(true);
+    // Only a viewer that follows the live session moves; one started with --session stays.
+    else if (input === "p" && !sessionId) setPlacementOpen(true);
     else if (VIEW_KEYS[input]) setMode(VIEW_KEYS[input]);
   });
 
@@ -164,6 +179,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid 
           </MouseContext.Provider>
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
+        {placementOpen && (
+          <PlacementDialog
+            layout={layout}
+            current={placement}
+            canMove={detectTerminal() !== undefined}
+            onChoose={choosePlacement}
+            onClose={() => setPlacementOpen(false)}
+          />
+        )}
         {quitAsked && (
           <ConfirmDialog
             layout={layout}

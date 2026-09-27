@@ -42,6 +42,14 @@ describe("settings", () => {
     expect(readSettings().autoOpen).toBe("always");
   });
 
+  it("accepts only known placements", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ placement: "top" }));
+    expect(readSettings().placement).toBe("right");
+    writeFileSync(settingsFile(), JSON.stringify({ placement: "window" }));
+    expect(readSettings().placement).toBe("window");
+  });
+
   it("tells listeners about changes", () => {
     let calls = 0;
     const unsubscribe = subscribeSettings(() => calls++);
