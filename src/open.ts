@@ -6,7 +6,7 @@ import { claudeFile, readActive, readJson, type ActiveSession } from "./transcri
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
-const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings" };
+const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor" };
 
 export type Terminal = "tmux" | "wt";
 

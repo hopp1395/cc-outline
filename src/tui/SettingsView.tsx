@@ -308,7 +308,7 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
           { text: "↵ change", priority: 4 },
           { text: "r default", priority: 3 },
           ...(changed.length > 0 ? [{ text: "R reset all", priority: 2 }] : []),
-          { text: "1-5 view", priority: 1 },
+          { text: "1-6 view", priority: 1 },
         ]}
       />
       {confirmation && (

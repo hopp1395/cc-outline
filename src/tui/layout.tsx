@@ -6,7 +6,7 @@ import { paneSwitchKey, useFocused } from "./focus.js";
 import { useSetting } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 
-export type Mode = "chat" | "git" | "plan" | "sessions" | "settings";
+export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
 export interface Layout {
   columns: number;
@@ -279,6 +279,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       {tab("3", "Plan", "plan")}
       {tab("4", "Sessions", "sessions")}
       {tab("5", "Settings", "settings")}
+      {tab("6", "Monitor", "monitor")}
     </Text>
   );
 }

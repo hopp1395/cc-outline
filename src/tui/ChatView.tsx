@@ -619,7 +619,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "c copy", priority: 2 },
           ...(imageCount > 0 ? [{ text: `o ${plural(imageCount, "image")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
-          { text: "1-5 view", priority: 1 },
+          { text: "1-6 view", priority: 1 },
         ])
       }
     />

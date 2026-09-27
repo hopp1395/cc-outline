@@ -10,7 +10,7 @@ import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
 import { isAlive, registerViewer, unregisterViewer } from "./viewer.js";
 
-const VIEWS = ["chat", "git", "plan", "sessions", "settings"];
+const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
 
 const pidOption = (flags: string, description: string) => new Option(flags, description).argParser(Number).hideHelp();
 const validPid = (pid: number | undefined) => (pid && Number.isInteger(pid) ? pid : undefined);

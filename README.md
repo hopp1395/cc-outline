@@ -5,13 +5,14 @@
 [![npm downloads](https://img.shields.io/npm/dm/cc-outline)](https://www.npmjs.com/package/cc-outline)
 [![License: MIT](https://img.shields.io/github/license/hopp1395/cc-outline)](LICENSE)
 
-`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has five views:
+`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has six views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 - **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, or goes to the trash.
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
+- **Monitor** charts how fast Claude answered over the day: output tokens per second, the wait for the first block and the number of responses, compared with the usual values at that time, plus errors such as usage limits.
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
@@ -51,7 +52,7 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
 - **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a new tab next to the current one.
 - **Everything stays where you left it.** Every list keeps its selected entry and each entry's scroll position, also across restarts.
-- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session` or `/cco:settings`, follows the active session, closes it with the session and reopens it next time if it was open, or on every start if you set *auto open* to `always`.
+- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`, follows the active session, closes it with the session and reopens it next time if it was open, or on every start if you set *auto open* to `always`.
 - **Set up once, in one place.** The Settings view (`5` or `/cco:settings`) lists every option with its default: whether the viewer opens by itself, whether quitting asks first, whether long entries scroll and positions are remembered, and the display options of the other views. A change applies at once in all views and all projects.
 
 ## Installation
@@ -68,14 +69,14 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session` and `/cco:settings` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` and `/cco:monitor` commands. The npm package is its own plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
 claude plugin install cco@cc-outline
 ```
 
-**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session` or `/cco:settings`. To have the viewer open on every start, set *auto open* to `always` in the Settings view.
+**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`. To have the viewer open on every start, set *auto open* to `always` in the Settings view.
 
 **Updating.** Update the CLI and the plugin, then restart Claude Code. New commands such as `/cco:settings` only appear after the plugin update:
 
@@ -101,12 +102,12 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 ## Usage
 
-- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`** or **`/cco:settings`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
+- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`**, **`/cco:settings`** or **`/cco:monitor`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
 - **Where it opens:** docked right of Claude Code (default), docked left, or in a window of its own, as the *placement* setting says. `p` in the viewer moves it: `1` right, `2` left, `3` window. The viewer closes and reopens there, keeping its selection and scroll positions, and the session remembers the place for the next time it opens (on start, `/resume` in a new Claude Code, `/cco:…`). A window takes the keyboard focus from Claude Code, also when it opens on start, since Windows Terminal cannot hand the focus back to another window. In tmux, *window* is a tmux window. A viewer that already runs stays where it is when you change the setting or `/resume` another session.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
-  - `--view chat|git|plan|sessions|settings`: view to start with (default: the session's last view, see *view per session*, else `chat`)
+  - `--view chat|git|plan|sessions|settings|monitor`: view to start with (default: the session's last view, see *view per session*, else `chat`)
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
 
 All views share one layout:
@@ -114,7 +115,7 @@ All views share one layout:
 - **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
 - **Help line:** the keys of the current view at the bottom.
 
-Press `1` to `5` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
+Press `1` to `6` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
 **Lists.** All lists work the same way:
 - `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
@@ -308,13 +309,29 @@ Keys:
 - `r` sets the selected setting back to its default, `R` resets all of them after a confirmation.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
 
+## Monitor view
+
+The Monitor view (`6`, or `/cco:monitor`) shows how Claude Code answered over a day, from the transcripts of all projects, subagents included.
+
+**List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors.
+
+**Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
+- `v` switches the value: **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
+- A dimmed `─` marks the usual value at that time of day: the median of the 30 days before. Bars clearly worse than usual are red, clearly better ones green.
+- `✗` on the time axis marks an error Claude Code wrote into the transcript, such as a usage limit.
+- `m` switches the model (each model seen, then all models); it starts with the model used last, since models differ in speed.
+
+Below the chart: the day's median speed and wait against the usual values, the number of responses, the slowest and the fastest hour, and the errors with their time. Today's chart follows new answers every few seconds while the view is shown.
+
+**Limits.** It measures only your own sessions, so it shows how fast Claude answered you, not the load of the service as a whole. Speed depends on the model, the effort and how much Claude thinks. Transient API errors (overloaded, rate limits, retries) appear only briefly in Claude Code and are not written to transcripts, so they are missing here.
+
 ## Keys
 
 The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on. The keys of the Settings view are listed in [its section](#settings-view).
 
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
-| `1` – `5` | switch view | switch view | switch view | switch view |
+| `1` – `6` | switch view | switch view | switch view | switch view |
 | `←` / `→` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |
 | `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ | mark the session ★ |

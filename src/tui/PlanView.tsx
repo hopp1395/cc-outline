@@ -357,7 +357,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           { text: "w wrap", on: wrap, priority: 2 },
           ...(plans.length > 0 ? [{ text: "End follow", on: follow, priority: 2 }] : []),
           { text: "c copy", priority: 2 },
-          { text: "1-5 view", priority: 1 },
+          { text: "1-6 view", priority: 1 },
         ]
       }
     />
