@@ -6,7 +6,10 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown } from "../render/markdown.js";
 import { nextMarked } from "../favorites.js";
-import { turnMarkdown, type Turn } from "../transcript/parse.js";
+import { turnImageFiles } from "../images.js";
+import { openInDefaultApp } from "../open.js";
+import { turnMarkdown, type Attachment, type Turn } from "../transcript/parse.js";
+import { displayPath } from "../transcript/sessions.js";
 import {
   dim,
   handleNavigation,
@@ -20,6 +23,7 @@ import {
   Spinner,
   Star,
   makeScroll,
+  truncate,
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
@@ -72,19 +76,72 @@ export const PROMPT_PREVIEW_CHARS = 1000;
  * Sticky prompt above the answer: at most PROMPT_PREVIEW_CHARS characters and
  * half the preview height. When cut, the rule points to the full prompt.
  */
-export function promptHeader(prompt: string, width: number, height: number): string[] {
+export function promptHeader(prompt: string, width: number, height: number, attachments: Attachment[] = []): string[] {
   const excerpt = prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : prompt;
   const full = previewHeader(excerpt, width, { marker: cyan("❯ "), style: dim });
-  const fitted = fitHeader(full, height);
+  // One row less for the prompt when the attachments line follows it.
+  const summary = attachmentSummary(attachments);
+  const fitted = fitHeader(full, summary ? height - 2 : height);
   const cut = excerpt !== prompt || fitted.length < full.length;
-  return [...fitted.slice(0, -1), rule(width, cut ? "↵ full prompt" : undefined)];
+  return [
+    ...fitted.slice(0, -1),
+    ...(summary ? ["  " + dim(truncate(summary, width - 2))] : []),
+    rule(width, cut || summary ? "↵ full prompt" : undefined),
+  ];
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** `o` opens at most this many images of a turn at once. */
+const MAX_OPENED_IMAGES = 10;
+
+/** One line naming what came with the prompt: "📎 2 images · @src/Order.cs · 12 lines selected in Foo.cs". */
+export function attachmentSummary(attachments: Attachment[]): string | undefined {
+  if (attachments.length === 0) return undefined;
+  const images = attachments.filter((a) => a.kind === "image").length;
+  const parts = [
+    ...(images > 0 ? [plural(images, "image")] : []),
+    ...attachments.filter((a) => a.kind !== "image").map(attachmentName),
+  ];
+  return "📎 " + parts.join(" · ");
+}
+
+function attachmentName(a: Attachment): string {
+  switch (a.kind) {
+    case "image":
+      return "image";
+    case "file":
+      return "@" + a.path.replace(/\\/g, "/");
+    case "directory":
+      return "@" + a.path.replace(/\\/g, "/").replace(/\/?$/, "/");
+    case "selection": {
+      const lines = a.lines !== undefined ? plural(a.lines, "line") : "lines";
+      return `${lines} selected${a.file ? ` in ${a.file.replace(/\\/g, "/")}` : ""}`;
+    }
+  }
+}
+
+/** The attachments listed below the full prompt, images with where their file is. */
+function attachmentLines(attachments: Attachment[], cwd: string): string[] {
+  if (attachments.length === 0) return [];
+  let image = 0;
+  const lines = attachments.map((a) => {
+    if (a.kind !== "image") return "  " + attachmentName(a);
+    image++;
+    return `  image ${image}  ${dim(a.path ? displayPath(a.path, cwd) : "(only in the transcript)")}`;
+  });
+  const hint = attachments.some((a) => a.kind === "image") ? [dim("  o opens the images")] : [];
+  return ["", "\u001b[1m📎 Attachments\u001b[22m", ...lines, ...hint];
 }
 
 /** The complete prompt, shown instead of the answer after Enter. */
-function fullPrompt(prompt: string, width: number): { header: string[]; lines: string[] } {
+function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[]; lines: string[] } {
   return {
     header: [cyan("❯ ") + "\u001b[1mPrompt\u001b[22m" + dim(" · ↵/esc back to answer"), rule(width)],
-    lines: wrapAnsi(prompt, width, { hard: true, trim: false }).split("\n"),
+    lines: [
+      ...wrapAnsi(turn.prompt, width, { hard: true, trim: false }).split("\n"),
+      ...attachmentLines(turn.attachments ?? [], cwd).flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
+    ],
   };
 }
 
@@ -122,13 +179,13 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
     const lines = body ? renderMarkdown(body, previewWidth, wrap) : status ? [] : [dim("(no text output yet)")];
     return {
-      header: promptHeader(current.prompt, previewWidth, bodyHeight),
+      header: promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
       lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
     };
   }, [current, version, previewWidth, bodyHeight, showTools, showThinking, wrap, liveSession]);
   const prompt = useMemo(
-    () => (current && promptOpen ? fullPrompt(current.prompt, previewWidth) : undefined),
-    [current, promptOpen, previewWidth],
+    () => (current && promptOpen ? fullPrompt(current, previewWidth, cwd) : undefined),
+    [current, version, promptOpen, previewWidth, cwd],
   );
   const { header, lines } = prompt ?? answer;
 
@@ -228,6 +285,20 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     setFlash(msg);
     setTimeout(() => setFlash(undefined), 2000);
   };
+  const imageCount = (current?.attachments ?? []).filter((a) => a.kind === "image").length;
+  /** Opens the images pasted into `turn`'s prompt in the system's image viewer. */
+  const openImages = (turn: Turn) => {
+    if (imageCount === 0) return;
+    let files: string[];
+    try {
+      files = turnImageFiles(path, turn).slice(0, MAX_OPENED_IMAGES);
+    } catch (err) {
+      return notify(`could not read the images: ${(err as Error).message}`);
+    }
+    if (files.length === 0) return notify("the images are no longer available");
+    for (const file of files) openInDefaultApp(file);
+    notify(`opened ${plural(files.length, "image")}`);
+  };
   /** Selects the next or previous marked turn. */
   const jumpMark = (dir: 1 | -1) => {
     const target = nextMarked(
@@ -274,6 +345,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         else select(last);
         return notify(follow ? "follow off" : "follow on");
       }
+      if (input === "o" && current) return openImages(current);
       if (input === "t") return setShowTools((v) => !v);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
@@ -370,6 +442,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
+          ...(imageCount > 0 ? [{ text: `o ${plural(imageCount, "image")}`, priority: 3 }] : []),
           { text: "1-5 view", priority: 1 },
         ]
       }

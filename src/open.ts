@@ -48,6 +48,15 @@ export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   return clean;
 }
 
+/** Opens `file` in the app the system uses for it (e.g. an image viewer), without waiting for it. */
+export function openInDefaultApp(file: string, platform: NodeJS.Platform = process.platform): void {
+  // explorer.exe hands the file to its default app, with no shell quoting involved.
+  const command = platform === "win32" ? "explorer.exe" : platform === "darwin" ? "open" : "xdg-open";
+  const child = spawn(command, [file], { stdio: "ignore", detached: true, windowsHide: true });
+  child.on?.("error", () => {});
+  child.unref();
+}
+
 /**
  * Continues a session with `claude --resume` in a new tab (Windows Terminal)
  * or window (tmux), in the folder it ran in. The shell stays open after

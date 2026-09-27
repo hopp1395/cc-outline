@@ -45,6 +45,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["w", "wrap lines"],
     ["^←→", "scroll sideways"],
     ["c", "copy Markdown"],
+    ["o", "open pasted images"],
     ...COMMON_KEYS,
   ],
   git: [

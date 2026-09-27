@@ -117,6 +117,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 **List (left).** One entry per prompt, with its time.
 - Slash commands appear as `/name args`.
 - A prompt of pasted images only appears as `[Image]` or `[3 images]`.
+- What came with a prompt is named in a line below it: `📎 2 images · @src/Order.cs · 12 lines selected in Foo.cs` (pasted images, files and folders mentioned with `@`, lines selected in the IDE or a diff). `Enter` lists them below the full prompt, with where each image is stored. `o` opens the turn's images in the system's image viewer: the copies Claude Code keeps in `~/.claude/uploads`, or, when those are gone, the image data from the transcript, written to a temporary folder. Files Claude Code attaches again after `/compact` are not the user's and are left out.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
 - The turn Claude is working on has a spinning `⠋` in front of it, and its answer ends with `Claude is working…` until Claude finishes. A turn you stopped with `Esc` in Claude Code is marked with a red `⊘`, and its answer ends with `⊘ Interrupted by user` (or `… during a tool call`).
 - Turns keep their marks across restarts and when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
@@ -280,6 +281,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | show tool calls / thinking | – | – | – |
+| `o` | open the turn's pasted images | – | – | – |
 | `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |

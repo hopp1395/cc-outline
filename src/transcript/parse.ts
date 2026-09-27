@@ -16,7 +16,20 @@ export interface Turn {
   done?: boolean;
   /** The user stopped Claude: while it wrote (`user`) or during a tool call (`tool`). */
   interrupted?: "user" | "tool";
+  /** What came with the prompt besides its text, in order. */
+  attachments?: Attachment[];
 }
+
+/**
+ * Something sent along with a prompt: a pasted image (with the copy Claude
+ * Code keeps under `~/.claude/uploads`, if it named one), a file or folder
+ * mentioned with @, or lines selected in the IDE or a diff.
+ */
+export type Attachment =
+  | { kind: "image"; path?: string }
+  | { kind: "file"; path: string }
+  | { kind: "directory"; path: string }
+  | { kind: "selection"; lines?: number; file?: string };
 
 /** "draft": being written in plan mode, not presented yet (see `PlanModeState`). */
 export type PlanStatus = "draft" | "pending" | "approved" | "rejected";
@@ -75,7 +88,29 @@ interface Entry {
     origin?: { kind?: string };
     planFilePath?: string;
     isSubAgent?: boolean;
+    // file, directory, selected_lines_in_*, inlined_image_paths
+    filename?: string;
+    displayPath?: string;
+    path?: string;
+    paths?: unknown;
+    lineCount?: number;
+    lineStart?: number;
+    lineEnd?: number;
   };
+}
+
+/** Attachment entries that carry something the user sent with a prompt; the others are Claude Code's own context. */
+const ATTACHMENT_TYPES = new Set(["inlined_image_paths", "file", "directory", "selected_lines_in_ide", "selected_lines_in_diff"]);
+
+/** `{ attachments }` when there are any, so turns without keep no empty list. */
+function withAttachments(attachments: Attachment[]): { attachments?: Attachment[] } {
+  return attachments.length > 0 ? { attachments } : {};
+}
+
+/** Pasted images of prompt content blocks, one attachment each. */
+function imageAttachments(content: unknown): Attachment[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter((b) => b?.type === "image").map(() => ({ kind: "image" as const }));
 }
 
 /**
@@ -153,6 +188,8 @@ export class TranscriptParser {
   /** Set while plan mode is on, from its start until it is left. */
   planMode?: PlanModeState;
   private buffer = "";
+  /** The last entry was a prompt (or one of its attachments): attachments that follow belong to it. */
+  private takesAttachments = false;
 
   /** Returns true when the turns or plans changed. */
   push(chunk: string): boolean {
@@ -182,11 +219,13 @@ export class TranscriptParser {
         prompt,
         timestamp: entry.timestamp,
         blocks: [],
+        ...withAttachments(imageAttachments(entry.message?.content)),
       });
+      this.takesAttachments = true;
       return true;
     }
     if (entry.type === "attachment" && !entry.isSidechain) {
-      const changed = this.trackPlanMode(entry);
+      const changed = this.trackPlanMode(entry) || this.trackAttachment(entry);
       if (changed) return true;
     }
     const queued = queuedPrompt(entry);
@@ -198,10 +237,14 @@ export class TranscriptParser {
         timestamp: entry.timestamp,
         blocks: [],
         queued: true,
+        ...withAttachments(imageAttachments(entry.attachment?.prompt)),
       });
+      this.takesAttachments = true;
       return true;
     }
     if (entry.isSidechain) return false;
+    // Attachments belong to a prompt only when they follow it directly; after /compact, Claude Code re-attaches files it read.
+    if (entry.type === "user" || entry.type === "assistant" || entry.type === "system") this.takesAttachments = false;
     if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
     if (entry.type === "user") return this.trackInterrupt(entry) || this.decidePlans(entry);
     if (entry.type !== "assistant") return false;
@@ -242,6 +285,44 @@ export class TranscriptParser {
       changed = true;
     }
     return changed;
+  }
+
+  /** Adds @-mentions, IDE selections and the stored copies of pasted images to the prompt they came with. */
+  private trackAttachment(entry: Entry): boolean {
+    const a = entry.attachment;
+    const turn = this.turns.at(-1);
+    if (!a?.type || !turn || !this.takesAttachments || !ATTACHMENT_TYPES.has(a.type)) return false;
+    const list = () => (turn.attachments ??= []);
+    const name = a.displayPath || a.filename || a.path;
+    switch (a.type) {
+      case "inlined_image_paths": {
+        const paths = Array.isArray(a.paths) ? a.paths.filter((p): p is string => typeof p === "string") : [];
+        if (paths.length === 0) return false;
+        // In paste order, like the image blocks of the prompt.
+        const images = list().filter((x) => x.kind === "image");
+        paths.forEach((path, i) => {
+          if (images[i]) images[i].path = path;
+          else list().push({ kind: "image", path });
+        });
+        return true;
+      }
+      case "file":
+        if (!name) return false;
+        list().push({ kind: "file", path: name });
+        return true;
+      case "directory":
+        if (!name) return false;
+        list().push({ kind: "directory", path: name });
+        return true;
+      case "selected_lines_in_ide":
+      case "selected_lines_in_diff": {
+        const span = a.lineStart !== undefined && a.lineEnd !== undefined ? a.lineEnd - a.lineStart + 1 : undefined;
+        list().push({ kind: "selection", lines: a.lineCount ?? span, file: a.displayPath || a.filename });
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
   /** Marks the last turn finished when `finished`; returns whether that changed anything. */

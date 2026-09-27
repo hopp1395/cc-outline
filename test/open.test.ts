@@ -8,7 +8,7 @@ vi.mock("node:child_process", () => ({
   },
 }));
 
-const { independentEnv, resumeInNewTab } = await import("../src/open.js");
+const { independentEnv, openInDefaultApp, resumeInNewTab } = await import("../src/open.js");
 
 const saved = { ...process.env };
 beforeEach(() => {
@@ -59,6 +59,19 @@ describe("resumeInNewTab", () => {
   it("names the command when no supported terminal is found", () => {
     expect(resumeInNewTab("abc", "/repo", "orders")).toBe("no Windows Terminal or tmux: run claude --resume abc in /repo");
     expect(spawned).toEqual([]);
+  });
+});
+
+describe("openInDefaultApp", () => {
+  it("hands the file to the system's default app", () => {
+    openInDefaultApp("C:\\tmp\\a.png", "win32");
+    openInDefaultApp("/tmp/a.png", "darwin");
+    openInDefaultApp("/tmp/a.png", "linux");
+    expect(spawned.map(({ cmd, args }) => [cmd, ...args])).toEqual([
+      ["explorer.exe", "C:\\tmp\\a.png"],
+      ["open", "/tmp/a.png"],
+      ["xdg-open", "/tmp/a.png"],
+    ]);
   });
 });
 
