@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/hopp1395/cc-outline#readme
+    about: Installation, key bindings and settings of every view

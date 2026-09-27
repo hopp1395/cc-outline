@@ -1,0 +1,37 @@
+name: Feature request
+description: An idea for cco, or something missing from a view
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: What you are trying to do while working with Claude Code, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: How cco could help. Rough is fine.
+  - type: dropdown
+    id: view
+    attributes:
+      label: View
+      options:
+        - Chat
+        - Changes
+        - Plan
+        - Sessions
+        - Settings
+        - A new view
+        - Other
+  - type: dropdown
+    id: terminal
+    attributes:
+      label: Terminal
+      description: Where you would use it
+      options:
+        - Windows Terminal
+        - tmux
+        - Other (please name it above)
