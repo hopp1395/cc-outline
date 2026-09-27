@@ -135,6 +135,11 @@ export function positionsFile(cwd: string): string {
   return stateFile(cwd, ".positions");
 }
 
+/** The view each session of the project was shown in last. */
+export function sessionViewsFile(cwd: string): string {
+  return stateFile(cwd, ".views");
+}
+
 /** Marked (favourite) turns per session. */
 export function favoritesFile(cwd: string): string {
   return stateFile(cwd, ".favorites");

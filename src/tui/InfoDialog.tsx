@@ -29,7 +29,7 @@ const LIST_KEYS = (entry: string): [string, string][] => [
 ];
 
 const COMMON_KEYS: [string, string][] = [
-  ["1 2 3 4", "chat / changes / plan / sessions"],
+  ["1 2 3 4 5", "chat / changes / plan / sessions / settings"],
   ["i", "this info"],
   ["q", "quit"],
 ];
@@ -45,6 +45,8 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["w", "wrap lines"],
     ["^←→", "scroll sideways"],
     ["c", "copy Markdown"],
+    ["o", "open pasted images"],
+    ["a", "the turn's subagents"],
     ...COMMON_KEYS,
   ],
   git: [
@@ -75,9 +77,18 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["x X", "delete / empty trash"],
     ...COMMON_KEYS,
   ],
+  settings: [
+    ["←→", "previous / next setting"],
+    ["Home End g G", "first / last setting"],
+    ["↵ Space", "next value"],
+    ["r", "back to the default"],
+    ["R", "reset all"],
+    ["↑↓ PgUp PgDn", "scroll"],
+    ...COMMON_KEYS,
+  ],
 };
 
-const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions" };
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;

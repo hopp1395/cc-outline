@@ -9,7 +9,7 @@ import {
   transcriptForSession,
   type ActiveSession,
 } from "../transcript/locate.js";
-import { TranscriptParser, type Plan, type PlanModeState, type Turn } from "../transcript/parse.js";
+import { TranscriptParser, type AgentRun, type Plan, type PlanModeState, type Turn } from "../transcript/parse.js";
 import { FileTail, watchFile } from "../transcript/tail.js";
 
 /**
@@ -52,17 +52,19 @@ export interface Transcript {
   plans: Plan[];
   /** Plan mode while it is on: its plan file, for the plan being written. */
   planMode?: PlanModeState;
+  /** Subagents started in the session; updated in place, `version` changes with them. */
+  agents: AgentRun[];
   /** Increments on every change. */
   version: number;
 }
 
 /** Parses and follows a transcript. */
 export function useTranscript(path: string | undefined): Transcript {
-  const [state, setState] = useState<Transcript>({ turns: [], plans: [], version: 0 });
+  const [state, setState] = useState<Transcript>({ turns: [], plans: [], agents: [], version: 0 });
 
   useEffect(() => {
     const parser = new TranscriptParser();
-    setState({ turns: [], plans: [], version: 0 });
+    setState({ turns: [], plans: [], agents: [], version: 0 });
     if (!path) return;
     const tail = new FileTail(path, (chunk) => {
       if (parser.push(chunk)) {
@@ -70,6 +72,7 @@ export function useTranscript(path: string | undefined): Transcript {
           turns: [...parser.turns],
           plans: parser.plans.map((p) => ({ ...p })),
           planMode: parser.planMode && { ...parser.planMode },
+          agents: [...parser.agents],
           version: s.version + 1,
         }));
       }

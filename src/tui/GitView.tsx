@@ -334,7 +334,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
           {files.length} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
-          {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
+          {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
         </Text>
       }
       list={
@@ -369,7 +369,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
         { text: "r refresh", priority: 2 },
-        { text: "1-4 view", priority: 1 },
+        { text: "1-5 view", priority: 1 },
       ]}
     />
   );

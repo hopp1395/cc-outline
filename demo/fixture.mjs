@@ -16,7 +16,8 @@ const user = (uuid, time, text) => ({
 const assistant = (uuid, id, text) => ({
   type: "assistant",
   uuid,
-  message: { id, role: "assistant", content: [{ type: "text", text }] },
+  // A text answer ends the turn; without it the chat shows the turn as still running.
+  message: { id, role: "assistant", content: [{ type: "text", text }], stop_reason: "end_turn" },
 });
 const tool = (uuid, id, command) => ({
   type: "assistant",

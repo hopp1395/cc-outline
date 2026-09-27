@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleHook } from "../src/hook.js";
+import { saveSessionView } from "../src/sessionViews.js";
+import { updateSettings } from "../src/settings.js";
 import { detectTerminal } from "../src/open.js";
 import {
   claudeFile,
@@ -227,6 +229,49 @@ describe("restore on restart", () => {
     unregisterViewer(cwd);
     run("SessionStart", { source: "clear" });
     run("SessionStart", { source: "compact" });
+    expect(opened).toEqual([]);
+  });
+
+  it("always: opens in a project it never ran in, with the chat or the view shown last", () => {
+    updateSettings({ autoOpen: "always" });
+    run("SessionStart", { source: "startup" });
+    unregisterViewer(cwd);
+    run("SessionEnd", { reason: "prompt_input_exit" }); // closed at exit
+    run("SessionStart", { source: "resume" });
+    unregisterViewer(cwd);
+    registerViewer(cwd, "plan");
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    unregisterViewer(cwd);
+    run("SessionStart", { source: "startup" });
+    expect(opened).toEqual(["chat keepFocus", "chat keepFocus", "plan keepFocus"]);
+  });
+
+  it("always: still no second viewer", () => {
+    updateSettings({ autoOpen: "always" });
+    registerViewer(cwd, "chat");
+    run("SessionStart", { source: "startup" });
+    expect(opened).toEqual([]);
+  });
+
+  it("reopens a resumed session in its own last view, unless switched off", () => {
+    run("SessionStart", { source: "startup" });
+    registerViewer(cwd, "git");
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    unregisterViewer(cwd);
+    saveSessionView(cwd, "a", "plan");
+    run("SessionStart", { source: "resume" });
+    unregisterViewer(cwd);
+    updateSettings({ rememberView: false });
+    run("SessionStart", { source: "resume" });
+    expect(opened).toEqual(["plan keepFocus", "git keepFocus"]);
+  });
+
+  it("never: stays closed even if it was open at exit", () => {
+    updateSettings({ autoOpen: "never" });
+    registerViewer(cwd, "git");
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    unregisterViewer(cwd);
+    run("SessionStart", { source: "startup" });
     expect(opened).toEqual([]);
   });
 });

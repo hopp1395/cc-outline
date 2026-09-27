@@ -30,6 +30,27 @@ const result = (id: string, isError: boolean) =>
   });
 
 describe("SessionReader", () => {
+  it("lists subagents and leaves task notifications out of the prompts", () => {
+    const reader = new SessionReader(join(tmpdir(), "s-agents.jsonl"));
+    const s = reader.push(
+      prompt("u1", "09:00", "Map the repo") +
+        tool("t1", "09:01", "Agent", { description: "Map", subagent_type: "Explore", run_in_background: true }) +
+        line({
+          type: "user",
+          uuid: "n1",
+          message: {
+            role: "user",
+            content:
+              "<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Map\" finished</summary>\n<usage><duration_ms>65000</duration_ms></usage>\n</task-notification>",
+          },
+        }),
+    );
+    expect(s.prompts.map((p) => p.text)).toEqual(["Map the repo"]);
+    expect(s.agents).toEqual([
+      { description: "Map", type: "Explore", status: "completed", started: "2026-09-26T09:01:00.000Z", durationMs: 65000 },
+    ]);
+  });
+
   it("summarizes title, prompts, plans, changed files, branch and time span", () => {
     const reader = new SessionReader(join(tmpdir(), "s1.jsonl"));
     const s = reader.push(

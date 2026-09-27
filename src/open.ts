@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
-const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions" };
+const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings" };
 
 export type Terminal = "tmux" | "wt";
 
@@ -46,6 +46,15 @@ export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   // Windows environment names are case-insensitive, and Node keeps the original spelling.
   for (const key of Object.keys(clean)) if (SESSION_BOUND_VARS.includes(key.toUpperCase())) delete clean[key];
   return clean;
+}
+
+/** Opens `file` in the app the system uses for it (e.g. an image viewer), without waiting for it. */
+export function openInDefaultApp(file: string, platform: NodeJS.Platform = process.platform): void {
+  // explorer.exe hands the file to its default app, with no shell quoting involved.
+  const command = platform === "win32" ? "explorer.exe" : platform === "darwin" ? "open" : "xdg-open";
+  const child = spawn(command, [file], { stdio: "ignore", detached: true, windowsHide: true });
+  child.on?.("error", () => {});
+  child.unref();
 }
 
 /**

@@ -314,8 +314,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           {counts.draft > 0 && <Text color="cyan">{" · 1 being written"}</Text>}
           {plan && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
-          {!wrap && <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>}
-          {follow && plans.length > 0 && <Text color="green"> · FOLLOW</Text>}
+          {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
         </Text>
       }
       list={
@@ -353,8 +352,9 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           ...markFooter(favorites.isMarked(plan?.id), markedCount),
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "w wrap", on: wrap, priority: 2 },
+          ...(plans.length > 0 ? [{ text: "End follow", on: follow, priority: 2 }] : []),
           { text: "c copy", priority: 2 },
-          { text: "1-4 view", priority: 1 },
+          { text: "1-5 view", priority: 1 },
         ]
       }
     />

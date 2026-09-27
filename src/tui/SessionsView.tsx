@@ -18,7 +18,7 @@ import {
 } from "../transcript/trash.js";
 import { resumeInNewTab } from "../open.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
-import type { PlanStatus } from "../transcript/parse.js";
+import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { useFocused } from "./focus.js";
 import {
   bold,
@@ -68,6 +68,7 @@ const STATUS_ICON: Record<PlanStatus, string> = {
 };
 const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
 const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
+const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 const heading = (s: string) => `\u001b[1;36m${s}\u001b[22;39m`;
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -111,7 +112,15 @@ export function resumeCommand(s: SessionSummary): string {
   return `claude --resume ${s.id}`;
 }
 
-/** Plans, changed files and prompts of a session, as lines of `width` columns. */
+/** Status of a subagent in the overview, like the chat's agent blocks. */
+const AGENT_ICON: Record<AgentStatus, string> = {
+  running: yellow("⠿"),
+  completed: green("✓"),
+  failed: red("✗"),
+  killed: red("■"),
+};
+
+/** Plans, agents, changed files and prompts of a session, as lines of `width` columns. */
 export function sessionLines(s: SessionSummary, viewerCwd: string, width: number): string[] {
   // Paths are shown relative to the folder the session ran in.
   const cwd = s.cwd ?? viewerCwd;
@@ -126,6 +135,18 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
     s.plans.length,
     s.plans.map((p) => `  ${STATUS_ICON[p.status]} ${dim(time(p.timestamp))} ${truncate(planTitle(p.text), width - 10)}`),
   );
+  const agents = s.agents ?? [];
+  if (agents.length > 0) {
+    section(
+      "Agents",
+      agents.length,
+      agents.map((a) => {
+        const icon = AGENT_ICON[a.status];
+        const took = a.durationMs !== undefined ? dim(` ${formatMs(a.durationMs)}`) : "";
+        return `  ${icon} ${dim(time(a.started))} ${truncate(`${a.type ?? "agent"} · ${a.description}`, width - 20)}${took}`;
+      }),
+    );
+  }
   section(
     "Changed files",
     s.files.length,
@@ -146,7 +167,12 @@ type State = "active" | "running" | "trash" | undefined;
 
 function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt?: number): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
-  const counts = [plural(s.prompts.length, "prompt"), plural(s.plans.length, "plan"), plural(s.files.length, "changed file")];
+  const counts = [
+    plural(s.prompts.length, "prompt"),
+    plural(s.plans.length, "plan"),
+    ...(s.agents?.length ? [plural(s.agents.length, "agent")] : []),
+    plural(s.files.length, "changed file"),
+  ];
   const last =
     state === "trash"
       ? red(`in the trash since ${dateTime(new Date(deletedAt ?? 0).toISOString())} · u restores it`)
@@ -444,7 +470,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a all", on: all, priority: 2 },
         { text: "T trash", priority: 2 },
-        { text: "1-4 view", priority: 1 },
+        { text: "1-5 view", priority: 1 },
       ];
 
   return (
@@ -461,7 +487,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             ) : (
               "…"
             )}
-            {all ? " · all projects" : " · this project"}
             {progress && <Text color="yellow">{` · reading ${progress.done}/${progress.total}`}</Text>}
             {session && !progress && ` · ${scroll.position}`}
             {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}

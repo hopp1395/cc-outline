@@ -1,6 +1,9 @@
 import { Box, useApp, useInput } from "ink";
-import { useEffect, useState } from "react";
+import { basename } from "node:path";
+import { useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
+import { readSessionView, saveSessionView } from "../sessionViews.js";
+import { readSettings } from "../settings.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -10,12 +13,15 @@ import { InfoDialog } from "./InfoDialog.js";
 import { useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { SessionsView } from "./SessionsView.js";
+import { SettingsView } from "./SettingsView.js";
+import { useSetting } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
 
 interface Props {
   cwd: string;
   sessionId?: string;
+  /** The view to start with; without it, the session's last view (setting rememberView), else the chat. */
   initialMode?: Mode;
   /** The pane was opened without taking the focus (focus stayed in Claude Code). */
   unfocused?: boolean;
@@ -23,21 +29,28 @@ interface Props {
   claudePid?: number;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions" };
+const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings" };
 
-export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, claudePid }: Props) {
+const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
+
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid }: Props) {
   const { exit } = useApp();
   const layout = useLayout();
   const focused = useTerminalFocus(!unfocused);
   const path = useSessionPath(cwd, sessionId, claudePid);
   // Parsed once for the chat and the plan view.
   const transcript = useTranscript(path);
-  const [mode, setMode] = useState<Mode>(initialMode);
+  const [rememberView] = useSetting("rememberView");
+  const [mode, setMode] = useState<Mode>(
+    () => initialMode ?? (readSettings().rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat",
+  );
   const [infoOpen, setInfoOpen] = useState(false);
   // A view's confirmation dialog takes all keys while it is open.
   const [modal, setModal] = useState(false);
   // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
   const [quitAsked, setQuitAsked] = useState(false);
+  const [confirmQuit] = useSetting("confirmQuit");
+  const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
   // Views take no keys while a dialog of the app is open.
   const blocked = infoOpen || quitAsked;
   const [gitRoot, setGitRoot] = useState<string | null>();
@@ -47,6 +60,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
     git: false,
     plan: false,
     sessions: false,
+    settings: false,
   });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
@@ -54,6 +68,20 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
 
   // Remember the shown view so the viewer reopens with it after a restart.
   useEffect(() => setViewerView(cwd, mode, claudePid), [cwd, mode, claudePid]);
+
+  // Each session keeps its own last view: switching to another session (/resume) brings back its view,
+  // and the view shown is recorded for the session shown.
+  const shownPath = useRef(path);
+  useEffect(() => {
+    const id = sessionOf(path);
+    if (path !== shownPath.current) {
+      shownPath.current = path;
+      const view = rememberView ? readSessionView(cwd, id) : undefined;
+      // Recorded on the next run, with the view switched.
+      if (view && view !== mode) return setMode(view);
+    }
+    if (rememberView && id) saveSessionView(cwd, id, mode);
+  }, [cwd, path, mode, rememberView]);
 
   useEffect(() => {
     repoRoot(cwd).then((r) => setGitRoot(r ?? null));
@@ -64,10 +92,10 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
-      else if (input === "q") setQuitAsked(true);
+      else if (input === "q") quit();
       return;
     }
-    if (input === "q" || (key.escape && !detailOpen[mode])) setQuitAsked(true);
+    if (input === "q" || (key.escape && !detailOpen[mode])) quit();
     else if (input === "i") setInfoOpen(true);
     else if (VIEW_KEYS[input]) setMode(VIEW_KEYS[input]);
   });
@@ -84,6 +112,7 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             layout={layout}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
+            liveSession={!sessionId}
           />
         </Box>
         <Box display={mode === "git" ? "flex" : "none"}>
@@ -115,6 +144,9 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
             onTrashOpen={setDetail("sessions")}
             onModal={setModal}
           />
+        </Box>
+        <Box display={mode === "settings" ? "flex" : "none"}>
+          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} />
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
         {quitAsked && (
