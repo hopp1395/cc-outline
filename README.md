@@ -384,6 +384,8 @@ The demo runs the viewer headlessly on a made-up project with a few older sessio
 
 `cco` runs the built `dist/cli.js`. After a rebuild, close a running viewer with `q` and reopen it. Changes to the plugin (hooks, commands) take effect only after Claude Code restarts.
 
+Releases are published to npm by GitHub Actions when a GitHub release is published, with npm provenance, so each version on npm links to the commit and workflow run it was built from.
+
 ## License
 
 [MIT](LICENSE) © 2026 Jan Hoppe
