@@ -73,10 +73,22 @@ describe("toolMarkdown", () => {
 
   it("shows a question block with its options and the answer, even with tools off", () => {
     const outcome = toolOutcome("AskUserQuestion", question, { answers: { "Where should it open?": "Left" }, annotations: { "Where should it open?": { notes: "keep it simple" } } }, "", false);
-    expect(toolMarkdown("AskUserQuestion", question, outcome, "off")).toBe(
-      "Claude asks\n**? Place** — Where should it open?\n\n- Right (Recommended) — *as today*\n- Left — *swap*\n\n**→ Left**  \n*note:* keep it simple\n",
-    );
-    expect(toolMarkdown("AskUserQuestion", question, toolOutcome("AskUserQuestion", question, undefined, "The user doesn't want to proceed", true), "off")).toContain("⊘ *not answered*");
+    const md = toolMarkdown("AskUserQuestion", question, outcome, "off");
+    // Badge with the header, the chosen option marked and bold, the others dimmed, the answer as "You:".
+    expect(md).toContain("\u001b[7m\u001b[33m\u00a0Place\u00a0\u001b[39m\u001b[27m Where should it open?");
+    expect(md).toContain("- \u001b[2m○ Right (Recommended) — as today\u001b[22m");
+    expect(md).toContain("- \u001b[32m●\u001b[39m **Left** — *swap*");
+    expect(md).toContain("\u001b[32m┃ You: Left\u001b[39m");
+    expect(md).toContain("note: keep it simple");
+    expect(stripBoxes(md)).toBe(" Place  Where should it open?\n\n- ○ Right (Recommended) — as today\n- ● **Left** — *swap*\n\n┃ You: Left  \n┃ note: keep it simple");
+    const unanswered = toolOutcome("AskUserQuestion", question, undefined, "The user doesn't want to proceed", true);
+    expect(stripBoxes(toolMarkdown("AskUserQuestion", question, unanswered, "off"))).toContain("┃ not answered");
+  });
+
+  it("numbers several questions, separates them, and marks a typed answer", () => {
+    const two = { questions: [{ question: "A?", header: "One", options: [{ label: "x" }] }, { question: "B?", options: [{ label: "y" }] }] };
+    const md = stripBoxes(toolMarkdown("AskUserQuestion", two, toolOutcome("AskUserQuestion", two, { answers: { "A?": "x", "B?": "something else" } }, "", false), "off"));
+    expect(md).toBe(" 1/2 One  A?\n\n- ● **x**\n\n┃ You: x\n\n---\n\n 2/2  B?\n\n- ○ y\n\n┃ You: something else (own answer)");
   });
 
   it("compact: one line with the result; full: command and output", () => {
@@ -113,7 +125,7 @@ describe("parser", () => {
         line({ type: "user", toolUseResult: { answers: { "Go?": "Yes" } }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t2", content: "…" }] } }),
     );
     expect(changed).toBe(true);
-    expect(stripBoxes(turnMarkdown(p.turns[0], { tools: "off", thinking: false }))).toBe("**? Go** — Go?\n\n- Yes\n\n**→ Yes**");
+    expect(stripBoxes(turnMarkdown(p.turns[0], { tools: "off", thinking: false }))).toBe(" Go  Go?\n\n- ● **Yes**\n\n┃ You: Yes");
     expect(turnMarkdown(p.turns[0], { tools: "compact", thinking: false })).toContain("**⚙ Read** `a.ts` · 2 lines");
   });
 });

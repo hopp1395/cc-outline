@@ -149,7 +149,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 **Answer.** The answer is rendered as Markdown and wrapped to the pane width. List items keep their indentation when they wrap.
 
-- **Questions.** When Claude asks you something (a multiple-choice question in Claude Code), the answer shows it in a yellow frame (`╭─ Claude asks`): the question with its options and, below it, your answer (`→ …`, with a note if you added one). Questions always show, whatever `t` is set to.
+- **Questions.** When Claude asks you something (a multiple-choice question in Claude Code), the answer shows it in a yellow frame (`╭─ Claude asks`). Each question starts with a yellow badge (its number and header, e.g. `1/4 Focus`), then its options: the one you chose marked `●` in green, the others dimmed `○`. Below, your answer in green as `┃ You: …` (`(own answer)` when you typed it, and your note if you added one). A dimmed line separates the questions. Questions always show, whatever `t` is set to.
 - **Tool calls.** `t` steps through three levels:
   - *off* (default): no tool calls.
   - *compact*: one line each, with its result: `⚙ Read src/open.ts · lines 85–145 of 300`, `⚙ Edit src/open.ts · +12 −3`, `⚙ Bash Run the tests · ✓ · 14 lines`, `⚙ Grep TODO in src · 3 files`, `▤ Plan presented → approved`. `✗` marks a tool that failed, `⊘ denied` one you rejected.
