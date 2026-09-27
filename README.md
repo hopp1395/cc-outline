@@ -11,8 +11,8 @@
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 - **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, or goes to the trash.
-- **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 - **Monitor** charts how fast Claude answered over the day: output tokens per second, the wait for the first block and the number of responses, compared with the usual values at that time, plus errors such as usage limits.
+- **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
@@ -47,13 +47,13 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 ### In daily work
 
 - **Review while Claude works.** Keep the approved plan in the Plan view and check the resulting diff in the Changes view, both next to the running session.
-- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`5`) switches views, `alt+←` returns to Claude Code.
+- **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`6`) switches views, `alt+←` returns to Claude Code.
 - **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
 - **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a new tab next to the current one.
 - **Everything stays where you left it.** Every list keeps its selected entry and each entry's scroll position, also across restarts.
 - **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`, follows the active session, closes it with the session and reopens it next time if it was open, or on every start if you set *auto open* to `always`.
-- **Set up once, in one place.** The Settings view (`5` or `/cco:settings`) lists every option with its default: whether the viewer opens by itself, whether quitting asks first, whether long entries scroll and positions are remembered, and the display options of the other views. A change applies at once in all views and all projects.
+- **Set up once, in one place.** The Settings view (`6` or `/cco:settings`) lists every option with its default: whether the viewer opens by itself, whether quitting asks first, whether long entries scroll and positions are remembered, and the display options of the other views. A change applies at once in all views and all projects.
 
 ## Installation
 
@@ -115,15 +115,16 @@ All views share one layout:
 - **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
 - **Help line:** the keys of the current view at the bottom.
 
-Press `1` to `6` to switch between the views. All of them keep running in the background, so the chat keeps following the session while you look at the changes.
+Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` for the next and previous one (hidden views are skipped). All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
 **Lists.** All lists work the same way:
 - `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
+- The lists ordered by time (Chat, Plan, Sessions with its trash, Monitor) show the oldest entry at the top, the Monitor the newest. `s` turns a list around and remembers it (the *order* settings). The keys follow what you see: `←`/`→` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
 - If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
 - **Mouse:** a click selects an entry, the wheel moves to the previous or next one. In the preview the wheel scrolls, and a click on a web address (`https://…`, also one wrapped over two lines) opens it in the browser. To select text, hold `Shift` while dragging. The *mouse* setting turns this off.
 - `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
-- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id.
+- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id, Monitor days by their date.
 - Every list remembers its selected entry, and the preview remembers its scroll position for each entry: switch to another entry and back, and you are where you left it. Detail views keep their own position (the whole file of a changed file, the changes to a plan's previous version). Both survive closing and reopening the viewer; they are saved per project in `~/.claude/cco/<project-slug>.positions.json`. A list that was following the newest entry (Chat, Plan) follows it again. With *remember positions* off in the Settings view, they are kept only while the viewer runs.
 
 ## Chat view
@@ -273,9 +274,25 @@ Below it:
 - In the confirmation, `Enter` means yes and `Esc` means no. While it is open, no other key does anything.
 - The trash lives in `~/.claude/cco/trash/<project-slug>/`, per project of the session. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
+## Monitor view
+
+The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a day, from the transcripts of all projects, subagents included.
+
+**List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+←`/`→` jump between marked days.
+
+**Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
+- `v` switches the value: **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
+- A dimmed `─` marks the usual value at that time of day: the median of the 30 days before. Bars more than 15 % worse than usual are red, more than 15 % better ones green, the rest cyan; a legend below the chart says so.
+- `✗` on the time axis marks an error Claude Code wrote into the transcript, such as a usage limit.
+- `m` switches the model (each model seen, then all models); it starts with the model used last, since models differ in speed.
+
+Below the chart: the day's median speed and wait against the usual values, the number of responses, the slowest and the fastest hour, and the errors with their time. Today's chart follows new answers every few seconds while the view is shown.
+
+**Limits.** It measures only your own sessions, so it shows how fast Claude answered you, not the load of the service as a whole. Speed depends on the model, the effort and how much Claude thinks. Transient API errors (overloaded, rate limits, retries) appear only briefly in Claude Code and are not written to transcripts, so they are missing here.
+
 ## Settings view
 
-The Settings view (`5`, or `/cco:settings`) shows every option with its value on the left and, on the right, what it does, all possible values (the current one marked `●`, the default named) and the key that switches it in its own view. Values that differ from the default are yellow, and the top bar counts them.
+The Settings view (`6`, or `/cco:settings`) shows every option with its value on the left and, on the right, what it does, all possible values (the current one marked `●`, the default named) and the key that switches it in its own view. Values that differ from the default are yellow, and the top bar counts them.
 
 | Setting | Values | Default | Also |
 |---|---|---|---|
@@ -293,6 +310,8 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | Changes: wrap | on / off | on | `w` in Changes |
 | Plan: wrap | on / off | on | `w` in Plan |
 | Sessions: all projects | on / off | on | `a` in Sessions |
+| Chat / Plan / Sessions: order | oldest first / newest first | oldest first | `s` in the view |
+| Monitor: order | newest first / oldest first | newest first | `s` in Monitor |
 | Views: Chat, Changes, Plan, Sessions, Monitor | on / off | on | – |
 
 What they do:
@@ -311,22 +330,6 @@ Keys:
 - `r` sets the selected setting back to its default, `R` resets all of them after a confirmation.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
 
-## Monitor view
-
-The Monitor view (`6`, or `/cco:monitor`) shows how Claude Code answered over a day, from the transcripts of all projects, subagents included.
-
-**List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors.
-
-**Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
-- `v` switches the value: **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
-- A dimmed `─` marks the usual value at that time of day: the median of the 30 days before. Bars clearly worse than usual are red, clearly better ones green.
-- `✗` on the time axis marks an error Claude Code wrote into the transcript, such as a usage limit.
-- `m` switches the model (each model seen, then all models); it starts with the model used last, since models differ in speed.
-
-Below the chart: the day's median speed and wait against the usual values, the number of responses, the slowest and the fastest hour, and the errors with their time. Today's chart follows new answers every few seconds while the view is shown.
-
-**Limits.** It measures only your own sessions, so it shows how fast Claude answered you, not the load of the service as a whole. Speed depends on the model, the effort and how much Claude thinks. Transient API errors (overloaded, rate limits, retries) appear only briefly in Claude Code and are not written to transcripts, so they are missing here.
-
 ## Keys
 
 The help line lists the keys of the current view. Options that are on (`f follow`, `t tools`, `w wrap`) and open detail views (`↵ prompt`, `↵ file`, `↵ changes`) are highlighted. If the pane is too narrow for all keys, the least important ones are left out, and `i more` points to the info dialog, which lists every key. `i` and `q` are always shown, and so are options that are on. The keys of the Settings view are listed in [its section](#settings-view).
@@ -334,6 +337,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
 | `1` – `6` | switch view | switch view | switch view | switch view |
+| `Tab` / `Shift+Tab` | next / previous view | next / previous view | next / previous view | next / previous view |
 | `←` / `→` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |
 | `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ | mark the session ★ |
@@ -357,6 +361,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
 | `r` | – | refresh now | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
+| `s` | newest / oldest first | – | newest / oldest first | newest / oldest first |
 | `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
 | `p` | move the viewer: right, left or own window | move the viewer | move the viewer | move the viewer |
 | `i` | info dialog | info dialog | info dialog | info dialog |

@@ -23,6 +23,10 @@ import {
   rule,
   Screen,
   EntryText,
+  flipOrder,
+  orderedDir,
+  orderedNav,
+  orderFooter,
   Star,
   truncate,
   type Layout,
@@ -145,6 +149,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const [showDiff, setShowDiff] = useState(false);
   const [flash, setFlash] = useState<string>();
   const [wrap, setWrap] = useSetting("planWrap");
+  const [order, setOrder] = useSetting("planOrder");
+  const reversed = order === "newest-first";
   const [hscroll, setHscroll] = useState(0);
   // Marked plans of the project, by tool call id.
   const favorites = useFavorites(cwd, "plans");
@@ -243,7 +249,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           plans.map((p) => p.id),
           favorites.marks,
           index,
-          mark,
+          orderedDir(reversed, mark),
         );
         return target !== undefined && select(target);
       }
@@ -252,10 +258,13 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
         setWrap((w) => !w);
         return setHscroll(0);
       }
+      if (input === "s") return setOrder(flipOrder);
       const nav = {
-        select: (delta: number) => select(index + delta),
-        first: () => select(0),
-        last: () => select(last),
+        ...orderedNav(reversed, {
+          select: (delta: number) => select(index + delta),
+          first: () => select(0),
+          last: () => select(last),
+        }),
         scroll,
         page: viewport - 2,
       };
@@ -321,6 +330,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       }
       list={
         <List
+            reversed={reversed}
             onPick={select}
           items={plans}
           selected={index}
@@ -350,6 +360,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       footer={
         flash ?? [
           { text: "←→ plan", priority: 4 },
+          orderFooter(order, "oldest-first"),
           { text: "↑↓ scroll", priority: 1 },
           ...(previous ? [{ text: "↵ changes", on: diffOpen }] : []),
           ...markFooter(favorites.isMarked(plan?.id), markedCount),
@@ -357,7 +368,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           { text: "w wrap", on: wrap, priority: 2 },
           ...(plans.length > 0 ? [{ text: "End follow", on: follow, priority: 2 }] : []),
           { text: "c copy", priority: 2 },
-          { text: "1-6 view", priority: 1 },
+          { text: "1-6/tab view", priority: 1 },
         ]
       }
     />

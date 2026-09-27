@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   fitFooter,
+  flipOrder,
+  orderedDir,
+  orderedNav,
+  orderFooter,
   listWindow,
   MARQUEE_MAX_SCROLL,
   marqueeOffset,
@@ -134,3 +138,25 @@ describe("marqueeOffset", () => {
     expect(marqueeOffset(40, 0)).toBe(0);
   });
 });
+
+describe("list order", () => {
+  it("mirrors the keys of a list shown newest first", () => {
+    const calls: string[] = [];
+    const nav = { select: (d: number) => calls.push(`select ${d}`), first: () => calls.push("first"), last: () => calls.push("last") };
+    const mirrored = orderedNav(true, nav);
+    mirrored.select(1);
+    mirrored.first();
+    mirrored.last();
+    orderedNav(false, nav).select(1);
+    expect(calls).toEqual(["select -1", "last", "first", "select 1"]);
+    expect(orderedDir(true, 1)).toBe(-1);
+    expect(orderedDir(false, 1)).toBe(1);
+  });
+
+  it("flips and names the order, highlighted when not the default", () => {
+    expect(flipOrder("oldest-first")).toBe("newest-first");
+    expect(orderFooter("newest-first", "oldest-first")).toMatchObject({ text: "s newest first", on: true });
+    expect(orderFooter("newest-first", "newest-first")).toMatchObject({ on: false });
+  });
+});
+

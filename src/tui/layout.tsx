@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, type Dispatch, type Rea
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
-import { isViewShown } from "../settings.js";
+import { isViewShown, type ListOrder } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 
@@ -281,8 +281,8 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       {tab("2", "Changes", "git")}
       {tab("3", "Plan", "plan")}
       {tab("4", "Sessions", "sessions")}
-      {tab("5", "Settings", "settings")}
-      {tab("6", "Monitor", "monitor")}
+      {tab("5", "Monitor", "monitor")}
+      {tab("6", "Settings", "settings")}
     </Text>
   );
 }
@@ -416,6 +416,8 @@ interface ListProps<T> {
   render: (item: T, selected: boolean) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
+  /** Show the items bottom-up (newest first for a chronological list). */
+  reversed?: boolean;
 }
 
 /** Where a part of the Screen (list or preview) sits on the terminal, for mapping mouse positions to it. */
@@ -472,7 +474,46 @@ export function MoreRow({ arrow, count, jumpKey, unit }: { arrow: string; count:
 }
 
 /** Selectable list that keeps the selection roughly centred. */
-export function List<T>({ items, selected, height, empty, itemKey, render, onPick }: ListProps<T>) {
+/**
+ * A list of entries with one selected. With `reversed`, it shows `items`
+ * bottom-up: `selected` and `onPick` stay indexes into `items`, so a view
+ * keeps its data in its natural order and only the display is mirrored.
+ */
+export function List<T>(props: ListProps<T>) {
+  if (!props.reversed) return <ListRows {...props} />;
+  const last = props.items.length - 1;
+  const flip = (i: number) => last - i;
+  return (
+    <ListRows
+      {...props}
+      items={[...props.items].reverse()}
+      selected={flip(props.selected)}
+      itemKey={(item, i) => props.itemKey(item, flip(i))}
+      onPick={props.onPick && ((i) => props.onPick!(flip(i)))}
+    />
+  );
+}
+
+/**
+ * Navigation of a list shown `reversed`: ←/→ and Home/End follow what is on
+ * screen, so a step down the display is a step back in the list's own order.
+ */
+export function orderedNav<N extends { select: (delta: number) => void; first: () => void; last: () => void }>(reversed: boolean, nav: N): N {
+  return reversed ? { ...nav, select: (delta: number) => nav.select(-delta), first: nav.last, last: nav.first } : nav;
+}
+
+/** s: the other order of a time-ordered list. */
+export const flipOrder = (order: ListOrder): ListOrder => (order === "newest-first" ? "oldest-first" : "newest-first");
+
+/** The help line item of s: the current order, highlighted when it is not the list's default. */
+export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem {
+  return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
+}
+
+/** A direction on screen (Shift+←/→ between marks) in the list's own order. */
+export const orderedDir = (reversed: boolean, dir: 1 | -1): 1 | -1 => (reversed ? (-dir as 1 | -1) : dir);
+
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick }: ListProps<T>) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const { from, to, above, below } = listWindow(items.length, selected, height);

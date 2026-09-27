@@ -168,18 +168,38 @@ export const SETTING_ROWS: Row[] = [
   },
   ...(
     [
+      ["chatOrder", "Chat", "turns"],
+      ["planOrder", "Plan", "plans"],
+      ["sessionsOrder", "Sessions", "sessions (and the trash)"],
+      ["monitorOrder", "Monitor", "days"],
+    ] as const
+  ).map(
+    ([key, view, what]): Row => ({
+      key,
+      group: view,
+      label: "order",
+      description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. The keys follow what you see: ←/→ go up and down the list, Home and g to the top, End and G to the bottom.`,
+      values: [
+        ["oldest-first", "oldest at the top, newest at the bottom"],
+        ["newest-first", "newest at the top, oldest at the bottom"],
+      ],
+      viewKey: `s in ${view}`,
+    }),
+  ),
+  ...(
+    [
       ["viewChat", "Chat", "1", "the session's turns, rendered as Markdown"],
       ["viewGit", "Changes", "2", "the changed files with their diffs"],
       ["viewPlan", "Plan", "3", "the plans Claude presented in plan mode"],
       ["viewSessions", "Sessions", "4", "the overview of past sessions"],
-      ["viewMonitor", "Monitor", "6", "response speed, wait and errors over the day"],
+      ["viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"],
     ] as const
   ).map(
     ([key, name, number, what]): Row => ({
       key,
       group: "Views",
       label: name,
-      description: `Whether the ${name} view (${what}) has a tab. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs. A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (5) cannot be hidden, and at least one other view stays shown.`,
+      description: `Whether the ${name} view (${what}) has a tab. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs. A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (6) cannot be hidden, and at least one other view stays shown.`,
       values: ON_OFF("show its tab", "hide it"),
     }),
   ),
@@ -335,7 +355,7 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
           { text: "↵ change", priority: 4 },
           { text: "r default", priority: 3 },
           ...(changed.length > 0 ? [{ text: "R reset all", priority: 2 }] : []),
-          { text: "1-6 view", priority: 1 },
+          { text: "1-6/tab view", priority: 1 },
         ]}
       />
       {confirmation && (

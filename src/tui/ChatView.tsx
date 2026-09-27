@@ -25,6 +25,10 @@ import {
   dim,
   handleNavigation,
   List,
+  flipOrder,
+  orderedDir,
+  orderedNav,
+  orderFooter,
   previewHeader,
   rule,
   Screen,
@@ -252,6 +256,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const [showThinking, setShowThinking] = useSetting("showThinking");
   const [wrap, setWrap] = useSetting("chatWrap");
   const [showAgents] = useSetting("showAgents");
+  // Turns are kept oldest first; newest first only mirrors the list and its keys.
+  const [order, setOrder] = useSetting("chatOrder");
+  const reversed = order === "newest-first";
   // The subagent shown instead of the answer (a), by its place among the turn's agents.
   const [agentIndex, setAgentIndex] = useState<number>();
   const [agentPos, setAgentPos] = useState(0);
@@ -445,7 +452,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       turns.map((t) => t.id),
       favorites.marks,
       selected,
-      dir,
+      orderedDir(reversed, dir),
     );
     if (target !== undefined) select(target);
   };
@@ -488,9 +495,11 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         if (down && scroll.scroll + down >= scroll.max) setFollow(true);
       }
       const nav = {
-        select: (delta: number) => select(selected + delta),
-        first: () => select(0),
-        last: () => select(last),
+        ...orderedNav(reversed, {
+          select: (delta: number) => select(selected + delta),
+          first: () => select(0),
+          last: () => select(last),
+        }),
         scroll,
         page,
       };
@@ -502,6 +511,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         else select(last);
         return notify(follow ? "follow off" : "follow on");
       }
+      if (input === "s") return setOrder(flipOrder);
       if (input === "o" && current) return openImages(current);
       if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
@@ -533,6 +543,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       }
       list={
         <List
+            reversed={reversed}
             onPick={select}
           items={turns}
           selected={selected}
@@ -612,6 +623,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
+          orderFooter(order, "oldest-first"),
           ...markFooter(favorites.isMarked(current?.id), markedCount),
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
@@ -619,7 +631,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "c copy", priority: 2 },
           ...(imageCount > 0 ? [{ text: `o ${plural(imageCount, "image")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
-          { text: "1-6 view", priority: 1 },
+          { text: "1-6/tab view", priority: 1 },
         ])
       }
     />

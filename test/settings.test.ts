@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, isViewShown, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
+import { DEFAULT_SETTINGS, isViewShown, nextShownView, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
 import { isLastView, nextValue, SETTING_ROWS } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
@@ -40,6 +40,14 @@ describe("settings", () => {
     expect(readSettings().autoOpen).toBe("remember");
     writeFileSync(settingsFile(), JSON.stringify({ autoOpen: "always" }));
     expect(readSettings().autoOpen).toBe("always");
+  });
+
+  it("accepts only known list orders", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ chatOrder: "newest-first", monitorOrder: "sideways" }));
+    expect(readSettings().chatOrder).toBe("newest-first");
+    expect(readSettings().monitorOrder).toBe("newest-first");
+    expect(readSettings().planOrder).toBe("oldest-first");
   });
 
   it("reads the old on/off tool setting as a level", () => {
@@ -96,6 +104,16 @@ describe("hidden views", () => {
     expect(shownView(settings, "chat")).toBe("plan");
     expect(shownView(settings, "monitor")).toBe("monitor");
     expect(shownView(hide("viewChat", "viewGit", "viewPlan", "viewSessions", "viewMonitor"), "git")).toBe("settings");
+  });
+
+  it("steps through the shown views with Tab and Shift+Tab, wrapping around", () => {
+    const settings = hide("viewGit", "viewMonitor");
+    expect(nextShownView(settings, "chat", 1)).toBe("plan");
+    expect(nextShownView(settings, "sessions", 1)).toBe("settings");
+    expect(nextShownView(settings, "settings", 1)).toBe("chat");
+    expect(nextShownView(settings, "chat", -1)).toBe("settings");
+    // From a hidden view opened by a command, to its shown neighbour.
+    expect(nextShownView(settings, "git", 1)).toBe("plan");
   });
 
   it("keeps the last view besides Settings", () => {

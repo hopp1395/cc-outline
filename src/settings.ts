@@ -7,6 +7,10 @@ import type { Mode } from "./tui/layout.js";
 export const AUTO_OPEN_VALUES = ["remember", "always", "never"] as const;
 export type AutoOpen = (typeof AUTO_OPEN_VALUES)[number];
 
+/** Order of a time-ordered list (Chat, Plan, Sessions, Monitor). */
+export const ORDER_VALUES = ["oldest-first", "newest-first"] as const;
+export type ListOrder = (typeof ORDER_VALUES)[number];
+
 /** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
 export type Placement = (typeof PLACEMENT_VALUES)[number];
@@ -44,6 +48,11 @@ export interface Settings {
   planWrap: boolean;
   /** Sessions: show the sessions of all projects, not only this one (a). */
   allProjects: boolean;
+  /** Order of the time-ordered lists (s in each). */
+  chatOrder: ListOrder;
+  planOrder: ListOrder;
+  sessionsOrder: ListOrder;
+  monitorOrder: ListOrder;
   /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
   viewChat: boolean;
   viewGit: boolean;
@@ -67,6 +76,10 @@ export const DEFAULT_SETTINGS: Settings = {
   wrap: true,
   planWrap: true,
   allProjects: true,
+  chatOrder: "oldest-first",
+  planOrder: "oldest-first",
+  sessionsOrder: "oldest-first",
+  monitorOrder: "newest-first",
   viewChat: true,
   viewGit: true,
   viewPlan: true,
@@ -89,7 +102,18 @@ export function isViewShown(settings: Settings, mode: Mode): boolean {
 }
 
 /** The views in tab order. */
-const TAB_ORDER: Mode[] = ["chat", "git", "plan", "sessions", "settings", "monitor"];
+const TAB_ORDER: Mode[] = ["chat", "git", "plan", "sessions", "monitor", "settings"];
+
+/** The shown view after (`step` 1) or before (-1) `mode` in tab order, wrapping around; for Tab and Shift+Tab. */
+export function nextShownView(settings: Settings, mode: Mode, step: 1 | -1): Mode {
+  const n = TAB_ORDER.length;
+  const at = TAB_ORDER.indexOf(mode);
+  for (let i = 1; i <= n; i++) {
+    const next = TAB_ORDER[(at + step * i + n * n) % n];
+    if (isViewShown(settings, next)) return next;
+  }
+  return mode;
+}
 
 /** `mode` if it is shown, else the first shown view (Settings always is). */
 export function shownView(settings: Settings, mode: Mode): Mode {
@@ -97,7 +121,15 @@ export function shownView(settings: Settings, mode: Mode): Mode {
 }
 
 /** Allowed values of the settings that are not on/off. */
-const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = { autoOpen: AUTO_OPEN_VALUES, placement: PLACEMENT_VALUES, showTools: TOOL_LEVELS };
+const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
+  autoOpen: AUTO_OPEN_VALUES,
+  placement: PLACEMENT_VALUES,
+  showTools: TOOL_LEVELS,
+  chatOrder: ORDER_VALUES,
+  planOrder: ORDER_VALUES,
+  sessionsOrder: ORDER_VALUES,
+  monitorOrder: ORDER_VALUES,
+};
 
 export function settingsFile(): string {
   return join(claudeDir(), "cco", "settings.json");
