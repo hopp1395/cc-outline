@@ -9,4 +9,12 @@ describe("VERSION", () => {
     expect(AUTHOR).toBe(pkg.author);
     expect(LICENSE).toBe(pkg.license);
   });
+
+  it("is the same in the lockfile and the plugin manifest", () => {
+    const json = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
+    const lock = json("../package-lock.json");
+    expect(lock.version).toBe(VERSION);
+    expect(lock.packages[""].version).toBe(VERSION);
+    expect(json("../plugin/.claude-plugin/plugin.json").version).toBe(VERSION);
+  });
 });

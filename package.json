@@ -50,6 +50,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "version": "node scripts/sync-version.mjs && git add plugin/.claude-plugin/plugin.json src/version.ts",
     "demo": "tsup src/tui/App.tsx --no-config --format esm --platform node --target node22 --out-dir demo/.out --external ink --external react && node demo/record.mjs"
   },
   "dependencies": {
