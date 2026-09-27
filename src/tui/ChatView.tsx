@@ -369,13 +369,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         // Full brightness on the focused (blue) bar, dimmed otherwise.
         <Text dimColor={!focused}>
           session {session} · {turns.length} turns · {scroll.position}
-          {follow && <Text color="green"> · FOLLOW</Text>}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
-          {showTools && <Text color="yellow"> · tools</Text>}
-          {showThinking && <Text color="magenta"> · thinking</Text>}
-          {!wrap && (
-            <Text color="yellow"> · nowrap{hscroll > 0 ? ` +${Math.min(hscroll, maxHscroll)}` : ""}</Text>
-          )}
+          {/* Options (follow, tools, thinking, wrap) show as highlighted keys in the help line, not here. */}
+          {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
         </Text>
       }
       list={

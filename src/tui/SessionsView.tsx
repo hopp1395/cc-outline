@@ -461,7 +461,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             ) : (
               "…"
             )}
-            {all ? " · all projects" : " · this project"}
             {progress && <Text color="yellow">{` · reading ${progress.done}/${progress.total}`}</Text>}
             {session && !progress && ` · ${scroll.position}`}
             {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}

@@ -94,7 +94,7 @@ To load the plugin for a single session without installing it, run `claude --plu
   - `--view chat|git|plan|sessions|settings`: view to start with (default: `chat`)
 
 All views share one layout:
-- **Top bar:** the view tabs and a status summary.
+- **Top bar:** the view tabs and a status summary. Options that are on are not repeated there; the help line highlights them.
 - **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
 - **Help line:** the keys of the current view at the bottom.
 
@@ -140,8 +140,10 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 - the session id
 - the number of turns
 - the scroll position (`all` or a percentage)
-- the active options: `FOLLOW`, `tools`, `thinking`, `nowrap`
 - the number of marked turns (`★ 2`)
+- with wrapping off, how far the answer is scrolled sideways (`→ 16 cols`)
+
+Which options are on (`f follow`, `t tools`, `h think`, `w wrap`) shows in the help line at the bottom, where they are highlighted.
 
 The viewer switches sessions automatically after `/clear` or `/resume`.
 
@@ -206,8 +208,9 @@ In plan mode (`Shift+Tab` in Claude Code), Claude first writes a plan and asks f
 - the number of plans, and how many are approved, rejected and waiting
 - the scroll position
 - the number of marked plans (`★ 2`)
-- `nowrap` while wrapping is off
-- `FOLLOW` while the newest plan is followed
+- with wrapping off, how far the plan is scrolled sideways (`→ 16 cols`)
+
+The help line highlights `w wrap` while wrapping is on and `End follow` while the newest plan is followed.
 
 ## Sessions view
 
