@@ -86,19 +86,26 @@ function queuedPrompt(entry: Entry): string | undefined {
   const a = entry.attachment;
   if (entry.type !== "attachment" || entry.isSidechain || a?.type !== "queued_command") return undefined;
   if (!a.humanTurn && a.origin?.kind !== "human") return undefined;
-  // A string, or content blocks when the prompt had images pasted into it; only its text counts, as for prompts.
+  // A string, or content blocks when the prompt had images pasted into it; read like a prompt's.
   const prompt = a.prompt;
-  const text = (
-    typeof prompt === "string"
-      ? prompt
-      : Array.isArray(prompt)
-        ? prompt
-            .filter((b) => b.type === "text" && b.text)
-            .map((b) => b.text)
-            .join("\n")
-        : ""
-  ).trim();
+  const text = (typeof prompt === "string" ? prompt : Array.isArray(prompt) ? blocksText(prompt) : "").trim();
   return text || undefined;
+}
+
+/** "[Image]" or "[3 images]": stands in for a prompt of pasted images without text. */
+export function imagesLabel(count: number): string {
+  return count === 1 ? "[Image]" : `[${count} images]`;
+}
+
+/** The text of prompt content blocks; images alone become `imagesLabel`, so such a prompt still starts a turn. */
+function blocksText(blocks: ContentBlock[]): string {
+  const text = blocks
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+  const images = blocks.filter((b) => b.type === "image").length;
+  return text || (images > 0 ? imagesLabel(images) : "");
 }
 
 /**
@@ -113,10 +120,7 @@ export function promptText(entry: Entry): string | undefined {
     text = content;
   } else if (Array.isArray(content)) {
     if (content.some((b) => b.type === "tool_result")) return undefined;
-    text = content
-      .filter((b) => b.type === "text" && b.text)
-      .map((b) => b.text)
-      .join("\n");
+    text = blocksText(content);
   } else {
     return undefined;
   }

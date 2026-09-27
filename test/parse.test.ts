@@ -36,7 +36,22 @@ describe("TranscriptParser", () => {
         { type: "text", text: "what is on this screenshot?" },
       ]) + queued("q2", [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }]),
     );
-    expect(p.turns.map((t) => t.prompt)).toEqual(["what is on this screenshot?"]);
+    expect(p.turns.map((t) => t.prompt)).toEqual(["what is on this screenshot?", "[Image]"]);
+  });
+
+  it("starts a turn for a prompt of images only", () => {
+    const image = { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } };
+    const user = (uuid: string, content: unknown[]) =>
+      JSON.stringify({ type: "user", uuid, message: { role: "user", content } }) + "\n";
+    const p = new TranscriptParser();
+    p.push(
+      user("u1", [image, image, image]) +
+        user("u2", [image]) +
+        user("u3", [image, { type: "text", text: "and this?" }]) +
+        // A tool's image result is no prompt.
+        user("u4", [{ type: "tool_result", tool_use_id: "t1", content: [image] }]),
+    );
+    expect(p.turns.map((t) => t.prompt)).toEqual(["[3 images]", "[Image]", "and this?"]);
   });
 
   describe("turn state", () => {

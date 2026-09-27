@@ -116,6 +116,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 **List (left).** One entry per prompt, with its time.
 - Slash commands appear as `/name args`.
+- A prompt of pasted images only appears as `[Image]` or `[3 images]`.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
 - The turn Claude is working on has a spinning `⠋` in front of it, and its answer ends with `Claude is working…` until Claude finishes. A turn you stopped with `Esc` in Claude Code is marked with a red `⊘`, and its answer ends with `⊘ Interrupted by user` (or `… during a tool call`).
 - Turns keep their marks across restarts and when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
