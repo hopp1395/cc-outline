@@ -8,7 +8,17 @@ import { renderMarkdown } from "../render/markdown.js";
 import { nextMarked } from "../favorites.js";
 import { turnImageFiles } from "../images.js";
 import { openInDefaultApp } from "../open.js";
-import { turnMarkdown, type Attachment, type Turn } from "../transcript/parse.js";
+import {
+  AGENT_RUNNING_MARK,
+  formatMs,
+  formatTokens,
+  agentStatusLine,
+  agentTitle,
+  turnMarkdown,
+  type AgentRun,
+  type Attachment,
+  type Turn,
+} from "../transcript/parse.js";
 import { displayPath } from "../transcript/sessions.js";
 import {
   dim,
@@ -31,6 +41,7 @@ import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
+import { useSubagent, type Subagent } from "./useSubagent.js";
 import type { Transcript } from "./useTranscript.js";
 
 interface Props {
@@ -48,6 +59,64 @@ interface Props {
 }
 
 const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
+
+const magenta = (s: string) => `\u001b[35m${s}\u001b[39m`;
+const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
+
+/** Where the running marks (⠿) of `lines` are, for the preview to spin them. */
+export function spinnerMarks(lines: string[]): { line: number; col: number }[] {
+  const marks: { line: number; col: number }[] = [];
+  lines.forEach((line, i) => {
+    const plain = stripAnsi(line);
+    const at = plain.indexOf(AGENT_RUNNING_MARK);
+    if (at >= 0) marks.push({ line: i, col: stringWidth(plain.slice(0, at)) });
+  });
+  return marks;
+}
+
+/** The subagents a turn started, or for a notification the one it reports on. */
+export function turnAgents(turn: Turn | undefined, all: AgentRun[]): AgentRun[] {
+  if (!turn) return [];
+  if (turn.notification) return all.filter((a) => a.id === turn.notification!.toolUseId);
+  return turn.blocks.flatMap((b) => (b.kind === "agent" ? [b.agent] : []));
+}
+
+/** What a subagent was asked and did, read from its own transcript (or, without one, its task and result). */
+function agentView(
+  agent: AgentRun,
+  sub: Subagent,
+  place: { index: number; count: number },
+  width: number,
+  opts: { tools: boolean; thinking: boolean; wrap: boolean; live: boolean },
+): { header: string[]; lines: string[] } {
+  const where = place.count > 1 ? ` · ${place.index + 1} of ${place.count}` : "";
+  const full = previewHeader(agentTitle(agent), width, {
+    marker: magenta("◆ "),
+    style: (t) => `\u001b[1m${t}\u001b[22m`,
+    // The header does not spin; the body's "is working…" line does.
+    details: [agentStatusLine(agent).replace(AGENT_RUNNING_MARK, "▶") + where],
+  });
+  const header = [...full.slice(0, -1), rule(width, place.count > 1 ? "←→ agent · a/esc back" : "a/esc back")];
+  const quote = (text: string) => text.split("\n").map((l) => `> ${l}`).join("\n");
+  const parts: string[] = [];
+  if (sub.turns.length > 0) {
+    sub.turns.forEach((t, i) => {
+      parts.push(`**${i === 0 ? "Task" : "Message"}**`, quote(t.prompt));
+      const body = turnMarkdown(t, { tools: opts.tools, thinking: opts.thinking, agents: true });
+      if (body) parts.push(body);
+    });
+  } else {
+    if (agent.prompt) parts.push("**Task**", quote(agent.prompt));
+    if (agent.result) parts.push("**Result**", agent.result);
+  }
+  const lines = parts.length ? renderMarkdown(parts.join("\n\n"), width, opts.wrap) : [];
+  if (agent.status === "running" && opts.live) lines.push("", dim(`${AGENT_RUNNING_MARK} ${agent.type ?? "Agent"} is working…`));
+  else if (!sub.file && agent.status !== "running") lines.push("", dim("(the subagent's own transcript was not found)"));
+  return { header, lines };
+}
+
+/** Colour of the ↩ of a notification by the task's status. */
+const NOTIFICATION_COLOR: Record<string, string> = { completed: "green", failed: "red", killed: "red", stopped: "red" };
 
 /** What ended a turn early, shown below its answer. */
 function interruptLine(turn: Turn): string | undefined {
@@ -136,10 +205,27 @@ function attachmentLines(attachments: Attachment[], cwd: string): string[] {
 
 /** The complete prompt, shown instead of the answer after Enter. */
 function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[]; lines: string[] } {
+  const n = turn.notification;
+  // A notification's "prompt" is its summary; what the task returned comes below it.
+  const usage = n
+    ? [
+        ...(n.durationMs !== undefined ? [formatMs(n.durationMs)] : []),
+        ...(n.toolUses !== undefined ? [plural(n.toolUses, "tool use")] : []),
+        ...(n.tokens !== undefined ? [formatTokens(n.tokens)] : []),
+      ].join(" · ")
+    : "";
+  const result = n
+    ? [
+        "",
+        dim(`${n.status}${usage ? ` · ${usage}` : ""}`),
+        ...(n.result ? ["", ...renderMarkdown(n.result, width)] : []),
+      ]
+    : [];
   return {
-    header: [cyan("❯ ") + "\u001b[1mPrompt\u001b[22m" + dim(" · ↵/esc back to answer"), rule(width)],
+    header: [cyan("❯ ") + `\u001b[1m${n ? "Task notification" : "Prompt"}\u001b[22m` + dim(" · ↵/esc back to answer"), rule(width)],
     lines: [
       ...wrapAnsi(turn.prompt, width, { hard: true, trim: false }).split("\n"),
+      ...result,
       ...attachmentLines(turn.attachments ?? [], cwd).flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
     ],
   };
@@ -160,6 +246,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const [showTools, setShowTools] = useSetting("showTools");
   const [showThinking, setShowThinking] = useSetting("showThinking");
   const [wrap, setWrap] = useSetting("chatWrap");
+  const [showAgents] = useSetting("showAgents");
+  // The subagent shown instead of the answer (a), by its place among the turn's agents.
+  const [agentIndex, setAgentIndex] = useState<number>();
+  const [agentPos, setAgentPos] = useState(0);
   const focused = useFocused();
   const [hscroll, setHscroll] = useState(0);
   const [flash, setFlash] = useState<string>();
@@ -172,22 +262,43 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const current = turns[Math.min(selected, Math.max(0, last))];
   // Claude works on the last turn until it is done or interrupted.
   const isRunning = (t: Turn | undefined) => liveSession && t !== undefined && t === turns[last] && !t.done && !t.interrupted;
+  const agentsOf = (t: Turn | undefined) => turnAgents(t, transcript.agents);
+  // Background agents keep running after their turn ended.
+  const agentsRunning = (t: Turn) => liveSession && !t.notification && agentsOf(t).some((a) => a.status === "running");
+  const currentAgents = agentsOf(current);
+  const agent = agentIndex !== undefined ? currentAgents[agentIndex] : undefined;
+  const subagent = useSubagent(path, agent);
 
   const answer = useMemo(() => {
     if (!current) return { header: [], lines: [] };
-    const body = turnMarkdown(current, { tools: showTools, thinking: showThinking });
+    const body = turnMarkdown(current, { tools: showTools, thinking: showThinking, agents: showAgents });
     const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
     const lines = body ? renderMarkdown(body, previewWidth, wrap) : status ? [] : [dim("(no text output yet)")];
     return {
       header: promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
       lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
     };
-  }, [current, version, previewWidth, bodyHeight, showTools, showThinking, wrap, liveSession]);
+  }, [current, version, previewWidth, bodyHeight, showTools, showThinking, showAgents, wrap, liveSession]);
   const prompt = useMemo(
     () => (current && promptOpen ? fullPrompt(current, previewWidth, cwd) : undefined),
     [current, version, promptOpen, previewWidth, cwd],
   );
-  const { header, lines } = prompt ?? answer;
+  const agentPage = useMemo(
+    () =>
+      agent && agentIndex !== undefined
+        ? agentView(agent, subagent, { index: agentIndex, count: currentAgents.length }, previewWidth, {
+            tools: showTools,
+            thinking: showThinking,
+            wrap: true,
+            live: liveSession,
+          })
+        : undefined,
+    [agent, agentIndex, currentAgents.length, subagent.version, subagent.file, version, previewWidth, showTools, showThinking, liveSession],
+  );
+  const { header, lines } = agentPage ?? prompt ?? answer;
+  const detailOpen = promptOpen || agentPage !== undefined;
+  // Running agents spin in the answer (and in an agent's page), like "Claude is working…".
+  const spinners = useMemo(() => (liveSession ? spinnerMarks(lines) : []), [lines, liveSession]);
 
   // Each turn remembers where its answer was scrolled to, also across restarts; unvisited turns start at the top.
   const remembered = usePositions(cwd, "chat");
@@ -201,30 +312,46 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const base = bodyHeightBelow(header, bodyHeight);
   // Not at the bottom of a longer answer: offer the way down, like Claude Code.
   // At the bottom means the last line is visible without the hint row (pos >= lines - base).
-  const showJump = !promptOpen && !live && lines.length > base && pos < lines.length - base;
+  const showJump = !detailOpen && !live && lines.length > base && pos < lines.length - base;
   const viewport = showJump ? base - 1 : base;
-  const scroll = promptOpen
+  const scroll = agentPage
+    ? makeScroll(agentPos, setAgentPos, lines.length, viewport)
+    : promptOpen
     ? makeScroll(promptPos, setPromptPos, lines.length, viewport)
     : makeScroll(pos, setPos, lines.length, viewport);
 
   // How far unwrapped answer lines can be shifted until the longest one ends at the right edge.
   // The full prompt is always wrapped.
   const maxHscroll = useMemo(
-    () => (wrap || promptOpen ? 0 : Math.max(0, ...answer.lines.map((l) => stringWidth(l))) - previewWidth),
-    [answer, wrap, promptOpen, previewWidth],
+    () => (wrap || detailOpen ? 0 : Math.max(0, ...answer.lines.map((l) => stringWidth(l))) - previewWidth),
+    [answer, wrap, detailOpen, previewWidth],
   );
   const shift = (delta: number) => setHscroll((h) => Math.max(0, Math.min(maxHscroll, h + delta)));
 
   const togglePrompt = (open: boolean) => {
     setPromptOpen(open);
+    setAgentIndex(undefined);
     onPromptOpen?.(open);
     setPromptPos(0);
+  };
+  /** Shows the turn's subagent at `index` instead of the answer; undefined goes back. */
+  const showAgent = (index: number | undefined) => {
+    setAgentIndex(index);
+    setAgentPos(0);
+    setPromptOpen(false);
+    onPromptOpen?.(index !== undefined);
+    // Stay on this turn while reading about its agents.
+    if (index !== undefined) setFollow(false);
   };
 
   /** Switches to another turn, keeping the position of the one being left. */
   const showTurn = (index: number) => {
     // Before the session's turns were restored, `current` is just the initial first turn, not a place the user left.
-    if (current && restoredFor.current === path) remembered.set(current.id, Math.min(pos, scroll.max));
+    if (current && restoredFor.current === path) remembered.set(current.id, detailOpen ? pos : Math.min(pos, scroll.max));
+    if (agentIndex !== undefined) {
+      setAgentIndex(undefined);
+      onPromptOpen?.(promptOpen);
+    }
     setSelected(index);
     setPos(remembered.get(turns[index]?.id));
     setHscroll(0);
@@ -236,12 +363,12 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
 
   // Following: stick to the bottom of the latest answer while it grows.
   useEffect(() => {
-    if (live && !promptOpen) setPos(scroll.max);
-  }, [live, promptOpen, scroll.max]);
+    if (live && !detailOpen) setPos(scroll.max);
+  }, [live, detailOpen, scroll.max]);
 
   /** Ctrl+End: the bottom of this answer; for the latest turn also resume following. */
   const jumpToBottom = () => {
-    if (promptOpen) return scroll.set(scroll.max);
+    if (detailOpen) return scroll.set(scroll.max);
     if (selected === last) setFollow(true);
     else setPos(Math.max(0, lines.length - base));
   };
@@ -273,8 +400,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     }
     if (!current) return;
     remembered.select(current.id, live);
-    if (!promptOpen) remembered.set(current.id, pos);
-  }, [current?.id, live, pos, promptOpen]);
+    if (!detailOpen) remembered.set(current.id, pos);
+  }, [current?.id, live, pos, detailOpen]);
 
   const select = (index: number) => {
     const next = Math.max(0, Math.min(last, index));
@@ -312,6 +439,23 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
 
   useInput(
     (input, key) => {
+      // A subagent's page takes ←→ for its siblings; a or Esc goes back to the answer.
+      if (agentPage) {
+        if (input === "a" || key.escape) return showAgent(undefined);
+        if (key.ctrl && key.end) return scroll.set(scroll.max);
+        if (input === "t") return setShowTools((v) => !v);
+        if (input === "h") return setShowThinking((v) => !v);
+        const pick = (i: number) => showAgent(Math.max(0, Math.min(currentAgents.length - 1, i)));
+        handleNavigation(input, key, {
+          select: (delta) => pick((agentIndex ?? 0) + delta),
+          first: () => pick(0),
+          last: () => pick(currentAgents.length - 1),
+          scroll,
+          page: viewport - 2,
+        });
+        return;
+      }
+      if (input === "a") return currentAgents.length > 0 ? showAgent(0) : notify("no subagents in this turn");
       if (key.ctrl && key.end) return jumpToBottom();
       // Checked first because plain ←/→ switch turns.
       const mark = markKeys(input, key);
@@ -323,7 +467,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         return setHscroll(0);
       }
       const page = viewport - 2;
-      if (!promptOpen && selected === last) {
+      if (!detailOpen && selected === last) {
         // Scrolling up leaves the live end; scrolling back to the bottom rejoins it.
         const up = key.upArrow || key.pageUp || input === "b" || (key.ctrl && key.home);
         const down = key.downArrow ? 1 : key.pageDown ? page : 0;
@@ -383,7 +527,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           itemKey={(t, i) => t.id + i}
           render={(t, isSelected) => {
             const marked = favorites.isMarked(t.id);
-            const running = isRunning(t);
+            // Claude works on it, or subagents it started still run.
+            const running = isRunning(t) || agentsRunning(t);
+            const agentCount = t.notification ? 0 : agentsOf(t).length;
+            const badge = agentCount > 0 ? `◆${agentCount} ` : "";
             return (
               <>
                 {marked && <Star />}
@@ -395,13 +542,20 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 )}
                 {t.interrupted && <Text color="red">⊘ </Text>}
                 <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
-                {/* ↳ marks prompts sent while Claude was still working. */}
+                {/* ↳ marks prompts sent while Claude was still working, ↩ a background task reporting back. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
+                {t.notification && <Text color={NOTIFICATION_COLOR[t.notification.status] ?? "yellow"}>↩ </Text>}
+                {badge && <Text color="magenta">{badge}</Text>}
                 <EntryText
                   text={t.prompt}
                   width={Math.max(
                     4,
-                    listWidth - 7 - (t.queued ? 2 : 0) - (marked ? 2 : 0) - (running || t.interrupted ? 2 : 0),
+                    listWidth -
+                      7 -
+                      (t.queued || t.notification ? 2 : 0) -
+                      (marked ? 2 : 0) -
+                      (running || t.interrupted ? 2 : 0) -
+                      badge.length,
                   )}
                   selected={isSelected}
                   active={active}
@@ -422,14 +576,21 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             hscroll={Math.min(hscroll, maxHscroll)}
             footer={showJump ? jumpHint(previewWidth) : undefined}
             // The "Claude is working…" line ends the answer of the running turn.
-            spinner={!promptOpen && isRunning(current) ? { line: lines.length - 1, active } : undefined}
+            spinner={spinners.length ? { at: spinners, active } : undefined}
           />
         ) : (
           <Text dimColor>No Claude Code session found for {cwd}</Text>
         )
       }
       footer={
-        flash ?? [
+        flash ??
+        (agentPage ? [
+          ...(currentAgents.length > 1 ? [{ text: "←→ agent", priority: 4 }] : []),
+          { text: "↑↓ scroll", priority: 1 },
+          { text: "a agent", on: true },
+          { text: "t tools", on: showTools, priority: 2 },
+          { text: "h think", on: showThinking, priority: 2 },
+        ] : [
           { text: "←→ turn", priority: 4 },
           { text: "↑↓ scroll", priority: 1 },
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
@@ -441,8 +602,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
           ...(imageCount > 0 ? [{ text: `o ${plural(imageCount, "image")}`, priority: 3 }] : []),
+          ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
           { text: "1-5 view", priority: 1 },
-        ]
+        ])
       }
     />
   );

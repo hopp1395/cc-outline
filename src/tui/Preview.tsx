@@ -18,10 +18,11 @@ interface Props {
   /** Sticky line below the scrolling area, e.g. a "jump to bottom" hint. */
   footer?: string;
   /**
-   * A line whose first character is replaced by a spinning `Spinner` while
-   * it is visible ("Claude is working…"); the lines themselves stay static.
+   * Characters replaced by a spinning `Spinner` while their line is visible
+   * ("Claude is working…", running agents); the lines themselves stay static.
+   * `col` counts columns of the line without its ANSI codes.
    */
-  spinner?: { line: number; active: boolean };
+  spinner?: { at: { line: number; col: number }[]; active: boolean };
 }
 
 /** Height left for the scrolling lines between `header` and an optional footer line. */
@@ -93,19 +94,21 @@ export function Preview({
         </Text>
       ))}
       {above > 0 && <MoreRow arrow="▲" count={above} jumpKey="ctrl+Home" unit={above === 1 ? "line" : "lines"} />}
-      {visible.map((line, i) =>
-        spinner?.line === from + i ? (
+      {visible.map((line, i) => {
+        const spin = spinner?.at.find((s) => s.line === from + i);
+        return spin ? (
           <Text key={from + i} wrap="truncate">
-            <Spinner active={spinner.active} />
-            {sliceAnsi(line, 1)}
+            {sliceAnsi(line, 0, spin.col)}
+            <Spinner active={spinner!.active} />
+            {sliceAnsi(line, spin.col + 1)}
           </Text>
         ) : (
           // Lines are pre-wrapped (or shifted) to `width`; a lone space keeps empty lines from collapsing.
           <Text key={from + i} wrap="truncate">
             {(pinned.includes(from + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
           </Text>
-        ),
-      )}
+        );
+      })}
       {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="ctrl+End" unit={below === 1 ? "line" : "lines"} />}
       {footer !== undefined && (
         <>

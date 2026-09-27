@@ -92,6 +92,13 @@ export const SETTING_ROWS: Row[] = [
     viewKey: "h in Chat",
   },
   {
+    key: "showAgents",
+    group: "Chat",
+    label: "agents",
+    description: "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. a in Chat opens what a subagent did.",
+    values: ON_OFF("show them", "hide them"),
+  },
+  {
     key: "chatWrap",
     group: "Chat",
     label: "wrap",

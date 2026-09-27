@@ -36,7 +36,7 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 
 **The problem.** Every session is kept, in every project, but only as JSONL files with random names. `/resume` offers them by title and time. What a session was about, which plans it had and which files it changed only shows once you resume it, and that takes you out of the session you are in. Nothing deletes old or failed sessions, so the list only grows.
 
-**How cc-outline solves it.** The Sessions view lists the sessions of all projects with their project, name and time. For the selected session it shows when and where it ran and for how long, on which branch, its plans with their status, the files it changed and its prompts, all without resuming it. `Enter` continues it in a new terminal tab in the right folder, and `c` copies the `claude --resume` command instead. Sessions you no longer need go to a trash with `d`, where they can be restored until you delete them for good.
+**How cc-outline solves it.** The Sessions view lists the sessions of all projects with their project, name and time. For the selected session it shows when and where it ran and for how long, on which branch, its plans with their status, the subagents it started, the files it changed and its prompts, all without resuming it. `Enter` continues it in a new terminal tab in the right folder, and `c` copies the `claude --resume` command instead. Sessions you no longer need go to a trash with `d`, where they can be restored until you delete them for good.
 
 ### In daily work
 
@@ -126,6 +126,8 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 **List (left).** One entry per prompt, with its time.
 - Slash commands appear as `/name args`.
 - A prompt of pasted images only appears as `[Image]` or `[3 images]`.
+- **Subagents.** Where Claude starts a subagent, the answer shows it as a block: `◆ Explore · Map the order flow · sonnet · background`, below it its status (`⠿ running`, spinning, then `✓ completed · 1 min 13 s · 12 tool uses · 41k tokens`, or `✗ failed`). In the list, `◆2` marks a turn that started two subagents, and the spinner stays while background agents of that turn still run. `a` shows what the turn's subagent did instead of the answer: its task and its answers, with tool calls and thinking as `t` and `h` say, read live from its own transcript in `~/.claude/projects/<project-slug>/<session-id>/subagents/`. With several agents, `←`/`→` switch between them; `a` or `Esc` goes back. The Settings view hides the blocks (*Chat: agents*).
+- When a background agent or command stops, Claude Code reports it to Claude. That report becomes an entry of its own, marked `↩` (green when it completed, red when it failed), with Claude's reaction as its answer. `Enter` shows what the task returned.
 - What came with a prompt is named in a line below it: `📎 2 images · @src/Order.cs · 12 lines selected in Foo.cs` (pasted images, files and folders mentioned with `@`, lines selected in the IDE or a diff). `Enter` lists them below the full prompt, with where each image is stored. `o` opens the turn's images in the system's image viewer: the copies Claude Code keeps in `~/.claude/uploads`, or, when those are gone, the image data from the transcript, written to a temporary folder. Files Claude Code attaches again after `/compact` are not the user's and are left out.
 - Prompts you sent while Claude was still working are marked with `↳`. Claude Code stores these separately; cc-outline shows them as turns of their own.
 - The turn Claude is working on has a spinning `⠋` in front of it, and its answer ends with `Claude is working…` until Claude finishes. A turn you stopped with `Esc` in Claude Code is marked with a red `⊘`, and its answer ends with `⊘ Interrupted by user` (or `… during a tool call`).
@@ -232,14 +234,15 @@ The Sessions view is an overview of your Claude Code sessions: of all projects b
 **Details (right).** Pinned at the top:
 - the name
 - the date, start and end time, duration and git branch
-- the number of prompts, plans and changed files
+- the number of prompts, plans, subagents and changed files
 - the folder the session ran in, where the resume command has to be run
 - the command that continues the session: `claude --resume <session-id>`. `c` copies it to the clipboard. In a running Claude Code, `/resume <session-id>` does the same.
 
 Below it:
 - **Plans** with their status (`✓` approved, `✗` rejected, `●` waiting), time and title
+- **Agents** (only if the session started any): the subagents with their status (`✓` completed, `✗` failed, `⠿` running), start time, type, task and duration
 - **Changed files**: every file Claude edited or wrote. Files of the project come first, relative to it; files elsewhere (such as plan files) are dimmed.
-- **Prompts** with their time
+- **Prompts** with their time. Reports of background tasks (`↩` in the chat) are not counted as prompts.
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. The first read fills the list as it goes (`reading 42/97` in the top bar); with many projects it takes a few seconds. After that only files that changed are read again, and of those only the part that was appended. Only what the overview shows is kept in memory, not the answers.
 
@@ -265,6 +268,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | General: remember positions (across restarts) | on / off | on | – |
 | Chat: tool calls | on / off | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
+| Chat: agents | on / off | on | – |
 | Chat: wrap | on / off | on | `w` in Chat |
 | Changes: wrap | on / off | on | `w` in Changes |
 | Plan: wrap | on / off | on | `w` in Plan |
@@ -302,6 +306,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | show tool calls / thinking | – | – | – |
 | `o` | open the turn's pasted images | – | – | – |
+| `a` | the turn's subagents (`←`/`→` between them, `a`/`Esc` back) | – | – | – |
 | `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |

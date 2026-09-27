@@ -2,7 +2,7 @@ import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { claudeDir, projectDir } from "./locate.js";
-import { TranscriptParser, type Plan } from "./parse.js";
+import { TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
 
 /** What the Sessions view shows about one session. */
 export interface SessionSummary {
@@ -14,6 +14,8 @@ export interface SessionSummary {
   plans: Plan[];
   /** Files Claude edited or wrote, in the order first touched. */
   files: string[];
+  /** Subagents Claude started; missing in summaries stored before they were recorded (trash manifests). */
+  agents?: SessionAgent[];
   /** Git branch of the last entry that recorded one. */
   branch?: string;
   /** Working directory Claude Code was started in (the first entry that recorded one). */
@@ -21,6 +23,15 @@ export interface SessionSummary {
   /** First and last timestamp in the transcript. */
   start?: string;
   end?: string;
+}
+
+/** What the overview keeps of a subagent. */
+export interface SessionAgent {
+  description: string;
+  type?: string;
+  status: AgentStatus;
+  started?: string;
+  durationMs?: number;
 }
 
 /** Tools whose input names a file Claude changed. */
@@ -158,11 +169,19 @@ export class SessionReader {
       id: basename(this.path, ".jsonl"),
       path: this.path,
       title: this.title,
+      // Task notifications are turns too, but not prompts.
       prompts: this.parser.turns
-        .filter((t) => t.id !== "start")
+        .filter((t) => t.id !== "start" && !t.notification)
         .map((t) => ({ text: t.prompt, timestamp: t.timestamp })),
       plans: this.parser.plans.map((p) => ({ ...p })),
       files: [...this.files],
+      agents: this.parser.agents.map(({ description, type, status, started, durationMs }) => ({
+        description,
+        type,
+        status,
+        started,
+        durationMs,
+      })),
       branch: this.branch,
       cwd: this.cwd,
       start: this.start,

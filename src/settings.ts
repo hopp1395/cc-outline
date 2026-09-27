@@ -22,6 +22,8 @@ export interface Settings {
   showTools: boolean;
   /** Chat: show thinking blocks (h). */
   showThinking: boolean;
+  /** Chat: show the subagents Claude started, with their status. */
+  showAgents: boolean;
   /** Chat: wrap long lines (w). */
   chatWrap: boolean;
   /** Changes: wrap long lines (w). */
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rememberPositions: true,
   showTools: false,
   showThinking: false,
+  showAgents: true,
   chatWrap: true,
   wrap: true,
   planWrap: true,
