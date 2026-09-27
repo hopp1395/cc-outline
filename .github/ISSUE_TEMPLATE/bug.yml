@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in cco does not work or shows something wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what cco did instead. A screenshot of the pane helps.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start Claude Code in a git repo
+        2. Run /cco:chat
+        3. ...
+  - type: dropdown
+    id: view
+    attributes:
+      label: View
+      options:
+        - Chat
+        - Changes
+        - Plan
+        - Sessions
+        - Settings
+        - Opening or closing the pane, hooks, /cco commands
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: cco version
+      description: Output of `cco --version`
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - WSL
+    validations:
+      required: true
+  - type: dropdown
+    id: terminal
+    attributes:
+      label: Terminal
+      options:
+        - Windows Terminal
+        - tmux
+        - Other (please name it below)
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: Output of `node --version`
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Other terminal, error output, or the lines of the session transcript (`~/.claude/projects/…/<session>.jsonl`) that cco shows wrongly. Remove anything private first.

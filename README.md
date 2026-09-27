@@ -1,5 +1,6 @@
 # cc-outline
 
+[![CI](https://github.com/hopp1395/cc-outline/actions/workflows/ci.yml/badge.svg)](https://github.com/hopp1395/cc-outline/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/cc-outline)](https://www.npmjs.com/package/cc-outline)
 [![npm downloads](https://img.shields.io/npm/dm/cc-outline)](https://www.npmjs.com/package/cc-outline)
 [![License: MIT](https://img.shields.io/github/license/hopp1395/cc-outline)](LICENSE)
@@ -56,7 +57,7 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 ## Installation
 
 Requirements:
-- Node.js 20 or later
+- Node.js 22 or later
 - Claude Code
 - Windows Terminal or tmux, to open the viewer in a split pane
 
