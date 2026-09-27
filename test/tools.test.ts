@@ -1,9 +1,11 @@
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderMarkdown, stripBoxes } from "../src/render/markdown.js";
 import { TranscriptParser, turnMarkdown } from "../src/transcript/parse.js";
 import { toolMarkdown, toolOutcome } from "../src/transcript/tools.js";
 
-const cwd = "W:\\repo";
+// Paths as the transcripts of this system hold them.
+const cwd = resolve("/work/repo");
 
 describe("toolOutcome", () => {
   it("Bash: status, line count and the end of the output", () => {
@@ -37,7 +39,7 @@ describe("toolOutcome", () => {
   });
 
   it("Grep, Glob, WebSearch and ToolSearch", () => {
-    const files = ["W:\\repo\\src\\a.ts", "W:\\repo\\src\\b.ts"];
+    const files = [join(cwd, "src", "a.ts"), join(cwd, "src", "b.ts")];
     const grep = toolOutcome("Grep", {}, { mode: "files_with_matches", filenames: files, numFiles: 2 }, "", false, cwd);
     expect(grep.summary).toBe("2 files");
     expect(grep.detail).toBe("- `src/a.ts`\n- `src/b.ts`");
@@ -84,7 +86,7 @@ describe("toolMarkdown", () => {
     expect(toolMarkdown("Bash", input, outcome, "compact")).toBe("**⚙ Bash** *Run the tests* · ✓ · 1 line");
     expect(toolMarkdown("Bash", input, outcome, "full")).toBe("**⚙ Bash** *Run the tests* · ✓ · 1 line\n\n```sh\nnpm test\n```\n\n```\nok\n```");
     const read = toolOutcome("Read", {}, { type: "text", file: { startLine: 1, numLines: 3, totalLines: 3 } }, "", false);
-    expect(toolMarkdown("Read", { file_path: "W:\\repo\\src\\open.ts" }, read, "compact", cwd)).toBe("**⚙ Read** `src/open.ts` · 3 lines");
+    expect(toolMarkdown("Read", { file_path: join(cwd, "src", "open.ts") }, read, "compact", cwd)).toBe("**⚙ Read** `src/open.ts` · 3 lines");
     expect(toolMarkdown("mcp__chrome__navigate", { url: "https://x.io" }, undefined, "compact")).toBe("**⚙ chrome · navigate** `https://x.io`");
   });
 
@@ -102,7 +104,7 @@ describe("parser", () => {
     const p = new TranscriptParser();
     p.push(
       line({ type: "user", uuid: "u", message: { role: "user", content: "start" } }) +
-        line({ type: "assistant", cwd, message: { id: "m", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "W:\\repo\\a.ts" } }] } }) +
+        line({ type: "assistant", cwd, message: { id: "m", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: join(cwd, "a.ts") } }] } }) +
         line({ type: "assistant", message: { id: "m2", content: [{ type: "tool_use", id: "t2", name: "AskUserQuestion", input: q }] } }),
     );
     expect(p.turns[0].blocks.map((b) => (b.kind === "tool" ? b.outcome : "x"))).toEqual([undefined, undefined]);
