@@ -130,7 +130,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 ![Chat view: turn list on the left, the answer rendered as Markdown on the right](docs/chat.svg)
 
 **List (left).** One entry per prompt, with its time.
-- Slash commands appear as `/name args`.
+- Slash commands appear as `/name args`, shell commands run with `!` as `! command`, with their output as the answer. Claude Code writes a `!` command to the transcript only when it has ended, so it shows up then.
 - A prompt of pasted images only appears as `[Image]` or `[3 images]`.
 - **Subagents.** Where Claude starts a subagent, the answer shows it as a block: `◆ Explore · Map the order flow · sonnet · background`, below it its status (`⠿ running`, spinning, then `✓ completed · 1 min 13 s · 12 tool uses · 41k tokens`, or `✗ failed`). In the list, `◆2` marks a turn that started two subagents, and the spinner stays while background agents of that turn still run. `a` shows what the turn's subagent did instead of the answer: its task and its answers, with tool calls and thinking as `t` and `h` say, read live from its own transcript in `~/.claude/projects/<project-slug>/<session-id>/subagents/`. With several agents, `←`/`→` switch between them; `a` or `Esc` goes back. The Settings view hides the blocks (*Chat: agents*).
 - When a background agent or command stops, Claude Code reports it to Claude. That report becomes an entry of its own, marked `↩` (green when it completed, red when it failed), with Claude's reaction as its answer. `Enter` shows what the task returned.
@@ -235,7 +235,7 @@ The Sessions view is an overview of your Claude Code sessions: of all projects b
 
 ![Sessions view: sessions of two projects on the left, an older session with its plans, changed files and prompts on the right](docs/sessions.svg)
 
-**List (left).** One entry per session, oldest first, with its start date and time, with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` and changed nothing are left out.
+**List (left).** One entry per session, oldest first, with its start date and time, with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` or `!` commands and changed nothing are left out.
 
 **Details (right).** Pinned at the top:
 - the name

@@ -230,6 +230,9 @@ function blocksText(blocks: ContentBlock[]): string {
   return text || (images > 0 ? imagesLabel(images) : "");
 }
 
+/** A prompt that ran a slash command (`/name args`) or a shell command (`! command`) instead of asking Claude. */
+export const isCommand = (prompt: string) => prompt.startsWith("/") || prompt.startsWith("! ");
+
 /**
  * Extracts the prompt text of a user entry, or undefined when the entry is not
  * a real prompt (tool results, meta reminders, interrupt markers, local command output).
@@ -249,12 +252,39 @@ export function promptText(entry: Entry): string | undefined {
   text = text.trim();
   if (!text || text.startsWith("[Request interrupted")) return undefined;
   if (text.startsWith("<local-command") || text.startsWith("<system-reminder>")) return undefined;
+  // A `!` command in Claude Code: its output follows as <bash-stdout>, which is not a prompt.
+  const shell = /^<bash-input>(.*?)<\/bash-input>/s.exec(text);
+  if (shell) return `! ${decodeEntities(shell[1].trim())}`;
+  if (text.startsWith("<bash-stdout>") || text.startsWith("<bash-stderr>")) return undefined;
   const command = /<command-name>(.*?)<\/command-name>/s.exec(text);
   if (command) {
     const args = /<command-args>(.*?)<\/command-args>/s.exec(text)?.[1]?.trim();
     return args ? `${command[1]} ${args}` : command[1];
   }
   return text;
+}
+
+/** Claude Code escapes <, > and & in the input and output of `!` commands. */
+function decodeEntities(text: string): string {
+  return text.replace(/&(lt|gt|quot|#39|amp);/g, (_, name: string) => ({ lt: "<", gt: ">", quot: '"', "#39": "'", amp: "&" })[name]!);
+}
+
+/**
+ * The output of a `!` command as a Markdown code block: stdout, then stderr,
+ * without the terminal's color codes. Claude Code writes it together with the
+ * input line once the command ended, so there is no output while it runs.
+ */
+export function shellOutput(text: string): string | undefined {
+  if (!text.startsWith("<bash-stdout>") && !text.startsWith("<bash-stderr>")) return undefined;
+  const part = (tag: string) =>
+    decodeEntities(new RegExp(`<${tag}>(.*?)</${tag}>`, "s").exec(text)?.[1] ?? "")
+      .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+      .trimEnd();
+  const output = [part("bash-stdout"), part("bash-stderr")].filter((s) => s.trim()).join("\n");
+  if (!output) return "*(no output)*";
+  // A fence longer than any run of backticks in the output.
+  const fence = "`".repeat(Math.max(3, ...[...output.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  return `${fence}\n${output}\n${fence}`;
 }
 
 /** The texts of a user entry that is not a tool result: its string content or its text blocks. */
@@ -508,9 +538,16 @@ export class TranscriptParser {
     return true;
   }
 
-  /** "[Request interrupted by user…]": the user stopped the last turn. Local command output ends it too. */
+  /** "[Request interrupted by user…]": the user stopped the last turn. Local and `!` command output ends it too. */
   private trackInterrupt(entry: Entry): boolean {
     for (const text of userTexts(entry)) {
+      const output = shellOutput(text);
+      const turn = this.turns.at(-1);
+      if (output !== undefined && turn) {
+        turn.blocks.push({ kind: "text", text: output });
+        turn.done = true;
+        return true;
+      }
       if (text.startsWith("[Request interrupted")) {
         const turn = this.turns.at(-1);
         if (!turn) return false;
