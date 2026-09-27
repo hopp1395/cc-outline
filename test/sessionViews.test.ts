@@ -2,7 +2,15 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MAX_SESSION_VIEWS, readSessionView, saveSessionView } from "../src/sessionViews.js";
+import {
+  MAX_SESSION_VIEWS,
+  readSessionPlacement,
+  readSessionView,
+  resolvePlacement,
+  saveSessionPlacement,
+  saveSessionView,
+} from "../src/sessionViews.js";
+import { updateSettings } from "../src/settings.js";
 import { readJson, sessionViewsFile, writeJson } from "../src/transcript/locate.js";
 
 const cwd = join(tmpdir(), "cco-views-project");
@@ -43,5 +51,31 @@ describe("view per session", () => {
     expect(ids).not.toContain("s3");
     expect(ids).toContain("s4");
     expect(ids.at(-1)).toBe("new");
+  });
+});
+
+describe("placement per session", () => {
+  it("keeps view and placement side by side", () => {
+    saveSessionView(cwd, "a", "git");
+    saveSessionPlacement(cwd, "a", "left");
+    saveSessionView(cwd, "a", "plan");
+    expect(readSessionView(cwd, "a")).toBe("plan");
+    expect(readSessionPlacement(cwd, "a")).toBe("left");
+    expect(readSessionPlacement(cwd, "b")).toBeUndefined();
+  });
+
+  it("reads the first format, a view per session, and ignores unknown placements", () => {
+    writeJson(sessionViewsFile(cwd), { a: "git", b: { view: "chat", placement: "top" }, c: { placement: "window" } });
+    expect([readSessionView(cwd, "a"), readSessionPlacement(cwd, "a")]).toEqual(["git", undefined]);
+    expect([readSessionView(cwd, "b"), readSessionPlacement(cwd, "b")]).toEqual(["chat", undefined]);
+    expect([readSessionView(cwd, "c"), readSessionPlacement(cwd, "c")]).toEqual([undefined, "window"]);
+  });
+
+  it("falls back to the setting", () => {
+    updateSettings({ placement: "left" });
+    expect(resolvePlacement(cwd, "a")).toBe("left");
+    expect(resolvePlacement(cwd, undefined)).toBe("left");
+    saveSessionPlacement(cwd, "a", "window");
+    expect(resolvePlacement(cwd, "a")).toBe("window");
   });
 });

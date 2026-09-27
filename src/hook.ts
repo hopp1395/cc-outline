@@ -1,7 +1,7 @@
 import { rmSync } from "node:fs";
 import { basename } from "node:path";
 import { openPane } from "./open.js";
-import { readSessionView } from "./sessionViews.js";
+import { readSessionView, resolvePlacement } from "./sessionViews.js";
 import { readSettings } from "./settings.js";
 import {
   claudeFile,
@@ -85,7 +85,9 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
     // Only when no viewer runs in the project, e.g. not for a session started from the Sessions view next to one.
     // The session's own last view (after --resume) wins over the project's.
     const view = (rememberView ? readSessionView(cwd, input.session_id) : undefined) ?? restore?.view ?? "chat";
-    if (wanted && !anyRunningViewer(cwd)) open(cwd, view, { keepFocus: true, claudePid });
+    // The placement chosen for this session with p, else the setting.
+    const placement = resolvePlacement(cwd, input.session_id);
+    if (wanted && !anyRunningViewer(cwd)) open(cwd, view, { keepFocus: true, claudePid, placement });
   }
 }
 

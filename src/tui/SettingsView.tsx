@@ -2,7 +2,7 @@ import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, PLACEMENT_VALUES, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
 import { bold, dim, EntryText, handleNavigation, List, previewHeader, Screen, type Layout } from "./layout.js";
@@ -43,6 +43,12 @@ const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], string> = {
   never: "never open it by itself; /cco:… commands still do",
 };
 
+export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], string> = {
+  right: "a pane right of Claude Code",
+  left: "a pane left of Claude Code",
+  window: "a window of its own (in tmux: a tmux window)",
+};
+
 /** Every setting the view offers; the list and the details come from here. */
 export const SETTING_ROWS: Row[] = [
   {
@@ -52,6 +58,17 @@ export const SETTING_ROWS: Row[] = [
     description: "Whether the viewer opens by itself when Claude Code starts (also with --resume and --continue). The focus stays in Claude Code, and no second viewer opens while one runs in the project.",
     values: AUTO_OPEN_VALUES.map((v) => [v, AUTO_OPEN_MEANINGS[v]]),
     notes: ["Needs the plugin's hooks, and Windows Terminal or tmux.", "Takes effect at the next start of Claude Code."],
+  },
+  {
+    key: "placement",
+    group: "Start",
+    label: "placement",
+    description: "Where the viewer opens, when Claude Code starts and with /cco:… commands. p in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
+    values: PLACEMENT_VALUES.map((v) => [v, PLACEMENT_MEANINGS[v]]),
+    notes: [
+      "A window takes the focus from Claude Code: Windows Terminal cannot hand it back to another window.",
+      "Takes effect the next time the viewer opens; a running viewer stays where it is.",
+    ],
   },
   {
     key: "confirmQuit",
