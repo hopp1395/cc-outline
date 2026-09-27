@@ -2,7 +2,7 @@ import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, PLACEMENT_VALUES, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, PLACEMENT_VALUES, VIEW_SETTINGS, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
 import { bold, dim, EntryText, handleNavigation, List, previewHeader, Screen, type Layout } from "./layout.js";
@@ -166,11 +166,34 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("all projects", "this project"),
     viewKey: "a in Sessions",
   },
+  ...(
+    [
+      ["viewChat", "Chat", "1", "the session's turns, rendered as Markdown"],
+      ["viewGit", "Changes", "2", "the changed files with their diffs"],
+      ["viewPlan", "Plan", "3", "the plans Claude presented in plan mode"],
+      ["viewSessions", "Sessions", "4", "the overview of past sessions"],
+      ["viewMonitor", "Monitor", "6", "response speed, wait and errors over the day"],
+    ] as const
+  ).map(
+    ([key, name, number, what]): Row => ({
+      key,
+      group: "Views",
+      label: name,
+      description: `Whether the ${name} view (${what}) has a tab. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs. A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (5) cannot be hidden, and at least one other view stays shown.`,
+      values: ON_OFF("show its tab", "hide it"),
+    }),
+  ),
 ];
 
 const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v);
 
 /** The value after `current` in the row's order, wrapping around. */
+/** Whether `key` is the setting of the only view besides Settings that is still shown. */
+export function isLastView(settings: Settings, key: keyof Settings): boolean {
+  const shown = Object.values(VIEW_SETTINGS).filter((k) => settings[k] === true);
+  return shown.length === 1 && shown[0] === key;
+}
+
 export function nextValue(row: Row, current: string | boolean): string | boolean {
   const i = row.values.findIndex(([v]) => v === current);
   return row.values[(i + 1) % row.values.length][0];
@@ -235,7 +258,11 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
 
   useInput(
     (input, key) => {
-      if (key.return || input === " ") return set({ [row.key]: nextValue(row, current) });
+      if (key.return || input === " ") {
+        // The last view besides Settings stays: hiding it would leave only this one.
+        if (isLastView(settings, row.key)) return;
+        return set({ [row.key]: nextValue(row, current) });
+      }
       if (input === "r") return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && changed.length > 0) {
         return setConfirmation({

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
 import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { readSettings, type Placement } from "../settings.js";
+import { isViewShown, readSettings, shownView, type Placement } from "../settings.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -47,9 +47,11 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Parsed once for the chat and the plan view.
   const transcript = useTranscript(path);
   const [rememberView] = useSetting("rememberView");
-  const [mode, setMode] = useState<Mode>(
-    () => initialMode ?? (readSettings().rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat",
-  );
+  // An explicit --view opens its view even when hidden; a remembered or default one only if shown.
+  const [mode, setMode] = useState<Mode>(() => {
+    const settings = readSettings();
+    return initialMode ?? shownView(settings, (settings.rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat");
+  });
   const [infoOpen, setInfoOpen] = useState(false);
   // p: where the viewer runs (right, left, own window).
   const [placementOpen, setPlacementOpen] = useState(false);
@@ -89,7 +91,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const id = sessionOf(path);
     if (path !== shownPath.current) {
       shownPath.current = path;
-      const view = rememberView ? readSessionView(cwd, id) : undefined;
+      const remembered = rememberView ? readSessionView(cwd, id) : undefined;
+      const view = remembered && isViewShown(readSettings(), remembered) ? remembered : undefined;
       // Recorded on the next run, with the view switched.
       if (view && view !== mode) return setMode(view);
     }
@@ -119,7 +122,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     else if (input === "i") setInfoOpen(true);
     // Only a viewer that follows the live session moves; one started with --session stays.
     else if (input === "p" && !sessionId) setPlacementOpen(true);
-    else if (VIEW_KEYS[input]) setMode(VIEW_KEYS[input]);
+    // A hidden view's key does nothing; its number stays reserved.
+    else if (VIEW_KEYS[input] && isViewShown(readSettings(), VIEW_KEYS[input])) setMode(VIEW_KEYS[input]);
   });
 
   // All views stay mounted so the chat keeps following the transcript while hidden.
