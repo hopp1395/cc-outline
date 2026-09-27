@@ -103,6 +103,29 @@ describe("TranscriptParser", () => {
       p.push(userText("<local-command-stdout>Session color set</local-command-stdout>"));
       expect(p.turns[0].done).toBe(true);
     });
+
+    it("makes a ! command one finished turn with its output as the answer", () => {
+      // As Claude Code writes it once the command ended: caveat, input, output (escaped, with color codes).
+      const p = new TranscriptParser();
+      p.push(
+        line({ type: "user", isMeta: true, message: { role: "user", content: "<local-command-caveat>Caveat: …</local-command-caveat>" } }) +
+          prompt("b1", "<bash-input> gh auth refresh -s workflow &amp;&amp; echo ok</bash-input>") +
+          prompt("b2", "<bash-stdout>\u001b[32mok\u001b[39m &lt;done&gt;</bash-stdout><bash-stderr>warning: `x`</bash-stderr>"),
+      );
+      expect(p.turns).toHaveLength(1);
+      expect(p.turns[0]).toMatchObject({ id: "b1", prompt: "! gh auth refresh -s workflow && echo ok", done: true });
+      expect(p.turns[0].blocks).toEqual([{ kind: "text", text: "```\nok <done>\nwarning: `x`\n```" }]);
+    });
+
+    it("shows a ! command without output as such, and fences output that contains a fence", () => {
+      const p = new TranscriptParser();
+      p.push(prompt("a", "<bash-input>true</bash-input>") + prompt("b", "<bash-stdout></bash-stdout><bash-stderr></bash-stderr>"));
+      p.push(prompt("c", "<bash-input>cat x.md</bash-input>") + prompt("d", "<bash-stdout>```js\n1\n```</bash-stdout><bash-stderr></bash-stderr>"));
+      expect(p.turns.map((t) => [t.prompt, t.done, t.blocks])).toEqual([
+        ["! true", true, [{ kind: "text", text: "*(no output)*" }]],
+        ["! cat x.md", true, [{ kind: "text", text: "````\n```js\n1\n```\n````" }]],
+      ]);
+    });
   });
 
   it("collects assistant blocks in order and skips sidechains", () => {
