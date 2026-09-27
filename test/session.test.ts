@@ -278,6 +278,16 @@ describe("restore on restart", () => {
     expect(placed).toEqual(["left", "window"]);
   });
 
+  it("does not reopen a hidden view, but the first shown one", () => {
+    run("SessionStart", { source: "startup" });
+    registerViewer(cwd, "git");
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    unregisterViewer(cwd);
+    updateSettings({ viewGit: false, viewChat: false });
+    run("SessionStart", { source: "startup" });
+    expect(opened).toEqual(["plan keepFocus"]);
+  });
+
   it("never: stays closed even if it was open at exit", () => {
     updateSettings({ autoOpen: "never" });
     registerViewer(cwd, "git");

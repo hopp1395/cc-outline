@@ -293,6 +293,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | Changes: wrap | on / off | on | `w` in Changes |
 | Plan: wrap | on / off | on | `w` in Plan |
 | Sessions: all projects | on / off | on | `a` in Sessions |
+| Views: Chat, Changes, Plan, Sessions, Monitor | on / off | on | – |
 
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
@@ -302,6 +303,7 @@ What they do:
 - **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
 - **mouse** lets the viewer take the mouse: a click on a web address in the preview opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview or, over the list, moves to the previous or next entry. While it is on, the terminal leaves clicks to the viewer, so select text with `Shift`+drag (Windows Terminal). Off, the terminal keeps the mouse and opens addresses with `Ctrl`+click.
 - **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
+- **Views** hide views you do not use: a hidden view has no tab, and its number key does nothing; the other views keep their numbers. A `/cco:…` command or `--view` that names it still opens it, with its tab shown while it is open. On start, a remembered view that is hidden is replaced by the first shown one. Settings cannot be hidden, and at least one other view stays shown.
 - The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 
 Keys:

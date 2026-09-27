@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
 import { TOOL_LEVELS, type ToolLevel } from "./transcript/tools.js";
+import type { Mode } from "./tui/layout.js";
 
 /** When the hook opens the viewer as Claude Code starts. */
 export const AUTO_OPEN_VALUES = ["remember", "always", "never"] as const;
@@ -43,6 +44,12 @@ export interface Settings {
   planWrap: boolean;
   /** Sessions: show the sessions of all projects, not only this one (a). */
   allProjects: boolean;
+  /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
+  viewChat: boolean;
+  viewGit: boolean;
+  viewPlan: boolean;
+  viewSessions: boolean;
+  viewMonitor: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -60,7 +67,34 @@ export const DEFAULT_SETTINGS: Settings = {
   wrap: true,
   planWrap: true,
   allProjects: true,
+  viewChat: true,
+  viewGit: true,
+  viewPlan: true,
+  viewSessions: true,
+  viewMonitor: true,
 };
+
+/** The setting that shows or hides each view; Settings has none, so the way back is always there. */
+export const VIEW_SETTINGS: Record<Exclude<Mode, "settings">, keyof Settings> = {
+  chat: "viewChat",
+  git: "viewGit",
+  plan: "viewPlan",
+  sessions: "viewSessions",
+  monitor: "viewMonitor",
+};
+
+/** Whether `mode` is shown in the tab bar and reachable by its key. */
+export function isViewShown(settings: Settings, mode: Mode): boolean {
+  return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
+}
+
+/** The views in tab order. */
+const TAB_ORDER: Mode[] = ["chat", "git", "plan", "sessions", "settings", "monitor"];
+
+/** `mode` if it is shown, else the first shown view (Settings always is). */
+export function shownView(settings: Settings, mode: Mode): Mode {
+  return isViewShown(settings, mode) ? mode : (TAB_ORDER.find((m) => isViewShown(settings, m)) ?? "settings");
+}
 
 /** Allowed values of the settings that are not on/off. */
 const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = { autoOpen: AUTO_OPEN_VALUES, placement: PLACEMENT_VALUES, showTools: TOOL_LEVELS };

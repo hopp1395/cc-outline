@@ -3,7 +3,8 @@ import { createContext, useContext, useEffect, useState, type Dispatch, type Rea
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
-import { useSetting } from "./useSetting.js";
+import { isViewShown } from "../settings.js";
+import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
@@ -262,8 +263,10 @@ const FOCUS_BAR = "#0e2f55";
 const INACTIVE_SELECTION = "#3a3d41";
 
 function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
+  const settings = useSettings();
+  // A hidden view shows its tab only while it is open (opened by a /cco:… command).
   const tab = (key: string, label: string, m: Mode) =>
-    m === mode ? (
+    m !== mode && !isViewShown(settings, m) ? null : m === mode ? (
       <Text inverse bold>{` ${key} ${label} `}</Text>
     ) : (
       <Text dimColor={!focused}>{` ${key} ${label} `}</Text>

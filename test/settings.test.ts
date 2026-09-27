@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, readSettings, settingsFile, subscribeSettings, updateSettings } from "../src/settings.js";
-import { nextValue, SETTING_ROWS } from "../src/tui/SettingsView.js";
+import { DEFAULT_SETTINGS, isViewShown, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
+import { isLastView, nextValue, SETTING_ROWS } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
 
@@ -85,3 +85,24 @@ describe("settings view", () => {
     expect(nextValue(marquee, true)).toBe(false);
   });
 });
+
+describe("hidden views", () => {
+  const hide = (...keys: (keyof typeof DEFAULT_SETTINGS)[]) => ({ ...DEFAULT_SETTINGS, ...Object.fromEntries(keys.map((k) => [k, false])) });
+
+  it("never hides Settings, and falls back to the first shown view", () => {
+    const settings = hide("viewChat", "viewGit");
+    expect(isViewShown(settings, "chat")).toBe(false);
+    expect(isViewShown(settings, "settings")).toBe(true);
+    expect(shownView(settings, "chat")).toBe("plan");
+    expect(shownView(settings, "monitor")).toBe("monitor");
+    expect(shownView(hide("viewChat", "viewGit", "viewPlan", "viewSessions", "viewMonitor"), "git")).toBe("settings");
+  });
+
+  it("keeps the last view besides Settings", () => {
+    const one = hide("viewChat", "viewGit", "viewPlan", "viewSessions");
+    expect(isLastView(one, "viewMonitor")).toBe(true);
+    expect(isLastView(one, "viewChat")).toBe(false);
+    expect(isLastView(DEFAULT_SETTINGS, "viewMonitor")).toBe(false);
+  });
+});
+
