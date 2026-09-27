@@ -1,6 +1,10 @@
 # cc-outline
 
-`cc-outline` (command `cco`) adds a second pane next to Claude Code in your terminal. It has five views:
+[![npm version](https://img.shields.io/npm/v/cc-outline)](https://www.npmjs.com/package/cc-outline)
+[![npm downloads](https://img.shields.io/npm/dm/cc-outline)](https://www.npmjs.com/package/cc-outline)
+[![License: MIT](https://img.shields.io/github/license/hopp1395/cc-outline)](LICENSE)
+
+`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has five views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.

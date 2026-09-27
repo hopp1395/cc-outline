@@ -1,8 +1,8 @@
 {
   "name": "cc-outline",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "Jan Hoppe",
-  "description": "Terminal split pane for Claude Code: the session rendered as Markdown, git diffs with syntax highlighting, plan-mode plans with version diffs, and a session browser across projects",
+  "description": "Terminal split pane for Claude Code: the session rendered as Markdown with subagents and attachments, git diffs with syntax highlighting, plan-mode plans with version diffs, and a session browser across projects",
   "keywords": [
     "claude-code",
     "claude-code-plugin",
@@ -13,7 +13,15 @@
     "plan-mode",
     "sessions",
     "split-pane",
-    "ink"
+    "ink",
+    "claude",
+    "anthropic",
+    "ai",
+    "tmux",
+    "windows-terminal",
+    "subagents",
+    "transcript",
+    "viewer"
   ],
   "license": "MIT",
   "homepage": "https://github.com/hopp1395/cc-outline#readme",
