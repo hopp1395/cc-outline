@@ -1,8 +1,8 @@
 {
   "name": "cc-outline",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "Jan Hoppe",
-  "description": "Rendered Markdown preview of Claude Code sessions and a git changes view with syntax highlighting, in a terminal split pane",
+  "description": "Terminal split pane for Claude Code: the session rendered as Markdown, git diffs with syntax highlighting, plan-mode plans with version diffs, and a session browser across projects",
   "keywords": [
     "claude-code",
     "claude-code-plugin",
@@ -10,6 +10,9 @@
     "terminal",
     "tui",
     "git-diff",
+    "plan-mode",
+    "sessions",
+    "split-pane",
     "ink"
   ],
   "license": "MIT",
