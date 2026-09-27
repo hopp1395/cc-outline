@@ -481,7 +481,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a all", on: all, priority: 2 },
         { text: "T trash", priority: 2 },
-        { text: "1-5 view", priority: 1 },
+        { text: "1-6 view", priority: 1 },
       ];
 
   return (

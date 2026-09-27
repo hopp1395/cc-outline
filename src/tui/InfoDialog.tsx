@@ -29,7 +29,7 @@ const LIST_KEYS = (entry: string): [string, string][] => [
 ];
 
 const COMMON_KEYS: [string, string][] = [
-  ["1 2 3 4 5", "chat / changes / plan / sessions / settings"],
+  ["1 – 6", "chat / changes / plan / sessions / settings / monitor"],
   ["click", "select / open a link"],
   ["wheel", "scroll"],
   ["p", "move: right / left / window"],
@@ -90,9 +90,17 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["↑↓ PgUp PgDn", "scroll"],
     ...COMMON_KEYS,
   ],
+  monitor: [
+    ["←→", "previous / next day"],
+    ["Home End g G", "today / oldest day"],
+    ["↑↓ PgUp PgDn", "scroll"],
+    ["v", "speed / wait / responses"],
+    ["m", "model"],
+    ...COMMON_KEYS,
+  ],
 };
 
-const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings" };
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;

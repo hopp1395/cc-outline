@@ -11,6 +11,7 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
+import { MonitorView } from "./MonitorView.js";
 import { MouseContext, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { useLayout, type Mode } from "./layout.js";
@@ -34,7 +35,7 @@ interface Props {
   placement?: Placement;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings" };
+const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings", "6": "monitor" };
 
 const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
 
@@ -72,6 +73,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     plan: false,
     sessions: false,
     settings: false,
+    monitor: false,
   });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
@@ -176,6 +178,11 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         <Box display={mode === "settings" ? "flex" : "none"}>
           <MouseContext.Provider value={mouseFor("settings")}>
           <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} />
+          </MouseContext.Provider>
+        </Box>
+        <Box display={mode === "monitor" ? "flex" : "none"}>
+          <MouseContext.Provider value={mouseFor("monitor")}>
+          <MonitorView cwd={cwd} layout={layout} visible={mode === "monitor"} active={mode === "monitor" && !blocked} />
           </MouseContext.Provider>
         </Box>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}

@@ -1,6 +1,7 @@
-import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
+import { IncrementalFile } from "./incremental.js";
 import { claudeDir, projectDir } from "./locate.js";
 import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
 
@@ -56,10 +57,7 @@ interface RawEntry {
  * appended since the last one, so the growing active session stays cheap.
  */
 export class SessionReader {
-  private offset = 0;
-  private size = -1;
-  private buffer = "";
-  private decoder = new TextDecoder("utf-8");
+  private file: IncrementalFile;
   private parser = new TranscriptParser();
   private title?: string;
   private branch?: string;
@@ -69,83 +67,51 @@ export class SessionReader {
   private files: string[] = [];
   private summary?: SessionSummary;
 
-  constructor(readonly path: string) {}
+  constructor(readonly path: string) {
+    this.file = new IncrementalFile(path, (line) => this.consume(line), () => this.reset());
+  }
 
   /** Reads what was appended since the last call; returns the current summary. */
   update(): SessionSummary {
-    let size: number;
-    try {
-      size = statSync(this.path).size;
-    } catch {
-      size = 0;
-    }
-    if (size < this.offset) this.reset();
-    if (size !== this.size || !this.summary) {
-      this.size = size;
-      if (size > this.offset) this.read(size);
-      this.summary = this.summarize();
-    }
+    if (this.file.update() || !this.summary) this.summary = this.summarize();
     return this.summary;
   }
 
   /** Feeds transcript text directly (used by tests). */
   push(text: string): SessionSummary {
-    this.consume(text);
+    this.file.push(text);
     this.summary = this.summarize();
     return this.summary;
   }
 
   private reset(): void {
-    this.offset = 0;
-    this.buffer = "";
-    this.decoder = new TextDecoder("utf-8");
     this.parser = new TranscriptParser();
     this.title = this.branch = this.cwd = this.start = this.end = undefined;
     this.files = [];
   }
 
-  private read(size: number): void {
-    const fd = openSync(this.path, "r");
+  private consume(line: string): void {
+    let entry: RawEntry;
     try {
-      const chunk = Buffer.alloc(Math.min(size - this.offset, 4 * 1024 * 1024));
-      while (this.offset < size) {
-        const n = readSync(fd, chunk, 0, Math.min(chunk.length, size - this.offset), this.offset);
-        if (n <= 0) break;
-        this.offset += n;
-        this.consume(this.decoder.decode(chunk.subarray(0, n), { stream: true }));
-      }
-    } finally {
-      closeSync(fd);
+      entry = JSON.parse(line);
+    } catch {
+      return;
     }
-  }
-
-  private consume(text: string): void {
-    const lines = (this.buffer + text).split("\n");
-    this.buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let entry: RawEntry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
+    if (entry.type === "custom-title" && entry.customTitle?.trim()) this.title = entry.customTitle.trim();
+    if (!entry.isSidechain) {
+      if (entry.gitBranch) this.branch = entry.gitBranch;
+      if (entry.cwd) this.cwd ??= entry.cwd;
+      if (entry.timestamp) {
+        this.start ??= entry.timestamp;
+        this.end = entry.timestamp;
       }
-      if (entry.type === "custom-title" && entry.customTitle?.trim()) this.title = entry.customTitle.trim();
-      if (!entry.isSidechain) {
-        if (entry.gitBranch) this.branch = entry.gitBranch;
-        if (entry.cwd) this.cwd ??= entry.cwd;
-        if (entry.timestamp) {
-          this.start ??= entry.timestamp;
-          this.end = entry.timestamp;
-        }
-      }
-      try {
-        this.parser.push(line + "\n");
-      } catch {
-        // An entry in a shape the parser does not know must not stop the overview.
-      }
-      this.takeBlocks();
     }
+    try {
+      this.parser.push(line + "\n");
+    } catch {
+      // An entry in a shape the parser does not know must not stop the overview.
+    }
+    this.takeBlocks();
   }
 
   /**
@@ -191,7 +157,7 @@ export class SessionReader {
 }
 
 /** Transcripts of one project (`cwd`) or, without it, of all projects. */
-function transcriptFiles(cwd?: string): string[] {
+export function transcriptFiles(cwd?: string): string[] {
   const root = join(claudeDir(), "projects");
   let dirs: string[];
   try {

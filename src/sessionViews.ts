@@ -2,7 +2,7 @@ import { PLACEMENT_VALUES, readSettings, type Placement } from "./settings.js";
 import { readJson, sessionViewsFile, writeJson } from "./transcript/locate.js";
 import type { Mode } from "./tui/layout.js";
 
-const MODES: readonly Mode[] = ["chat", "git", "plan", "sessions", "settings"];
+const MODES: readonly Mode[] = ["chat", "git", "plan", "sessions", "settings", "monitor"];
 
 /** Sessions kept per project; the ones shown longest ago are dropped. */
 export const MAX_SESSION_VIEWS = 500;
