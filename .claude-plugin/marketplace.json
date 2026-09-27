@@ -5,7 +5,7 @@
     {
       "name": "cco",
       "source": "./plugin",
-      "description": "cc-outline: rendered session preview and git diff view in a split pane"
+      "description": "cc-outline: the session as Markdown, git diffs, plans and a session browser in a split pane"
     }
   ]
 }
