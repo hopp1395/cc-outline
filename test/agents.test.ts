@@ -79,8 +79,8 @@ describe("subagents in the transcript", () => {
     const p = new TranscriptParser();
     p.push(prompt("u1", "go") + agentCall("t1", { description: "Map *the* repo", subagent_type: "Explore", model: "sonnet" }));
     const turn = p.turns[0];
-    expect(turnMarkdown(turn, { tools: true, thinking: false })).toBe("");
-    expect(turnMarkdown(turn, { tools: false, thinking: false, agents: true })).toBe(
+    expect(turnMarkdown(turn, { tools: "compact", thinking: false })).toBe("");
+    expect(turnMarkdown(turn, { tools: "off", thinking: false, agents: true })).toBe(
       "**◆ Explore · Map \\*the\\* repo · sonnet**  \n⠿ running",
     );
   });

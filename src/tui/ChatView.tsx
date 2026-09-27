@@ -4,7 +4,7 @@ import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { renderMarkdown } from "../render/markdown.js";
+import { renderMarkdown, stripBoxes } from "../render/markdown.js";
 import { nextMarked } from "../favorites.js";
 import { turnImageFiles } from "../images.js";
 import { openInDefaultApp } from "../open.js";
@@ -19,6 +19,7 @@ import {
   type Attachment,
   type Turn,
 } from "../transcript/parse.js";
+import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
 import { displayPath } from "../transcript/sessions.js";
 import {
   dim,
@@ -58,6 +59,10 @@ interface Props {
   liveSession?: boolean;
 }
 
+/** t steps through the tool levels: off → compact → full → off. */
+const nextToolLevel = (level: ToolLevel): ToolLevel => TOOL_LEVELS[(TOOL_LEVELS.indexOf(level) + 1) % TOOL_LEVELS.length];
+const toolsFooter = (level: ToolLevel) => (level === "off" ? "t tools" : `t tools: ${level}`);
+
 const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
 
 const magenta = (s: string) => `\u001b[35m${s}\u001b[39m`;
@@ -87,7 +92,7 @@ function agentView(
   sub: Subagent,
   place: { index: number; count: number },
   width: number,
-  opts: { tools: boolean; thinking: boolean; wrap: boolean; live: boolean },
+  opts: { tools: ToolLevel; thinking: boolean; wrap: boolean; live: boolean },
 ): { header: string[]; lines: string[] } {
   const where = place.count > 1 ? ` · ${place.index + 1} of ${place.count}` : "";
   const full = previewHeader(agentTitle(agent), width, {
@@ -451,7 +456,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       if (agentPage) {
         if (input === "a" || key.escape) return showAgent(undefined);
         if (key.ctrl && key.end) return scroll.set(scroll.max);
-        if (input === "t") return setShowTools((v) => !v);
+        if (input === "t") return setShowTools(nextToolLevel);
         if (input === "h") return setShowThinking((v) => !v);
         const pick = (i: number) => showAgent(Math.max(0, Math.min(currentAgents.length - 1, i)));
         handleNavigation(input, key, {
@@ -498,10 +503,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         return notify(follow ? "follow off" : "follow on");
       }
       if (input === "o" && current) return openImages(current);
-      if (input === "t") return setShowTools((v) => !v);
+      if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
-        const md = turnMarkdown(current, { tools: false, thinking: false });
+        const md = stripBoxes(turnMarkdown(current, { tools: "off", thinking: false }));
         clipboard.write(md).then(
           () => notify("copied Markdown to clipboard"),
           (err: Error) => notify(`copy failed: ${err.message}`),
@@ -599,7 +604,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           ...(currentAgents.length > 1 ? [{ text: "←→ agent", priority: 4 }] : []),
           { text: "↑↓ scroll", priority: 1 },
           { text: "a agent", on: true },
-          { text: "t tools", on: showTools, priority: 2 },
+          { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
         ] : [
           { text: "←→ turn", priority: 4 },
@@ -608,7 +613,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
           ...markFooter(favorites.isMarked(current?.id), markedCount),
-          { text: "t tools", on: showTools, priority: 2 },
+          { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },

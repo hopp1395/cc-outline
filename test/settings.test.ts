@@ -21,9 +21,9 @@ describe("settings", () => {
   });
 
   it("stores changes and keeps the other values", () => {
-    updateSettings({ showTools: true });
+    updateSettings({ showTools: "full" });
     updateSettings({ wrap: false });
-    expect(readSettings()).toEqual({ ...DEFAULT_SETTINGS, showTools: true, wrap: false });
+    expect(readSettings()).toEqual({ ...DEFAULT_SETTINGS, showTools: "full", wrap: false });
   });
 
   it("ignores broken files and mistyped values", () => {
@@ -40,6 +40,16 @@ describe("settings", () => {
     expect(readSettings().autoOpen).toBe("remember");
     writeFileSync(settingsFile(), JSON.stringify({ autoOpen: "always" }));
     expect(readSettings().autoOpen).toBe("always");
+  });
+
+  it("reads the old on/off tool setting as a level", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ showTools: true }));
+    expect(readSettings().showTools).toBe("compact");
+    writeFileSync(settingsFile(), JSON.stringify({ showTools: false }));
+    expect(readSettings().showTools).toBe("off");
+    writeFileSync(settingsFile(), JSON.stringify({ showTools: "loud" }));
+    expect(readSettings().showTools).toBe("off");
   });
 
   it("accepts only known placements", () => {
