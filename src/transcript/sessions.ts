@@ -2,7 +2,7 @@ import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { claudeDir, projectDir } from "./locate.js";
-import { TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
+import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
 
 /** What the Sessions view shows about one session. */
 export interface SessionSummary {
@@ -249,10 +249,10 @@ export class SessionIndex {
 
 /**
  * Bookkeeping files have no prompt at all; a session that only ran slash
- * commands such as /resume and changed nothing is left out as well.
+ * commands such as /resume or `!` commands and changed nothing is left out as well.
  */
 function hasWork(s: SessionSummary): boolean {
-  return s.prompts.some((p) => !p.text.startsWith("/")) || s.plans.length > 0 || s.files.length > 0;
+  return s.prompts.some((p) => !isCommand(p.text)) || s.plans.length > 0 || s.files.length > 0;
 }
 
 /** Whether `path` lies inside `cwd`. */

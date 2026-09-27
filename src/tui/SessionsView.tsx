@@ -18,7 +18,7 @@ import {
 } from "../transcript/trash.js";
 import { resumeInNewTab } from "../open.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
-import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
+import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { useFocused } from "./focus.js";
 import {
   bold,
@@ -102,9 +102,9 @@ function tilde(path: string): string {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** The name shown for a session: its /rename title, else its first prompt that is not a slash command. */
+/** The name shown for a session: its /rename title, else its first prompt that is not a slash or `!` command. */
 function sessionTitle(s: SessionSummary): string {
-  return s.title ?? (s.prompts.find((p) => !p.text.startsWith("/")) ?? s.prompts[0])?.text ?? s.id;
+  return s.title ?? (s.prompts.find((p) => !isCommand(p.text)) ?? s.prompts[0])?.text ?? s.id;
 }
 
 /** Shell command that continues the session in Claude Code. */
