@@ -13,7 +13,15 @@
     "plan-mode",
     "sessions",
     "split-pane",
-    "ink"
+    "ink",
+    "claude",
+    "anthropic",
+    "ai",
+    "tmux",
+    "windows-terminal",
+    "subagents",
+    "transcript",
+    "viewer"
   ],
   "license": "MIT",
   "homepage": "https://github.com/hopp1395/cc-outline#readme",
