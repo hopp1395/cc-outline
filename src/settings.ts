@@ -18,6 +18,8 @@ export interface Settings {
   marquee: boolean;
   /** Selection and scroll positions are stored per project and restored after a restart. */
   rememberPositions: boolean;
+  /** Each session reopens in the view it was shown in last. */
+  rememberView: boolean;
   /** Chat: show tool calls (t). */
   showTools: boolean;
   /** Chat: show thinking blocks (h). */
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmQuit: true,
   marquee: true,
   rememberPositions: true,
+  rememberView: true,
   showTools: false,
   showThinking: false,
   showAgents: true,

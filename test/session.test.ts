@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleHook } from "../src/hook.js";
+import { saveSessionView } from "../src/sessionViews.js";
 import { updateSettings } from "../src/settings.js";
 import { detectTerminal } from "../src/open.js";
 import {
@@ -250,6 +251,19 @@ describe("restore on restart", () => {
     registerViewer(cwd, "chat");
     run("SessionStart", { source: "startup" });
     expect(opened).toEqual([]);
+  });
+
+  it("reopens a resumed session in its own last view, unless switched off", () => {
+    run("SessionStart", { source: "startup" });
+    registerViewer(cwd, "git");
+    run("SessionEnd", { reason: "prompt_input_exit" });
+    unregisterViewer(cwd);
+    saveSessionView(cwd, "a", "plan");
+    run("SessionStart", { source: "resume" });
+    unregisterViewer(cwd);
+    updateSettings({ rememberView: false });
+    run("SessionStart", { source: "resume" });
+    expect(opened).toEqual(["plan keepFocus", "git keepFocus"]);
   });
 
   it("never: stays closed even if it was open at exit", () => {

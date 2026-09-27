@@ -1,6 +1,9 @@
 import { Box, useApp, useInput } from "ink";
-import { useEffect, useState } from "react";
+import { basename } from "node:path";
+import { useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
+import { readSessionView, saveSessionView } from "../sessionViews.js";
+import { readSettings } from "../settings.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -18,6 +21,7 @@ import { useViewerControl } from "./useViewerControl.js";
 interface Props {
   cwd: string;
   sessionId?: string;
+  /** The view to start with; without it, the session's last view (setting rememberView), else the chat. */
   initialMode?: Mode;
   /** The pane was opened without taking the focus (focus stayed in Claude Code). */
   unfocused?: boolean;
@@ -27,14 +31,19 @@ interface Props {
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings" };
 
-export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, claudePid }: Props) {
+const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
+
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid }: Props) {
   const { exit } = useApp();
   const layout = useLayout();
   const focused = useTerminalFocus(!unfocused);
   const path = useSessionPath(cwd, sessionId, claudePid);
   // Parsed once for the chat and the plan view.
   const transcript = useTranscript(path);
-  const [mode, setMode] = useState<Mode>(initialMode);
+  const [rememberView] = useSetting("rememberView");
+  const [mode, setMode] = useState<Mode>(
+    () => initialMode ?? (readSettings().rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat",
+  );
   const [infoOpen, setInfoOpen] = useState(false);
   // A view's confirmation dialog takes all keys while it is open.
   const [modal, setModal] = useState(false);
@@ -59,6 +68,20 @@ export function App({ cwd, sessionId, initialMode = "chat", unfocused = false, c
 
   // Remember the shown view so the viewer reopens with it after a restart.
   useEffect(() => setViewerView(cwd, mode, claudePid), [cwd, mode, claudePid]);
+
+  // Each session keeps its own last view: switching to another session (/resume) brings back its view,
+  // and the view shown is recorded for the session shown.
+  const shownPath = useRef(path);
+  useEffect(() => {
+    const id = sessionOf(path);
+    if (path !== shownPath.current) {
+      shownPath.current = path;
+      const view = rememberView ? readSessionView(cwd, id) : undefined;
+      // Recorded on the next run, with the view switched.
+      if (view && view !== mode) return setMode(view);
+    }
+    if (rememberView && id) saveSessionView(cwd, id, mode);
+  }, [cwd, path, mode, rememberView]);
 
   useEffect(() => {
     repoRoot(cwd).then((r) => setGitRoot(r ?? null));

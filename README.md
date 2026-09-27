@@ -100,7 +100,7 @@ To load the plugin for a single session without installing it, run `claude --plu
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
-  - `--view chat|git|plan|sessions|settings`: view to start with (default: `chat`)
+  - `--view chat|git|plan|sessions|settings`: view to start with (default: the session's last view, see *view per session*, else `chat`)
 
 All views share one layout:
 - **Top bar:** the view tabs and a status summary. Options that are on are not repeated there; the help line highlights them.
@@ -266,6 +266,7 @@ The Settings view (`5`, or `/cco:settings`) shows every option with its value on
 | General: confirm quit | on / off | on | – |
 | General: marquee (long list entries scroll) | on / off | on | – |
 | General: remember positions (across restarts) | on / off | on | – |
+| General: view per session | on / off | on | – |
 | Chat: tool calls | on / off | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
 | Chat: agents | on / off | on | – |
@@ -279,6 +280,7 @@ What they do:
 - **confirm quit** makes `q` and `Esc` ask before the viewer closes.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
 - **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
+- **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
 - The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 
 Keys:
@@ -358,7 +360,7 @@ The viewer shows whether it or Claude Code has the keyboard focus:
   - `always`: the viewer opens on every start, in every project, even in one it never ran in; in the chat, or in the view it showed last in the project.
   - `never`: it only opens through a `/cco:…` command.
 
-  The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
+  It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
 - **Without hooks**, the viewer uses the project's most recently modified transcript that contains messages.
 
 ## Development

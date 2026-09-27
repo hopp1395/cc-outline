@@ -76,6 +76,14 @@ export const SETTING_ROWS: Row[] = [
     notes: ["Stored in ~/.claude/cco/<project>.positions.json; switching off keeps the file.", "Takes effect when the viewer starts."],
   },
   {
+    key: "rememberView",
+    group: "General",
+    label: "view per session",
+    description: "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer without --view, and when the viewer follows it after /resume. A /cco:… command still opens the view it names.",
+    values: ON_OFF("reopen the session's last view", "start in the chat, or the view shown last in the project"),
+    notes: ["Stored per project in ~/.claude/cco/<project>.views.json."],
+  },
+  {
     key: "showTools",
     group: "Chat",
     label: "tool calls",
