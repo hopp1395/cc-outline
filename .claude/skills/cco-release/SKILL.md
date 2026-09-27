@@ -1,5 +1,5 @@
 ---
-name: release
+name: cco-release
 description: Release a new version of cc-outline - collect the merged PRs, write the release notes, bump the version in a release PR, merge it after CI and publish the GitHub release, which publishes to npm. With --dry-run, only propose the version and the notes.
 argument-hint: "[patch|minor|major|x.y.z] [--dry-run]"
 disable-model-invocation: true
@@ -24,7 +24,7 @@ Arguments: `$ARGUMENTS` — an optional bump (`patch`, `minor`, `major` or an ex
 
 Publishing a GitHub release `v<version>` starts `.github/workflows/publish.yml`. It checks that the tag matches `package.json` and publishes to npm through Trusted Publishing (OIDC, no token, with provenance). So the GitHub release *is* the npm release: once it is published, the version is on npm for good, because npm never accepts the same version twice and a published version cannot be replaced. That is why the steps before it check so much, and why you never run `npm publish` yourself — it would take the version away from the workflow, which then fails.
 
-Everything up to step 3 only reads. From step 4 on, each step changes something others can see (a branch, a PR, `main`, the release, npm). Once the user has approved the version and the notes in step 3, go through to the end without asking again; the user started `/release` to have it done. Stop at the first step that fails and report what failed with its output — don't force, skip checks or work around them, since a half-done release is easier to finish by hand than a wrong one is to undo.
+Everything up to step 3 only reads. From step 4 on, each step changes something others can see (a branch, a PR, `main`, the release, npm). Once the user has approved the version and the notes in step 3, go through to the end without asking again; the user started `/cco-release` to have it done. Stop at the first step that fails and report what failed with its output — don't force, skip checks or work around them, since a half-done release is easier to finish by hand than a wrong one is to undo.
 
 If a command is refused by the permission system (e.g. `gh pr merge` or `gh release create` in auto mode), stop, give the user the exact command to run themselves with `!` in front, and continue from there once they say it ran.
 
