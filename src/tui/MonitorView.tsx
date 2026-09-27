@@ -16,8 +16,27 @@ import {
   type Measurements,
 } from "../monitor/responses.js";
 import { useFocused } from "./focus.js";
-import { bold, dim, EntryText, handleNavigation, List, previewHeader, Screen, type Layout } from "./layout.js";
+import { nextMarked } from "../favorites.js";
+import {
+  bold,
+  dim,
+  EntryText,
+  flipOrder,
+  handleNavigation,
+  List,
+  markFooter,
+  markKeys,
+  orderedDir,
+  orderedNav,
+  orderFooter,
+  previewHeader,
+  Screen,
+  Star,
+  type Layout,
+} from "./layout.js";
+import { useSetting } from "./useSetting.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { useFavorites } from "./useFavorites.js";
 import { usePositions } from "./usePositions.js";
 
 interface Props {
@@ -95,6 +114,20 @@ function colourFor(value: Value) {
   };
 }
 
+/** What the colours and marks of the chart mean, below it. */
+function legend(value: Value): string[] {
+  const c = (code: string, s: string) => `\u001b[${code}m${s}\u001b[39m`;
+  const usual = `${dim("─")} usual (median of the 30 days before)`;
+  const error = `${c("31", "✗")} error`;
+  if (value === "count") return [`${c("36", "█")} responses   ${usual}   ${error}`];
+  const better = value === "speed" ? "faster" : "shorter";
+  const worse = value === "speed" ? "slower" : "longer";
+  return [
+    `${c("32", "█")} ${better} than usual   ${c("36", "█")} about usual   ${c("31", "█")} ${worse} than usual ${dim("(by more than 15 %)")}`,
+    `${usual}   ${error}`,
+  ];
+}
+
 const formatValue = (value: Value) => (v: number) => (value === "wait" && v < 10 ? v.toFixed(1) : v.toFixed(0));
 const pick = (value: Value) => (b: Bucket) => (value === "count" ? (b.count > 0 ? b.count : undefined) : b[value]);
 
@@ -137,6 +170,10 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
   const focused = useFocused();
   const { data, progress } = useMeasurements(visible);
   const positions = usePositions(cwd, "monitor");
+  const favorites = useFavorites(cwd, "days");
+  // Days are kept newest first; oldest first only mirrors the list and its keys.
+  const [order, setOrder] = useSetting("monitorOrder");
+  const reversed = order === "oldest-first";
   const [value, setValue] = useState<Value>("speed");
   const models = useMemo(() => (data ? modelsByRecency(data) : []), [data]);
   const [chosenModel, setModel] = useState<string>();
@@ -186,21 +223,38 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
       format: formatValue(value),
       colourOf: colourFor(value),
     });
-    return [...chart, "", ...dayFigures(data, selected.day, model, buckets, typical)];
+    return [...chart, ...legend(value), "", ...dayFigures(data, selected.day, model, buckets, typical)];
   }, [data, selected?.day, value, model, minutes, viewport, progress]);
   const scroll = positions.scroll(selected?.day ?? "", lines.length, viewport);
 
   const select = (i: number) => setIndex(Math.max(0, Math.min(days.length - 1, i)));
+  const current = Math.min(index, Math.max(0, days.length - 1));
+  const markedCount = days.filter((d) => favorites.isMarked(d.day)).length;
   const choices = [...models, ALL];
 
   useInput(
     (input, key) => {
       if (input === "v") return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
+      // Checked first: Space marks instead of paging, Shift+←/→ jump between marked days.
+      const mark = markKeys(input, key);
+      if (mark === "toggle") return selected && favorites.toggle(selected.day);
+      if (mark) {
+        const target = nextMarked(
+          days.map((d) => d.day),
+          favorites.marks,
+          current,
+          orderedDir(reversed, mark),
+        );
+        return target !== undefined && select(target);
+      }
+      if (input === "s") return setOrder(flipOrder);
       handleNavigation(input, key, {
-        select: (delta) => select(index + delta),
-        first: () => select(0),
-        last: () => select(days.length - 1),
+        ...orderedNav(reversed, {
+          select: (delta: number) => select(index + delta),
+          first: () => select(0),
+          last: () => select(days.length - 1),
+        }),
         scroll,
         page: viewport - 2,
       });
@@ -216,19 +270,27 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
       status={
         <Text dimColor={!focused}>
           {data ? `${data.responses.length} responses · ${models.length} models` : progress ? `reading ${progress.done}/${progress.total}` : "reading…"}
+          {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
         </Text>
       }
       list={
         <List
+          reversed={reversed}
           onPick={select}
           items={days}
-          selected={Math.min(index, Math.max(0, days.length - 1))}
+          selected={current}
           height={bodyHeight}
           empty={data ? "No responses" : "Reading…"}
           itemKey={(d) => d.day}
           render={(d, isSelected) => (
             <>
-              <EntryText text={dayName(d.day)} width={Math.max(4, listWidth - countWidth - 4)} selected={isSelected} active={active} />
+              {favorites.isMarked(d.day) && <Star />}
+              <EntryText
+                text={dayName(d.day)}
+                width={Math.max(4, listWidth - countWidth - 4 - (favorites.isMarked(d.day) ? 2 : 0))}
+                selected={isSelected}
+                active={active}
+              />
               <Text dimColor={!isSelected}> {String(d.count).padStart(countWidth)}</Text>
               {d.errors > 0 && <Text color="red"> ✗</Text>}
             </>
@@ -240,10 +302,12 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
       }
       footer={[
         { text: "←→ day", priority: 4 },
+        orderFooter(order, "newest-first"),
         { text: "↑↓ scroll", priority: 1 },
+        ...markFooter(favorites.isMarked(selected?.day), markedCount),
         { text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 },
         { text: `m ${model ? shortModel(model) : "all"}`, on: true, priority: 3 },
-        { text: "1-6 view", priority: 1 },
+        { text: "1-6/tab view", priority: 1 },
       ]}
     />
   );

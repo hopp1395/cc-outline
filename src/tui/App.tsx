@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
 import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { isViewShown, readSettings, shownView, type Placement } from "../settings.js";
+import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -35,7 +35,7 @@ interface Props {
   placement?: Placement;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "settings", "6": "monitor" };
+const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
 
 const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
 
@@ -122,6 +122,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     else if (input === "i") setInfoOpen(true);
     // Only a viewer that follows the live session moves; one started with --session stays.
     else if (input === "p" && !sessionId) setPlacementOpen(true);
+    // Tab and Shift+Tab step through the shown views, wrapping around.
+    else if (key.tab) setMode(nextShownView(readSettings(), mode, key.shift ? -1 : 1));
     // A hidden view's key does nothing; its number stays reserved.
     else if (VIEW_KEYS[input] && isViewShown(readSettings(), VIEW_KEYS[input])) setMode(VIEW_KEYS[input]);
   });

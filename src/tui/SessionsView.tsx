@@ -30,6 +30,10 @@ import {
   previewHeader,
   Screen,
   EntryText,
+  flipOrder,
+  orderedDir,
+  orderedNav,
+  orderFooter,
   Star,
   truncate,
   wrapPath,
@@ -244,6 +248,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [all, setAll] = useSetting("allProjects");
+  // The trash follows the same order as the sessions.
+  const [order, setOrder] = useSetting("sessionsOrder");
+  const reversed = order === "newest-first";
   const { sessions, progress, running, refresh } = useSessions(cwd, visible, all);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   const [trashOpen, setTrashOpen] = useState(false);
@@ -414,7 +421,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             list.map((s) => s.id),
             favorites.marks,
             index,
-            mark,
+            orderedDir(reversed, mark),
           );
           return target !== undefined && select(target);
         }
@@ -433,10 +440,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           );
         }
       }
+      if (input === "s") return setOrder(flipOrder);
       handleNavigation(input, key, {
-        select: (delta) => select(index + delta),
-        first: () => select(0),
-        last: () => select(list.length - 1),
+        ...orderedNav(reversed, {
+          select: (delta: number) => select(index + delta),
+          first: () => select(0),
+          last: () => select(list.length - 1),
+        }),
         scroll,
         page: viewport - 2,
       });
@@ -464,6 +474,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const footer = trashOpen
     ? [
         { text: "←→ session", priority: 4 },
+        orderFooter(order, "oldest-first"),
         { text: "↑↓ scroll", priority: 1 },
         { text: "u restore", priority: 4 },
         { text: "x delete", priority: 3 },
@@ -473,6 +484,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       ]
     : [
         { text: "←→ session", priority: 4 },
+        orderFooter(order, "oldest-first"),
         { text: "↑↓ scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         { text: "↵ start", priority: 3 },
@@ -481,7 +493,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a all", on: all, priority: 2 },
         { text: "T trash", priority: 2 },
-        { text: "1-6 view", priority: 1 },
+        { text: "1-6/tab view", priority: 1 },
       ];
 
   return (
@@ -505,6 +517,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         }
         list={
           <List
+            reversed={reversed}
             onPick={select}
             items={list}
             selected={index}

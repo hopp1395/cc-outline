@@ -29,7 +29,8 @@ const LIST_KEYS = (entry: string): [string, string][] => [
 ];
 
 const COMMON_KEYS: [string, string][] = [
-  ["1 – 6", "chat / changes / plan / sessions / settings / monitor"],
+  ["1 – 6", "chat / changes / plan / sessions / monitor / settings"],
+  ["Tab ⇧Tab", "next / previous view"],
   ["click", "select / open a link"],
   ["wheel", "scroll"],
   ["p", "move: right / left / window"],
@@ -41,6 +42,7 @@ const COMMON_KEYS: [string, string][] = [
 const KEYS: Record<Mode, [string, string][]> = {
   chat: [
     ...LIST_KEYS("turn"),
+    ["s", "newest / oldest first"],
     ["↵", "full prompt"],
     ["ctrl+End", "jump to bottom"],
     ["f", "follow mode"],
@@ -64,6 +66,7 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   plan: [
     ...LIST_KEYS("plan"),
+    ["s", "newest / oldest first"],
     ["↵", "changes to previous"],
     ["w", "wrap lines"],
     ["^←→", "scroll sideways"],
@@ -72,6 +75,7 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   sessions: [
     ...LIST_KEYS("session"),
+    ["s", "newest / oldest first"],
     ["↵", "start in a new tab"],
     ["c", "copy resume command"],
     ["d Del", "move to trash"],
@@ -92,7 +96,10 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   monitor: [
     ["←→", "previous / next day"],
-    ["Home End g G", "today / oldest day"],
+    ["Home End g G", "top / bottom of the list"],
+    ["s", "newest / oldest first"],
+    ["Space", "mark day ★"],
+    ["⇧←→", "previous / next marked"],
     ["↑↓ PgUp PgDn", "scroll"],
     ["v", "speed / wait / responses"],
     ["m", "model"],

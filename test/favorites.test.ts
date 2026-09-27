@@ -29,7 +29,8 @@ describe("favorites", () => {
     expect(toggleFavorite(cwd, "files", "src/x.cs")).toEqual(["src/x.cs"]);
     expect(toggleFavorite(cwd, "plans", "toolu_1")).toEqual(["toolu_1"]);
     expect(toggleFavorite(cwd, "turns", "a")).toEqual(["b"]);
-    expect(stored()).toEqual({ turns: ["b"], files: ["src/x.cs"], plans: ["toolu_1"], sessions: [] });
+    expect(toggleFavorite(cwd, "days", "2026-09-27")).toEqual(["2026-09-27"]);
+    expect(stored()).toEqual({ turns: ["b"], files: ["src/x.cs"], plans: ["toolu_1"], sessions: [], days: ["2026-09-27"] });
   });
 
   it("merges the earlier formats into the turns list", () => {
@@ -40,7 +41,7 @@ describe("favorites", () => {
     writeFileSync(favoritesFile(cwd), JSON.stringify({ turns: ["a"] }));
     expect(readFavorites(cwd, "turns")).toEqual(["a"]);
     expect(toggleFavorite(cwd, "files", "f")).toEqual(["f"]);
-    expect(stored()).toEqual({ turns: ["a"], files: ["f"], plans: [], sessions: [] });
+    expect(stored()).toEqual({ turns: ["a"], files: ["f"], plans: [], sessions: [], days: [] });
   });
 
   it("ignores broken files", () => {
