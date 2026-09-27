@@ -1,8 +1,10 @@
 import { Box, useApp, useInput } from "ink";
 import { basename } from "node:path";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
+import { suspendPositionWrites } from "../positions.js";
+import { clearProjectData } from "../projectData.js";
 import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
 import { setViewerView } from "../viewer.js";
@@ -53,6 +55,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     return initialMode ?? shownView(settings, (settings.rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat");
   });
   const [infoOpen, setInfoOpen] = useState(false);
+  // Bumped by the project data reset: the views mount afresh and read the now empty files.
+  const [generation, setGeneration] = useState(0);
   // p: where the viewer runs (right, left, own window).
   const [placementOpen, setPlacementOpen] = useState(false);
   // A view's confirmation dialog takes all keys while it is open.
@@ -103,6 +107,20 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     repoRoot(cwd).then((r) => setGitRoot(r ?? null));
   }, [cwd]);
 
+  /**
+   * Deletes the project's marks, positions, per-session views and restore
+   * state, then remounts the views so none keeps them in memory. Their
+   * unmount would save positions again, so writes pause until the new ones are up.
+   */
+  const resetProjectData = () => {
+    suspendPositionWrites(true);
+    clearProjectData(cwd);
+    setGeneration((g) => g + 1);
+  };
+  useEffect(() => {
+    if (generation > 0) suspendPositionWrites(false);
+  }, [generation]);
+
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
   const choosePlacement = (choice: Placement) => {
     const id = sessionOf(path);
@@ -132,6 +150,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   return (
     <FocusContext.Provider value={focused}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
+        <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
           <MouseContext.Provider value={mouseFor("chat")}>
           <ChatView
@@ -183,7 +202,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         </Box>
         <Box display={mode === "settings" ? "flex" : "none"}>
           <MouseContext.Provider value={mouseFor("settings")}>
-          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} />
+          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} onResetData={resetProjectData} />
           </MouseContext.Provider>
         </Box>
         <Box display={mode === "monitor" ? "flex" : "none"}>
@@ -191,6 +210,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <MonitorView cwd={cwd} layout={layout} visible={mode === "monitor"} active={mode === "monitor" && !blocked} />
           </MouseContext.Provider>
         </Box>
+        </Fragment>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
         {placementOpen && (
           <PlacementDialog

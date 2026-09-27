@@ -34,8 +34,16 @@ export function readPositions(cwd: string, list: PositionList): ListPositions {
   return sanitize(readJson<Stored>(positionsFile(cwd))?.[list]);
 }
 
+/** While set, positions are not written: the views save theirs when they unmount, which a reset must not undo. */
+let writesSuspended = false;
+
+export function suspendPositionWrites(suspended: boolean): void {
+  writesSuspended = suspended;
+}
+
 /** Stores the positions of one list, re-reading first so the other lists (and other viewers) keep theirs. */
 export function savePositions(cwd: string, list: PositionList, positions: ListPositions): void {
+  if (writesSuspended) return;
   const stored = readJson<Stored>(positionsFile(cwd)) ?? {};
   writeJson(positionsFile(cwd), { ...stored, [list]: positions } satisfies Stored);
 }

@@ -328,6 +328,9 @@ What they do:
 Keys:
 - `←`/`→` select a setting, `Enter` or `Space` switches to the next value. A change applies right away in all views.
 - `r` sets the selected setting back to its default, `R` resets all of them after a confirmation.
+- **Reset**, at the end of the list, has two entries; `Enter` shows what would change and asks first:
+  - *all settings to default*, the same as `R`.
+  - *saved data of this project* deletes what cco remembers for the project: the marks `★` of every list, the selected entries and scroll positions, the view and placement of each session, and whether the viewer was open at the last exit. The settings stay, and transcripts, sessions and git are not touched. The views reload empty.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
 
 ## Keys
