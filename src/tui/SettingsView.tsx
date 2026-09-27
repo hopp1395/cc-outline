@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, PLACEMENT_VALUES, VIEW_SETTINGS, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
 import { bold, dim, EntryText, handleNavigation, List, previewHeader, Screen, type Layout } from "./layout.js";
@@ -17,7 +18,30 @@ interface Props {
   /** Reports whether a confirmation is open; the app then leaves all keys to it. */
   onModal?: (open: boolean) => void;
   cwd: string;
+  /** Deletes the project's saved data and reloads the views (App). */
+  onResetData?: () => void;
 }
+
+/** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
+interface ResetAction {
+  id: "settings" | "data";
+  label: string;
+  description: string;
+}
+
+export const RESET_ACTIONS: ResetAction[] = [
+  {
+    id: "settings",
+    label: "all settings to default",
+    description: "Sets every setting above back to its default. R does the same from any setting; r resets only the selected one.",
+  },
+  {
+    id: "data",
+    label: "saved data of this project",
+    description:
+      "Deletes what cco remembers for this project: the marks ★ of turns, files, plans, sessions and days, the selected entry and scroll position of every list, the view and placement of each session, and whether the viewer was open when Claude Code last exited. The settings stay, and nothing of Claude Code is touched: transcripts, sessions and git are as before. The views reload empty.",
+  },
+];
 
 interface Row {
   key: keyof Settings;
@@ -225,6 +249,26 @@ function tilde(path: string): string {
 }
 
 /** Detail lines of a setting: its values (current one marked, default named), the view key and notes. */
+/** The preview of a reset action: what it does, and what it would change or delete right now. */
+function resetLines(action: ResetAction, changed: string[], saved: { name: string; path: string }[], width: number): string[] {
+  const wrap = (text: string, indent = "") =>
+    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
+      .split("\n")
+      .map((l) => indent + l);
+  const lines = [...wrap(action.description), ""];
+  if (action.id === "settings") {
+    lines.push(bold("Changed"));
+    if (changed.length === 0) lines.push(dim("  none: every setting is at its default"));
+    for (const name of changed) lines.push(...wrap(name, "  "));
+  } else {
+    lines.push(bold("Saved"));
+    if (saved.length === 0) lines.push(dim("  nothing saved for this project"));
+    for (const d of saved) lines.push(...wrap(d.name, "  "), ...wrap(dim(tilde(d.path)), "    "));
+  }
+  lines.push("", dim("Enter asks before anything is changed."));
+  return lines;
+}
+
 function settingLines(row: Row, current: string | boolean, width: number): string[] {
   const wrap = (text: string, indent = "") =>
     wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
@@ -243,58 +287,83 @@ function settingLines(row: Row, current: string | boolean, width: number): strin
   return lines;
 }
 
-export function SettingsView({ layout, active, onModal, cwd }: Props) {
+export function SettingsView({ layout, active, onModal, cwd, onResetData }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const settings = useSettings();
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const positions = usePositions(cwd, "settings");
-  const [index, setIndex] = useState(() => Math.max(0, SETTING_ROWS.findIndex((r) => r.key === positions.selected)));
-  const row = SETTING_ROWS[index];
+  const entries = [...SETTING_ROWS.map((r) => r.key as string), ...RESET_ACTIONS.map((a) => `reset:${a.id}`)];
+  const [index, setIndex] = useState(() => Math.max(0, entries.indexOf(positions.selected ?? "")));
+  // Below the settings come the reset actions.
+  const reset = index >= SETTING_ROWS.length ? RESET_ACTIONS[index - SETTING_ROWS.length] : undefined;
+  const row = SETTING_ROWS[Math.min(index, SETTING_ROWS.length - 1)];
   const current = settings[row.key];
+  const entryKey = entries[index];
 
   useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
-  useEffect(() => positions.select(row.key), [row.key]);
+  useEffect(() => positions.select(entryKey), [entryKey]);
 
+  const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
+  const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
   const header = useMemo(
     () =>
       fitHeader(
-        previewHeader(`${row.group}: ${row.label}`, previewWidth, {
-          marker: "⚙ ",
-          style: bold,
-          details: [`${valueName(current)} · default ${valueName(DEFAULT_SETTINGS[row.key])}`],
-        }),
+        reset
+          ? previewHeader(`Reset: ${reset.label}`, previewWidth, {
+              marker: "↺ ",
+              style: bold,
+              details: [reset.id === "settings" ? `${changed.length} changed` : `${saved.length} of 4 files saved`],
+            })
+          : previewHeader(`${row.group}: ${row.label}`, previewWidth, {
+              marker: "⚙ ",
+              style: bold,
+              details: [`${valueName(current)} · default ${valueName(DEFAULT_SETTINGS[row.key])}`],
+            }),
         bodyHeight,
       ),
-    [row, current, previewWidth, bodyHeight],
+    [reset, row, current, changed.length, saved.length, previewWidth, bodyHeight],
   );
-  const lines = useMemo(() => settingLines(row, current, previewWidth), [row, current, previewWidth]);
+  const lines = useMemo(
+    () => (reset ? resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), saved, previewWidth) : settingLines(row, current, previewWidth)),
+    [reset, row, current, changed.length, saved, previewWidth],
+  );
   const viewport = bodyHeightBelow(header, bodyHeight);
-  const scroll = positions.scroll(row.key, lines.length, viewport);
+  const scroll = positions.scroll(entryKey, lines.length, viewport);
 
   const set = (changes: Partial<Settings>) => updateSettings(changes);
-  const select = (i: number) => setIndex(Math.max(0, Math.min(SETTING_ROWS.length - 1, i)));
-  const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
+  const select = (i: number) => setIndex(Math.max(0, Math.min(entries.length - 1, i)));
+  const askResetSettings = () =>
+    setConfirmation({
+      title: "Reset all settings?",
+      lines: [`${changed.length} of ${SETTING_ROWS.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")],
+      onConfirm: () => set({ ...DEFAULT_SETTINGS }),
+    });
+  const askResetData = () =>
+    setConfirmation({
+      title: "Delete the saved data of this project?",
+      lines: [...saved.map((d) => `· ${d.name}`), "Settings, transcripts and git stay."],
+      danger: true,
+      onConfirm: () => onResetData?.(),
+    });
 
   useInput(
     (input, key) => {
-      if (key.return || input === " ") {
+      if (reset && (key.return || input === " ")) {
+        if (reset.id === "settings") return changed.length > 0 && askResetSettings();
+        return saved.length > 0 && askResetData();
+      }
+      if (!reset && (key.return || input === " ")) {
         // The last view besides Settings stays: hiding it would leave only this one.
         if (isLastView(settings, row.key)) return;
         return set({ [row.key]: nextValue(row, current) });
       }
-      if (input === "r") return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
-      if (input === "R" && changed.length > 0) {
-        return setConfirmation({
-          title: "Reset all settings?",
-          lines: [`${changed.length} of ${SETTING_ROWS.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")],
-          onConfirm: () => set({ ...DEFAULT_SETTINGS }),
-        });
-      }
+      if (input === "r" && !reset) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
+      if (input === "R" && changed.length > 0) return askResetSettings();
       handleNavigation(input, key, {
         select: (delta) => select(index + delta),
         first: () => select(0),
-        last: () => select(SETTING_ROWS.length - 1),
+        last: () => select(entries.length - 1),
         scroll,
         page: viewport - 2,
       });
@@ -317,12 +386,21 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
         list={
           <List
             onPick={select}
-            items={SETTING_ROWS}
+            items={[...SETTING_ROWS, ...RESET_ACTIONS]}
             selected={index}
             height={bodyHeight}
             empty="No settings"
-            itemKey={(r) => r.key}
+            itemKey={(r) => ("key" in r ? r.key : `reset:${r.id}`)}
             render={(r, isSelected) => {
+              if (!("key" in r)) {
+                return (
+                  <>
+                    <Text>{"↺".padEnd(valueWidth)} </Text>
+                    <Text dimColor={!isSelected}>Reset </Text>
+                    <EntryText text={r.label} width={Math.max(4, listWidth - valueWidth - 8)} selected={isSelected} active={active && confirmation === undefined} />
+                  </>
+                );
+              }
               const value = settings[r.key];
               const isDefault = value === DEFAULT_SETTINGS[r.key];
               return (
@@ -352,8 +430,8 @@ export function SettingsView({ layout, active, onModal, cwd }: Props) {
         }
         footer={[
           { text: "←→ setting", priority: 4 },
-          { text: "↵ change", priority: 4 },
-          { text: "r default", priority: 3 },
+          { text: reset ? "↵ reset" : "↵ change", priority: 4 },
+          ...(reset ? [] : [{ text: "r default", priority: 3 }]),
           ...(changed.length > 0 ? [{ text: "R reset all", priority: 2 }] : []),
           { text: "1-6/tab view", priority: 1 },
         ]}
