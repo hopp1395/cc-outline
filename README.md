@@ -278,6 +278,8 @@ Below it:
 
 The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a day, from the transcripts of all projects, subagents included.
 
+![Monitor view: days with their number of responses on the left, the day's speed per half hour against the usual values, with a slow afternoon and an error, on the right](docs/monitor.svg)
+
 **List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+←`/`→` jump between marked days.
 
 **Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
@@ -417,10 +419,10 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 npm run dev         # tsup --watch
 npm test            # vitest
 npm run typecheck
-npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg, plan.svg and sessions.svg
+npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg, plan.svg, sessions.svg and monitor.svg
 ```
 
-The demo runs the viewer headlessly on a made-up project with a few older sessions, also of a second project (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
+The demo runs the viewer headlessly on a made-up project with a few older sessions, also of a second project, and a month of responses for the Monitor (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
 
 `cco` runs the built `dist/cli.js`. After a rebuild, close a running viewer with `q` and reopen it. Changes to the plugin (hooks, commands) take effect only after Claude Code restarts.
 
