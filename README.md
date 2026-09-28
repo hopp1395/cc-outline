@@ -52,7 +52,7 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
 - **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a new tab next to the current one.
 - **Everything stays where you left it.** Every list keeps its selected entry and each entry's scroll position, also across restarts.
-- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`, follows the active session, closes it with the session and reopens it next time if it was open, or on every start if you set *auto open* to `always`.
+- **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`, follows the active session, closes it with the session and opens it again on every start (with *auto open* set to `remember`: only if it was open).
 - **Set up once, in one place.** The Settings view (`6` or `/cco:settings`) lists every option with its default: whether the viewer opens by itself, whether quitting asks first, whether long entries scroll and positions are remembered, and the display options of the other views. A change applies at once in all views and all projects.
 
 ## Installation
@@ -76,7 +76,7 @@ claude plugin marketplace add "$(npm root -g)/cc-outline"
 claude plugin install cco@cc-outline
 ```
 
-**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`. To have the viewer open on every start, set *auto open* to `always` in the Settings view.
+**3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`. The viewer then opens on every start; set *auto open* to `remember` or `never` in the Settings view to change that.
 
 **Updating.** Update the CLI and the plugin, then restart Claude Code. New commands such as `/cco:settings` only appear after the plugin update:
 
@@ -283,11 +283,11 @@ The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a 
 **List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+←`/`→` jump between marked days.
 
 **Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
-- `v` switches the value: **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token), **responses** (how many started) and **overall**.
+- `v` switches the value: **overall** (see below; the chart starts with it), **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
 - **Overall** is an index of speed and wait together against the usual values at that time: 100 is usual, higher is better. It is the geometric mean of speed / usual speed and usual wait / wait, so twice as fast counts as much as half the wait. The day's index weighs each stretch by its timed responses.
 - A dimmed `─` marks the usual value at that time of day: the median of the 30 days before (for overall: 100). Bars more than 15 % worse than usual are red, more than 15 % better ones green, the rest cyan; a legend below the chart says so.
 - `✗` on the time axis marks an error Claude Code wrote into the transcript, such as a usage limit.
-- `m` switches the model (each model seen, then all models); it starts with the model used last, since models differ in speed.
+- `m` switches the model: all models (the start), then each model seen, the one used last first, since models differ in speed.
 
 **Table.** `Enter` switches between the chart and a table of the day's raw data, and back: one row per response with its time, model, wait, how long it took, output tokens, speed and overall index against the usual values of its stretch, and the errors in between. Responses too short to time are dimmed. The header shows the day's overall index.
 
@@ -301,7 +301,7 @@ The Settings view (`6`, or `/cco:settings`) shows every option with its value on
 
 | Setting | Values | Default | Also |
 |---|---|---|---|
-| Start: auto open | `remember` / `always` / `never` | `remember` | – |
+| Start: auto open | `remember` / `always` / `never` | `always` | – |
 | Start: placement | `right` / `left` / `window` | `right` | `p` in any view |
 | General: confirm quit | on / off | on | – |
 | General: marquee (long list entries scroll) | on / off | on | – |
@@ -409,8 +409,8 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 - **Tracking the session.** The plugin hooks (`SessionStart`, `UserPromptSubmit`, `SessionEnd`) run `cco hook`, which records the session of each Claude Code process in `~/.claude/cco/<project-slug>.claude-<pid>.json`. A viewer opened with `/cco:…` belongs to the Claude Code it was opened from and follows only that one, also through `/clear` and `/resume`. Other sessions in the same project, for example one started from the Sessions view, don't affect it.
 - **Closing with the session.** When its session ends or its Claude Code process is gone, the viewer closes itself. After `/clear` it continues with the new session instead.
 - **Opening on start.** The *auto open* setting decides what happens when Claude Code starts, also with `--resume` and `--continue`:
-  - `remember` (default): if the viewer was open when Claude Code last exited in this project, it reopens in the view it last showed. If it was closed, it stays closed.
-  - `always`: the viewer opens on every start, in every project, even in one it never ran in; in the chat, or in the view it showed last in the project.
+  - `remember`: if the viewer was open when Claude Code last exited in this project, it reopens in the view it last showed. If it was closed, it stays closed.
+  - `always` (default): the viewer opens on every start, in every project, even in one it never ran in; in the chat, or in the view it showed last in the project.
   - `never`: it only opens through a `/cco:…` command.
 
   It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
