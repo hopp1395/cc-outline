@@ -65,7 +65,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const path = transcript.file ?? opened;
   const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
   // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
-  useTerminalTitle(transcript.title ?? basename(cwd));
+  // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; a viewer of a --session shows no status.
+  const lastTurn = transcript.turns.at(-1);
+  const working = lastTurn !== undefined && !lastTurn.done && !lastTurn.interrupted;
+  useTerminalTitle(transcript.title ?? basename(cwd), sessionId ? undefined : working ? "working" : "idle");
   const [rememberView] = useSetting("rememberView");
   // An explicit --view opens its view even when hidden; a remembered or default one only if shown.
   const [mode, setMode] = useState<Mode>(() => {
