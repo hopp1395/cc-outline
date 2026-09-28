@@ -1,7 +1,7 @@
 import { Marked, type Tokens } from "marked";
-import { markedTerminal } from "marked-terminal";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
+import { terminalRenderer, withoutHyperlinks } from "./terminal.js";
 
 const cache = new Map<string, Marked>();
 
@@ -10,21 +10,14 @@ function rendererFor(width: number, wrap: boolean): Marked {
   let m = cache.get(key);
   if (!m) {
     m = new Marked();
-    // marked-terminal's typings lag behind marked's extension type
-    m.use(markedTerminal({ width, reflowText: false, tab: 2, emoji: false }) as never);
-    // marked >= 13 hands list items a text token with nested inline tokens that
-    // marked-terminal prints verbatim, leaving **bold** and `code` unrendered.
+    m.use(terminalRenderer(width));
     m.use({
       renderer: {
-        text(token: Tokens.Text | Tokens.Escape) {
-          if ("tokens" in token && token.tokens) return this.parser.parseInline(token.tokens);
-          return false;
-        },
-        // marked-terminal sizes tables to their content, so wide ones overflowed
-        // and wrapLine broke their borders apart. Unwrapped, they keep their
-        // natural width and scroll sideways like the other lines.
+        // Tables are fitted to the width here, since wrapLine would break their
+        // borders apart. Unwrapped, they keep their natural width and scroll
+        // sideways like the other lines.
         table(token: Tokens.Table) {
-          const cells = (row: Tokens.TableCell[]) => row.map((c) => this.parser.parseInline(c.tokens));
+          const cells = (row: Tokens.TableCell[]) => row.map((c) => withoutHyperlinks(this.parser.parseInline(c.tokens)));
           const fit = wrap ? width : Infinity;
           return renderTable(cells(token.header), token.rows.map(cells), token.align, fit) + "\n\n";
         },
