@@ -109,6 +109,8 @@ describe("openPane", () => {
     expect(cmd).toBe("wt");
     expect(before).toEqual(["-w", "0", "split-pane", "-V", "--title", "cco", "-d", cwd]);
     expect(viewer).toMatch(/ --placement right --unfocused --claude-pid 42 ; move-focus left$/);
+    // The CLI, not the file (chunk) openPane was bundled into.
+    expect(viewer).toMatch(/[\\/]cli\.js watch --cwd /);
   });
 
   it("opens a window of its own when Claude Code has no tab (no WT_SESSION)", () => {
