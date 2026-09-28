@@ -28,6 +28,8 @@ export interface Settings {
   confirmQuit: boolean;
   /** The selected list entry scrolls when it is too long. */
   marquee: boolean;
+  /** Lists ordered by time get a line with the date above each day's entries. */
+  dateSeparators: boolean;
   /** Selection and scroll positions are stored per project and restored after a restart. */
   rememberPositions: boolean;
   /** Each session reopens in the view it was shown in last. */
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   placement: "right",
   confirmQuit: true,
   marquee: true,
+  dateSeparators: true,
   rememberPositions: true,
   rememberView: true,
   mouse: true,

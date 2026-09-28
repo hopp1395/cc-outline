@@ -18,6 +18,7 @@ import {
 } from "../transcript/trash.js";
 import { resumeInNewTab } from "../open.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
+import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { useFocused } from "./focus.js";
 import {
@@ -81,7 +82,7 @@ function time(ts?: string): string {
   const d = new Date(ts);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-/** "09-26 22:48", short enough for the list. */
+/** "09-26 22:48". */
 function dateTime(ts?: string): string {
   if (!ts) return "           ";
   const d = new Date(ts);
@@ -125,10 +126,14 @@ const AGENT_ICON: Record<AgentStatus, string> = {
 };
 
 /** Plans, agents, changed files and prompts of a session, as lines of `width` columns. */
-export function sessionLines(s: SessionSummary, viewerCwd: string, width: number): string[] {
+export function sessionLines(s: SessionSummary, viewerCwd: string, width: number, separators = true): string[] {
   // Paths are shown relative to the folder the session ran in.
   const cwd = s.cwd ?? viewerCwd;
   const lines: string[] = [];
+  // Over several days, each day starts with a separator; a single day is named by the header.
+  const severalDays = separators && dayOf(s.start) !== dayOf(s.end ?? s.start);
+  const timed = <T,>(items: T[], at: (item: T) => string | undefined, line: (item: T) => string) =>
+    severalDays ? linesByDay(items, at, line, width) : items.map(line);
   const section = (title: string, count: number, body: string[]) => {
     if (lines.length) lines.push("");
     lines.push(heading(`${title} (${count})`));
@@ -137,14 +142,14 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
   section(
     "Plans",
     s.plans.length,
-    s.plans.map((p) => `  ${STATUS_ICON[p.status]} ${dim(time(p.timestamp))} ${truncate(planTitle(p.text), width - 10)}`),
+    timed(s.plans, (p) => p.timestamp, (p) => `  ${STATUS_ICON[p.status]} ${dim(time(p.timestamp))} ${truncate(planTitle(p.text), width - 10)}`),
   );
   const agents = s.agents ?? [];
   if (agents.length > 0) {
     section(
       "Agents",
       agents.length,
-      agents.map((a) => {
+      timed(agents, (a) => a.started, (a) => {
         const icon = AGENT_ICON[a.status];
         const took = a.durationMs !== undefined ? dim(` ${formatMs(a.durationMs)}`) : "";
         return `  ${icon} ${dim(time(a.started))} ${truncate(`${a.type ?? "agent"} · ${a.description}`, width - 20)}${took}`;
@@ -162,7 +167,7 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
   section(
     "Prompts",
     s.prompts.length,
-    s.prompts.map((p) => `  ${dim(time(p.timestamp))} ${truncate(p.text, width - 8)}`),
+    timed(s.prompts, (p) => p.timestamp, (p) => `  ${dim(time(p.timestamp))} ${truncate(p.text, width - 8)}`),
   );
   return lines;
 }
@@ -252,6 +257,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [all, setAll] = useSetting("allProjects");
   // The trash follows the same order as the sessions.
   const [order, setOrder] = useSetting("sessionsOrder");
+  const [separators] = useSetting("dateSeparators");
   const reversed = order === "newest-first";
   const { sessions, progress, running, refresh } = useSessions(cwd, visible, all);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
@@ -271,6 +277,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const favorites = useFavorites(cwd, "sessions");
 
   const list = trashOpen ? trash.map((e) => e.summary) : (sessions ?? []);
+  // The time the list is sorted by and shown with: the start, in the trash the deletion.
+  const deletedAt = new Map(trash.map((e) => [e.id, e.deletedAt]));
+  const listedAt = (s: SessionSummary) => {
+    const deleted = trashOpen ? deletedAt.get(s.id) : undefined;
+    return deleted !== undefined ? new Date(deleted).toISOString() : s.start;
+  };
   const markedCount = (sessions ?? []).filter((s) => favorites.isMarked(s.id)).length;
   const currentId = trashOpen ? trashSelectedId : selectedId;
   const setCurrentId = trashOpen ? setTrashSelectedId : setSelectedId;
@@ -288,8 +300,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     return fitHeader(sessionHeader(session, stateOf(session), previewWidth, entry?.deletedAt), bodyHeight);
   }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight]);
   const lines = useMemo(
-    () => (session ? sessionLines(session, cwd, previewWidth) : []),
-    [session, cwd, previewWidth],
+    () => (session ? sessionLines(session, cwd, previewWidth, separators) : []),
+    [session, cwd, previewWidth, separators],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(session?.id, lines.length, viewport);
@@ -526,24 +538,23 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             height={bodyHeight}
             empty={trashOpen ? "Trash is empty" : sessions ? "No sessions" : "…"}
             itemKey={(s) => s.id}
+            time={listedAt}
             render={(s, isSelected) => {
               const marked = favorites.isMarked(s.id);
               const state = stateOf(s);
               const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
-              const deleted = trashOpen ? trash.find((e) => e.id === s.id)?.deletedAt : undefined;
               return (
                 <>
                   {marked && <Star />}
-                  <Text dimColor={!isSelected}>
-                    {dateTime(deleted !== undefined ? new Date(deleted).toISOString() : s.start)}{" "}
-                  </Text>
+                  {/* Without the date separators, the date is back in each row. */}
+                  <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
                   {badge && <Text color="green">{badge}</Text>}
                   {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
                   <EntryText
                     text={sessionTitle(s)}
                     width={Math.max(
                       4,
-                      listWidth - 13 - (marked ? 2 : 0) - badge.length - (all ? Math.min(12, projectName(s).length) + 1 : 0),
+                      listWidth - (separators ? 7 : 13) - (marked ? 2 : 0) - badge.length - (all ? Math.min(12, projectName(s).length) + 1 : 0),
                     )}
                     selected={isSelected}
                     active={active && confirmation === undefined}
