@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import type { Turn } from "../src/transcript/parse.js";
-import { answerLines, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
+import { answerLines, continuationDetails, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
 
 describe("jumpHint", () => {
   it("centres the badge and gives it a background", () => {
@@ -51,5 +51,24 @@ describe("answerLines", () => {
     };
     const lines = answerLines(turn, { tools: "off", thinking: false, agents: false }, 40, true).map(stripAnsi);
     expect(lines).toEqual(["Fixed.", "", "▌ ※ Recap", "▌ Goal: fix it."]);
+  });
+});
+
+describe("continuationDetails", () => {
+  it("names the sessions, the compaction, the background and how to resume", () => {
+    expect(
+      continuationDetails({
+        sessionId: "b32b44ad-f910",
+        fromSessionId: "e109d6b4-bd08",
+        compact: { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 },
+        backgrounded: true,
+      }),
+    ).toEqual([
+      "session e109d6b4 → b32b44ad",
+      "/compact · 217k → 10k tokens · 43 s",
+      "sent to the background, run by the Claude Code daemon",
+      "claude --resume b32b44ad-f910",
+    ]);
+    expect(continuationDetails({ sessionId: "next" })).toEqual(["session (earlier, not found) → next", "claude --resume next"]);
   });
 });

@@ -139,9 +139,9 @@ export class SessionReader {
       id: basename(this.path, ".jsonl"),
       path: this.path,
       title: this.title,
-      // Task notifications are turns too, but not prompts.
+      // Task notifications and where the session went on are turns too, but not prompts.
       prompts: this.parser.turns
-        .filter((t) => t.id !== "start" && !t.notification)
+        .filter((t) => t.id !== "start" && !t.notification && !t.continuation)
         .map((t) => ({ text: t.prompt, timestamp: t.timestamp })),
       plans: this.parser.plans.map((p) => ({ ...p })),
       files: [...this.files],

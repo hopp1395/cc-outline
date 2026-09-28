@@ -46,7 +46,7 @@ describe("useTranscript", () => {
     const probe = renderProbe(next);
     await expect
       .poll(probe.frame, { timeout: 3000 })
-      .toBe("next.jsonl|fix it=Done.@first.jsonl|/compact=Go on.@first.jsonl");
+      .toBe("next.jsonl|fix it=Done.@first.jsonl|/compact=@first.jsonl|Session continues in next=Go on.@first.jsonl");
     probe.unmount();
   });
 
@@ -64,7 +64,7 @@ describe("useTranscript", () => {
     appendFileSync(next, answer("n", "Go on."));
     await expect
       .poll(probe.frame, { timeout: 5000 })
-      .toBe("next.jsonl|fix it=Done.@first.jsonl|/compact=Go on.@first.jsonl");
+      .toBe("next.jsonl|fix it=Done.@first.jsonl|/compact=@first.jsonl|Session continues in next=Go on.@first.jsonl");
 
     appendFileSync(next, prompt("d", "more") + answer("m", "More."));
     await expect.poll(probe.frame, { timeout: 5000 }).toContain("|more=More.@next.jsonl");

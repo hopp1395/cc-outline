@@ -134,8 +134,13 @@ describe("TranscriptParser", () => {
 
     it("names the answer a continued transcript starts with, whose prompt is in the one before", () => {
       const p = new TranscriptParser();
-      p.push(line({ type: "system", subtype: "compact_boundary", uuid: "b" }) + assistant("end_turn", [{ type: "text", text: "Merged." }]));
-      expect(p.turns.map((t) => [t.id, t.prompt])).toEqual([["start", "(continued after /compact)"]]);
+      p.push(
+        line({ type: "system", subtype: "compact_boundary", uuid: "b", compactMetadata: { trigger: "auto", preTokens: 200000, postTokens: 9000 } }) +
+          assistant("end_turn", [{ type: "text", text: "Merged." }], { sessionId: "next" }),
+      );
+      expect(p.turns.map((t) => [t.id, t.prompt, t.continuation])).toEqual([
+        ["start", "Continued from an earlier session", { sessionId: "next", compact: { trigger: "auto", preTokens: 200000, postTokens: 9000, durationMs: undefined } }],
+      ]);
     });
 
     it("shows /compact once, without the summary it continues with", () => {
@@ -153,14 +158,35 @@ describe("TranscriptParser", () => {
     it("notes where the session continues, and with dedupe skips the entries copied there", () => {
       const p = new TranscriptParser({ dedupe: true });
       const answer = line({ type: "assistant", uuid: "r", message: { id: "m1", content: [{ type: "text", text: "Done." }], stop_reason: "end_turn" } });
-      p.push(prompt("a", "fix it") + answer + prompt("c", "/compact") + line({ type: "continued-in", continuedInSessionId: "next" }));
+      p.push(
+        prompt("a", "fix it") +
+          answer +
+          prompt("c", "/compact") +
+          line({ type: "system", subtype: "informational", content: "Backgrounding after the current tool finishes…" }) +
+          line({ type: "system", subtype: "compact_boundary", uuid: "b", compactMetadata: { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 } }) +
+          line({ type: "continued-in", sessionId: "first", continuedInSessionId: "next" }),
+      );
       expect(p.continuedIn).toBe("next");
+      // Where it went on is an entry of its own.
+      expect(p.turns.at(-1)).toMatchObject({
+        id: "continued-next",
+        prompt: "Session continues in next",
+        done: true,
+        continuation: {
+          sessionId: "next",
+          fromSessionId: "first",
+          compact: { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 },
+          backgrounded: true,
+        },
+      });
       p.nextFile();
       // The continued transcript starts with copies of the last entries, then goes on.
       p.push(answer + prompt("c", "/compact") + assistant("end_turn", [{ type: "text", text: "Compacted, go on." }]));
       expect(p.turns.map((t) => [t.prompt, t.blocks.map((b) => (b.kind === "text" ? b.text : b.kind))])).toEqual([
         ["fix it", ["Done."]],
-        ["/compact", ["Compacted, go on."]],
+        ["/compact", []],
+        // Claude's answers after it belong to it: no prompt comes before them.
+        ["Session continues in next", ["Compacted, go on."]],
       ]);
     });
 
