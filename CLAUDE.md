@@ -83,6 +83,7 @@ The viewer (`src/tui/useViewerControl.ts`) only reacts to changes that happen af
 - `src/render/markdown.ts` uses `marked` with `marked-terminal`, plus two fixes:
   - A `text` renderer override, because marked ≥13 hands list items nested inline tokens that marked-terminal prints raw.
   - A wrapper that indents the continuation lines of list items.
+  - A `table` renderer override (`renderTable`): marked-terminal sizes tables to their content, and `wrapLine` then broke wide ones apart. Columns keep their natural width if the table fits, else the widest are cut to a common width (`fitColumns`), none below its minimum: its header's longest word and its longest word up to `MIN_COLUMN`, where words also break after `-` and `/` (`pieces`). The text wraps inside the cells (`wrapCell`, which closes styles at each break and reopens them). If the minimums don't fit, the rows are listed as `header: value` lines instead, as Claude Code does. Without wrap (`w`), tables keep their natural width and scroll sideways.
 - `src/render/diff.ts` highlights each hunk side as one text, so multi-line comments are colored correctly, and then maps the lines back. Its truecolor theme applies styles per line (`style()`), because highlighted output is split into lines afterwards. Add languages via the `LANGUAGES` map.
 
 **Git** (`src/git/git.ts`): uses porcelain v1 `-z` plus `numstat`. It diffs against `HEAD`, or against git's empty tree in repos without commits. Untracked files get a synthetic all-added hunk and are counted manually.
