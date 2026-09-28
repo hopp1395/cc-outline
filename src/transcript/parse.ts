@@ -1,4 +1,4 @@
-import { fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
+import { escapeMd, fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
 
 /** A tool call; `outcome` is set once its result arrives (Claude Code writes the call only then). */
 export interface ToolBlock {
@@ -872,9 +872,14 @@ function rejectionFeedback(text: string): string | undefined {
   return said || undefined;
 }
 
+/** The line naming the browser page the actions below it (or the navigation above it) ran on. */
+const pageLine = (page: string) => `*on ${escapeMd(page)}*`;
+
 /** Builds the Markdown document shown for a turn. */
 export function turnMarkdown(turn: Turn, opts: { tools: ToolLevel; thinking: boolean; agents?: boolean }): string {
   const parts: string[] = [];
+  // The browser page the last Claude in Chrome action ran on: a line names it whenever it changes.
+  let page: string | undefined;
   for (const b of turn.blocks) {
     if (b.kind === "text") {
       parts.push(b.text);
@@ -883,7 +888,13 @@ export function turnMarkdown(turn: Turn, opts: { tools: ToolLevel; thinking: boo
     } else if (b.kind === "tool") {
       // Questions and answers are part of the conversation: shown at every level.
       const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd);
+      const on = md && b.outcome?.page !== undefined && b.outcome.page !== page ? pageLine(b.outcome.page) : undefined;
+      if (on) page = b.outcome!.page;
+      // Where navigating leads is shown after it; the page other actions ran on before them.
+      const after = on && /__navigate$/.test(b.name);
+      if (on && !after) parts.push(on);
       if (md) parts.push(md);
+      if (after) parts.push(on);
     } else if (b.kind === "agent" && opts.agents) {
       parts.push(agentMarkdown(b.agent));
     } else if (b.kind === "compact") {

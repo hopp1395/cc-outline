@@ -1,5 +1,6 @@
 import { isAbsolute, relative } from "node:path";
 import { BOX_END, BOX_RULE, BOX_START } from "../render/markdown.js";
+import { chromeMarkdown, chromeOutcome, isChromeTool } from "./chrome.js";
 
 /** How much of Claude's tool calls the chat shows: nothing, a line each, or with command and output. */
 export const TOOL_LEVELS = ["off", "compact", "full"] as const;
@@ -21,6 +22,10 @@ export interface ToolOutcome {
   notes?: Record<string, string>;
   /** ExitPlanMode: the user's words when they rejected the plan. */
   feedback?: string;
+  /** Claude in Chrome: the title of the tab the action ran on. */
+  page?: string;
+  /** Claude in Chrome's browser_batch: one line of Markdown per action. */
+  steps?: string[];
 }
 
 /** Lines of Bash/PowerShell output kept for the full view: the end, where results and errors are. */
@@ -116,6 +121,7 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
     const first = lines(text.replace(/<\/?tool_use_error>/g, "").trim())[0] ?? "";
     return { status: "error", summary: `✗ ${escapeMd(first.slice(0, 100))}`, detail: text.trim() ? tail(text.replace(/<\/?tool_use_error>/g, "").trim()) : undefined };
   }
+  if (isChromeTool(name)) return chromeOutcome(name, input, content);
   const r = obj(result);
   const i = obj(input);
   switch (name) {
@@ -269,6 +275,7 @@ export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome 
             : "failed";
     return `**▤ Plan presented** → ${decision} *(3 Plan view)*`;
   }
+  if (isChromeTool(name)) return chromeMarkdown(name, input, outcome, level);
   const status = outcome?.summary ? ` · ${outcome.summary}` : "";
   const line = `**⚙ ${escapeMd(mcpName(name))}** ${toolTitle(name, input, cwd)}${status}`;
   if (level === "compact") return line;
