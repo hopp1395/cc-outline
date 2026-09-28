@@ -2,12 +2,16 @@ import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { barChart, bucketMinutes, CHART_AXIS_WIDTH } from "../monitor/chart.js";
 import {
+  bucketIndex,
+  bucketScores,
   dayBuckets,
+  dayScore,
   daysWithData,
   median,
   measurable,
   modelsByRecency,
   ResponseIndex,
+  scoreOf,
   speedOf,
   typicalBuckets,
   waitOf,
@@ -30,8 +34,10 @@ import {
   orderedNav,
   orderFooter,
   previewHeader,
+  rule,
   Screen,
   Star,
+  truncate,
   type Layout,
 } from "./layout.js";
 import { useSetting } from "./useSetting.js";
@@ -49,10 +55,15 @@ interface Props {
 }
 
 /** What the chart shows; v steps through them. */
-const VALUES = ["speed", "wait", "count"] as const;
+const VALUES = ["speed", "wait", "count", "score"] as const;
 type Value = (typeof VALUES)[number];
-const VALUE_NAMES: Record<Value, string> = { speed: "Speed (output tokens/s)", wait: "Wait until the first block (s)", count: "Responses" };
-const VALUE_KEYS: Record<Value, string> = { speed: "speed", wait: "wait", count: "responses" };
+const VALUE_NAMES: Record<Value, string> = {
+  speed: "Speed (output tokens/s)",
+  wait: "Wait until the first block (s)",
+  count: "Responses",
+  score: "Overall (100 = usual speed and wait)",
+};
+const VALUE_KEYS: Record<Value, string> = { speed: "speed", wait: "wait", count: "responses", score: "overall" };
 
 /** All models together, as a choice of m. */
 const ALL = "all models";
@@ -108,32 +119,49 @@ function useMeasurements(visible: boolean) {
 function colourFor(value: Value) {
   return (v: number, ref: number | undefined) => {
     if (value === "count" || ref === undefined) return "36";
-    const better = value === "speed" ? v > ref * 1.15 : v < ref * 0.85;
-    const worse = value === "speed" ? v < ref * 0.85 : v > ref * 1.15;
+    // Higher is better for speed and the overall index, lower for the wait.
+    const higher = value !== "wait";
+    const better = higher ? v > ref * 1.15 : v < ref * 0.85;
+    const worse = higher ? v < ref * 0.85 : v > ref * 1.15;
     return better ? "32" : worse ? "31" : "36";
   };
 }
 
+const c = (code: string, s: string) => `\u001b[${code}m${s}\u001b[39m`;
+
+/** An overall index, coloured like its bar. */
+const scoreText = (score: number | undefined, width = 0) =>
+  score === undefined ? dim("–".padStart(width)) : c(colourFor("score")(score, 100), score.toFixed(0).padStart(width));
+
 /** What the colours and marks of the chart mean, below it. */
 function legend(value: Value): string[] {
-  const c = (code: string, s: string) => `\u001b[${code}m${s}\u001b[39m`;
   const usual = `${dim("─")} usual (median of the 30 days before)`;
   const error = `${c("31", "✗")} error`;
   if (value === "count") return [`${c("36", "█")} responses   ${usual}   ${error}`];
-  const better = value === "speed" ? "faster" : "shorter";
-  const worse = value === "speed" ? "slower" : "longer";
+  const better = value === "speed" ? "faster" : value === "wait" ? "shorter" : "better";
+  const worse = value === "speed" ? "slower" : value === "wait" ? "longer" : "worse";
   return [
     `${c("32", "█")} ${better} than usual   ${c("36", "█")} about usual   ${c("31", "█")} ${worse} than usual ${dim("(by more than 15 %)")}`,
-    `${usual}   ${error}`,
+    value === "score" ? `${dim("─")} 100 = usual speed and wait at that time   ${error}` : `${usual}   ${error}`,
   ];
 }
 
 const formatValue = (value: Value) => (v: number) => (value === "wait" && v < 10 ? v.toFixed(1) : v.toFixed(0));
-const pick = (value: Value) => (b: Bucket) => (value === "count" ? (b.count > 0 ? b.count : undefined) : b[value]);
+/** The bars of `value` and the usual values they are compared with. */
+function chartValues(value: Value, buckets: Bucket[], typical: Bucket[]) {
+  if (value === "score") {
+    return { values: bucketScores(buckets, typical), reference: typical.map((t) => (t.speed || t.wait ? 100 : undefined)) };
+  }
+  const pick = (b: Bucket) => (value === "count" ? (b.count > 0 ? b.count : undefined) : b[value]);
+  return { values: buckets.map(pick), reference: typical.map(pick) };
+}
+
+const dayResponses = (data: Measurements, day: string, model: string | undefined) =>
+  data.responses.filter((r) => dayKey(r.start) === day && (model === undefined || r.model === model));
 
 /** The figures of the day below the chart. */
 function dayFigures(data: Measurements, day: string, model: string | undefined, buckets: Bucket[], typical: Bucket[]): string[] {
-  const rs = data.responses.filter((r) => dayKey(r.start) === day && (model === undefined || r.model === model));
+  const rs = dayResponses(data, day, model);
   const measured = rs.filter(measurable);
   const usual = (key: "speed" | "wait") => median(typical.map((b) => b[key]).filter((v): v is number => v !== undefined));
   const fmt = (v: number | undefined, unit: string, digits = 0) => (v === undefined ? "–" : `${v.toFixed(digits)}${unit}`);
@@ -149,6 +177,7 @@ function dayFigures(data: Measurements, day: string, model: string | undefined, 
   const hourName = (h: number) => `${String(h).padStart(2, "0")}:00`;
   const errors = buckets.flatMap((b) => b.errors);
   return [
+    `${bold("Overall")}    ${scoreText(dayScore(buckets, typical))}${dim(" · 100 = usual speed and wait at those times")}`,
     `${bold("Speed")}      median ${fmt(speed, " tok/s")}${dim(` · usual ${fmt(usual("speed"), " tok/s")}`)}`,
     `${bold("Wait")}       median ${fmt(wait, " s", 1)}${dim(` · usual ${fmt(usual("wait"), " s", 1)}`)}`,
     `${bold("Responses")}  ${rs.length}${measured.length < rs.length ? dim(` · ${measured.length} long enough to time`) : ""}`,
@@ -161,8 +190,34 @@ function dayFigures(data: Measurements, day: string, model: string | undefined, 
     "",
     dim("Speed: output tokens per second of a response. Wait: until its first finished block,"),
     dim("an upper bound of the time to the first token. Usual: median of the 30 days before."),
+    dim("Overall: speed / usual and usual / wait, their geometric mean × 100."),
     dim("Transient API errors (overloaded, retries) are not written to transcripts."),
   ];
+}
+
+const hhmmss = (at: number) => new Date(at).toTimeString().slice(0, 8);
+
+/** Column headings and rows of the table of the day's responses and errors, oldest first. */
+function responseTable(data: Measurements, day: string, model: string | undefined, minutes: number, typical: Bucket[]) {
+  const rs = dayResponses(data, day, model);
+  const modelWidth = Math.min(16, Math.max(5, ...rs.map((r) => shortModel(r.model).length)));
+  const cell = (s: string, width: number) => s.padStart(width);
+  const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const heading = `Time      ${"Model".padEnd(modelWidth)}  ${cell("Wait", 7)}  ${cell("Took", 7)}  ${cell("Tokens", 6)}  ${cell("tok/s", 5)}  ${cell("Index", 5)}`;
+  const rows = [
+    ...rs.map((r) => {
+      const timed = measurable(r);
+      const score = timed ? scoreOf({ speed: speedOf(r), wait: waitOf(r) }, typical[bucketIndex(r.start, minutes)]) : undefined;
+      const values = `${hhmmss(r.start)}  ${truncate(shortModel(r.model), modelWidth).padEnd(modelWidth)}  ${cell(secs(r.first - r.start), 7)}  ${cell(
+        secs(r.end - r.start),
+        7,
+      )}  ${cell(String(r.outputTokens), 6)}  ${cell(timed ? speedOf(r).toFixed(0) : "–", 5)}  `;
+      // Responses too short to time are dimmed; they only count.
+      return { at: r.start, line: timed ? `${values}${scoreText(score, 5)}` : dim(`${values}${cell("–", 5)}`) };
+    }),
+    ...data.errors.filter((e) => dayKey(e.at) === day).map((e) => ({ at: e.at, line: `${hhmmss(e.at)}  ${c("31", `✗ ${e.text}`)}` })),
+  ].sort((a, b) => a.at - b.at);
+  return { heading, rows: rows.length ? rows.map((r) => r.line) : [dim("No responses on this day.")] };
 }
 
 export function MonitorView({ layout, visible, active, cwd }: Props) {
@@ -197,35 +252,55 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
 
   const columns = Math.max(24, previewWidth - CHART_AXIS_WIDTH);
   const minutes = bucketMinutes(columns);
-  const header = useMemo(
+  // ↵ shows the day's responses as a table instead of the chart.
+  const [table, setTable] = useState(false);
+  const stats = useMemo(
     () =>
-      fitHeader(
-        previewHeader(selected ? `${dayName(selected.day)} · ${VALUE_NAMES[value]}` : "Monitor", previewWidth, {
-          marker: "▁▅█ ",
-          style: bold,
-          details: [`${model ? shortModel(model) : ALL} · ${minutes} min per bar${selected?.day === dayKey(Date.now()) ? " · live" : ""}`],
-        }),
-        bodyHeight,
-      ),
-    [selected?.day, value, model, minutes, previewWidth, bodyHeight],
+      data && selected
+        ? { buckets: dayBuckets(data, selected.day, minutes, model), typical: typicalBuckets(data, selected.day, minutes, model) }
+        : undefined,
+    [data, selected?.day, minutes, model],
   );
+  const rows = useMemo(
+    () => (table && data && selected && stats ? responseTable(data, selected.day, model, minutes, stats.typical) : undefined),
+    [table, data, selected?.day, model, minutes, stats],
+  );
+  const header = useMemo(() => {
+    const live = selected?.day === dayKey(Date.now()) ? " · live" : "";
+    const modelName = model ? shortModel(model) : ALL;
+    const title = selected ? `${dayName(selected.day)} · ${table ? "Responses" : VALUE_NAMES[value]}` : "Monitor";
+    const lines = previewHeader(title, previewWidth, {
+      marker: "▁▅█ ",
+      style: bold,
+      details: [
+        table && stats
+          ? `${modelName} · overall ${scoreText(dayScore(stats.buckets, stats.typical))} · index 100 = usual at that time${live}`
+          : `${modelName} · ${minutes} min per bar${live}`,
+      ],
+    });
+    // The column headings stay above the scrolled rows.
+    const separator = rule(previewWidth, table ? "↵ chart" : "↵ table");
+    return fitHeader([...lines.slice(0, -1), ...(rows ? [bold(rows.heading)] : []), separator], bodyHeight);
+  }, [selected?.day, value, model, minutes, previewWidth, bodyHeight, table, stats, rows]);
   const viewport = bodyHeightBelow(header, bodyHeight);
   const lines = useMemo(() => {
-    if (!data || !selected) return [dim(progress ? `reading transcripts ${progress.done}/${progress.total}…` : "reading transcripts…")];
-    const buckets = dayBuckets(data, selected.day, minutes, model);
-    const typical = typicalBuckets(data, selected.day, minutes, model);
+    if (!data || !selected || !stats) return [dim(progress ? `reading transcripts ${progress.done}/${progress.total}…` : "reading transcripts…")];
+    if (rows) return rows.rows;
+    const { buckets, typical } = stats;
     const height = Math.max(4, Math.min(12, viewport - 12));
-    const chart = barChart(buckets.map(pick(value)), {
+    const { values, reference } = chartValues(value, buckets, typical);
+    const chart = barChart(values, {
       height,
       minutes,
-      reference: typical.map(pick(value)),
+      reference,
       errors: buckets.map((b) => b.errors.length > 0),
       format: formatValue(value),
       colourOf: colourFor(value),
     });
     return [...chart, ...legend(value), "", ...dayFigures(data, selected.day, model, buckets, typical)];
-  }, [data, selected?.day, value, model, minutes, viewport, progress]);
-  const scroll = positions.scroll(selected?.day ?? "", lines.length, viewport);
+  }, [data, selected?.day, value, model, minutes, viewport, progress, stats, rows]);
+  // The table keeps its own position per day.
+  const scroll = positions.scroll(`${selected?.day ?? ""}${table ? "#table" : ""}`, lines.length, viewport);
 
   const select = (i: number) => setIndex(Math.max(0, Math.min(days.length - 1, i)));
   const current = Math.min(index, Math.max(0, days.length - 1));
@@ -234,7 +309,8 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
 
   useInput(
     (input, key) => {
-      if (input === "v") return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
+      if (key.return) return setTable((t) => !t);
+      if (input === "v" && !table) return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
       // Checked first: Space marks instead of paging, Shift+←/→ jump between marked days.
       const mark = markKeys(input, key);
@@ -305,7 +381,8 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
         orderFooter(order, "newest-first"),
         { text: "↑↓ scroll", priority: 1 },
         ...markFooter(favorites.isMarked(selected?.day), markedCount),
-        { text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 },
+        { text: "↵ table", on: table, priority: 3 },
+        ...(table ? [] : [{ text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 }]),
         { text: `m ${model ? shortModel(model) : "all"}`, on: true, priority: 3 },
         { text: "1-6/tab view", priority: 1 },
       ]}
