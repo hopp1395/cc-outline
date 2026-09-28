@@ -56,6 +56,17 @@ describe("trash", () => {
     for (const item of entry.items) expect(existsSync(item.to)).toBe(true);
   });
 
+  it("moves a merged session with the sessions it continued from, and restores them together", () => {
+    createSession("old");
+    createSession("new");
+    trashSession({ ...summary("new"), continues: ["old"] });
+    expect(sessionItems(projectDir(cwd), "old")).toEqual([]);
+    expect(listTrash()[0].items).toHaveLength(6);
+    restoreSession(slug, "new");
+    expect(sessionItems(projectDir(cwd), "old")).toHaveLength(3);
+    expect(sessionItems(projectDir(cwd), "new")).toHaveLength(3);
+  });
+
   it("restores a session with all its parts", () => {
     createSession("s1");
     trashSession(summary("s1"));
