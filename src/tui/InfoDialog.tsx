@@ -102,7 +102,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["⇧←→", "previous / next marked"],
     ["↑↓ PgUp PgDn", "scroll"],
     ["↵", "chart / table of responses"],
-    ["v", "speed / wait / responses / overall"],
+    ["v", "overall / speed / wait / responses"],
     ["m", "model"],
     ...COMMON_KEYS,
   ],

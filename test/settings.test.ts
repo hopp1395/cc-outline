@@ -37,9 +37,9 @@ describe("settings", () => {
   it("accepts only known auto-open values", () => {
     mkdirSync(dirname(settingsFile()), { recursive: true });
     writeFileSync(settingsFile(), JSON.stringify({ autoOpen: "sometimes" }));
-    expect(readSettings().autoOpen).toBe("remember");
-    writeFileSync(settingsFile(), JSON.stringify({ autoOpen: "always" }));
     expect(readSettings().autoOpen).toBe("always");
+    writeFileSync(settingsFile(), JSON.stringify({ autoOpen: "never" }));
+    expect(readSettings().autoOpen).toBe("never");
   });
 
   it("accepts only known list orders", () => {

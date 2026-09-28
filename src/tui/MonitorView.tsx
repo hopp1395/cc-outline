@@ -55,7 +55,7 @@ interface Props {
 }
 
 /** What the chart shows; v steps through them. */
-const VALUES = ["speed", "wait", "count", "score"] as const;
+const VALUES = ["score", "speed", "wait", "count"] as const;
 type Value = (typeof VALUES)[number];
 const VALUE_NAMES: Record<Value, string> = {
   speed: "Speed (output tokens/s)",
@@ -229,11 +229,9 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
   // Days are kept newest first; oldest first only mirrors the list and its keys.
   const [order, setOrder] = useSetting("monitorOrder");
   const reversed = order === "oldest-first";
-  const [value, setValue] = useState<Value>("speed");
+  const [value, setValue] = useState<Value>("score");
   const models = useMemo(() => (data ? modelsByRecency(data) : []), [data]);
-  const [chosenModel, setModel] = useState<string>();
-  // Until one is chosen with m: the model used last.
-  const modelChoice = chosenModel ?? models[0] ?? ALL;
+  const [modelChoice, setModel] = useState<string>(ALL);
   const model = modelChoice === ALL ? undefined : modelChoice;
   const days = useMemo(() => (data ? daysWithData(data, model) : []), [data, model]);
   const [index, setIndex] = useState(0);
