@@ -153,6 +153,35 @@ describe("SessionIndex", () => {
     expect(s.prompts.map((p) => p.text)).toEqual(["First", "Second"]);
     expect(s.end).toBe("2026-09-26T09:10:00.000Z");
   });
+
+  it("shows a session that went on under another id as one, with the later id", async () => {
+    const dir = projectDir(cwd);
+    const compact = prompt("c", "09:30", "<command-name>/compact</command-name>");
+    writeFileSync(
+      join(dir, "old.jsonl"),
+      prompt("u1", "09:00", "Plan it") +
+        tool("e1", "09:05", "Edit", { file_path: "/a.cs" }) +
+        compact +
+        line({ type: "continued-in", continuedInSessionId: "new" }),
+    );
+    // Starts with the compact boundary and a copy of the last entry, then only a slash command.
+    writeFileSync(
+      join(dir, "new.jsonl"),
+      line({ type: "system", subtype: "compact_boundary", uuid: "b", timestamp: "2026-09-26T09:31:00.000Z" }) +
+        compact +
+        prompt("u2", "10:00", "<command-name>/model</command-name>"),
+    );
+    const sessions = await new SessionIndex().scan(cwd);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: "new",
+      continues: ["old"],
+      files: ["/a.cs"],
+      start: "2026-09-26T09:00:00.000Z",
+      end: "2026-09-26T10:00:00.000Z",
+    });
+    expect(sessions[0].prompts.map((p) => p.text)).toEqual(["Plan it", "/compact", "/model"]);
+  });
 });
 
 describe("formatting", () => {

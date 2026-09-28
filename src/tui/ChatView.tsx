@@ -17,11 +17,14 @@ import {
   turnMarkdown,
   type AgentRun,
   type Attachment,
+  type CompactInfo,
+  type Continuation,
   type Turn,
 } from "../transcript/parse.js";
 import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
 import { displayPath } from "../transcript/sessions.js";
 import {
+  bold,
   dim,
   handleNavigation,
   List,
@@ -135,6 +138,60 @@ function interruptLine(turn: Turn): string | undefined {
 }
 
 const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
+const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
+const blue = (s: string) => `\u001b[34m${s}\u001b[39m`;
+const shortId = (id: string) => id.slice(0, 8);
+const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+/** A recap set apart from the answer: a heading and a bar down its left side. */
+export function recapLines(text: string, width: number, wrap: boolean): string[] {
+  const bar = yellow("▌ ");
+  const body = renderMarkdown(text, Math.max(10, width - 2), wrap).map((l) => bar + `\u001b[3m${l}\u001b[23m`);
+  return [bar + yellow(bold("※ Recap")), ...body];
+}
+
+/** "/compact · 217k → 10k tokens · 43 s": what a compaction reported. */
+export function compactLine(info: CompactInfo): string {
+  const sizes = info.preTokens !== undefined && info.postTokens !== undefined ? `${kTokens(info.preTokens)} → ${formatTokens(info.postTokens)}` : undefined;
+  return [info.trigger === "auto" ? "compacted automatically" : "/compact", sizes, info.durationMs !== undefined ? formatMs(info.durationMs) : undefined]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The summary a compaction left: a heading with what it reported, then the summary. */
+export function compactLines(text: string, info: CompactInfo | undefined, width: number, wrap: boolean): string[] {
+  // No bar like the recap's: the summary is usually the whole answer, so there is nothing to set it apart from.
+  return [blue(bold("⟳ Compact summary")) + (info ? dim(` · ${compactLine(info)}`) : ""), "", ...renderMarkdown(text, width, wrap)];
+}
+
+/**
+ * The rendered answer of a turn. Recaps interrupt the Markdown, which is
+ * rendered in runs between them, so each shows where Claude Code wrote it.
+ */
+export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: boolean; agents: boolean }, width: number, wrap: boolean): string[] {
+  const lines: string[] = [];
+  const add = (part: string[]) => {
+    if (part.length === 0) return;
+    if (lines.length > 0) lines.push("");
+    lines.push(...part);
+  };
+  let run: Turn["blocks"] = [];
+  const flush = () => {
+    const md = run.length ? turnMarkdown({ ...turn, blocks: run }, opts) : "";
+    if (md) add(renderMarkdown(md, width, wrap));
+    run = [];
+  };
+  for (const b of turn.blocks) {
+    if (b.kind !== "recap" && b.kind !== "compact") {
+      run.push(b);
+      continue;
+    }
+    flush();
+    add(b.kind === "recap" ? recapLines(b.text, width, wrap) : compactLines(b.text, b.info, width, wrap));
+  }
+  flush();
+  return lines;
+}
 
 /** Columns moved per Shift+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
@@ -212,8 +269,30 @@ function attachmentLines(attachments: Attachment[], cwd: string): string[] {
   return ["", "\u001b[1m📎 Attachments\u001b[22m", ...lines, ...hint];
 }
 
+/** What is known about where the session went on: the ids, the compaction, the background, how to resume it. */
+export function continuationDetails(c: Continuation): string[] {
+  const compact = c.compact;
+  return [
+    `session ${c.fromSessionId ? shortId(c.fromSessionId) : "(earlier, not found)"} → ${c.sessionId ? shortId(c.sessionId) : "?"}`,
+    ...(compact ? [compactLine(compact)] : []),
+    ...(c.backgrounded ? ["sent to the background, run by the Claude Code daemon"] : []),
+    ...(c.sessionId ? [`claude --resume ${c.sessionId}`] : []),
+  ];
+}
+
+/** Header of a continuation entry: what happened, then its details; Claude's answers after it follow below. */
+export function continuationHeader(title: string, c: Continuation, width: number): string[] {
+  return previewHeader(title, width, { marker: blue("⤷ "), style: bold, details: continuationDetails(c) });
+}
+
 /** The complete prompt, shown instead of the answer after Enter. */
 function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[]; lines: string[] } {
+  if (turn.continuation) {
+    return {
+      header: [blue("⤷ ") + bold("Session continued") + dim(" · ↵/esc back to answer"), rule(width)],
+      lines: [turn.prompt, "", ...continuationDetails(turn.continuation)].flatMap((l) => wrapAnsi(l, width, { hard: true }).split("\n")),
+    };
+  }
   const n = turn.notification;
   // A notification's "prompt" is its summary; what the task returned comes below it.
   const usage = n
@@ -279,15 +358,19 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const agentsRunning = (t: Turn) => liveSession && !t.notification && agentsOf(t).some((a) => a.status === "running");
   const currentAgents = agentsOf(current);
   const agent = agentIndex !== undefined ? currentAgents[agentIndex] : undefined;
-  const subagent = useSubagent(path, agent);
+  const subagent = useSubagent(agent?.transcript ?? path, agent);
 
   const answer = useMemo(() => {
     if (!current) return { header: [], lines: [] };
-    const body = turnMarkdown(current, { tools: showTools, thinking: showThinking, agents: showAgents });
+    const body = answerLines(current, { tools: showTools, thinking: showThinking, agents: showAgents }, previewWidth, wrap);
     const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
-    const lines = body ? renderMarkdown(body, previewWidth, wrap) : status ? [] : [dim("(no text output yet)")];
+    const lines = body.length ? body : status ? [] : [dim("(no text output yet)")];
     return {
-      header: promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
+      header: current.continuation
+        ? continuationHeader(current.prompt, current.continuation, previewWidth)
+        : current.compacted
+          ? previewHeader(current.prompt, previewWidth, { marker: blue("⟳ "), style: bold })
+          : promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
       lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
     };
   }, [current, version, previewWidth, bodyHeight, showTools, showThinking, showAgents, wrap, liveSession]);
@@ -317,6 +400,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   // The session whose remembered selection was restored (or found to be missing); nothing is stored before.
   const restoredFor = useRef<string | undefined>(undefined);
   const justRestored = useRef(false);
+  // The selection stored for a turn this session does not have (see the restore below).
+  const unrestored = useRef<string | undefined>(undefined);
   const [pos, setPos] = useState(0);
   const [promptPos, setPromptPos] = useState(0);
 
@@ -369,9 +454,18 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     setHscroll(0);
   };
 
+  // A new session: reset the view. Its turns can come in the same render (a session continued from
+  // other transcripts is read at once), so the effects below run after this one and settle the selection.
   useEffect(() => {
-    if (follow && last >= 0 && selected !== last) showTurn(last);
-  }, [follow, last]);
+    setSelected(0);
+    setPos(0);
+    setFollow(true);
+  }, [path]);
+
+  // Following: select the newest turn, also of a session just switched to (then `selected` is the old session's).
+  useEffect(() => {
+    if (follow && last >= 0) showTurn(last);
+  }, [follow, last, path]);
 
   // Following: stick to the bottom of the latest answer while it grows.
   useEffect(() => {
@@ -385,18 +479,13 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     else setPos(Math.max(0, lines.length - base));
   };
 
-  // A new session starts with an empty transcript: reset the view.
-  useEffect(() => {
-    setSelected(0);
-    setPos(0);
-    setFollow(true);
-  }, [path]);
-
   // Once the turns of a session are there: back to the turn selected last time, unless the newest was followed.
   useEffect(() => {
     if (!path || restoredFor.current === path || turns.length === 0) return;
     restoredFor.current = path;
     const at = remembered.follow === false ? turns.findIndex((t) => t.id === remembered.selected) : -1;
+    // A turn of another session, e.g. the one /resume brings back: kept while this one is only followed.
+    unrestored.current = at < 0 && remembered.follow === false ? remembered.selected : undefined;
     if (at < 0) return;
     justRestored.current = true;
     setFollow(false);
@@ -411,11 +500,15 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       return;
     }
     if (!current) return;
+    if (live && unrestored.current) return;
+    unrestored.current = undefined;
     remembered.select(current.id, live);
     if (!detailOpen) remembered.set(current.id, pos);
   }, [current?.id, live, pos, detailOpen]);
 
   const select = (index: number) => {
+    // The user chose: from now on their selection is the one kept.
+    unrestored.current = undefined;
     const next = Math.max(0, Math.min(last, index));
     if (next !== selected) showTurn(next);
     setFollow(next === last);
@@ -430,7 +523,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     if (imageCount === 0) return;
     let files: string[];
     try {
-      files = turnImageFiles(path, turn).slice(0, MAX_OPENED_IMAGES);
+      files = turnImageFiles(turn.transcript ?? path, turn).slice(0, MAX_OPENED_IMAGES);
     } catch (err) {
       return notify(`could not read the images: ${(err as Error).message}`);
     }
@@ -570,6 +663,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 {/* ↳ marks prompts sent while Claude was still working, ↩ a background task reporting back. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
                 {t.notification && <Text color={NOTIFICATION_COLOR[t.notification.status] ?? "yellow"}>↩ </Text>}
+                {t.continuation && <Text color="blue">⤷ </Text>}
+                {t.compacted && <Text color="blue">⟳ </Text>}
                 {badge && <Text color="magenta">{badge}</Text>}
                 <EntryText
                   text={t.prompt}
@@ -577,7 +672,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                     4,
                     listWidth -
                       7 -
-                      (t.queued || t.notification ? 2 : 0) -
+                      (t.queued || t.notification || t.continuation || t.compacted ? 2 : 0) -
                       (marked ? 2 : 0) -
                       (running || t.interrupted ? 2 : 0) -
                       badge.length,

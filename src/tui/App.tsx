@@ -7,6 +7,7 @@ import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
+import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
@@ -46,7 +47,7 @@ const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", 
  * focus is there then. Notifications are not typed; turns loaded at the start are older.
  */
 function typedInClaude(turns: Turn[], since: number): number | undefined {
-  const last = [...turns].reverse().find((t) => !t.notification);
+  const last = [...turns].reverse().find((t) => !t.notification && !t.continuation && !t.compacted);
   const at = last?.timestamp ? Date.parse(last.timestamp) : NaN;
   return at > since ? at : undefined;
 }
@@ -57,9 +58,11 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   const layout = useLayout();
-  const path = useSessionPath(cwd, sessionId, claudePid);
+  const opened = useSessionPath(cwd, sessionId, claudePid);
   // Parsed once for the chat and the plan view.
-  const transcript = useTranscript(path);
+  const transcript = useTranscript(opened);
+  // The transcript read now: the session may have continued in another one.
+  const path = transcript.file ?? opened;
   const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
   // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
   useTerminalTitle(transcript.title ?? basename(cwd));
@@ -99,6 +102,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
   useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: setMode, onSessionEnd: exit });
+
+  // The process's session went on in another transcript: it is the process's session now.
+  const { continuedFrom } = transcript;
+  useEffect(() => {
+    if (claudePid && !sessionId && continuedFrom && transcript.file) continueSession(cwd, claudePid, continuedFrom, transcript.file);
+  }, [cwd, claudePid, sessionId, continuedFrom, transcript.file]);
 
   // Remember the shown view so the viewer reopens with it after a restart.
   useEffect(() => setViewerView(cwd, mode, claudePid), [cwd, mode, claudePid]);

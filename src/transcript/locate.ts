@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 export interface ActiveSession {
   session_id: string;
@@ -104,6 +104,21 @@ export function controlFile(cwd: string, claudePid?: number): string {
  */
 export function claudeFile(cwd: string, claudePid: number): string {
   return stateFile(cwd, `.claude-${claudePid}`);
+}
+
+/**
+ * The session of process `claudePid` went on from `from` in `transcript` (`continued-in`):
+ * records that one as its session, so a viewer opened later follows it and the
+ * old session's end does not close the viewer. Its hooks run in another
+ * process (the Claude Code daemon's), which writes a state file of its own.
+ */
+export function continueSession(cwd: string, claudePid: number, from: string, transcript: string): void {
+  const file = claudeFile(cwd, claudePid);
+  const own = readJson<ActiveSession>(file);
+  // Only while the process's session is still the one continued: after /resume or /clear it is another.
+  if (!own || own.transcript_path !== from) return;
+  const session_id = basename(transcript, ".jsonl");
+  writeJson(file, { session_id, transcript_path: transcript, cwd: own.cwd, updated: new Date().toISOString() } satisfies ActiveSession);
 }
 
 /** State files of the project whose name continues with `prefix`, e.g. ".viewer-". */
