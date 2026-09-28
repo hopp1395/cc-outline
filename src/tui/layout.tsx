@@ -164,7 +164,7 @@ export function marqueeOffset(tick: number, overflow: number): number {
  * (see `marqueeOffset`). Line breaks and runs of spaces become one space.
  * Owns its timer so only this element re-renders while it moves.
  */
-export function Marquee({ text, width, active }: { text: string; width: number; active: boolean }) {
+export function Marquee({ text, width, active, lead }: { text: string; width: number; active: boolean; lead?: Lead }) {
   const line = text.replace(/\s+/g, " ").trim();
   const overflow = Math.max(0, stringWidth(line) - width);
   const [tick, setTick] = useState(0);
@@ -176,8 +176,32 @@ export function Marquee({ text, width, active }: { text: string; width: number; 
     return () => clearInterval(timer);
   }, [line, width, active, overflow]);
 
-  if (overflow === 0) return <>{line}</>;
-  return <>{sliceColumns(line, marqueeOffset(tick, overflow), width)}</>;
+  if (overflow === 0) return <Led text={line} offset={0} lead={lead} />;
+  const offset = marqueeOffset(tick, overflow);
+  return <Led text={sliceColumns(line, offset, width)} offset={offset} lead={lead} />;
+}
+
+/** The first `columns` of an entry's text in their own colour, e.g. the name of a slash command. */
+export interface Lead {
+  columns: number;
+  color: string;
+}
+
+/** `text`, the visible part of an entry from column `offset` on, split into what is left of its lead and the rest. */
+export function leadParts(text: string, offset: number, lead?: Lead): [string, string] {
+  const n = lead ? Math.max(0, lead.columns - offset) : 0;
+  return n === 0 ? ["", text] : [sliceColumns(text, 0, n), sliceColumns(text, n, Infinity)];
+}
+
+function Led({ text, offset, lead }: { text: string; offset: number; lead?: Lead }) {
+  const [head, rest] = leadParts(text, offset, lead);
+  if (!head) return <>{text}</>;
+  return (
+    <>
+      <Text color={lead!.color}>{head}</Text>
+      {rest}
+    </>
+  );
 }
 
 const SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
@@ -199,9 +223,9 @@ export function Spinner({ active }: { active: boolean }) {
  * is too long (while the view is `active` and the `marquee` setting is on),
  * the others are cut with "…".
  */
-export function EntryText({ text, width, selected, active }: { text: string; width: number; selected: boolean; active: boolean }) {
+export function EntryText({ text, width, selected, active, lead }: { text: string; width: number; selected: boolean; active: boolean; lead?: Lead }) {
   const [marquee] = useSetting("marquee");
-  return selected && marquee ? <Marquee text={text} width={width} active={active} /> : <>{truncate(text, width)}</>;
+  return selected && marquee ? <Marquee text={text} width={width} active={active} lead={lead} /> : <Led text={truncate(text, width)} offset={0} lead={lead} />;
 }
 
 export const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;

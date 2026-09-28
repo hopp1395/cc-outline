@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   fitFooter,
   flipOrder,
+  leadParts,
   orderedDir,
   orderedNav,
   orderFooter,
@@ -34,6 +35,17 @@ describe("wrapPath", () => {
 
   it("keeps short paths on one line", () => {
     expect(wrapPath("src/a.cs", 20)).toEqual(["src/a.cs"]);
+  });
+});
+
+describe("leadParts", () => {
+  const lead = { columns: 6, color: "cyan" };
+  it("splits off what is visible of an entry's lead, also while it scrolls", () => {
+    expect(leadParts("/model sonnet", 0, lead)).toEqual(["/model", " sonnet"]);
+    // Scrolled by 4 columns: "el" of "/model" is left.
+    expect(leadParts("el sonnet", 4, lead)).toEqual(["el", " sonnet"]);
+    expect(leadParts("sonnet", 7, lead)).toEqual(["", "sonnet"]);
+    expect(leadParts("fix it", 0)).toEqual(["", "fix it"]);
   });
 });
 
