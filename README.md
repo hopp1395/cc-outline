@@ -403,7 +403,7 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 | Selected list entry | inverted | gray background |
 | Help line | starts with `alt+←` (back to Claude Code), then the keys | only `alt+→ focus cco` |
 
-`alt+←/→` is Windows Terminal's default for moving between panes; under tmux the help line shows `ctrl+b ←/→`. The focus comes from the terminal's focus events (`ESC[?1004h`). tmux needs `set -g focus-events on`. Terminals without focus events always show the viewer as focused.
+`alt+←/→` is Windows Terminal's default for moving between panes; under tmux the help line shows `ctrl+b ←/→`. The focus comes from the terminal's focus events (`ESC[?1004h`). tmux needs `set -g focus-events on`. Some terminals send no focus events (Windows Terminal 1.12, for example); there the viewer counts a key or click in it as focus, and a prompt you send in Claude Code as focus back in Claude Code. Switching with `alt+←/→` alone shows only after that.
 
 ## How it works
 

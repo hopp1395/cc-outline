@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
 import { resolvePlacement } from "./sessionViews.js";
@@ -7,6 +8,13 @@ import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
 const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor" };
+
+/**
+ * The CLI to start the viewer and `cco open` with. This module can end up in a
+ * chunk of its own next to `dist/cli.js` (tsup splits off the viewer), so its
+ * own file is not the CLI.
+ */
+const CLI = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 
 export type Terminal = "tmux" | "wt";
 
@@ -118,7 +126,7 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
   const placement = tabless ? "window" : chosen;
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
-  const viewer = [process.execPath, fileURLToPath(import.meta.url), "watch", "--cwd", cwd, "--view", view, "--placement", placement];
+  const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, "--view", view, "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");
   if (unfocused) viewer.push("--unfocused");
@@ -169,7 +177,7 @@ function sessionOfProcess(cwd: string, claudePid: number | undefined): string | 
  */
 export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined): boolean {
   if (!detectTerminal()) return false;
-  const args = [fileURLToPath(import.meta.url), "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
+  const args = [CLI, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
   if (claudePid) args.push("--claude-pid", String(claudePid));
   spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;

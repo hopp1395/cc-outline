@@ -1,10 +1,6 @@
 import { Command, Option } from "commander";
-import { render } from "ink";
-import { createElement } from "react";
 import { runHook } from "./hook.js";
 import { openPane } from "./open.js";
-import { App } from "./tui/App.js";
-import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
@@ -46,23 +42,15 @@ program
     registerViewer(opts.cwd, opts.view ?? "chat", claudePid);
     // Also covers exits that bypass Ink, e.g. the pane being closed.
     process.on("exit", () => unregisterViewer(opts.cwd, claudePid));
-    const app = render(
-      createElement(App, {
-        cwd: opts.cwd,
-        sessionId: opts.session,
-        initialMode: opts.view,
-        unfocused: opts.unfocused,
-        claudePid,
-        placement: opts.placement,
-      }),
-      {
-        // Only changed lines, in one write: no flicker under load. CCO_FRAME_BUFFER=0 turns it off.
-        stdout: process.stdout.isTTY && process.env.CCO_FRAME_BUFFER !== "0" ? frameBufferedStdout(process.stdout) : process.stdout,
-        alternateScreen: true,
-        exitOnCtrlC: true,
-      },
-    );
-    await app.waitUntilExit();
+    const { runViewer } = await import("./watch.js");
+    await runViewer({
+      cwd: opts.cwd,
+      sessionId: opts.session,
+      initialMode: opts.view,
+      unfocused: opts.unfocused,
+      claudePid,
+      placement: opts.placement,
+    });
     process.exit(0);
   });
 
