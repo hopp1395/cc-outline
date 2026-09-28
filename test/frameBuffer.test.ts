@@ -63,6 +63,14 @@ describe("FrameBuffer", () => {
     expect(writes[4]).toContain(`${ESC}2J`);
   });
 
+  it("passes the window title through without redrawing the next frame", () => {
+    const { buffer, writes } = fakeStream();
+    buffer.write(`${CLEAR}one\ntwo`);
+    buffer.write("\u001b]0;◐ orders\u0007");
+    buffer.write(`${CLEAR}one\n2`);
+    expect(writes.slice(1)).toEqual(["\u001b]0;◐ orders\u0007", `${BSU}${ESC}2;1H2${ESC}0m${ESC}K${ESU}`]);
+  });
+
   it("draws in full again after a resize", () => {
     const { buffer, stream, writes } = fakeStream();
     buffer.write("a");

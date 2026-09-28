@@ -115,7 +115,7 @@ All views share one layout:
 - **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
 - **Help line:** the keys of the current view at the bottom.
 
-The viewer sets the terminal title to the session title, the one set with `/rename` or else the one Claude Code gave the session; until the session has one, the project folder. So its tab, and a window of its own in the taskbar, show which session it follows instead of just `cco`. A Windows Terminal profile with `suppressApplicationTitle` keeps `cco`.
+The viewer sets the terminal title to the session title, the one set with `/rename` or else the one Claude Code gave the session; until the session has one, the project folder. So its tab, and a window of its own in the taskbar, show which session it follows instead of just `cco`. Like Claude Code, the title starts with a status mark: `◐` and `◑` in turn while Claude works on the last turn, `✳` when it waits for you. A viewer opened with `--session` shows no mark. A Windows Terminal profile with `suppressApplicationTitle` keeps `cco`.
 
 Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` for the next and previous one (hidden views are skipped). All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
