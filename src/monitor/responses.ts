@@ -189,6 +189,9 @@ const minuteOfDay = (at: number) => {
   return d.getHours() * 60 + d.getMinutes();
 };
 
+/** The stretch of `minutes` a time falls into. */
+export const bucketIndex = (at: number, minutes: number) => Math.floor(minuteOfDay(at) / minutes);
+
 export function median(values: number[]): number | undefined {
   if (values.length === 0) return undefined;
   const sorted = [...values].sort((a, b) => a - b);
@@ -204,7 +207,38 @@ export interface Bucket {
   wait?: number;
   /** Responses started in it. */
   count: number;
+  /** Of those, the ones long enough to time. */
+  measured: number;
   errors: ApiError[];
+}
+
+/**
+ * Speed and wait against the usual ones as one index: 100 = usual, higher =
+ * better. The geometric mean of speed / usual speed and usual wait / wait, so
+ * twice as fast counts as much as half the wait; one of them alone if the
+ * other is missing.
+ */
+export function scoreOf(value: { speed?: number; wait?: number }, usual: { speed?: number; wait?: number }): number | undefined {
+  const ratios: number[] = [];
+  if (value.speed && usual.speed) ratios.push(value.speed / usual.speed);
+  if (value.wait && usual.wait) ratios.push(usual.wait / value.wait);
+  if (ratios.length === 0) return undefined;
+  return 100 * Math.exp(ratios.reduce((sum, r) => sum + Math.log(r), 0) / ratios.length);
+}
+
+/** The index of each stretch of a day against the usual one at that time. */
+export const bucketScores = (buckets: Bucket[], typical: Bucket[]) => buckets.map((b, i) => scoreOf(b, typical[i]));
+
+/** The index of a whole day: the stretches' indexes, weighted by their timed responses (geometric mean). */
+export function dayScore(buckets: Bucket[], typical: Bucket[]): number | undefined {
+  let weight = 0;
+  let sum = 0;
+  bucketScores(buckets, typical).forEach((s, i) => {
+    if (s === undefined || buckets[i].measured === 0) return;
+    weight += buckets[i].measured;
+    sum += buckets[i].measured * Math.log(s);
+  });
+  return weight ? Math.exp(sum / weight) : undefined;
 }
 
 /** `model` or, when undefined, all models. */
@@ -215,16 +249,17 @@ export function dayBuckets(data: Measurements, day: string, minutes: number, mod
   const n = Math.ceil(1440 / minutes);
   const speeds: number[][] = Array.from({ length: n }, () => []);
   const waits: number[][] = Array.from({ length: n }, () => []);
-  const buckets: Bucket[] = Array.from({ length: n }, () => ({ count: 0, errors: [] }));
+  const buckets: Bucket[] = Array.from({ length: n }, () => ({ count: 0, measured: 0, errors: [] }));
   for (const r of data.responses) {
     if (dayKey(r.start) !== day || !ofModel(model)(r)) continue;
-    const i = Math.floor(minuteOfDay(r.start) / minutes);
+    const i = bucketIndex(r.start, minutes);
     buckets[i].count++;
     if (!measurable(r)) continue;
+    buckets[i].measured++;
     speeds[i].push(speedOf(r));
     waits[i].push(waitOf(r));
   }
-  for (const e of data.errors) if (dayKey(e.at) === day) buckets[Math.floor(minuteOfDay(e.at) / minutes)].errors.push(e);
+  for (const e of data.errors) if (dayKey(e.at) === day) buckets[bucketIndex(e.at, minutes)].errors.push(e);
   buckets.forEach((b, i) => {
     b.speed = median(speeds[i]);
     b.wait = median(waits[i]);
@@ -243,14 +278,20 @@ export function typicalBuckets(data: Measurements, day: string, minutes: number,
   const counts: Map<string, number>[] = Array.from({ length: n }, () => new Map());
   for (const r of data.responses) {
     if (r.start < from || r.start >= end || !ofModel(model)(r)) continue;
-    const i = Math.floor(minuteOfDay(r.start) / minutes);
+    const i = bucketIndex(r.start, minutes);
     const key = dayKey(r.start);
     counts[i].set(key, (counts[i].get(key) ?? 0) + 1);
     if (!measurable(r)) continue;
     speeds[i].push(speedOf(r));
     waits[i].push(waitOf(r));
   }
-  return speeds.map((s, i) => ({ speed: median(s), wait: median(waits[i]), count: median([...counts[i].values()]) ?? 0, errors: [] }));
+  return speeds.map((s, i) => ({
+    speed: median(s),
+    wait: median(waits[i]),
+    count: median([...counts[i].values()]) ?? 0,
+    measured: s.length,
+    errors: [],
+  }));
 }
 
 /** Models of the responses, the most recently used first. */

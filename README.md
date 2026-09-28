@@ -283,12 +283,15 @@ The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a 
 **List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+←`/`→` jump between marked days.
 
 **Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
-- `v` switches the value: **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
-- A dimmed `─` marks the usual value at that time of day: the median of the 30 days before. Bars more than 15 % worse than usual are red, more than 15 % better ones green, the rest cyan; a legend below the chart says so.
+- `v` switches the value: **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token), **responses** (how many started) and **overall**.
+- **Overall** is an index of speed and wait together against the usual values at that time: 100 is usual, higher is better. It is the geometric mean of speed / usual speed and usual wait / wait, so twice as fast counts as much as half the wait. The day's index weighs each stretch by its timed responses.
+- A dimmed `─` marks the usual value at that time of day: the median of the 30 days before (for overall: 100). Bars more than 15 % worse than usual are red, more than 15 % better ones green, the rest cyan; a legend below the chart says so.
 - `✗` on the time axis marks an error Claude Code wrote into the transcript, such as a usage limit.
 - `m` switches the model (each model seen, then all models); it starts with the model used last, since models differ in speed.
 
-Below the chart: the day's median speed and wait against the usual values, the number of responses, the slowest and the fastest hour, and the errors with their time. Today's chart follows new answers every few seconds while the view is shown.
+**Table.** `Enter` switches between the chart and a table of the day's raw data, and back: one row per response with its time, model, wait, how long it took, output tokens, speed and overall index against the usual values of its stretch, and the errors in between. Responses too short to time are dimmed. The header shows the day's overall index.
+
+Below the chart: the day's overall index, median speed and wait against the usual values, the number of responses, the slowest and the fastest hour, and the errors with their time. Today's chart follows new answers every few seconds while the view is shown.
 
 **Limits.** It measures only your own sessions, so it shows how fast Claude answered you, not the load of the service as a whole. Speed depends on the model, the effort and how much Claude thinks. Transient API errors (overloaded, rate limits, retries) appear only briefly in Claude Code and are not written to transcripts, so they are missing here.
 
