@@ -23,7 +23,7 @@ describe("FrameBuffer", () => {
   it("draws the first frame in full, in one synchronized write", () => {
     const { buffer, writes } = fakeStream();
     buffer.write(`${CLEAR}one\ntwo`);
-    expect(writes).toEqual([`${BSU}${ESC}2J${ESC}1;1Hone${ESC}0m${ESC}K${ESC}2;1Htwo${ESC}0m${ESC}K${ESU}`]);
+    expect(writes).toEqual([`${BSU}${ESC}2J${ESC}3J${ESC}1;1Hone${ESC}0m${ESC}K${ESC}2;1Htwo${ESC}0m${ESC}K${ESU}`]);
   });
 
   it("then writes only the lines that changed, and nothing for the same frame", () => {
@@ -45,7 +45,7 @@ describe("FrameBuffer", () => {
   it("does not erase after a full-width line, and cuts frames taller than the terminal", () => {
     const { buffer, writes } = fakeStream(4, 2);
     buffer.write("abcd\nx\ny");
-    expect(writes[0]).toBe(`${BSU}${ESC}2J${ESC}1;1Habcd${ESC}2;1Hx${ESC}0m${ESC}K${ESU}`);
+    expect(writes[0]).toBe(`${BSU}${ESC}2J${ESC}3J${ESC}1;1Habcd${ESC}2;1Hx${ESC}0m${ESC}K${ESU}`);
   });
 
   it("swallows Ink's own synchronization and passes other output through", () => {
