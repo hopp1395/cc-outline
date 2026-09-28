@@ -141,6 +141,9 @@ interface Entry {
   isMeta?: boolean;
   isSidechain?: boolean;
   cwd?: string;
+  /** `custom-title` (set with /rename) and `ai-title` (named by Claude Code) entries. */
+  customTitle?: string;
+  aiTitle?: string;
   message?: { id?: string; content?: string | ContentBlock[]; stop_reason?: string | null };
   /** Claude Code's structured copy of a tool result; for Agent calls with agentId, status and totals. */
   toolUseResult?: unknown;
@@ -319,6 +322,12 @@ export class TranscriptParser {
   planMode?: PlanModeState;
   /** Subagents started in this transcript, in order. */
   readonly agents: AgentRun[] = [];
+  /** The session title Claude Code shows: the one set with /rename, else the one it generated. */
+  get title(): string | undefined {
+    return this.customTitle ?? this.aiTitle;
+  }
+  private customTitle?: string;
+  private aiTitle?: string;
   private buffer = "";
   /** Tool calls waiting for their result, by tool call id. */
   private pendingTools = new Map<string, ToolBlock>();
@@ -330,7 +339,7 @@ export class TranscriptParser {
    */
   constructor(private readonly opts: { sidechains?: boolean } = {}) {}
 
-  /** Returns true when the turns or plans changed. */
+  /** Returns true when the turns, plans or title changed. */
   push(chunk: string): boolean {
     this.buffer += chunk;
     const lines = this.buffer.split("\n");
@@ -349,7 +358,16 @@ export class TranscriptParser {
     return changed;
   }
 
+  /** Returns true when the title changed. Claude Code repeats these entries, the last one counts. */
+  private trackTitle(entry: Entry): boolean {
+    const before = this.title;
+    if (entry.type === "custom-title") this.customTitle = entry.customTitle?.trim() || undefined;
+    else this.aiTitle = entry.aiTitle?.trim() || undefined;
+    return this.title !== before;
+  }
+
   private add(entry: Entry): boolean {
+    if (!entry.isSidechain && (entry.type === "custom-title" || entry.type === "ai-title")) return this.trackTitle(entry);
     if (this.opts.sidechains && entry.isSidechain) entry = { ...entry, isSidechain: false };
     const notification = notificationOf(entry);
     if (notification) return this.addNotification(entry, notification);

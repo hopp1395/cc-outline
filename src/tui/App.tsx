@@ -20,6 +20,7 @@ import { useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
+import { useTerminalTitle } from "./title.js";
 import { useSetting } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
@@ -48,6 +49,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const path = useSessionPath(cwd, sessionId, claudePid);
   // Parsed once for the chat and the plan view.
   const transcript = useTranscript(path);
+  // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
+  useTerminalTitle(transcript.title ?? basename(cwd));
   const [rememberView] = useSetting("rememberView");
   // An explicit --view opens its view even when hidden; a remembered or default one only if shown.
   const [mode, setMode] = useState<Mode>(() => {
