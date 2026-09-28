@@ -17,7 +17,7 @@ async function topBar(columns: number, status: string): Promise<string> {
   const layout: Layout = { columns, rows: 10, listWidth: 20, previewWidth: columns - 23, bodyHeight: 8 };
   const app = render(
     <Screen layout={layout} mode="chat" status={<Text>{status}</Text>} list={null} preview={null} footer="" />,
-    { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false },
+    { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false, interactive: true },
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
   app.unmount();
