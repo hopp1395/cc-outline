@@ -296,6 +296,30 @@ export function truncate(text: string, width: number): string {
 
 /** Background of the top bar while the viewer has the focus: a dark blue that keeps its text readable. */
 const FOCUS_BAR = "#0e2f55";
+/**
+ * Top bar backgrounds for the session colours of /color, as Claude Code names
+ * them: dark enough for white text, and darker still while the focus is
+ * elsewhere, so the bar keeps showing the focus.
+ */
+export const SESSION_BARS: Record<string, { focused: string; unfocused: string }> = {
+  red: { focused: "#7a1f1f", unfocused: "#3d1616" },
+  orange: { focused: "#7a3f0e", unfocused: "#3d240e" },
+  yellow: { focused: "#6b5a0e", unfocused: "#36300f" },
+  green: { focused: "#1e5e2c", unfocused: "#15311b" },
+  cyan: { focused: "#0e5a60", unfocused: "#0f3134" },
+  blue: { focused: "#1c4b8c", unfocused: "#13263f" },
+  purple: { focused: "#4f2d80", unfocused: "#2a1b42" },
+  pink: { focused: "#7a2a5e", unfocused: "#3f1a33" },
+};
+/** The colour of the shown session (/color); undefined for none, or one cco does not know. */
+export const SessionColorContext = createContext<string | undefined>(undefined);
+
+/** The top bar's background: the session colour's, else the blue focus bar while focused. */
+export function barBackground(color: string | undefined, focused: boolean): string | undefined {
+  const bar = color ? SESSION_BARS[color] : undefined;
+  if (bar) return focused ? bar.focused : bar.unfocused;
+  return focused ? FOCUS_BAR : undefined;
+}
 /** Background of the list selection while the focus is elsewhere, like an inactive editor list. */
 const INACTIVE_SELECTION = "#3a3d41";
 
@@ -407,6 +431,7 @@ const VERSION_LABEL = ` v${VERSION} `;
 
 export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
   const focused = useFocused();
+  const background = barBackground(useContext(SessionColorContext), focused);
   // The version goes right of the tabs and status, only if they leave room for it.
   const barRef = useRef<DOMElement>(null);
   const [showVersion, setShowVersion] = useState(false);
@@ -422,7 +447,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
     : `${paneSwitchKey("right")} focus cco`;
   return (
     <Box flexDirection="column" width={layout.columns} height={layout.rows}>
-      <Box width={layout.columns} backgroundColor={focused ? FOCUS_BAR : undefined}>
+      <Box width={layout.columns} backgroundColor={background}>
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           <Box ref={barRef} flexShrink={0}>
             <Text wrap="truncate">
