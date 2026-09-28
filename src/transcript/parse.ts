@@ -16,7 +16,9 @@ export type Block =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
   | ToolBlock
-  | { kind: "agent"; agent: AgentRun };
+  | { kind: "agent"; agent: AgentRun }
+  /** Claude Code's recap of the session when the user comes back after a while (an `away_summary` entry). */
+  | { kind: "recap"; text: string };
 
 /** "running" until the tool result (foreground) or the task notification (background) says otherwise. */
 export type AgentStatus = "running" | "completed" | "failed" | "killed";
@@ -46,6 +48,8 @@ export interface AgentRun {
   toolUses?: number;
   durationMs?: number;
   started?: string;
+  /** The transcript the call is in, when a session spans several (`continuedIn`); its subagents are next to it. */
+  transcript?: string;
 }
 
 /** A `<task-notification>`: a background agent or command stopped. */
@@ -78,6 +82,8 @@ export interface Turn {
   attachments?: Attachment[];
   /** Not a prompt but Claude Code reporting that a background task stopped; `prompt` is its summary. */
   notification?: TaskNotification;
+  /** The transcript the prompt is in, when a session spans several (`continuedIn`). */
+  transcript?: string;
 }
 
 /**
@@ -140,7 +146,11 @@ interface Entry {
   timestamp?: string;
   isMeta?: boolean;
   isSidechain?: boolean;
+  /** The summary /compact starts the conversation over with; not a prompt. */
+  isCompactSummary?: boolean;
   cwd?: string;
+  /** `continued-in` entry: the session goes on in this session's transcript. */
+  continuedInSessionId?: string;
   /** Text of a `system` entry, e.g. a `local_command`. */
   content?: string;
   /** `custom-title` (set with /rename) and `ai-title` (named by Claude Code) entries. */
@@ -257,7 +267,7 @@ export const isCommand = (prompt: string) => prompt.startsWith("/") || prompt.st
  * a real prompt (tool results, meta reminders, interrupt markers, local command output).
  */
 export function promptText(entry: Entry): string | undefined {
-  if (entry.type !== "user" || entry.isMeta || entry.isSidechain) return undefined;
+  if (entry.type !== "user" || entry.isMeta || entry.isSidechain || entry.isCompactSummary) return undefined;
   const content = entry.message?.content;
   let text: string;
   if (typeof content === "string") {
@@ -342,6 +352,12 @@ export class TranscriptParser {
   get title(): string | undefined {
     return this.customTitle ?? this.aiTitle;
   }
+  /**
+   * Set by a `continued-in` entry: the session goes on in the transcript of
+   * this session id, in the same folder (Claude Code moves a session there,
+   * e.g. when /compact sends it to the background).
+   */
+  continuedIn?: string;
   private customTitle?: string;
   private aiTitle?: string;
   private buffer = "";
@@ -349,11 +365,22 @@ export class TranscriptParser {
   private pendingTools = new Map<string, ToolBlock>();
   /** The last entry was a prompt (or one of its attachments): attachments that follow belong to it. */
   private takesAttachments = false;
+  /** Uuids of the entries read, with `dedupe`: a continued session's transcript starts with copies of the last ones. */
+  private seen?: Set<string>;
   /**
    * `sidechains`: read sidechain entries like the main conversation. A
    * subagent's own transcript (`subagents/agent-<id>.jsonl`) consists of them.
+   * `dedupe`: skip entries whose uuid was read before, for reading a
+   * transcript and then the one it continues in (`continuedIn`).
    */
-  constructor(private readonly opts: { sidechains?: boolean } = {}) {}
+  constructor(private readonly opts: { sidechains?: boolean; dedupe?: boolean } = {}) {
+    if (opts.dedupe) this.seen = new Set();
+  }
+
+  /** Before reading the next transcript: drops an incomplete last line of the previous one. */
+  nextFile(): void {
+    this.buffer = "";
+  }
 
   /** Returns true when the turns, plans or title changed. */
   push(chunk: string): boolean {
@@ -383,6 +410,14 @@ export class TranscriptParser {
   }
 
   private add(entry: Entry): boolean {
+    if (this.seen && entry.uuid) {
+      if (this.seen.has(entry.uuid)) return false;
+      this.seen.add(entry.uuid);
+    }
+    if (entry.type === "continued-in") {
+      this.continuedIn = entry.continuedInSessionId || this.continuedIn;
+      return false;
+    }
     if (!entry.isSidechain && (entry.type === "custom-title" || entry.type === "ai-title")) return this.trackTitle(entry);
     if (this.opts.sidechains && entry.isSidechain) entry = { ...entry, isSidechain: false };
     const notification = notificationOf(entry);
@@ -390,6 +425,12 @@ export class TranscriptParser {
     const prompt = promptText(entry);
     if (prompt !== undefined && this.planMode && !this.planMode.prompt) this.planMode.prompt = prompt;
     if (prompt !== undefined) {
+      // /compact is written twice: as typed, then as a command once it ran.
+      const last = this.turns.at(-1);
+      if (prompt.startsWith("/") && last?.prompt === prompt && !last.done && last.blocks.length === 0) {
+        this.takesAttachments = false;
+        return false;
+      }
       this.turns.push({
         id: entry.uuid ?? String(this.turns.length),
         prompt,
@@ -427,6 +468,7 @@ export class TranscriptParser {
     if (entry.isSidechain) return false;
     // Attachments belong to a prompt only when they follow it directly; after /compact, Claude Code re-attaches files it read.
     if (entry.type === "user" || entry.type === "assistant" || entry.type === "system") this.takesAttachments = false;
+    if (entry.type === "system" && entry.subtype === "away_summary") return this.addRecap(entry.content);
     if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
     if (entry.type === "user") {
       if (this.trackInterrupt(entry)) return true;
@@ -602,6 +644,15 @@ export class TranscriptParser {
       default:
         return false;
     }
+  }
+
+  /** A recap goes below the answer it follows; Claude Code's hint on turning recaps off is left out. */
+  private addRecap(content: string | undefined): boolean {
+    const text = content?.replace(/\s*\(disable recaps in \/config\)\s*$/, "").trim();
+    const turn = this.turns.at(-1);
+    if (!text || !turn) return false;
+    turn.blocks.push({ kind: "recap", text });
+    return true;
   }
 
   /** Marks the last turn finished when `finished`; returns whether that changed anything. */

@@ -22,6 +22,7 @@ import {
 import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
 import { displayPath } from "../transcript/sessions.js";
 import {
+  bold,
   dim,
   handleNavigation,
   List,
@@ -135,6 +136,43 @@ function interruptLine(turn: Turn): string | undefined {
 }
 
 const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
+const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
+
+/** A recap set apart from the answer: a heading and a bar down its left side. */
+export function recapLines(text: string, width: number, wrap: boolean): string[] {
+  const bar = yellow("▌ ");
+  const body = renderMarkdown(text, Math.max(10, width - 2), wrap).map((l) => bar + `\u001b[3m${l}\u001b[23m`);
+  return [bar + yellow(bold("※ Recap")), ...body];
+}
+
+/**
+ * The rendered answer of a turn. Recaps interrupt the Markdown, which is
+ * rendered in runs between them, so each shows where Claude Code wrote it.
+ */
+export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: boolean; agents: boolean }, width: number, wrap: boolean): string[] {
+  const lines: string[] = [];
+  const add = (part: string[]) => {
+    if (part.length === 0) return;
+    if (lines.length > 0) lines.push("");
+    lines.push(...part);
+  };
+  let run: Turn["blocks"] = [];
+  const flush = () => {
+    const md = run.length ? turnMarkdown({ ...turn, blocks: run }, opts) : "";
+    if (md) add(renderMarkdown(md, width, wrap));
+    run = [];
+  };
+  for (const b of turn.blocks) {
+    if (b.kind !== "recap") {
+      run.push(b);
+      continue;
+    }
+    flush();
+    add(recapLines(b.text, width, wrap));
+  }
+  flush();
+  return lines;
+}
 
 /** Columns moved per Shift+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
@@ -279,13 +317,13 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const agentsRunning = (t: Turn) => liveSession && !t.notification && agentsOf(t).some((a) => a.status === "running");
   const currentAgents = agentsOf(current);
   const agent = agentIndex !== undefined ? currentAgents[agentIndex] : undefined;
-  const subagent = useSubagent(path, agent);
+  const subagent = useSubagent(agent?.transcript ?? path, agent);
 
   const answer = useMemo(() => {
     if (!current) return { header: [], lines: [] };
-    const body = turnMarkdown(current, { tools: showTools, thinking: showThinking, agents: showAgents });
+    const body = answerLines(current, { tools: showTools, thinking: showThinking, agents: showAgents }, previewWidth, wrap);
     const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
-    const lines = body ? renderMarkdown(body, previewWidth, wrap) : status ? [] : [dim("(no text output yet)")];
+    const lines = body.length ? body : status ? [] : [dim("(no text output yet)")];
     return {
       header: promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
       lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
@@ -430,7 +468,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     if (imageCount === 0) return;
     let files: string[];
     try {
-      files = turnImageFiles(path, turn).slice(0, MAX_OPENED_IMAGES);
+      files = turnImageFiles(turn.transcript ?? path, turn).slice(0, MAX_OPENED_IMAGES);
     } catch (err) {
       return notify(`could not read the images: ${(err as Error).message}`);
     }

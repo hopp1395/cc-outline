@@ -115,6 +115,49 @@ describe("TranscriptParser", () => {
       expect(p.turns).toEqual([{ id: "r1", prompt: "/rename test", timestamp: undefined, blocks: [], done: true }]);
     });
 
+    it("puts a recap below the answer it follows, without the hint on turning it off", () => {
+      const p = new TranscriptParser();
+      p.push(
+        prompt("a", "fix it") +
+          assistant("end_turn", [{ type: "text", text: "Fixed." }]) +
+          line({ type: "system", subtype: "away_summary", content: "Goal: fix it. Next: `npm test`. (disable recaps in /config)" }),
+      );
+      expect(p.turns).toHaveLength(1);
+      expect(p.turns[0].done).toBe(true);
+      expect(p.turns[0].blocks).toEqual([
+        { kind: "text", text: "Fixed." },
+        { kind: "recap", text: "Goal: fix it. Next: `npm test`." },
+      ]);
+      // Not part of the answer's Markdown (copied with c).
+      expect(turnMarkdown(p.turns[0], { tools: "off", thinking: false })).toBe("Fixed.");
+    });
+
+    it("shows /compact once, without the summary it continues with", () => {
+      const p = new TranscriptParser();
+      p.push(
+        // Written as typed first, then as a command once the conversation is compacted.
+        prompt("raw", "/compact") +
+          line({ type: "system", subtype: "compact_boundary", uuid: "b", content: "Conversation compacted" }) +
+          line({ type: "user", uuid: "s", isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: "user", content: "This session is being continued…" } }) +
+          prompt("c", "<command-name>/compact</command-name>\n<command-args></command-args>"),
+      );
+      expect(p.turns.map((t) => t.prompt)).toEqual(["/compact"]);
+    });
+
+    it("notes where the session continues, and with dedupe skips the entries copied there", () => {
+      const p = new TranscriptParser({ dedupe: true });
+      const answer = line({ type: "assistant", uuid: "r", message: { id: "m1", content: [{ type: "text", text: "Done." }], stop_reason: "end_turn" } });
+      p.push(prompt("a", "fix it") + answer + prompt("c", "/compact") + line({ type: "continued-in", continuedInSessionId: "next" }));
+      expect(p.continuedIn).toBe("next");
+      p.nextFile();
+      // The continued transcript starts with copies of the last entries, then goes on.
+      p.push(answer + prompt("c", "/compact") + assistant("end_turn", [{ type: "text", text: "Compacted, go on." }]));
+      expect(p.turns.map((t) => [t.prompt, t.blocks.map((b) => (b.kind === "text" ? b.text : b.kind))])).toEqual([
+        ["fix it", ["Done."]],
+        ["/compact", ["Compacted, go on."]],
+      ]);
+    });
+
     it("makes a ! command one finished turn with its output as the answer", () => {
       // As Claude Code writes it once the command ended: caveat, input, output (escaped, with color codes).
       const p = new TranscriptParser();
