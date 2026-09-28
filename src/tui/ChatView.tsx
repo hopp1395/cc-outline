@@ -19,6 +19,7 @@ import {
   type Attachment,
   type CompactInfo,
   type Continuation,
+  type TaskNotification,
   type Turn,
 } from "../transcript/parse.js";
 import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
@@ -150,6 +151,14 @@ export function recapLines(text: string, width: number, wrap: boolean): string[]
   return [bar + yellow(bold("※ Recap")), ...body];
 }
 
+/** A message from another agent, set apart from Claude's reaction below it: a heading and a bar down its left side. */
+export function peerLines(n: TaskNotification, width: number, wrap: boolean): string[] {
+  const bar = magenta("▌ ");
+  const title = n.kind === "handback" ? "◆ Report" : "✉ Message";
+  const body = renderMarkdown(n.result ?? "", Math.max(10, width - 2), wrap).map((l) => bar + l);
+  return [bar + magenta(bold(title)) + (n.kind === "message" && n.from ? dim(` · from ${n.from}`) : ""), ...body];
+}
+
 /** "/compact · 217k → 10k tokens · 43 s": what a compaction reported. */
 export function compactLine(info: CompactInfo): string {
   const sizes = info.preTokens !== undefined && info.postTokens !== undefined ? `${kTokens(info.preTokens)} → ${formatTokens(info.postTokens)}` : undefined;
@@ -175,6 +184,8 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
     if (lines.length > 0) lines.push("");
     lines.push(...part);
   };
+  // A report or message from another agent comes first; Claude's reaction to it follows.
+  if (turn.notification?.kind && turn.notification.result) add(peerLines(turn.notification, width, wrap));
   let run: Turn["blocks"] = [];
   const flush = () => {
     const md = run.length ? turnMarkdown({ ...turn, blocks: run }, opts) : "";
@@ -322,7 +333,7 @@ function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[];
       ]
     : [];
   return {
-    header: [cyan("❯ ") + `\u001b[1m${n ? "Task notification" : "Prompt"}\u001b[22m` + dim(" · ↵/esc back to answer"), rule(width)],
+    header: [cyan("❯ ") + `\u001b[1m${n?.kind === "handback" ? "Agent report" : n?.kind === "message" ? "Message" : n ? "Task notification" : "Prompt"}\u001b[22m` + dim(" · ↵/esc back to answer"), rule(width)],
     lines: [
       ...wrapAnsi(turn.prompt, width, { hard: true, trim: false }).split("\n"),
       ...result,
@@ -670,7 +681,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 <Text dimColor={!isSelected}>{time(t.timestamp)} </Text>
                 {/* ↳ marks prompts sent while Claude was still working, ↩ a background task reporting back. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
-                {t.notification && <Text color={NOTIFICATION_COLOR[t.notification.status] ?? "yellow"}>↩ </Text>}
+                {t.notification && (
+                  // Magenta like the report in the answer for a message from an agent, else by the task's status.
+                  <Text color={t.notification.kind ? "magenta" : (NOTIFICATION_COLOR[t.notification.status] ?? "yellow")}>↩ </Text>
+                )}
                 {t.continuation && <Text color="blue">⤷ </Text>}
                 {t.compacted && <Text color="blue">⟳ </Text>}
                 {badge && <Text color="magenta">{badge}</Text>}
