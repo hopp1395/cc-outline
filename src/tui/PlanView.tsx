@@ -1,4 +1,3 @@
-import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
@@ -10,6 +9,7 @@ import type { Plan, PlanModeState, PlanStatus } from "../transcript/parse.js";
 import { watchFile } from "../transcript/tail.js";
 import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
+import { useClipboard } from "./useClipboard.js";
 import { useFavorites } from "./useFavorites.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -137,6 +137,7 @@ function usePlanFile(planMode: PlanModeState | undefined) {
 
 export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, active, onDiffOpen }: Props) {
   const planFile = usePlanFile(planMode);
+  const copy = useClipboard();
   const draft = draftPlan(planMode, planFile, presented);
   // The plan being written comes last, after the ones already presented.
   const plans = useMemo(() => (draft ? [...presented, draft] : presented), [presented, draft?.text, draft?.timestamp]);
@@ -272,7 +273,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       if (key.return && previous) return toggleDiff(!showDiff);
       if (key.escape && diffOpen) return toggleDiff(false);
       if (input === "c" && plan) {
-        clipboard.write(plan.text).then(
+        copy(plan.text).then(
           () => notify("copied the plan to the clipboard"),
           (err: Error) => notify(`copy failed: ${err.message}`),
         );
