@@ -415,6 +415,7 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 
   It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
 - **Without hooks**, the viewer uses the project's most recently modified transcript that contains messages.
+- **Drawing.** The viewer writes only the lines that changed, each in place and all in one write, so the pane does not flicker when the machine is busy. Should a terminal show garbled lines, start the viewer with `CCO_FRAME_BUFFER=0` to let it redraw the whole screen every time instead.
 
 ## Development
 
