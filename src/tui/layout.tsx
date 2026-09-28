@@ -1,11 +1,22 @@
-import { Box, Text, useWindowSize, type Key } from "ink";
-import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Box, Text, measureElement, useWindowSize, type DOMElement, type Key } from "ink";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
 import { isViewShown, type ListOrder } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
+import { VERSION } from "../version.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
@@ -366,8 +377,18 @@ function Footer({ items }: { items: string | FooterItem[] }) {
  * The top bar shows whether the viewer or Claude Code has the focus; the
  * footer then names the key that switches panes.
  */
+const VERSION_LABEL = ` v${VERSION} `;
+
 export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
   const focused = useFocused();
+  // The version goes right of the tabs and status, only if they leave room for it.
+  const barRef = useRef<DOMElement>(null);
+  const [showVersion, setShowVersion] = useState(false);
+  useLayoutEffect(() => {
+    if (!barRef.current) return;
+    const fits = measureElement(barRef.current).width + VERSION_LABEL.length <= layout.columns;
+    if (fits !== showVersion) setShowVersion(fits);
+  });
   const help = focused
     ? typeof footer === "string"
       ? footer
@@ -376,11 +397,16 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
   return (
     <Box flexDirection="column" width={layout.columns} height={layout.rows}>
       <Box width={layout.columns} backgroundColor={focused ? FOCUS_BAR : undefined}>
-        <Text wrap="truncate">
-          <Tabs mode={mode} focused={focused} />
-          <Text> </Text>
-          {status}
-        </Text>
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Box ref={barRef} flexShrink={0}>
+            <Text wrap="truncate">
+              <Tabs mode={mode} focused={focused} />
+              <Text> </Text>
+              {status}
+            </Text>
+          </Box>
+        </Box>
+        {showVersion && <Text dimColor={!focused}>{VERSION_LABEL}</Text>}
       </Box>
       <Box height={layout.bodyHeight}>
         <Box flexDirection="column" width={layout.listWidth} height={layout.bodyHeight}>
