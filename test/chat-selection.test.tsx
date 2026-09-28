@@ -24,7 +24,7 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderChat() {
+function renderChat(active = false) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 120, rows: 20 });
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
   let frame = "";
@@ -32,14 +32,19 @@ function renderChat() {
     const text = stripAnsi(String(chunk));
     if (text.trim()) frame = text;
   });
-  const view = (path: string, t: Transcript) => <ChatView cwd={cwd} path={path} transcript={t} layout={layout} active={false} liveSession />;
+  const view = (path: string, t: Transcript) => <ChatView cwd={cwd} path={path} transcript={t} layout={layout} active={active} liveSession />;
   const app = render(view("new.jsonl", transcript([turn("r", "Answer resume")], 1)), {
     stdout: stdout as never,
     stdin: stdin as never,
     debug: true,
     patchConsole: false,
   });
-  return { frame: () => frame, show: (path: string, t: Transcript) => app.rerender(view(path, t)), unmount: () => app.unmount() };
+  return {
+    frame: () => frame,
+    show: (path: string, t: Transcript) => app.rerender(view(path, t)),
+    press: (keys: string) => stdin.write(keys),
+    unmount: () => app.unmount(),
+  };
 }
 
 const cwd = join(tmpdir(), "cco-chat-project");
@@ -62,6 +67,21 @@ describe("ChatView selection", () => {
     chat.show("resumed.jsonl", resumed);
     await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer three");
     expect(chat.frame()).not.toContain("Answer one");
+    chat.unmount();
+  });
+
+  it("switches turns with the arrow keys up and down, not left and right", async () => {
+    const chat = renderChat(true);
+    chat.show("resumed.jsonl", resumed);
+    await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer three");
+    chat.press("\u001b[D");
+    chat.press("\u001b[A");
+    await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer two");
+    chat.press("\u001b[A");
+    await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer one");
+    chat.press("\u001b[C");
+    chat.press("\u001b[B");
+    await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer two");
     chat.unmount();
   });
 });

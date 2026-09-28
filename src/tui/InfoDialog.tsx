@@ -18,13 +18,14 @@ interface Props {
   gitRoot?: string | null;
 }
 
-/** Keys all three lists share; each view lists them first. */
+/** Keys all lists share; each view lists them first. */
 const LIST_KEYS = (entry: string): [string, string][] => [
-  ["←→", `previous / next ${entry}`],
+  ["↑↓", `previous / next ${entry}`],
   ["Home End g G", `first / last ${entry}`],
   ["Space", `mark ${entry} ★`],
-  ["⇧←→", "previous / next marked"],
-  ["↑↓ PgUp PgDn", "scroll"],
+  ["⇧↑↓", "previous / next marked"],
+  ["PgUp PgDn", "scroll by page"],
+  ["^↑↓", "scroll by line"],
   ["^Home ^End", "top / bottom"],
 ];
 
@@ -52,7 +53,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["^←→", "scroll sideways"],
     ["c", "copy Markdown"],
     ["o", "open pasted images"],
-    ["a", "the turn's subagents"],
+    ["a A", "next / previous subagent"],
     ...COMMON_KEYS,
   ],
   git: [
@@ -86,21 +87,15 @@ const KEYS: Record<Mode, [string, string][]> = {
     ...COMMON_KEYS,
   ],
   settings: [
-    ["←→", "previous / next setting"],
-    ["Home End g G", "first / last setting"],
-    ["↵ Space", "next value"],
+    ...LIST_KEYS("setting"),
+    ["↵", "next value"],
     ["r", "back to the default"],
     ["R", "reset all"],
-    ["↑↓ PgUp PgDn", "scroll"],
     ...COMMON_KEYS,
   ],
   monitor: [
-    ["←→", "previous / next day"],
-    ["Home End g G", "top / bottom of the list"],
+    ...LIST_KEYS("day"),
     ["s", "newest / oldest first"],
-    ["Space", "mark day ★"],
-    ["⇧←→", "previous / next marked"],
-    ["↑↓ PgUp PgDn", "scroll"],
     ["↵", "chart / table of responses"],
     ["v", "overall / speed / wait / responses"],
     ["m", "model"],

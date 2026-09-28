@@ -108,7 +108,7 @@ function agentView(
     // The header does not spin; the body's "is working…" line does.
     details: [agentStatusLine(agent).replace(AGENT_RUNNING_MARK, "▶") + where],
   });
-  const header = [...full.slice(0, -1), rule(width, place.count > 1 ? "←→ agent · a/esc back" : "a/esc back")];
+  const header = [...full.slice(0, -1), rule(width, place.count > 1 ? "a/A agent · esc back" : "a/esc back")];
   const quote = (text: string) => text.split("\n").map((l) => `> ${l}`).join("\n");
   const parts: string[] = [];
   if (sub.turns.length > 0) {
@@ -193,7 +193,7 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
   return lines;
 }
 
-/** Columns moved per Shift+←/→ when lines are not wrapped. */
+/** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
 const JUMP_LABEL =" ↓ Jump to bottom (ctrl+End) ";
@@ -543,7 +543,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     for (const file of files) openInDefaultApp(file);
     notify(`opened ${plural(files.length, "image")}`);
   };
-  /** Mouse wheel over the answer: like ↑/↓, scrolling up leaves the live end and scrolling back down rejoins it. */
+  /** Mouse wheel over the answer: like Ctrl+↑/↓, scrolling up leaves the live end and scrolling back down rejoins it. */
   const wheel = (delta: number) => {
     if (!detailOpen && selected === last) {
       if (delta < 0 && follow) setFollow(false);
@@ -564,25 +564,19 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
 
   useInput(
     (input, key) => {
-      // A subagent's page takes ←→ for its siblings; a or Esc goes back to the answer.
-      if (agentPage) {
-        if (input === "a" || key.escape) return showAgent(undefined);
-        if (key.ctrl && key.end) return scroll.set(scroll.max);
-        if (input === "t") return setShowTools(nextToolLevel);
-        if (input === "h") return setShowThinking((v) => !v);
-        const pick = (i: number) => showAgent(Math.max(0, Math.min(currentAgents.length - 1, i)));
-        handleNavigation(input, key, {
-          select: (delta) => pick((agentIndex ?? 0) + delta),
-          first: () => pick(0),
-          last: () => pick(currentAgents.length - 1),
-          scroll,
-          page: viewport - 2,
-        });
-        return;
+      // a / A step through the turn's subagents and, past the last / first, back to the answer.
+      if (input === "a" || input === "A") {
+        if (currentAgents.length === 0) return notify("no subagents in this turn");
+        const next = agentIndex === undefined ? (input === "a" ? 0 : currentAgents.length - 1) : agentIndex + (input === "a" ? 1 : -1);
+        return showAgent(next >= 0 && next < currentAgents.length ? next : undefined);
       }
-      if (input === "a") return currentAgents.length > 0 ? showAgent(0) : notify("no subagents in this turn");
+      if (agentPage) {
+        // ↑↓ and the list switch turns, which closes the page like Esc.
+        if (key.escape) return showAgent(undefined);
+        if (key.ctrl && key.end) return scroll.set(scroll.max);
+      }
       if (key.ctrl && key.end) return jumpToBottom();
-      // Checked first because plain ←/→ switch turns.
+      // Checked first because plain ↑/↓ switch turns.
       const mark = markKeys(input, key);
       if (mark === "toggle") return current && favorites.toggle(current.id);
       if (mark) return jumpMark(mark);
@@ -594,8 +588,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       const page = viewport - 2;
       if (!detailOpen && selected === last) {
         // Scrolling up leaves the live end; scrolling back to the bottom rejoins it.
-        const up = key.upArrow || key.pageUp || input === "b" || (key.ctrl && key.home);
-        const down = key.downArrow ? 1 : key.pageDown ? page : 0;
+        const up = key.pageUp || (key.ctrl && (key.upArrow || key.home));
+        const down = key.ctrl && key.downArrow ? 1 : key.pageDown ? page : 0;
         if (up && follow) setFollow(false);
         if (down && scroll.scroll + down >= scroll.max) setFollow(true);
       }
@@ -722,14 +716,14 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       footer={
         flash ??
         (agentPage ? [
-          ...(currentAgents.length > 1 ? [{ text: "←→ agent", priority: 4 }] : []),
-          { text: "↑↓ scroll", priority: 1 },
-          { text: "a agent", on: true },
+          { text: "↑↓ turn", priority: 4 },
+          { text: "PgUp/Dn scroll", priority: 1 },
+          { text: currentAgents.length > 1 ? "a/A agent" : "a agent", on: true },
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
         ] : [
-          { text: "←→ turn", priority: 4 },
-          { text: "↑↓ scroll", priority: 1 },
+          { text: "↑↓ turn", priority: 4 },
+          { text: "PgUp/Dn scroll", priority: 1 },
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },

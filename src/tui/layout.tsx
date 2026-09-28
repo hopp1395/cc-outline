@@ -81,8 +81,10 @@ export function useScroll(lineCount: number, height: number): Scroll {
 }
 
 /**
- * Navigation shared by both views: ←→ switch item, ↑↓ scroll the preview,
- * Home/End first/last item, Ctrl+Home/End top/bottom of the preview.
+ * Navigation shared by all views: ↑↓ switch item, PgUp/PgDn scroll the
+ * preview by page and Ctrl+↑↓ by line, Home/End first/last item, Ctrl+Home/End
+ * top/bottom of the preview. Shift+↑↓ (marks, see markKeys) is swallowed here,
+ * so lists without marks do not take it for a plain ↑↓. Plain ←→ do nothing.
  * Returns true when the key was handled.
  */
 export function handleNavigation(
@@ -91,12 +93,12 @@ export function handleNavigation(
   nav: { select: (delta: number) => void; first: () => void; last: () => void; scroll: Scroll; page: number },
 ): boolean {
   const { select, scroll, page } = nav;
-  if (key.leftArrow) select(-1);
-  else if (key.rightArrow) select(1);
-  else if (key.upArrow) scroll.by(-1);
-  else if (key.downArrow) scroll.by(1);
-  else if (key.pageUp || input === "b") scroll.by(-page);
-  else if (key.pageDown || input === " ") scroll.by(page);
+  if (key.upArrow || key.downArrow) {
+    const dir = key.upArrow ? -1 : 1;
+    if (key.ctrl) scroll.by(dir);
+    else if (!key.shift) select(dir);
+  } else if (key.pageUp) scroll.by(-page);
+  else if (key.pageDown) scroll.by(page);
   else if (key.home) (key.ctrl ? scroll.set(0) : nav.first());
   else if (key.end) (key.ctrl ? scroll.set(scroll.max) : nav.last());
   else if (input === "g") nav.first();
@@ -107,12 +109,12 @@ export function handleNavigation(
 
 /**
  * Marks (favourites) work the same in every list: Space marks or unmarks the
- * selected entry, Shift+←/→ jump to the previous / next marked one.
+ * selected entry, Shift+↑/↓ jump to the previous / next marked one.
  */
 export function markKeys(input: string, key: Key): "toggle" | 1 | -1 | undefined {
   if (input === " ") return "toggle";
-  if (key.shift && key.leftArrow) return -1;
-  if (key.shift && key.rightArrow) return 1;
+  if (key.shift && !key.ctrl && key.upArrow) return -1;
+  if (key.shift && !key.ctrl && key.downArrow) return 1;
   return undefined;
 }
 
@@ -120,7 +122,7 @@ export function markKeys(input: string, key: Key): "toggle" | 1 | -1 | undefined
 export function markFooter(currentMarked: boolean, markedCount: number): FooterItem[] {
   return [
     { text: "␣ mark", on: currentMarked },
-    ...(markedCount > 0 ? [{ text: "⇧←→ marked", priority: 2 }] : []),
+    ...(markedCount > 0 ? [{ text: "⇧↑↓ marked", priority: 2 }] : []),
   ];
 }
 
@@ -545,7 +547,7 @@ export function List<T>(props: ListProps<T>) {
 }
 
 /**
- * Navigation of a list shown `reversed`: ←/→ and Home/End follow what is on
+ * Navigation of a list shown `reversed`: ↑/↓ and Home/End follow what is on
  * screen, so a step down the display is a step back in the list's own order.
  */
 export function orderedNav<N extends { select: (delta: number) => void; first: () => void; last: () => void }>(reversed: boolean, nav: N): N {
@@ -560,7 +562,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-/** A direction on screen (Shift+←/→ between marks) in the list's own order. */
+/** A direction on screen (Shift+↑/↓ between marks) in the list's own order. */
 export const orderedDir = (reversed: boolean, dir: 1 | -1): 1 | -1 => (reversed ? (-dir as 1 | -1) : dir);
 
 function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick }: ListProps<T>) {
