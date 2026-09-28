@@ -54,6 +54,8 @@ export interface Transcript {
   planMode?: PlanModeState;
   /** Subagents started in the session; updated in place, `version` changes with them. */
   agents: AgentRun[];
+  /** The session title (/rename, else Claude Code's own), once the transcript has one. */
+  title?: string;
   /** Increments on every change. */
   version: number;
 }
@@ -73,6 +75,7 @@ export function useTranscript(path: string | undefined): Transcript {
           plans: parser.plans.map((p) => ({ ...p })),
           planMode: parser.planMode && { ...parser.planMode },
           agents: [...parser.agents],
+          title: parser.title,
           version: s.version + 1,
         }));
       }
