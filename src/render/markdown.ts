@@ -3,10 +3,11 @@ import { markedTerminal } from "marked-terminal";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 
-const cache = new Map<number, Marked>();
+const cache = new Map<string, Marked>();
 
-function rendererFor(width: number): Marked {
-  let m = cache.get(width);
+function rendererFor(width: number, wrap: boolean): Marked {
+  const key = `${width}:${wrap}`;
+  let m = cache.get(key);
   if (!m) {
     m = new Marked();
     // marked-terminal's typings lag behind marked's extension type
@@ -19,11 +20,142 @@ function rendererFor(width: number): Marked {
           if ("tokens" in token && token.tokens) return this.parser.parseInline(token.tokens);
           return false;
         },
+        // marked-terminal sizes tables to their content, so wide ones overflowed
+        // and wrapLine broke their borders apart. Unwrapped, they keep their
+        // natural width and scroll sideways like the other lines.
+        table(token: Tokens.Table) {
+          const cells = (row: Tokens.TableCell[]) => row.map((c) => this.parser.parseInline(c.tokens));
+          const fit = wrap ? width : Infinity;
+          return renderTable(cells(token.header), token.rows.map(cells), token.align, fit) + "\n\n";
+        },
       },
     });
-    cache.set(width, m);
+    cache.set(key, m);
   }
   return m;
+}
+
+type Align = "left" | "center" | "right" | null;
+
+const bold = (s: string) => `\u001b[1m${s}\u001b[22m`;
+const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
+/** Columns narrower than this (or than their longest word, if shorter) make the table a list. */
+const MIN_COLUMN = 15;
+
+/** The parts a word may break into: once more after "-" and "/" ("PASSED-", "WITH-", "GAPS"). */
+function pieces(word: string): string[] {
+  return word.split(/(?<=[^\s\-/][\-/]+)(?=[^\-/])/);
+}
+
+function longestWord(text: string): number {
+  const words = text.replace(ANSI, "").split(/\s+/);
+  return Math.max(0, ...words.flatMap(pieces).map((w) => stringWidth(w)));
+}
+
+/**
+ * Wraps a cell's text to `width`, breaking at spaces and after "-" and "/",
+ * and inside a piece only if it does not fit on a line of its own. Styles
+ * that span a break are closed at the line's end and reopened on the next one.
+ */
+function wrapCell(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    pieces(word).forEach((piece, i) => {
+      const sep = i === 0 && line ? " " : "";
+      if (stringWidth(line + sep + piece) <= width) {
+        line += sep + piece;
+        return;
+      }
+      if (line) lines.push(line);
+      const parts = wrapAnsi(piece, width, { hard: true, trim: false }).split("\n");
+      line = parts.pop()!;
+      lines.push(...parts);
+    });
+  }
+  lines.push(line);
+  let open = "";
+  return lines.map((l) => {
+    const out = open + l + (open || l.includes("\u001b[") ? "\u001b[0m" : "");
+    open += (l.match(ANSI) ?? []).join("");
+    return out;
+  });
+}
+
+function pad(text: string, width: number, align: Align): string {
+  const gap = Math.max(0, width - stringWidth(text));
+  if (align === "right") return " ".repeat(gap) + text;
+  if (align === "center") return " ".repeat(gap >> 1) + text + " ".repeat(gap - (gap >> 1));
+  return text + " ".repeat(gap);
+}
+
+/**
+ * Column widths that fit `available` columns, or undefined if even the
+ * minimum widths do not: each column keeps its natural width, and the widest
+ * ones are cut down to a common width until all fit, none below its minimum.
+ */
+function fitColumns(natural: number[], min: number[], available: number): number[] | undefined {
+  const sum = (ws: number[]) => ws.reduce((a, b) => a + b, 0);
+  if (sum(natural) <= available) return natural;
+  if (sum(min) > available) return undefined;
+  const at = (level: number) => natural.map((n, c) => Math.max(min[c], Math.min(n, level)));
+  let level = 0;
+  while (sum(at(level + 1)) <= available) level++;
+  const widths = at(level);
+  // Hand the columns left over by the rounding to the cut ones, left to right.
+  let spare = available - sum(widths);
+  for (let c = 0; c < widths.length && spare > 0; c++) {
+    if (widths[c] < natural[c]) {
+      widths[c]++;
+      spare--;
+    }
+  }
+  return widths;
+}
+
+/**
+ * Draws a table in a frame no wider than `width`, wrapping the cells' text
+ * inside them. A column gets at least the width of its header's longest word
+ * and of its longest word (up to MIN_COLUMN); if that does not fit, each row
+ * is listed as "header: value" lines instead, like Claude Code does.
+ */
+export function renderTable(header: string[], rows: string[][], align: Align[], width: number): string {
+  const count = header.length;
+  const all = [header, ...rows];
+  const natural = header.map((_, c) => Math.max(1, ...all.map((r) => stringWidth(r[c] ?? ""))));
+  const min = header.map((h, c) => {
+    const word = Math.max(0, ...rows.map((r) => longestWord(r[c] ?? "")));
+    return Math.min(natural[c], Math.max(longestWord(h), Math.min(MIN_COLUMN, word)));
+  });
+  const widths = fitColumns(natural, min, width - (3 * count + 1));
+  if (!widths) return renderRecords(header, rows, width);
+
+  const line = (l: string, m: string, r: string) => dim(l + widths.map((w) => "─".repeat(w + 2)).join(m) + r);
+  const row = (cells: string[], style: (s: string) => string = (s) => s) => {
+    const wrapped = widths.map((w, c) => wrapCell(cells[c] ?? "", w));
+    const height = Math.max(...wrapped.map((w) => w.length));
+    return Array.from({ length: height }, (_, i) =>
+      dim("│") + wrapped.map((w, c) => ` ${style(pad(w[i] ?? "", widths[c], align[c] ?? null))} `).join(dim("│")) + dim("│"),
+    );
+  };
+  const out = [line("┌", "┬", "┐"), ...row(header, bold)];
+  for (const r of rows) out.push(line("├", "┼", "┤"), ...row(r));
+  out.push(line("└", "┴", "┘"));
+  return out.join("\n");
+}
+
+function renderRecords(header: string[], rows: string[][], width: number): string {
+  const out: string[] = [];
+  rows.forEach((row, r) => {
+    if (r > 0) out.push(dim("─".repeat(Math.min(width, 40))));
+    header.forEach((name, c) => {
+      const text = name.replace(ANSI, "").trim() ? `${bold(`${name}:`)} ${row[c] ?? ""}` : (row[c] ?? "");
+      const [first, ...rest] = wrapAnsi(text, width, { hard: true, trim: true }).split("\n");
+      const cont = rest.length ? wrapAnsi(rest.join(" "), width - 2, { hard: true, trim: true }).split("\n") : [];
+      out.push(first, ...cont.map((l) => "  " + l));
+    });
+  });
+  return out.join("\n");
 }
 
 const ANSI = /\u001b\[[0-9;]*m/g;
@@ -55,7 +187,7 @@ function wrapLine(line: string, width: number): string[] {
 export function renderMarkdown(markdown: string, width: number, wrap = true): string[] {
   if (markdown.includes(BOX_START)) return renderWithBoxes(markdown, width, wrap);
   const w = Math.max(20, width);
-  const ansi = rendererFor(w).parse(markdown, { async: false }) as string;
+  const ansi = rendererFor(w, wrap).parse(markdown, { async: false }) as string;
   const lines = ansi.replace(/\n+$/, "").split("\n");
   return wrap ? lines.flatMap((l) => wrapLine(l, w)) : lines;
 }
