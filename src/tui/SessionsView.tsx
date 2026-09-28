@@ -415,7 +415,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         if (input === "x" && session) return askPurge(session);
         if (input === "X") return askEmpty();
       } else {
-        // Checked first: Space marks instead of paging, Shift+←/→ jump between marked sessions.
+        // Checked first: Shift+↑/↓ jump between marked sessions.
         const mark = markKeys(input, key);
         if (mark === "toggle") return session && favorites.toggle(session.id);
         if (mark) {
@@ -475,9 +475,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
 
   const footer = trashOpen
     ? [
-        { text: "←→ session", priority: 4 },
+        { text: "↑↓ session", priority: 4 },
         orderFooter(order, "oldest-first"),
-        { text: "↑↓ scroll", priority: 1 },
+        { text: "PgUp/Dn scroll", priority: 1 },
         { text: "u restore", priority: 4 },
         { text: "x delete", priority: 3 },
         { text: "X empty", priority: 2 },
@@ -485,9 +485,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "T trash", on: true },
       ]
     : [
-        { text: "←→ session", priority: 4 },
+        { text: "↑↓ session", priority: 4 },
         orderFooter(order, "oldest-first"),
-        { text: "↑↓ scroll", priority: 1 },
+        { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         { text: "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },

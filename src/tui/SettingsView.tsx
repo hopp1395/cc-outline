@@ -6,8 +6,10 @@ import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, PLACEMENT_VALUES, VIEW_SETTINGS, se
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
-import { bold, dim, EntryText, handleNavigation, List, previewHeader, Screen, type Layout } from "./layout.js";
+import { nextMarked } from "../favorites.js";
+import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, Screen, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { useFavorites } from "./useFavorites.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
 
@@ -33,7 +35,7 @@ export const RESET_ACTIONS: ResetAction[] = [
   {
     id: "settings",
     label: "all settings to default",
-    description: "Sets every setting above back to its default. R does the same from any setting; r resets only the selected one.",
+    description: "Sets every setting above back to its default and removes the marks ★ of the settings. R does the same from any setting; r resets only the selected one.",
   },
   {
     id: "data",
@@ -202,7 +204,7 @@ export const SETTING_ROWS: Row[] = [
       key,
       group: view,
       label: "order",
-      description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. The keys follow what you see: ←/→ go up and down the list, Home and g to the top, End and G to the bottom.`,
+      description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. The keys follow what you see: ↑/↓ go up and down the list, Home and g to the top, End and G to the bottom.`,
       values: [
         ["oldest-first", "oldest at the top, newest at the bottom"],
         ["newest-first", "newest at the top, oldest at the bottom"],
@@ -250,7 +252,7 @@ function tilde(path: string): string {
 
 /** Detail lines of a setting: its values (current one marked, default named), the view key and notes. */
 /** The preview of a reset action: what it does, and what it would change or delete right now. */
-function resetLines(action: ResetAction, changed: string[], saved: { name: string; path: string }[], width: number): string[] {
+function resetLines(action: ResetAction, changed: string[], marked: number, saved: { name: string; path: string }[], width: number): string[] {
   const wrap = (text: string, indent = "") =>
     wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
       .split("\n")
@@ -260,6 +262,7 @@ function resetLines(action: ResetAction, changed: string[], saved: { name: strin
     lines.push(bold("Changed"));
     if (changed.length === 0) lines.push(dim("  none: every setting is at its default"));
     for (const name of changed) lines.push(...wrap(name, "  "));
+    if (marked > 0) lines.push("", bold("Marked"), `  ${marked} ★`);
   } else {
     lines.push(bold("Saved"));
     if (saved.length === 0) lines.push(dim("  nothing saved for this project"));
@@ -300,11 +303,14 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
   const row = SETTING_ROWS[Math.min(index, SETTING_ROWS.length - 1)];
   const current = settings[row.key];
   const entryKey = entries[index];
+  const favorites = useFavorites(cwd, "settings");
+  const marked = entries.filter((e) => favorites.isMarked(e)).length;
 
   useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
   useEffect(() => positions.select(entryKey), [entryKey]);
 
   const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
+  const canReset = changed.length > 0 || marked > 0;
   const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
   const header = useMemo(
     () =>
@@ -313,7 +319,7 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
           ? previewHeader(`Reset: ${reset.label}`, previewWidth, {
               marker: "↺ ",
               style: bold,
-              details: [reset.id === "settings" ? `${changed.length} changed` : `${saved.length} of 4 files saved`],
+              details: [reset.id === "settings" ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}` : `${saved.length} of 4 files saved`],
             })
           : previewHeader(`${row.group}: ${row.label}`, previewWidth, {
               marker: "⚙ ",
@@ -322,11 +328,14 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
             }),
         bodyHeight,
       ),
-    [reset, row, current, changed.length, saved.length, previewWidth, bodyHeight],
+    [reset, row, current, changed.length, marked, saved.length, previewWidth, bodyHeight],
   );
   const lines = useMemo(
-    () => (reset ? resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), saved, previewWidth) : settingLines(row, current, previewWidth)),
-    [reset, row, current, changed.length, saved, previewWidth],
+    () =>
+      reset
+        ? resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
+        : settingLines(row, current, previewWidth),
+    [reset, row, current, changed.length, marked, saved, previewWidth],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
@@ -336,8 +345,16 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
   const askResetSettings = () =>
     setConfirmation({
       title: "Reset all settings?",
-      lines: [`${changed.length} of ${SETTING_ROWS.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")],
-      onConfirm: () => set({ ...DEFAULT_SETTINGS }),
+      lines: [
+        ...(changed.length > 0
+          ? [`${changed.length} of ${SETTING_ROWS.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")]
+          : ["Every setting is at its default."]),
+        ...(marked > 0 ? [`The marks ★ of ${marked} ${marked === 1 ? "entry" : "entries"} are removed.`] : []),
+      ],
+      onConfirm: () => {
+        set({ ...DEFAULT_SETTINGS });
+        favorites.clear();
+      },
     });
   const askResetData = () =>
     setConfirmation({
@@ -349,17 +366,23 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
 
   useInput(
     (input, key) => {
-      if (reset && (key.return || input === " ")) {
-        if (reset.id === "settings") return changed.length > 0 && askResetSettings();
+      const mark = markKeys(input, key);
+      if (mark === "toggle") return favorites.toggle(entryKey);
+      if (mark) {
+        const target = nextMarked(entries, favorites.marks, index, mark);
+        return target !== undefined && select(target);
+      }
+      if (reset && key.return) {
+        if (reset.id === "settings") return canReset && askResetSettings();
         return saved.length > 0 && askResetData();
       }
-      if (!reset && (key.return || input === " ")) {
+      if (!reset && key.return) {
         // The last view besides Settings stays: hiding it would leave only this one.
         if (isLastView(settings, row.key)) return;
         return set({ [row.key]: nextValue(row, current) });
       }
       if (input === "r" && !reset) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
-      if (input === "R" && changed.length > 0) return askResetSettings();
+      if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, {
         select: (delta) => select(index + delta),
         first: () => select(0),
@@ -392,12 +415,19 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
             empty="No settings"
             itemKey={(r) => ("key" in r ? r.key : `reset:${r.id}`)}
             render={(r, isSelected) => {
+              const star = favorites.isMarked("key" in r ? r.key : `reset:${r.id}`);
               if (!("key" in r)) {
                 return (
                   <>
                     <Text>{"↺".padEnd(valueWidth)} </Text>
                     <Text dimColor={!isSelected}>Reset </Text>
-                    <EntryText text={r.label} width={Math.max(4, listWidth - valueWidth - 8)} selected={isSelected} active={active && confirmation === undefined} />
+                    {star && <Star />}
+                    <EntryText
+                      text={r.label}
+                      width={Math.max(4, listWidth - valueWidth - 8 - (star ? 2 : 0))}
+                      selected={isSelected}
+                      active={active && confirmation === undefined}
+                    />
                   </>
                 );
               }
@@ -407,9 +437,10 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
                 <>
                   <Text color={isDefault ? undefined : "yellow"}>{valueName(value).padEnd(valueWidth)} </Text>
                   <Text dimColor={!isSelected}>{r.group} </Text>
+                  {star && <Star />}
                   <EntryText
                     text={r.label}
-                    width={Math.max(4, listWidth - valueWidth - r.group.length - 2)}
+                    width={Math.max(4, listWidth - valueWidth - r.group.length - 2 - (star ? 2 : 0))}
                     selected={isSelected}
                     active={active && confirmation === undefined}
                   />
@@ -429,10 +460,11 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
           />
         }
         footer={[
-          { text: "←→ setting", priority: 4 },
+          { text: "↑↓ setting", priority: 4 },
           { text: reset ? "↵ reset" : "↵ change", priority: 4 },
           ...(reset ? [] : [{ text: "r default", priority: 3 }]),
-          ...(changed.length > 0 ? [{ text: "R reset all", priority: 2 }] : []),
+          ...markFooter(favorites.isMarked(entryKey), marked),
+          ...(canReset ? [{ text: "R reset all", priority: 2 }] : []),
           { text: "1-6/tab view", priority: 1 },
         ]}
       />

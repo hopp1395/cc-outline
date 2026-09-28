@@ -53,7 +53,7 @@ const app = render(createElement(App, { cwd, initialMode: "chat" }), { stdout, s
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const viewerScreen = () => screen.replace(/\n$/, "").split("\n").slice(0, ROWS);
 
-const KEYS = { left: "\u001b[D", right: "\u001b[C", down: "\u001b[B", enter: "\r", esc: "\u001b" };
+const KEYS = { up: "\u001b[A", down: "\u001b[B", ctrlDown: "\u001b[1;5B", enter: "\r", esc: "\u001b" };
 /** Viewer screens after each step of the key script. */
 const viewer = [];
 async function shot(duration, keys = [], settle = 700) {
@@ -68,16 +68,16 @@ async function shot(duration, keys = [], settle = 700) {
 await sleep(1500);
 await shot(2500); // newest turn, following the session
 await shot(3500, ["g"]); // first turn: plan with list and table
-await shot(3000, [...Array(14).fill("down"), "right", "left"]); // scroll to the C# block; the turn switch restarts the list marquee
+await shot(3000, [...Array(14).fill("ctrlDown"), "down", "up"]); // scroll to the C# block; the turn switch restarts the list marquee
 await shot(1800, [" "]); // mark the turn
 await shot(3500, ["2"], 1800); // changes view: diff of OrderService.cs
 await shot(3000, ["enter"], 1000); // whole file after the change
-await shot(3000, ["esc", "right"], 1000); // next file
+await shot(3000, ["esc", "down"], 1000); // next file
 await shot(3500, ["3"], 1000); // plan view: the approved second version
 await shot(3000, ["enter"], 1000); // changes to the rejected first version
 await shot(2500, ["esc", "4"], 1800); // sessions view: all projects, the active session selected
-await shot(4000, ["left", "left", "left"], 1000); // an older session with plans and changed files
-await shot(4500, ["5", "right"], 2500); // monitor: the demo day's speed against the usual one
+await shot(4000, ["up", "up", "up"], 1000); // an older session with plans and changed files
+await shot(4500, ["5", "down"], 2500); // monitor: the demo day's speed against the usual one
 await shot(2000, ["1"]); // back to the chat
 
 app.unmount();
