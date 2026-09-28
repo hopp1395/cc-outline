@@ -109,17 +109,22 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
     requestView(cwd, view, claudePid);
     return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
   }
-  const placement = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid));
+  const terminal = detectTerminal();
+  const chosen = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid));
+  // wt finds the window of the calling tab through WT_SESSION. A Claude Code without it (restarted
+  // itself, or a session run by the Claude Code daemon) has no tab to dock to: wt would open a new
+  // window anyway, hidden by windowsHide. Open the viewer in a window of its own instead.
+  const tabless = terminal === "wt" && !process.env.WT_SESSION && chosen !== "window";
+  const placement = tabless ? "window" : chosen;
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
   const viewer = [process.execPath, fileURLToPath(import.meta.url), "watch", "--cwd", cwd, "--view", view, "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
-  const unfocused = opts.keepFocus && !(placement === "window" && detectTerminal() === "wt");
+  const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");
   if (unfocused) viewer.push("--unfocused");
   // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
   if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
-  const terminal = detectTerminal();
   const where = PLACE_NAMES[placement];
   if (terminal === "tmux") {
     const cmd = viewer.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
@@ -145,6 +150,7 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
     }
     // windowsHide asks Windows to start hidden, which Windows Terminal applies to a new window: only for panes.
     spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
+    if (tabless) return `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window: this Claude Code has no terminal tab to dock to.`;
     return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window.` : `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal pane${where}.`;
   }
   return `No supported terminal detected (Windows Terminal or tmux). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
