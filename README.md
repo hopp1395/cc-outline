@@ -404,9 +404,11 @@ The viewer shows whether it or Claude Code has the keyboard focus:
 
 | | Focused | Not focused |
 |---|---|---|
-| Top bar | blue background | dimmed |
+| Top bar | blue background, or the session's colour | dimmed; a session colour stays, darker |
 | Selected list entry | inverted | gray background |
 | Help line | starts with `alt+←` (back to Claude Code), then the keys | only `alt+→ focus cco` |
+
+A session with a colour set with `/color` in Claude Code (red, orange, yellow, green, cyan, blue, purple, pink) colours the top bar with a dark shade of it, so you can tell sessions apart at a glance; without one the bar stays as it is.
 
 `alt+←/→` is Windows Terminal's default for moving between panes; under tmux the help line shows `ctrl+b ←/→`. The focus comes from the terminal's focus events (`ESC[?1004h`). tmux needs `set -g focus-events on`. Some terminals send no focus events (Windows Terminal 1.12, for example); there the viewer counts a key or click in it as focus, and a prompt you send in Claude Code as focus back in Claude Code. Switching with `alt+←/→` alone shows only after that.
 

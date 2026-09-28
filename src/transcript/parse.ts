@@ -190,6 +190,8 @@ interface Entry {
   /** `custom-title` (set with /rename) and `ai-title` (named by Claude Code) entries. */
   customTitle?: string;
   aiTitle?: string;
+  /** `agent-color` entry (set with /color): red, blue, green, yellow, purple, orange, pink or cyan. */
+  agentColor?: string;
   message?: { id?: string; content?: string | ContentBlock[]; stop_reason?: string | null };
   /** Claude Code's structured copy of a tool result; for Agent calls with agentId, status and totals. */
   toolUseResult?: unknown;
@@ -417,6 +419,8 @@ export class TranscriptParser {
   get title(): string | undefined {
     return this.customTitle ?? this.aiTitle;
   }
+  /** The session colour set with /color, as Claude Code names it; the last `agent-color` entry counts. */
+  color?: string;
   /**
    * Set by a `continued-in` entry: the session goes on in the transcript of
    * this session id, in the same folder (Claude Code moves a session there,
@@ -452,7 +456,7 @@ export class TranscriptParser {
     this.buffer = "";
   }
 
-  /** Returns true when the turns, plans or title changed. */
+  /** Returns true when the turns, plans, title or colour changed. */
   push(chunk: string): boolean {
     this.buffer += chunk;
     const lines = this.buffer.split("\n");
@@ -490,6 +494,12 @@ export class TranscriptParser {
       return this.addContinuation(entry);
     }
     if (!entry.isSidechain && (entry.type === "custom-title" || entry.type === "ai-title")) return this.trackTitle(entry);
+    if (entry.type === "agent-color") {
+      if (entry.isSidechain) return false;
+      const before = this.color;
+      this.color = entry.agentColor?.trim() || undefined;
+      return this.color !== before;
+    }
     if (this.opts.sidechains && entry.isSidechain) entry = { ...entry, isSidechain: false };
     const notification = notificationOf(entry);
     if (notification) return this.addNotification(entry, notification);
