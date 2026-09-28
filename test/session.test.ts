@@ -203,6 +203,8 @@ describe("restore on restart", () => {
     );
   beforeEach(() => {
     opened.length = 0;
+    // The default is always; the restore cases are about remember.
+    updateSettings({ autoOpen: "remember" });
   });
 
   it("reopens the viewer with its last view when it was open at exit", () => {
