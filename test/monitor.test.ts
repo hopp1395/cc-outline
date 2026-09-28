@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { barChart, bucketMinutes } from "../src/monitor/chart.js";
-import { dayBuckets, dayKey, daysWithData, modelsByRecency, ResponseReader, typicalBuckets, type Measurements, type Response } from "../src/monitor/responses.js";
+import {
+  bucketScores,
+  dayBuckets,
+  dayKey,
+  dayScore,
+  daysWithData,
+  modelsByRecency,
+  ResponseReader,
+  scoreOf,
+  typicalBuckets,
+  type Bucket,
+  type Measurements,
+  type Response,
+} from "../src/monitor/responses.js";
 
 const line = (e: object) => JSON.stringify(e) + "\n";
 /** Local time on 2026-09-27 (or `day`), as the transcripts' ISO timestamps. */
@@ -67,6 +80,10 @@ describe("buckets", () => {
     expect(typicalBuckets(data, "2026-09-27", 60, "claude-opus-5-5")[10]).toMatchObject({ speed: 80, count: 1 });
   });
 
+  it("counts the timed responses per stretch", () => {
+    expect(dayBuckets(data, "2026-09-27", 60, "claude-opus-5-5")[10]).toMatchObject({ count: 3, measured: 2 });
+  });
+
   it("lists days newest first with today leading, and models by recency", () => {
     const now = Date.parse(at("12:00:00", "2026-09-28"));
     expect(daysWithData(data, undefined, now).map((d) => [d.day, d.count, d.errors])).toEqual([
@@ -76,6 +93,30 @@ describe("buckets", () => {
     ]);
     expect(modelsByRecency(data)).toEqual(["claude-sonnet-5", "claude-opus-5-5"]);
     expect(dayKey(Date.parse(at("23:59:00")))).toBe("2026-09-27");
+  });
+});
+
+describe("overall index", () => {
+  it("is 100 for usual values and weighs speed and wait alike", () => {
+    expect(scoreOf({ speed: 80, wait: 2 }, { speed: 80, wait: 2 })).toBe(100);
+    // Twice as fast and twice the wait cancel out.
+    expect(scoreOf({ speed: 160, wait: 4 }, { speed: 80, wait: 2 })).toBeCloseTo(100);
+    expect(scoreOf({ speed: 160, wait: 1 }, { speed: 80, wait: 2 })).toBeCloseTo(200);
+  });
+
+  it("uses what there is to compare", () => {
+    expect(scoreOf({ speed: 40 }, { speed: 80, wait: 2 })).toBeCloseTo(50);
+    expect(scoreOf({ speed: 40, wait: 1 }, {})).toBeUndefined();
+    expect(scoreOf({ speed: 40, wait: 0 }, { wait: 2 })).toBeUndefined();
+  });
+
+  it("weighs a day's stretches by their timed responses", () => {
+    const bucket = (speed: number, measured: number): Bucket => ({ speed, measured, count: measured, errors: [] });
+    const usual = [bucket(100, 1), bucket(100, 1), bucket(100, 1)];
+    expect(bucketScores([bucket(200, 1), bucket(50, 3), bucket(0, 0)], usual)).toEqual([200, 50, undefined]);
+    // (ln 2 + 3 ln 0.5) / 4 = ln 0.5 / 2
+    expect(dayScore([bucket(200, 1), bucket(50, 3), bucket(0, 0)], usual)).toBeCloseTo(100 * Math.SQRT1_2);
+    expect(dayScore([bucket(0, 0)], usual)).toBeUndefined();
   });
 });
 
