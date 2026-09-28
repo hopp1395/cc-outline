@@ -310,7 +310,7 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
       if (key.return) return setTable((t) => !t);
       if (input === "v" && !table) return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
-      // Checked first: Space marks instead of paging, Shift+←/→ jump between marked days.
+      // Checked first: Shift+↑/↓ jump between marked days.
       const mark = markKeys(input, key);
       if (mark === "toggle") return selected && favorites.toggle(selected.day);
       if (mark) {
@@ -375,9 +375,9 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
         <Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} onWheel={(d) => scroll.by(d)} />
       }
       footer={[
-        { text: "←→ day", priority: 4 },
+        { text: "↑↓ day", priority: 4 },
         orderFooter(order, "newest-first"),
-        { text: "↑↓ scroll", priority: 1 },
+        { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(selected?.day), markedCount),
         { text: "↵ table", on: table, priority: 3 },
         ...(table ? [] : [{ text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 }]),

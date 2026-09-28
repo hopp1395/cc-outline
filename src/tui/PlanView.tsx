@@ -238,7 +238,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
 
   useInput(
     (input, key) => {
-      // Checked first: Space marks instead of paging, Shift+←/→ jump between marked plans.
+      // Checked first: Shift+↑/↓ jump between marked plans.
       const mark = markKeys(input, key);
       if (mark === "toggle") {
         if (plan?.status === "draft") return notify("a plan can be marked once it is presented");
@@ -359,9 +359,9 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       preview={preview}
       footer={
         flash ?? [
-          { text: "←→ plan", priority: 4 },
+          { text: "↑↓ plan", priority: 4 },
           orderFooter(order, "oldest-first"),
-          { text: "↑↓ scroll", priority: 1 },
+          { text: "PgUp/Dn scroll", priority: 1 },
           ...(previous ? [{ text: "↵ changes", on: diffOpen }] : []),
           ...markFooter(favorites.isMarked(plan?.id), markedCount),
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),

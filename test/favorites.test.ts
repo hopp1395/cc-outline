@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { nextMarked, readFavorites, toggleFavorite } from "../src/favorites.js";
+import { clearFavorites, globalFavoritesFile, nextMarked, readFavorites, toggleFavorite } from "../src/favorites.js";
 import { favoritesFile } from "../src/transcript/locate.js";
 
 const cwd = join(tmpdir(), "cco-project");
@@ -42,6 +42,18 @@ describe("favorites", () => {
     expect(readFavorites(cwd, "turns")).toEqual(["a"]);
     expect(toggleFavorite(cwd, "files", "f")).toEqual(["f"]);
     expect(stored()).toEqual({ turns: ["a"], files: ["f"], plans: [], sessions: [], days: [] });
+  });
+
+  it("keeps the marks of the settings globally, apart from the project's", () => {
+    toggleFavorite(cwd, "turns", "a");
+    expect(toggleFavorite(cwd, "settings", "chatWrap")).toEqual(["chatWrap"]);
+    expect(toggleFavorite(cwd, "settings", "reset:settings")).toEqual(["chatWrap", "reset:settings"]);
+    expect(readFavorites(join(tmpdir(), "other-project"), "settings")).toEqual(["chatWrap", "reset:settings"]);
+    expect(stored()).toEqual({ turns: ["a"], files: [], plans: [], sessions: [], days: [] });
+    expect(JSON.parse(readFileSync(globalFavoritesFile(), "utf8"))).toEqual({ settings: ["chatWrap", "reset:settings"] });
+    expect(clearFavorites(cwd, "settings")).toEqual([]);
+    expect(readFavorites(cwd, "settings")).toEqual([]);
+    expect(readFavorites(cwd, "turns")).toEqual(["a"]);
   });
 
   it("ignores broken files", () => {

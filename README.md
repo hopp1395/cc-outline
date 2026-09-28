@@ -120,13 +120,13 @@ The viewer sets the terminal title to the session title, the one set with `/rena
 Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` for the next and previous one (hidden views are skipped). All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
 **Lists.** All lists work the same way:
-- `←`/`→` select the previous or next entry, `Home`/`End` the first or last one.
-- The lists ordered by time (Chat, Plan, Sessions with its trash, Monitor) show the oldest entry at the top, the Monitor the newest. `s` turns a list around and remembers it (the *order* settings). The keys follow what you see: `←`/`→` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
+- `↑`/`↓` select the previous or next entry, `Home`/`End` the first or last one. The preview next to the list scrolls by page with `PgUp`/`PgDn` and by line with `Ctrl+↑`/`Ctrl+↓`; `Ctrl+Home`/`Ctrl+End` go to its top and bottom. `←`/`→` do nothing.
+- The lists ordered by time (Chat, Plan, Sessions with its trash, Monitor) show the oldest entry at the top, the Monitor the newest. `s` turns a list around and remembers it (the *order* settings). The keys follow what you see: `↑`/`↓` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
 - If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
 - **Mouse:** a click selects an entry, the wheel moves to the previous or next one. In the preview the wheel scrolls, and a click on a web address (`https://…`, also one wrapped over two lines) opens it in the browser. To select text, hold `Shift` while dragging. The *mouse* setting turns this off.
-- `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+←` and `Shift+→` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
-- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id, Monitor days by their date.
+- `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+↑` and `Shift+↓` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
+- Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id, Monitor days by their date. The settings are global, and so are their marks, in `~/.claude/cco/favorites.json`.
 - Every list remembers its selected entry, and the preview remembers its scroll position for each entry: switch to another entry and back, and you are where you left it. Detail views keep their own position (the whole file of a changed file, the changes to a plan's previous version). Both survive closing and reopening the viewer; they are saved per project in `~/.claude/cco/<project-slug>.positions.json`. A list that was following the newest entry (Chat, Plan) follows it again. With *remember positions* off in the Settings view, they are kept only while the viewer runs.
 
 ## Chat view
@@ -139,7 +139,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 - Slash commands appear as `/name args`, with the command's name in orange in the list and above the answer, shell commands run with `!` as `! command`, with their output as the answer. Claude Code writes a `!` command to the transcript only when it has ended, so it shows up then.
 - A prompt of pasted images only appears as `[Image]` or `[3 images]`.
 - Claude in Chrome calls show one line per browser action, verb first: `↗ navigate example.com/…`, `⊙ click (451, 265)`, `⌨ type "…"`, `▣ screenshot · 1568×744`, `⌕ browser find "…" → 2 elements`, `⇄ browser network`; a browser batch lists its actions below it. A dimmed line names the page whenever it changes (`on CloudWatch | eu-central-1`). At *full*, scripts, search results and console messages follow.
-- **Subagents.** Where Claude starts a subagent, the answer shows it as a block: `◆ Explore · Map the order flow · sonnet · background`, below it its status (`⠿ running`, spinning, then `✓ completed · 1 min 13 s · 12 tool uses · 41k tokens`, or `✗ failed`). In the list, `◆2` marks a turn that started two subagents, and the spinner stays while background agents of that turn still run. `a` shows what the turn's subagent did instead of the answer: its task and its answers, with tool calls and thinking as `t` and `h` say, read live from its own transcript in `~/.claude/projects/<project-slug>/<session-id>/subagents/`. With several agents, `←`/`→` switch between them; `a` or `Esc` goes back. The Settings view hides the blocks (*Chat: agents*).
+- **Subagents.** Where Claude starts a subagent, the answer shows it as a block: `◆ Explore · Map the order flow · sonnet · background`, below it its status (`⠿ running`, spinning, then `✓ completed · 1 min 13 s · 12 tool uses · 41k tokens`, or `✗ failed`). In the list, `◆2` marks a turn that started two subagents, and the spinner stays while background agents of that turn still run. `a` shows what the turn's subagent did instead of the answer: its task and its answers, with tool calls and thinking as `t` and `h` say, read live from its own transcript in `~/.claude/projects/<project-slug>/<session-id>/subagents/`. With several agents, `a` goes on to the next one and `A` back to the previous one, past the last or first back to the answer; `Esc` goes back at once. `↑`/`↓` switch turns as always, which closes the agent's page. The Settings view hides the blocks (*Chat: agents*).
 - When a background agent or command stops, Claude Code reports it to Claude. That report becomes an entry of its own, marked `↩` (green when it completed, red when it failed), with Claude's reaction as its answer. `Enter` shows what the task returned.
 - What came with a prompt is named in a line below it: `📎 2 images · @src/Order.cs · 12 lines selected in Foo.cs` (pasted images, files and folders mentioned with `@`, lines selected in the IDE or a diff). `Enter` lists them below the full prompt, with where each image is stored. `o` opens the turn's images in the system's image viewer: the copies Claude Code keeps in `~/.claude/uploads`, or, when those are gone, the image data from the transcript, written to a temporary folder. Files Claude Code attaches again after `/compact` are not the user's and are left out.
 - `/compact` shows the summary Claude Code compacted the conversation into as its answer, under a heading with the tokens before and after and how long it took. An automatic compaction gets an entry of its own, `⟳ Conversation compacted automatically`, with Claude's work after it.
@@ -168,7 +168,7 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 **Follow mode** is on by default.
 - The newest turn is selected, and the view sticks to the bottom while the answer grows, like in Claude Code.
-- Scrolling up leaves follow mode. The badge `↓ Jump to bottom (ctrl+End)` then appears at the bottom of the preview. Scrolling back down to the end, `Ctrl+End` or `G` resumes following. `f` toggles follow mode directly.
+- Scrolling up or selecting an older turn leaves follow mode. The badge `↓ Jump to bottom (ctrl+End)` then appears at the bottom of the preview. Scrolling back down to the end, `↓` to the newest turn, `Ctrl+End` or `G` resumes following. `f` toggles follow mode directly.
 - Each turn remembers where you left it scrolled. An older turn that is not scrolled to its end also shows the badge; there `Ctrl+End` jumps to the end of that answer.
 
 **Status.** The top bar shows:
@@ -286,7 +286,7 @@ The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a 
 
 ![Monitor view: days with their number of responses on the left, the day's speed per half hour against the usual values, with a slow afternoon and an error, on the right](docs/monitor.svg)
 
-**List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+←`/`→` jump between marked days.
+**List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+↑`/`↓` jump between marked days.
 
 **Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
 - `v` switches the value: **overall** (see below; the chart starts with it), **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
@@ -337,10 +337,11 @@ What they do:
 - The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 
 Keys:
-- `←`/`→` select a setting, `Enter` or `Space` switches to the next value. A change applies right away in all views.
-- `r` sets the selected setting back to its default, `R` resets all of them after a confirmation.
+- `↑`/`↓` select a setting, `Enter` switches to the next value. A change applies right away in all views.
+- `Space` marks a setting or a reset entry `★` like in every list, `Shift+↑`/`↓` jump between them.
+- `r` sets the selected setting back to its default, `R` resets all of them and removes the marks of the settings, after a confirmation.
 - **Reset**, at the end of the list, has two entries; `Enter` shows what would change and asks first:
-  - *all settings to default*, the same as `R`.
+  - *all settings to default*, the same as `R`, which also removes the marks `★` of the settings.
   - *saved data of this project* deletes what cco remembers for the project: the marks `★` of every list, the selected entries and scroll positions, the view and placement of each session, and whether the viewer was open at the last exit. The settings stay, and transcripts, sessions and git are not touched. The views reload empty.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
 
@@ -352,12 +353,12 @@ The help line lists the keys of the current view. Options that are on (`f follow
 |---|---|---|---|---|
 | `1` – `6` | switch view | switch view | switch view | switch view |
 | `Tab` / `Shift+Tab` | next / previous view | next / previous view | next / previous view | next / previous view |
-| `←` / `→` | previous / next turn | previous / next file | previous / next plan | previous / next session |
+| `↑` / `↓` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |
 | `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ | mark the session ★ |
-| `Shift+←` / `Shift+→` | previous / next marked turn | previous / next marked file | previous / next marked plan | previous / next marked session |
-| `↑` / `↓` | scroll by line | scroll by line | scroll by line | scroll by line |
-| `PgUp` / `PgDn`, `b` | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) | scroll by page (`b` up) |
+| `Shift+↑` / `Shift+↓` | previous / next marked turn | previous / next marked file | previous / next marked plan | previous / next marked session |
+| `PgUp` / `PgDn` | scroll by page | scroll by page | scroll by page | scroll by page |
+| `Ctrl+↑` / `Ctrl+↓` | scroll by line | scroll by line | scroll by line | scroll by line |
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
 | `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | start the session in a new tab |
@@ -365,7 +366,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | tool calls off / compact / full; thinking | – | – | – |
 | `o` | open the turn's pasted images | – | – | – |
-| `a` | the turn's subagents (`←`/`→` between them, `a`/`Esc` back) | – | – | – |
+| `a` / `A` | next / previous subagent of the turn, past the last / first back to the answer (`Esc` back) | – | – | – |
 | `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |

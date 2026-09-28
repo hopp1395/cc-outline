@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { readFavorites, toggleFavorite, type FavoriteKind } from "../favorites.js";
+import { clearFavorites, readFavorites, toggleFavorite, type FavoriteKind } from "../favorites.js";
 
 /**
- * Marked entries of one list, stored per project. `reload` re-reads them,
+ * Marked entries of one list, stored per project (the settings' globally). `reload` re-reads them,
  * e.g. when the session changes.
  */
 export function useFavorites(cwd: string, kind: FavoriteKind, reload?: unknown) {
@@ -16,5 +16,6 @@ export function useFavorites(cwd: string, kind: FavoriteKind, reload?: unknown) 
     marks,
     isMarked: (id: string | undefined) => id !== undefined && marks.includes(id),
     toggle: (id: string) => setMarks(toggleFavorite(cwd, kind, id)),
+    clear: () => setMarks(clearFavorites(cwd, kind)),
   };
 }

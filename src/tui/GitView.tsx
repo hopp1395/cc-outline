@@ -128,7 +128,7 @@ function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) 
 }
 
 const POLL_MS = 2000;
-/** Columns moved per Shift+←/→ when lines are not wrapped. */
+/** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
 export function GitView({ cwd, layout, active, onFileOpen }: Props) {
@@ -277,7 +277,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
 
   useInput(
     (input, key) => {
-      // Checked first because plain ←/→ switch files; Space marks instead of paging.
+      // Checked first because plain ↑/↓ switch files.
       const mark = markKeys(input, key);
       if (mark === "toggle") return current && favorites.toggle(current.path);
       if (mark) return jumpMark(mark);
@@ -363,8 +363,8 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       }
       preview={preview}
       footer={[
-        { text: "←→ file", priority: 4 },
-        { text: "↑↓ scroll", priority: 1 },
+        { text: "↑↓ file", priority: 4 },
+        { text: "PgUp/Dn scroll", priority: 1 },
         ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
         { text: "↵ file", on: showFile },
         ...markFooter(favorites.isMarked(current?.path), markedCount),
