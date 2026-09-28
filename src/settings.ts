@@ -62,7 +62,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  autoOpen: "remember",
+  autoOpen: "always",
   placement: "right",
   confirmQuit: true,
   marquee: true,
