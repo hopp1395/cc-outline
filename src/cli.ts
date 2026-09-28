@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { runHook } from "./hook.js";
 import { openPane } from "./open.js";
 import { App } from "./tui/App.js";
+import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
@@ -54,7 +55,12 @@ program
         claudePid,
         placement: opts.placement,
       }),
-      { alternateScreen: true, exitOnCtrlC: true },
+      {
+        // Only changed lines, in one write: no flicker under load. CCO_FRAME_BUFFER=0 turns it off.
+        stdout: process.stdout.isTTY && process.env.CCO_FRAME_BUFFER !== "0" ? frameBufferedStdout(process.stdout) : process.stdout,
+        alternateScreen: true,
+        exitOnCtrlC: true,
+      },
     );
     await app.waitUntilExit();
     process.exit(0);
