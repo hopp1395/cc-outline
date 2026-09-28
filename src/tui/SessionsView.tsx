@@ -1,4 +1,3 @@
-import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -21,6 +20,7 @@ import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { useFocused } from "./focus.js";
+import { useClipboard } from "./useClipboard.js";
 import {
   bold,
   dim,
@@ -254,6 +254,7 @@ function projectName(s: SessionSummary): string {
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
+  const copy = useClipboard();
   const [all, setAll] = useSetting("allProjects");
   // The trash follows the same order as the sessions.
   const [order, setOrder] = useSetting("sessionsOrder");
@@ -448,7 +449,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         if (key.return && session) return start(session);
         if (input === "c" && session) {
           const command = resumeCommand(session);
-          return void clipboard.write(command).then(
+          return void copy(command).then(
             () => notify(`copied: ${command}`),
             (err: Error) => notify(`copy failed: ${err.message}`),
           );
