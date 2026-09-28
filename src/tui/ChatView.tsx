@@ -204,6 +204,15 @@ export function jumpHint(width: number): string {
   return " ".repeat(indent) + "\u001b[48;2;38;79;120m\u001b[97m" + JUMP_LABEL + "\u001b[39m\u001b[49m";
 }
 
+/** The name of the slash command a prompt runs ("/model" of "/model sonnet"); not a path such as /usr/bin. */
+export function commandName(prompt: string): string | undefined {
+  return /^\/[^\s/]+(?=\s|$)/.exec(prompt)?.[0];
+}
+
+/** Colour of a slash command's name, in the list and above the answer: Claude's orange, like the spinner. */
+const COMMAND_COLOR = "#d97757";
+const commandColor = (s: string) => `\u001b[38;2;217;119;87m${s}\u001b[39m`;
+
 /** Longest prompt excerpt shown above the answer; Enter opens the full prompt. */
 export const PROMPT_PREVIEW_CHARS = 1000;
 
@@ -212,12 +221,15 @@ export const PROMPT_PREVIEW_CHARS = 1000;
  * half the preview height. When cut, the rule points to the full prompt.
  */
 export function promptHeader(prompt: string, width: number, height: number, attachments: Attachment[] = []): string[] {
-  const excerpt = prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : prompt;
+  const shortened = prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : prompt;
+  // A slash command's name in colour, like in the list; it interrupts the dim of the rest.
+  const name = commandName(shortened);
+  const excerpt = name ? `\u001b[22m${commandColor(name)}\u001b[2m${shortened.slice(name.length)}` : shortened;
   const full = previewHeader(excerpt, width, { marker: cyan("❯ "), style: dim });
   // One row less for the prompt when the attachments line follows it.
   const summary = attachmentSummary(attachments);
   const fitted = fitHeader(full, summary ? height - 2 : height);
-  const cut = excerpt !== prompt || fitted.length < full.length;
+  const cut = shortened !== prompt || fitted.length < full.length;
   return [
     ...fitted.slice(0, -1),
     ...(summary ? ["  " + dim(truncate(summary, width - 2))] : []),
@@ -649,6 +661,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             const running = isRunning(t) || agentsRunning(t);
             const agentCount = t.notification ? 0 : agentsOf(t).length;
             const badge = agentCount > 0 ? `◆${agentCount} ` : "";
+            // Slash commands stand out, like above the answer.
+            const command = t.notification || t.continuation || t.compacted ? undefined : commandName(t.prompt);
             return (
               <>
                 {marked && <Star />}
@@ -668,6 +682,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 {badge && <Text color="magenta">{badge}</Text>}
                 <EntryText
                   text={t.prompt}
+                  lead={command ? { columns: stringWidth(command), color: COMMAND_COLOR } : undefined}
                   width={Math.max(
                     4,
                     listWidth -
