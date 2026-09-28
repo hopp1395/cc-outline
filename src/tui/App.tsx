@@ -18,7 +18,7 @@ import { InfoDialog } from "./InfoDialog.js";
 import { MonitorView } from "./MonitorView.js";
 import { MouseContext, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
-import { useLayout, type Mode } from "./layout.js";
+import { SessionColorContext, useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
@@ -173,6 +173,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // All views stay mounted so the chat keeps following the transcript while hidden.
   return (
     <FocusContext.Provider value={focused}>
+    <SessionColorContext.Provider value={transcript.color}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
@@ -257,6 +258,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           />
         )}
       </Box>
+    </SessionColorContext.Provider>
     </FocusContext.Provider>
   );
 }
