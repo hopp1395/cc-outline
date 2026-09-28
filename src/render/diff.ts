@@ -1,8 +1,8 @@
 import { extname } from "node:path";
-import { highlight, type Theme } from "cli-highlight";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import type { DiffLine, ParsedDiff } from "../git/diff.js";
+import { highlight } from "./highlight.js";
 
 /** File extension → highlight.js language. Only C# for now; extend as needed. */
 const LANGUAGES: Record<string, string> = {
@@ -13,40 +13,6 @@ const LANGUAGES: Record<string, string> = {
 export function languageFor(path: string): string | undefined {
   return LANGUAGES[extname(path).toLowerCase()];
 }
-
-// Styles are applied per line: the output is split into lines afterwards, so a
-// token spanning lines (block comment) must be reopened on each of them.
-const style = (open: string, close: string) => (s: string) =>
-  s
-    .split("\n")
-    .map((l) => `\u001b[${open}m${l}\u001b[${close}m`)
-    .join("\n");
-const fg = (code: string) => style(code, "39");
-const bold = style("1", "22");
-const italic = style("3", "23");
-
-// Truecolor palette that stays readable on the green/red diff backgrounds.
-const THEME: Theme = {
-  keyword: fg("38;2;86;156;214"),
-  built_in: fg("38;2;78;201;176"),
-  type: fg("38;2;78;201;176"),
-  class: fg("38;2;78;201;176"),
-  title: fg("38;2;220;220;170"),
-  function: fg("38;2;220;220;170"),
-  string: fg("38;2;206;145;120"),
-  subst: fg("38;2;212;212;212"),
-  number: fg("38;2;181;206;168"),
-  literal: fg("38;2;86;156;214"),
-  comment: (s) => italic(fg("38;2;106;153;85")(s)),
-  doctag: fg("38;2;96;139;78"),
-  meta: fg("38;2;155;155;155"),
-  "meta-keyword": fg("38;2;197;134;192"),
-  "meta-string": fg("38;2;206;145;120"),
-  attr: fg("38;2;156;220;254"),
-  params: fg("38;2;156;220;254"),
-  variable: fg("38;2;156;220;254"),
-  section: bold,
-};
 
 const BG = {
   add: "\u001b[48;2;30;58;36m",
@@ -62,7 +28,7 @@ const expandTabs = (s: string) => s.replace(/\t/g, "    ");
 function highlightLines(lines: string[], language: string | undefined): string[] {
   if (!language || lines.length === 0) return lines;
   try {
-    const out = highlight(lines.join("\n"), { language, ignoreIllegals: true, theme: THEME }).split("\n");
+    const out = highlight(lines.join("\n"), language).split("\n");
     return out.length === lines.length ? out : lines;
   } catch {
     return lines;
