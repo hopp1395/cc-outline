@@ -58,6 +58,8 @@ export interface Transcript {
   agents: AgentRun[];
   /** The session title (/rename, else Claude Code's own), once the transcript has one. */
   title?: string;
+  /** The session colour set with /color, as Claude Code names it. */
+  color?: string;
   /**
    * The transcript read now: `path`, or the one the session continued in
    * (`continued-in`, e.g. after /compact sent it to the background).
@@ -111,6 +113,7 @@ export function useTranscript(path: string | undefined): Transcript {
         planMode: f.parser.planMode && { ...f.parser.planMode },
         agents: [...f.parser.agents],
         title: f.parser.title,
+        color: f.parser.color,
         file,
         continuedFrom: f.from,
         version: s.version + 1,
