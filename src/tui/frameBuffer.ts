@@ -71,7 +71,9 @@ export class FrameBuffer {
     const next = lines.slice(0, rows);
     const full = this.front === undefined;
     const front = this.front ?? [];
-    let out = full ? `${ESC}2J` : "";
+    // Windows Terminal moves what a clear (2J) erases into its scrollback, which the mouse wheel then
+    // scrolls to, showing old frames: clear that too (3J), as Ink does.
+    let out = full ? `${ESC}2J${ESC}3J` : "";
     next.forEach((line, i) => {
       if (!full && front[i] === line) return;
       // Erasing the rest of a full-width line would take its last character (pending wrap).
