@@ -1,5 +1,4 @@
 import { basename } from "node:path";
-import clipboard from "clipboardy";
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
@@ -47,6 +46,7 @@ import {
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFocused } from "./focus.js";
+import { useClipboard } from "./useClipboard.js";
 import { useFavorites } from "./useFavorites.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -350,6 +350,7 @@ function time(ts?: string): string {
 
 export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false }: Props) {
   const { turns, version } = transcript;
+  const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight } = layout;
 
   const [selected, setSelected] = useState(0);
@@ -627,7 +628,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
         const md = stripBoxes(turnMarkdown(current, { tools: "off", thinking: false }));
-        clipboard.write(md).then(
+        copy(md).then(
           () => notify("copied Markdown to clipboard"),
           (err: Error) => notify(`copy failed: ${err.message}`),
         );
