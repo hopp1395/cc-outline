@@ -17,6 +17,7 @@ import {
   turnMarkdown,
   type AgentRun,
   type Attachment,
+  type CompactInfo,
   type Continuation,
   type Turn,
 } from "../transcript/parse.js";
@@ -138,12 +139,30 @@ function interruptLine(turn: Turn): string | undefined {
 
 const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
+const blue = (s: string) => `\u001b[34m${s}\u001b[39m`;
+const shortId = (id: string) => id.slice(0, 8);
+const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 /** A recap set apart from the answer: a heading and a bar down its left side. */
 export function recapLines(text: string, width: number, wrap: boolean): string[] {
   const bar = yellow("▌ ");
   const body = renderMarkdown(text, Math.max(10, width - 2), wrap).map((l) => bar + `\u001b[3m${l}\u001b[23m`);
   return [bar + yellow(bold("※ Recap")), ...body];
+}
+
+/** "/compact · 217k → 10k tokens · 43 s": what a compaction reported. */
+export function compactLine(info: CompactInfo): string {
+  const sizes = info.preTokens !== undefined && info.postTokens !== undefined ? `${kTokens(info.preTokens)} → ${formatTokens(info.postTokens)}` : undefined;
+  return [info.trigger === "auto" ? "compacted automatically" : "/compact", sizes, info.durationMs !== undefined ? formatMs(info.durationMs) : undefined]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The summary a compaction left, set apart like a recap: a heading with what it reported, and a bar down its side. */
+export function compactLines(text: string, info: CompactInfo | undefined, width: number, wrap: boolean): string[] {
+  const bar = blue("▌ ");
+  const body = renderMarkdown(text, Math.max(10, width - 2), wrap).map((l) => bar + l);
+  return [bar + blue(bold("⟳ Compact summary")) + (info ? dim(` · ${compactLine(info)}`) : ""), bar, ...body];
 }
 
 /**
@@ -164,12 +183,12 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
     run = [];
   };
   for (const b of turn.blocks) {
-    if (b.kind !== "recap") {
+    if (b.kind !== "recap" && b.kind !== "compact") {
       run.push(b);
       continue;
     }
     flush();
-    add(recapLines(b.text, width, wrap));
+    add(b.kind === "recap" ? recapLines(b.text, width, wrap) : compactLines(b.text, b.info, width, wrap));
   }
   flush();
   return lines;
@@ -251,19 +270,12 @@ function attachmentLines(attachments: Attachment[], cwd: string): string[] {
   return ["", "\u001b[1m📎 Attachments\u001b[22m", ...lines, ...hint];
 }
 
-const blue = (s: string) => `\u001b[34m${s}\u001b[39m`;
-const shortId = (id: string) => id.slice(0, 8);
-const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
-
 /** What is known about where the session went on: the ids, the compaction, the background, how to resume it. */
 export function continuationDetails(c: Continuation): string[] {
   const compact = c.compact;
-  const sizes = compact?.preTokens !== undefined && compact.postTokens !== undefined ? `${kTokens(compact.preTokens)} → ${formatTokens(compact.postTokens)}` : undefined;
   return [
     `session ${c.fromSessionId ? shortId(c.fromSessionId) : "(earlier, not found)"} → ${c.sessionId ? shortId(c.sessionId) : "?"}`,
-    ...(compact
-      ? [[compact.trigger === "auto" ? "compacted automatically" : "/compact", sizes, compact.durationMs !== undefined ? formatMs(compact.durationMs) : undefined].filter(Boolean).join(" · ")]
-      : []),
+    ...(compact ? [compactLine(compact)] : []),
     ...(c.backgrounded ? ["sent to the background, run by the Claude Code daemon"] : []),
     ...(c.sessionId ? [`claude --resume ${c.sessionId}`] : []),
   ];
@@ -357,7 +369,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     return {
       header: current.continuation
         ? continuationHeader(current.prompt, current.continuation, previewWidth)
-        : promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
+        : current.compacted
+          ? previewHeader(current.prompt, previewWidth, { marker: blue("⟳ "), style: bold })
+          : promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
       lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
     };
   }, [current, version, previewWidth, bodyHeight, showTools, showThinking, showAgents, wrap, liveSession]);
@@ -651,6 +665,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 {t.queued && <Text color="cyan">↳ </Text>}
                 {t.notification && <Text color={NOTIFICATION_COLOR[t.notification.status] ?? "yellow"}>↩ </Text>}
                 {t.continuation && <Text color="blue">⤷ </Text>}
+                {t.compacted && <Text color="blue">⟳ </Text>}
                 {badge && <Text color="magenta">{badge}</Text>}
                 <EntryText
                   text={t.prompt}
@@ -658,7 +673,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                     4,
                     listWidth -
                       7 -
-                      (t.queued || t.notification || t.continuation ? 2 : 0) -
+                      (t.queued || t.notification || t.continuation || t.compacted ? 2 : 0) -
                       (marked ? 2 : 0) -
                       (running || t.interrupted ? 2 : 0) -
                       badge.length,

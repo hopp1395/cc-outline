@@ -47,7 +47,7 @@ const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", 
  * focus is there then. Notifications are not typed; turns loaded at the start are older.
  */
 function typedInClaude(turns: Turn[], since: number): number | undefined {
-  const last = [...turns].reverse().find((t) => !t.notification && !t.continuation);
+  const last = [...turns].reverse().find((t) => !t.notification && !t.continuation && !t.compacted);
   const at = last?.timestamp ? Date.parse(last.timestamp) : NaN;
   return at > since ? at : undefined;
 }
