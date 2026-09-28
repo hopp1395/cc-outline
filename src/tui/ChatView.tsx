@@ -17,6 +17,7 @@ import {
   turnMarkdown,
   type AgentRun,
   type Attachment,
+  type Continuation,
   type Turn,
 } from "../transcript/parse.js";
 import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
@@ -250,8 +251,37 @@ function attachmentLines(attachments: Attachment[], cwd: string): string[] {
   return ["", "\u001b[1m📎 Attachments\u001b[22m", ...lines, ...hint];
 }
 
+const blue = (s: string) => `\u001b[34m${s}\u001b[39m`;
+const shortId = (id: string) => id.slice(0, 8);
+const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+/** What is known about where the session went on: the ids, the compaction, the background, how to resume it. */
+export function continuationDetails(c: Continuation): string[] {
+  const compact = c.compact;
+  const sizes = compact?.preTokens !== undefined && compact.postTokens !== undefined ? `${kTokens(compact.preTokens)} → ${formatTokens(compact.postTokens)}` : undefined;
+  return [
+    `session ${c.fromSessionId ? shortId(c.fromSessionId) : "(earlier, not found)"} → ${c.sessionId ? shortId(c.sessionId) : "?"}`,
+    ...(compact
+      ? [[compact.trigger === "auto" ? "compacted automatically" : "/compact", sizes, compact.durationMs !== undefined ? formatMs(compact.durationMs) : undefined].filter(Boolean).join(" · ")]
+      : []),
+    ...(c.backgrounded ? ["sent to the background, run by the Claude Code daemon"] : []),
+    ...(c.sessionId ? [`claude --resume ${c.sessionId}`] : []),
+  ];
+}
+
+/** Header of a continuation entry: what happened, then its details; Claude's answers after it follow below. */
+export function continuationHeader(title: string, c: Continuation, width: number): string[] {
+  return previewHeader(title, width, { marker: blue("⤷ "), style: bold, details: continuationDetails(c) });
+}
+
 /** The complete prompt, shown instead of the answer after Enter. */
 function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[]; lines: string[] } {
+  if (turn.continuation) {
+    return {
+      header: [blue("⤷ ") + bold("Session continued") + dim(" · ↵/esc back to answer"), rule(width)],
+      lines: [turn.prompt, "", ...continuationDetails(turn.continuation)].flatMap((l) => wrapAnsi(l, width, { hard: true }).split("\n")),
+    };
+  }
   const n = turn.notification;
   // A notification's "prompt" is its summary; what the task returned comes below it.
   const usage = n
@@ -325,7 +355,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
     const lines = body.length ? body : status ? [] : [dim("(no text output yet)")];
     return {
-      header: promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
+      header: current.continuation
+        ? continuationHeader(current.prompt, current.continuation, previewWidth)
+        : promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
       lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
     };
   }, [current, version, previewWidth, bodyHeight, showTools, showThinking, showAgents, wrap, liveSession]);
@@ -618,6 +650,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 {/* ↳ marks prompts sent while Claude was still working, ↩ a background task reporting back. */}
                 {t.queued && <Text color="cyan">↳ </Text>}
                 {t.notification && <Text color={NOTIFICATION_COLOR[t.notification.status] ?? "yellow"}>↩ </Text>}
+                {t.continuation && <Text color="blue">⤷ </Text>}
                 {badge && <Text color="magenta">{badge}</Text>}
                 <EntryText
                   text={t.prompt}
@@ -625,7 +658,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                     4,
                     listWidth -
                       7 -
-                      (t.queued || t.notification ? 2 : 0) -
+                      (t.queued || t.notification || t.continuation ? 2 : 0) -
                       (marked ? 2 : 0) -
                       (running || t.interrupted ? 2 : 0) -
                       badge.length,

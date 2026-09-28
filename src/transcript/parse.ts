@@ -84,6 +84,33 @@ export interface Turn {
   notification?: TaskNotification;
   /** The transcript the prompt is in, when a session spans several (`continuedIn`). */
   transcript?: string;
+  /** Not a prompt but the place where the session went on under another id; `prompt` names it. */
+  continuation?: Continuation;
+}
+
+/**
+ * Where Claude Code went on with the session under a new id (a `continued-in`
+ * entry), e.g. after /compact sent it to the background. Claude's answers that
+ * follow belong to the entry, since no prompt comes before them.
+ */
+export interface Continuation {
+  /** The session id it went on in. */
+  sessionId?: string;
+  /** The session id it came from; unknown when that transcript was not read. */
+  fromSessionId?: string;
+  /** The compaction that came with it. */
+  compact?: CompactInfo;
+  /** Claude Code sent the session to the background (to its daemon) just before. */
+  backgrounded?: boolean;
+}
+
+/** What a `compact_boundary` entry says about the compaction. */
+export interface CompactInfo {
+  /** "manual" (/compact) or "auto". */
+  trigger?: string;
+  preTokens?: number;
+  postTokens?: number;
+  durationMs?: number;
 }
 
 /**
@@ -151,6 +178,9 @@ interface Entry {
   cwd?: string;
   /** `continued-in` entry: the session goes on in this session's transcript. */
   continuedInSessionId?: string;
+  sessionId?: string;
+  /** `compact_boundary` entry. */
+  compactMetadata?: { trigger?: unknown; preTokens?: unknown; postTokens?: unknown; durationMs?: unknown };
   /** Text of a `system` entry, e.g. a `local_command`. */
   content?: string;
   /** `custom-title` (set with /rename) and `ai-title` (named by Claude Code) entries. */
@@ -192,6 +222,19 @@ const tagNumber = (text: string, name: string) => {
   const n = Number(raw);
   return raw && Number.isFinite(n) ? n : undefined;
 };
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+
+/** The compaction a `compact_boundary` entry describes. */
+function compactInfo(entry: Entry): CompactInfo {
+  const m = entry.compactMetadata ?? {};
+  return {
+    trigger: typeof m.trigger === "string" ? m.trigger : undefined,
+    preTokens: num(m.preTokens),
+    postTokens: num(m.postTokens),
+    durationMs: num(m.durationMs),
+  };
+}
 
 /** Reads a `<task-notification>` message; undefined for anything else. */
 export function taskNotification(text: string): TaskNotification | undefined {
@@ -369,6 +412,9 @@ export class TranscriptParser {
   private seen?: Set<string>;
   /** The transcript began with a compact boundary: it continues one whose turns are not read. */
   private afterCompact = false;
+  /** The last compaction and whether Claude Code sent the session to the background since the last prompt. */
+  private lastCompact?: CompactInfo;
+  private backgrounded = false;
   /**
    * `sidechains`: read sidechain entries like the main conversation. A
    * subagent's own transcript (`subagents/agent-<id>.jsonl`) consists of them.
@@ -417,8 +463,9 @@ export class TranscriptParser {
       this.seen.add(entry.uuid);
     }
     if (entry.type === "continued-in") {
-      this.continuedIn = entry.continuedInSessionId || this.continuedIn;
-      return false;
+      if (!entry.continuedInSessionId) return false;
+      this.continuedIn = entry.continuedInSessionId;
+      return this.addContinuation(entry);
     }
     if (!entry.isSidechain && (entry.type === "custom-title" || entry.type === "ai-title")) return this.trackTitle(entry);
     if (this.opts.sidechains && entry.isSidechain) entry = { ...entry, isSidechain: false };
@@ -433,6 +480,8 @@ export class TranscriptParser {
         this.takesAttachments = false;
         return false;
       }
+      this.lastCompact = undefined;
+      this.backgrounded = false;
       this.turns.push({
         id: entry.uuid ?? String(this.turns.length),
         prompt,
@@ -471,7 +520,11 @@ export class TranscriptParser {
     // Attachments belong to a prompt only when they follow it directly; after /compact, Claude Code re-attaches files it read.
     if (entry.type === "user" || entry.type === "assistant" || entry.type === "system") this.takesAttachments = false;
     // A transcript that begins with a compact boundary continues another; its first answer has no prompt here.
-    if (entry.type === "system" && entry.subtype === "compact_boundary" && this.turns.length === 0) this.afterCompact = true;
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      if (this.turns.length === 0) this.afterCompact = true;
+      this.lastCompact = compactInfo(entry);
+    }
+    if (entry.type === "system" && entry.subtype === "informational" && entry.content?.startsWith("Backgrounding")) this.backgrounded = true;
     if (entry.type === "system" && entry.subtype === "away_summary") return this.addRecap(entry.content);
     if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
     if (entry.type === "user") {
@@ -487,8 +540,15 @@ export class TranscriptParser {
     let turn = this.turns.at(-1);
     if (!turn) {
       // Assistant output before any prompt (e.g. resumed session): collect it anyway.
-      const prompt = this.afterCompact ? "(continued after /compact)" : "(session start)";
-      turn = { id: "start", prompt, timestamp: entry.timestamp, blocks: [] };
+      turn = this.afterCompact
+        ? {
+            id: "start",
+            prompt: "Continued from an earlier session",
+            timestamp: entry.timestamp,
+            blocks: [],
+            continuation: { sessionId: entry.sessionId, ...(this.lastCompact ? { compact: this.lastCompact } : {}) },
+          }
+        : { id: "start", prompt: "(session start)", timestamp: entry.timestamp, blocks: [] };
       this.turns.push(turn);
     }
     // Each line of a message carries its stop reason; the last one says whether Claude stopped or calls a tool.
@@ -513,7 +573,7 @@ export class TranscriptParser {
             id: b.id ?? String(this.plans.length),
             text: plan,
             timestamp: entry.timestamp,
-            prompt: turn.id === "start" ? undefined : turn.prompt,
+            prompt: turn.id === "start" || turn.continuation ? undefined : turn.prompt,
             status: "pending",
           });
         }
@@ -649,6 +709,22 @@ export class TranscriptParser {
       default:
         return false;
     }
+  }
+
+  /** The session goes on under another id: an entry of its own, which Claude's next answers belong to. */
+  private addContinuation(entry: Entry): boolean {
+    const next = entry.continuedInSessionId!;
+    const continuation: Continuation = {
+      sessionId: next,
+      fromSessionId: entry.sessionId,
+      ...(this.lastCompact ? { compact: this.lastCompact } : {}),
+      ...(this.backgrounded ? { backgrounded: true } : {}),
+    };
+    this.lastCompact = undefined;
+    this.backgrounded = false;
+    this.takesAttachments = false;
+    this.turns.push({ id: `continued-${next}`, prompt: `Session continues in ${next.slice(0, 8)}`, timestamp: entry.timestamp, blocks: [], done: true, continuation });
+    return true;
   }
 
   /** A recap goes below the answer it follows; Claude Code's hint on turning recaps off is left out. */
