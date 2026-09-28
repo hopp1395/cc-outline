@@ -158,11 +158,10 @@ export function compactLine(info: CompactInfo): string {
     .join(" · ");
 }
 
-/** The summary a compaction left, set apart like a recap: a heading with what it reported, and a bar down its side. */
+/** The summary a compaction left: a heading with what it reported, then the summary. */
 export function compactLines(text: string, info: CompactInfo | undefined, width: number, wrap: boolean): string[] {
-  const bar = blue("▌ ");
-  const body = renderMarkdown(text, Math.max(10, width - 2), wrap).map((l) => bar + l);
-  return [bar + blue(bold("⟳ Compact summary")) + (info ? dim(` · ${compactLine(info)}`) : ""), bar, ...body];
+  // No bar like the recap's: the summary is usually the whole answer, so there is nothing to set it apart from.
+  return [blue(bold("⟳ Compact summary")) + (info ? dim(` · ${compactLine(info)}`) : ""), "", ...renderMarkdown(text, width, wrap)];
 }
 
 /**

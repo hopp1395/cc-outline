@@ -74,8 +74,8 @@ describe("continuationDetails", () => {
 });
 
 describe("compactLines", () => {
-  it("sets the summary apart, with what the compaction reported", () => {
+  it("heads the summary with what the compaction reported", () => {
     const lines = compactLines("Goal: fix it.", { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 }, 60, true).map(stripAnsi);
-    expect(lines).toEqual(["▌ ⟳ Compact summary · /compact · 217k → 10k tokens · 43 s", "▌ ", "▌ Goal: fix it."]);
+    expect(lines).toEqual(["⟳ Compact summary · /compact · 217k → 10k tokens · 43 s", "", "Goal: fix it."]);
   });
 });
