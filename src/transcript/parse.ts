@@ -18,7 +18,9 @@ export type Block =
   | ToolBlock
   | { kind: "agent"; agent: AgentRun }
   /** Claude Code's recap of the session when the user comes back after a while (an `away_summary` entry). */
-  | { kind: "recap"; text: string };
+  | { kind: "recap"; text: string }
+  /** The summary Claude Code compacted the conversation into, with what the compaction reported. */
+  | { kind: "compact"; text: string; info?: CompactInfo };
 
 /** "running" until the tool result (foreground) or the task notification (background) says otherwise. */
 export type AgentStatus = "running" | "completed" | "failed" | "killed";
@@ -84,6 +86,8 @@ export interface Turn {
   notification?: TaskNotification;
   /** The transcript the prompt is in, when a session spans several (`continuedIn`). */
   transcript?: string;
+  /** Not a prompt but a compaction without one (automatic, mid-turn); its summary is the first block. */
+  compacted?: boolean;
   /** Not a prompt but the place where the session went on under another id; `prompt` names it. */
   continuation?: Continuation;
 }
@@ -222,6 +226,24 @@ const tagNumber = (text: string, name: string) => {
   const n = Number(raw);
   return raw && Number.isFinite(n) ? n : undefined;
 };
+
+/**
+ * The summary of a compaction without what is only meant for Claude: the
+ * opening sentence before "Summary:" and the closing instructions (where the
+ * full transcript is, continue without asking).
+ */
+export function compactSummaryText(text: string): string {
+  let t = text.trim();
+  if (t.startsWith("This session is being continued")) {
+    const at = t.indexOf("Summary:");
+    t = at >= 0 ? t.slice(at + "Summary:".length) : t.replace(/^[^\n]*\n/, "");
+  }
+  for (const tail of ["If you need specific details from before compaction", "Continue the conversation from where it left off"]) {
+    const at = t.lastIndexOf(tail);
+    if (at >= 0) t = t.slice(0, at);
+  }
+  return t.trim();
+}
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
@@ -476,7 +498,7 @@ export class TranscriptParser {
     if (prompt !== undefined) {
       // /compact is written twice: as typed, then as a command once it ran.
       const last = this.turns.at(-1);
-      if (prompt.startsWith("/") && last?.prompt === prompt && !last.done && last.blocks.length === 0) {
+      if (prompt.startsWith("/") && last?.prompt === prompt && !last.done && last.blocks.every((b) => b.kind === "compact")) {
         this.takesAttachments = false;
         return false;
       }
@@ -527,6 +549,7 @@ export class TranscriptParser {
     if (entry.type === "system" && entry.subtype === "informational" && entry.content?.startsWith("Backgrounding")) this.backgrounded = true;
     if (entry.type === "system" && entry.subtype === "away_summary") return this.addRecap(entry.content);
     if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
+    if (entry.type === "user" && entry.isCompactSummary) return this.addCompactSummary(entry);
     if (entry.type === "user") {
       if (this.trackInterrupt(entry)) return true;
       const agents = this.trackAgentResults(entry);
@@ -727,6 +750,43 @@ export class TranscriptParser {
     return true;
   }
 
+  /**
+   * The summary of a compaction. After /compact it is that turn's answer; a
+   * transcript that starts with it (continuing another) gets it in its first
+   * entry; an automatic compaction mid-turn becomes an entry of its own, which
+   * Claude's further work belongs to.
+   */
+  private addCompactSummary(entry: Entry): boolean {
+    const content = entry.message?.content;
+    const text = compactSummaryText(typeof content === "string" ? content : Array.isArray(content) ? blocksText(content) : "");
+    if (!text) return false;
+    const block: Block = { kind: "compact", text, ...(this.lastCompact ? { info: this.lastCompact } : {}) };
+    const last = this.turns.at(-1);
+    if (last && /^\/compact\b/.test(last.prompt) && last.blocks.length === 0) {
+      last.blocks.push(block);
+      return true;
+    }
+    if (!last && this.afterCompact) {
+      this.turns.push({
+        id: "start",
+        prompt: "Continued from an earlier session",
+        timestamp: entry.timestamp,
+        blocks: [block],
+        continuation: { sessionId: entry.sessionId, ...(this.lastCompact ? { compact: this.lastCompact } : {}) },
+      });
+      return true;
+    }
+    const auto = this.lastCompact?.trigger === "auto";
+    this.turns.push({
+      id: entry.uuid ?? String(this.turns.length),
+      prompt: auto ? "Conversation compacted automatically" : "Conversation compacted",
+      timestamp: entry.timestamp,
+      blocks: [block],
+      compacted: true,
+    });
+    return true;
+  }
+
   /** A recap goes below the answer it follows; Claude Code's hint on turning recaps off is left out. */
   private addRecap(content: string | undefined): boolean {
     const text = content?.replace(/\s*\(disable recaps in \/config\)\s*$/, "").trim();
@@ -826,6 +886,8 @@ export function turnMarkdown(turn: Turn, opts: { tools: ToolLevel; thinking: boo
       if (md) parts.push(md);
     } else if (b.kind === "agent" && opts.agents) {
       parts.push(agentMarkdown(b.agent));
+    } else if (b.kind === "compact") {
+      parts.push(b.text);
     }
   }
   return parts.join("\n\n");

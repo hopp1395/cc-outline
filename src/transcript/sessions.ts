@@ -141,7 +141,7 @@ export class SessionReader {
       title: this.title,
       // Task notifications and where the session went on are turns too, but not prompts.
       prompts: this.parser.turns
-        .filter((t) => t.id !== "start" && !t.notification && !t.continuation)
+        .filter((t) => t.id !== "start" && !t.notification && !t.continuation && !t.compacted)
         .map((t) => ({ text: t.prompt, timestamp: t.timestamp })),
       plans: this.parser.plans.map((p) => ({ ...p })),
       files: [...this.files],

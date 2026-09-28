@@ -143,16 +143,52 @@ describe("TranscriptParser", () => {
       ]);
     });
 
-    it("shows /compact once, without the summary it continues with", () => {
+    const summary = (uuid: string, body: string) =>
+      line({
+        type: "user",
+        uuid,
+        isCompactSummary: true,
+        isVisibleInTranscriptOnly: true,
+        message: {
+          role: "user",
+          content:
+            "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n" +
+            body +
+            "\n\nIf you need specific details from before compaction (like exact code snippets), read the full transcript at: C:\\x.jsonl\nContinue the conversation from where it left off without asking the user any further questions.",
+        },
+      });
+
+    it("shows /compact once, with the summary as its answer", () => {
       const p = new TranscriptParser();
       p.push(
         // Written as typed first, then as a command once the conversation is compacted.
         prompt("raw", "/compact") +
-          line({ type: "system", subtype: "compact_boundary", uuid: "b", content: "Conversation compacted" }) +
-          line({ type: "user", uuid: "s", isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: "user", content: "This session is being continued…" } }) +
-          prompt("c", "<command-name>/compact</command-name>\n<command-args></command-args>"),
+          line({ type: "system", subtype: "compact_boundary", uuid: "b", compactMetadata: { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 } }) +
+          summary("s", "1. Primary Request:\n   - fix it") +
+          prompt("c", "<command-name>/compact</command-name>\n<command-args></command-args>") +
+          prompt("o", "<local-command-stdout>Compacted</local-command-stdout>"),
       );
       expect(p.turns.map((t) => t.prompt)).toEqual(["/compact"]);
+      expect(p.turns[0].done).toBe(true);
+      // Only the summary: the lines meant for Claude are left out.
+      expect(p.turns[0].blocks).toEqual([
+        { kind: "compact", text: "1. Primary Request:\n   - fix it", info: { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 } },
+      ]);
+    });
+
+    it("makes an automatic compaction mid-turn an entry of its own, which the work after it belongs to", () => {
+      const p = new TranscriptParser();
+      p.push(
+        prompt("a", "refactor it") +
+          assistant("tool_use", [{ type: "tool_use", id: "t1", name: "Bash", input: {} }]) +
+          line({ type: "system", subtype: "compact_boundary", uuid: "b", compactMetadata: { trigger: "auto", preTokens: 167000, postTokens: 12000 } }) +
+          summary("s", "Refactoring half done.") +
+          assistant("end_turn", [{ type: "text", text: "Done now." }]),
+      );
+      expect(p.turns.map((t) => [t.prompt, t.compacted, t.blocks.map((b) => b.kind)])).toEqual([
+        ["refactor it", undefined, ["tool"]],
+        ["Conversation compacted automatically", true, ["compact", "text"]],
+      ]);
     });
 
     it("notes where the session continues, and with dedupe skips the entries copied there", () => {

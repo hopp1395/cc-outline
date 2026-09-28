@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import type { Turn } from "../src/transcript/parse.js";
-import { answerLines, continuationDetails, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
+import { answerLines, compactLines, continuationDetails, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
 
 describe("jumpHint", () => {
   it("centres the badge and gives it a background", () => {
@@ -70,5 +70,12 @@ describe("continuationDetails", () => {
       "claude --resume b32b44ad-f910",
     ]);
     expect(continuationDetails({ sessionId: "next" })).toEqual(["session (earlier, not found) → next", "claude --resume next"]);
+  });
+});
+
+describe("compactLines", () => {
+  it("sets the summary apart, with what the compaction reported", () => {
+    const lines = compactLines("Goal: fix it.", { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 }, 60, true).map(stripAnsi);
+    expect(lines).toEqual(["▌ ⟳ Compact summary · /compact · 217k → 10k tokens · 43 s", "▌ ", "▌ Goal: fix it."]);
   });
 });
