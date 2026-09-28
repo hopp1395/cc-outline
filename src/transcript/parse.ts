@@ -141,6 +141,8 @@ interface Entry {
   isMeta?: boolean;
   isSidechain?: boolean;
   cwd?: string;
+  /** Text of a `system` entry, e.g. a `local_command`. */
+  content?: string;
   /** `custom-title` (set with /rename) and `ai-title` (named by Claude Code) entries. */
   customTitle?: string;
   aiTitle?: string;
@@ -273,12 +275,26 @@ export function promptText(entry: Entry): string | undefined {
   const shell = /^<bash-input>(.*?)<\/bash-input>/s.exec(text);
   if (shell) return `! ${decodeEntities(shell[1].trim())}`;
   if (text.startsWith("<bash-stdout>") || text.startsWith("<bash-stderr>")) return undefined;
+  return commandPrompt(text) ?? text;
+}
+
+/** `/name args` of a slash command as Claude Code records it (`<command-name>`, `<command-args>`). */
+function commandPrompt(text: string): string | undefined {
   const command = /<command-name>(.*?)<\/command-name>/s.exec(text);
-  if (command) {
-    const args = /<command-args>(.*?)<\/command-args>/s.exec(text)?.[1]?.trim();
-    return args ? `${command[1]} ${args}` : command[1];
-  }
-  return text;
+  if (!command) return undefined;
+  const args = /<command-args>(.*?)<\/command-args>/s.exec(text)?.[1]?.trim();
+  return args ? `${command[1]} ${args}` : command[1];
+}
+
+/**
+ * A slash command that Claude Code records as a `system` `local_command` entry
+ * instead of a `user` one (`/rename`, `/color`). It is written once the command
+ * ran, with its output in a second such entry, so its turn is finished at once.
+ */
+function localCommandPrompt(entry: Entry): string | undefined {
+  if (entry.type !== "system" || entry.subtype !== "local_command" || entry.isSidechain) return undefined;
+  const text = entry.content?.trim();
+  return text?.startsWith("<command-name>") ? commandPrompt(text) : undefined;
 }
 
 /** Claude Code escapes <, > and & in the input and output of `!` commands. */
@@ -400,6 +416,12 @@ export class TranscriptParser {
         ...withAttachments(imageAttachments(entry.attachment?.prompt)),
       });
       this.takesAttachments = true;
+      return true;
+    }
+    const local = localCommandPrompt(entry);
+    if (local !== undefined) {
+      this.turns.push({ id: entry.uuid ?? String(this.turns.length), prompt: local, timestamp: entry.timestamp, blocks: [], done: true });
+      this.takesAttachments = false;
       return true;
     }
     if (entry.isSidechain) return false;

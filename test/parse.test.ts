@@ -104,6 +104,17 @@ describe("TranscriptParser", () => {
       expect(p.turns[0].done).toBe(true);
     });
 
+    it("shows slash commands recorded as system entries (/rename), finished", () => {
+      const local = (uuid: string, content: string) => line({ type: "system", subtype: "local_command", uuid, content, isMeta: false });
+      const p = new TranscriptParser();
+      p.push(
+        local("r1", "<command-name>/rename</command-name>\n            <command-message>rename</command-message>\n            <command-args>test</command-args>") +
+          local("r2", "<local-command-stdout>Session renamed to: test</local-command-stdout>") +
+          line({ type: "user", isMeta: true, message: { role: "user", content: "<system-reminder>\nThe user named this session \"test\".\n</system-reminder>" } }),
+      );
+      expect(p.turns).toEqual([{ id: "r1", prompt: "/rename test", timestamp: undefined, blocks: [], done: true }]);
+    });
+
     it("makes a ! command one finished turn with its output as the answer", () => {
       // As Claude Code writes it once the command ended: caveat, input, output (escaped, with color codes).
       const p = new TranscriptParser();
