@@ -54,8 +54,15 @@ export interface AgentRun {
   transcript?: string;
 }
 
-/** A `<task-notification>`: a background agent or command stopped. */
+/**
+ * A `<task-notification>`: a background agent or command stopped. Or, with
+ * `kind`, a message from another agent: a subagent handing back its report
+ * (`handback`), or another session writing to this one (`message`).
+ */
 export interface TaskNotification {
+  kind?: "handback" | "message";
+  /** The sender of a message: the subagent's agentId, or the other session's id. */
+  from?: string;
   taskId?: string;
   /** The tool call that started the task (an Agent call for agents). */
   toolUseId?: string;
@@ -170,8 +177,19 @@ interface ContentBlock {
   content?: unknown;
 }
 
+/** Where a `user` entry or a queued command came from; `peer` for a message from another agent. */
+interface Origin {
+  kind?: string;
+  from?: string;
+  senderTaskId?: string;
+  /** The message; for a hand-back, a preamble and the subagent's report, indented. */
+  body?: string;
+  handback?: boolean;
+}
+
 interface Entry {
   type?: string;
+  origin?: Origin;
   subtype?: string;
   uuid?: string;
   timestamp?: string;
@@ -199,7 +217,7 @@ interface Entry {
     type?: string;
     prompt?: string | ContentBlock[];
     humanTurn?: boolean;
-    origin?: { kind?: string };
+    origin?: Origin;
     commandMode?: string;
     planFilePath?: string;
     isSubAgent?: boolean;
@@ -269,11 +287,45 @@ export function taskNotification(text: string): TaskNotification | undefined {
     toolUseId: tag(text, "tool-use-id"),
     status,
     summary: tag(text, "summary") ?? `Background task ${status}`,
-    result: tag(text, "result"),
+    // An agent that handed back its report says so here instead of repeating it.
+    result: HANDED_BACK.test(tag(text, "result") ?? "") ? undefined : tag(text, "result"),
     tokens: tagNumber(text, "subagent_tokens") ?? tagNumber(text, "total_tokens"),
     toolUses: tagNumber(text, "tool_uses"),
     durationMs: tagNumber(text, "duration_ms"),
   };
+}
+
+const HANDED_BACK = /^This agent's report was delivered to you as a message/;
+const REPORT_START = /^[\s\S]*?The report follows:[^\n]*\n/;
+
+/** A message from another agent (`origin.kind: "peer"`) as a user entry, or mid-turn as a queued command. */
+function peerOf(entry: Entry): Origin | undefined {
+  if (entry.isSidechain) return undefined;
+  const origin = entry.type === "user" ? entry.origin : entry.type === "attachment" && entry.attachment?.type === "queued_command" ? entry.attachment.origin : undefined;
+  return origin?.kind === "peer" ? origin : undefined;
+}
+
+/**
+ * The text of a peer message: a hand-back without its preamble and with the
+ * indentation Claude Code gives the report removed; a report in JSON as a code block.
+ */
+export function peerText(origin: Origin): string {
+  let text = origin.body ?? "";
+  if (origin.handback || REPORT_START.test(text)) {
+    text = text.replace(REPORT_START, "");
+    const lines = text.split("\n");
+    if (lines.every((l) => l === "" || l.startsWith("  "))) text = lines.map((l) => l.slice(2)).join("\n");
+  }
+  text = text.trim();
+  if (/^[[{]/.test(text)) {
+    try {
+      JSON.parse(text);
+      return "```json\n" + text + "\n```";
+    } catch {
+      // Not JSON after all: Markdown like any other report.
+    }
+  }
+  return text;
 }
 
 /** The notification a user entry or queued command carries, if it is one. */
@@ -501,6 +553,8 @@ export class TranscriptParser {
       return this.color !== before;
     }
     if (this.opts.sidechains && entry.isSidechain) entry = { ...entry, isSidechain: false };
+    const peer = peerOf(entry);
+    if (peer) return this.addPeerMessage(entry, peer);
     const notification = notificationOf(entry);
     if (notification) return this.addNotification(entry, notification);
     const prompt = promptText(entry);
@@ -703,6 +757,29 @@ export class TranscriptParser {
       agent.toolUses = notification.toolUses ?? agent.toolUses;
       agent.durationMs = notification.durationMs ?? agent.durationMs;
     }
+    return true;
+  }
+
+  /**
+   * A message from another agent: a subagent's report (hand-back) or another
+   * session writing. Like a notification it gets a turn of its own for
+   * Claude's reaction, and a report becomes its agent's result.
+   */
+  private addPeerMessage(entry: Entry, origin: Origin): boolean {
+    const from = origin.from ?? origin.senderTaskId;
+    const agent = from ? this.agents.find((a) => a.agentId === from) : undefined;
+    const handback = origin.handback === true || agent !== undefined;
+    const result = peerText(origin);
+    const name = agent ? `"${agent.description}"` : from ?? "an agent";
+    this.turns.push({
+      id: entry.uuid ?? String(this.turns.length),
+      prompt: handback ? `Agent ${name} reported back` : `Message from ${name}`,
+      timestamp: entry.timestamp,
+      blocks: [],
+      notification: { kind: handback ? "handback" : "message", from, toolUseId: agent?.id, status: "completed", summary: "", result: result || undefined },
+    });
+    this.takesAttachments = false;
+    if (agent && result) agent.result = result;
     return true;
   }
 
