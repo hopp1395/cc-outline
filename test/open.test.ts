@@ -111,6 +111,16 @@ describe("openPane", () => {
     expect(viewer).toMatch(/ --placement right --unfocused --claude-pid 42 ; move-focus left$/);
   });
 
+  it("opens a window of its own when Claude Code has no tab (no WT_SESSION)", () => {
+    process.env.WT_PROFILE_ID = "{profile}";
+    expect(openPane(cwd, "chat", { keepFocus: true, claudePid: 42 })).toMatch(/window: this Claude Code has no terminal tab/);
+    const { before, viewer } = call();
+    expect(before).toEqual(["-w", "cco-42", "new-tab", "--title", "cco", "-d", cwd]);
+    expect(viewer).toMatch(/ --placement window --claude-pid 42$/);
+    // A pane's hidden start would keep the window wt has to create invisible.
+    expect(spawned[0].windowsHide).toBe(false);
+  });
+
   it("docks left by swapping the new pane over, and returns the focus to the right", () => {
     process.env.WT_SESSION = "x";
     expect(openPane(cwd, "git", { keepFocus: true, placement: "left" })).toMatch(/pane on the left\.$/);
