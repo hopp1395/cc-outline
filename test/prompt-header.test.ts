@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
+import stripAnsi from "strip-ansi";
+import type { Turn } from "../src/transcript/parse.js";
+import { answerLines, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
 
 describe("jumpHint", () => {
   it("centres the badge and gives it a background", () => {
@@ -34,5 +36,20 @@ describe("promptHeader", () => {
     const lines = promptHeader("word ".repeat(150), 40, 12);
     expect(lines.length).toBeLessThanOrEqual(6);
     expect(strip(lines.at(-1)!)).toContain("↵ full prompt");
+  });
+});
+
+describe("answerLines", () => {
+  it("sets a recap apart from the answer, where it was written", () => {
+    const turn: Turn = {
+      id: "a",
+      prompt: "fix it",
+      blocks: [
+        { kind: "text", text: "Fixed." },
+        { kind: "recap", text: "Goal: fix it." },
+      ],
+    };
+    const lines = answerLines(turn, { tools: "off", thinking: false, agents: false }, 40, true).map(stripAnsi);
+    expect(lines).toEqual(["Fixed.", "", "▌ ※ Recap", "▌ Goal: fix it."]);
   });
 });

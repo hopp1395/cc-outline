@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { useEffect, useState } from "react";
+import { basename, dirname, join } from "node:path";
+import { useEffect, useRef, useState } from "react";
 import {
   activeFile,
   claudeFile,
@@ -56,33 +57,91 @@ export interface Transcript {
   agents: AgentRun[];
   /** The session title (/rename, else Claude Code's own), once the transcript has one. */
   title?: string;
+  /**
+   * The transcript read now: `path`, or the one the session continued in
+   * (`continued-in`, e.g. after /compact sent it to the background).
+   */
+  file?: string;
+  /** The transcript `file` continued, once the session moved on. */
+  continuedFrom?: string;
   /** Increments on every change. */
   version: number;
 }
 
-/** Parses and follows a transcript. */
+/** One session read across its transcripts: the one opened, then those it continued in. */
+interface Followed {
+  parser: TranscriptParser;
+  tail?: FileTail;
+  file?: string;
+  /** The file read before `file`, which continued in it. */
+  from?: string;
+  /** Session ids already read, so a loop of `continued-in` entries ends. */
+  visited: Set<string>;
+}
+
+const sessionIdOf = (file: string) => basename(file, ".jsonl");
+
+/**
+ * Parses and follows a transcript. When the session continues in another
+ * transcript, it reads on there with the same parser, so the turns so far stay.
+ */
 export function useTranscript(path: string | undefined): Transcript {
   const [state, setState] = useState<Transcript>({ turns: [], plans: [], agents: [], version: 0 });
+  const followed = useRef<Followed | undefined>(undefined);
 
   useEffect(() => {
-    const parser = new TranscriptParser();
-    setState({ turns: [], plans: [], agents: [], version: 0 });
+    const current = followed.current;
+    if (current && path) {
+      // Catch up first: the session may have moved on to `path`, and then its turns stay.
+      current.tail?.poll();
+      if (current.file === path) return;
+    }
+    void current?.tail?.stop();
+    followed.current = undefined;
+    setState({ turns: [], plans: [], agents: [], file: path, version: 0 });
     if (!path) return;
-    const tail = new FileTail(path, (chunk) => {
-      if (parser.push(chunk)) {
-        setState((s) => ({
-          turns: [...parser.turns],
-          plans: parser.plans.map((p) => ({ ...p })),
-          planMode: parser.planMode && { ...parser.planMode },
-          agents: [...parser.agents],
-          title: parser.title,
-          version: s.version + 1,
-        }));
-      }
-    });
-    tail.start();
-    return () => void tail.stop();
+
+    const f: Followed = { parser: new TranscriptParser({ dedupe: true }), visited: new Set([sessionIdOf(path)]) };
+    followed.current = f;
+    const publish = (file: string) =>
+      setState((s) => ({
+        turns: [...f.parser.turns],
+        plans: f.parser.plans.map((p) => ({ ...p })),
+        planMode: f.parser.planMode && { ...f.parser.planMode },
+        agents: [...f.parser.agents],
+        title: f.parser.title,
+        file,
+        continuedFrom: f.from,
+        version: s.version + 1,
+      }));
+    const follow = (file: string) => {
+      f.file = file;
+      f.parser.nextFile();
+      const tail = new FileTail(file, (chunk) => {
+        const turns = f.parser.turns.length;
+        const agents = f.parser.agents.length;
+        if (f.parser.push(chunk)) {
+          // Images and subagents are looked up next to the transcript a turn came from.
+          for (const t of f.parser.turns.slice(turns)) t.transcript = file;
+          for (const a of f.parser.agents.slice(agents)) a.transcript = file;
+          publish(file);
+        }
+        const next = f.parser.continuedIn;
+        if (next && !f.visited.has(next)) {
+          f.visited.add(next);
+          void tail.stop();
+          f.from = file;
+          follow(join(dirname(file), `${next}.jsonl`));
+          publish(f.file!);
+        }
+      });
+      f.tail = tail;
+      tail.start();
+    };
+    follow(path);
   }, [path]);
+
+  useEffect(() => () => void followed.current?.tail?.stop(), []);
 
   return state;
 }

@@ -11,6 +11,7 @@ export class FileTail {
   private watcher?: FSWatcher;
   private timer?: NodeJS.Timeout;
   private decoder = new TextDecoder("utf-8");
+  private stopped = false;
 
   constructor(
     readonly path: string,
@@ -19,6 +20,8 @@ export class FileTail {
 
   start(): void {
     this.read();
+    // The first read can make the caller stop (and follow another file).
+    if (this.stopped) return;
     this.watcher = watch(this.path, {
       awaitWriteFinish: false,
       // Windows fs events can be missed for files held open by another process.
@@ -32,11 +35,18 @@ export class FileTail {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     clearInterval(this.timer);
     await this.watcher?.close();
   }
 
+  /** Reads what was appended since the last read, now. */
+  poll(): void {
+    this.read();
+  }
+
   private read(): void {
+    if (this.stopped) return;
     let size: number;
     try {
       size = statSync(this.path).size;
