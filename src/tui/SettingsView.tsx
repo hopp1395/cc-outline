@@ -111,6 +111,14 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("scroll long entries", "cut them off with …"),
   },
   {
+    key: "dateSeparators",
+    group: "General",
+    label: "date separators",
+    description:
+      "Whether Chat, Plan, Sessions and the trash show a line with the date (── Mon 28 Sep 2026 ──) above each day's entries, unless all of them are from today; the entries then show only their time. The Monitor's days get a line per year (── 2025 ──) once they reach into another year. Off, Sessions and the trash show the date in each row again.",
+    values: ON_OFF("a line per day", "no lines"),
+  },
+  {
     key: "rememberPositions",
     group: "General",
     label: "remember positions",

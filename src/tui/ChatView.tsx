@@ -660,6 +660,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           height={bodyHeight}
           empty="Waiting for prompts…"
           itemKey={(t, i) => t.id + i}
+          time={(t) => t.timestamp}
           render={(t, isSelected) => {
             const marked = favorites.isMarked(t.id);
             // Claude works on it, or subagents it started still run.

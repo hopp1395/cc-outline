@@ -337,6 +337,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           height={bodyHeight}
           empty="No plans yet"
           itemKey={(p) => p.id}
+          time={(p) => p.timestamp}
           render={(p, isSelected) => {
             const status = STATUS[p.status];
             const marked = favorites.isMarked(p.id);
