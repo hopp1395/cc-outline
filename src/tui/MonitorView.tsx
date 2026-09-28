@@ -19,6 +19,7 @@ import {
   type Bucket,
   type Measurements,
 } from "../monitor/responses.js";
+import { dayLabel } from "./days.js";
 import { useFocused } from "./focus.js";
 import { nextMarked } from "../favorites.js";
 import {
@@ -71,12 +72,6 @@ const REFRESH_MS = 3000;
 
 /** "opus-5-5" for "claude-opus-5-5". */
 const shortModel = (m: string) => m.replace(/^claude-/, "");
-
-/** "Sat 27 Sep" for "2026-09-27". */
-function dayName(day: string): string {
-  const d = new Date(`${day}T12:00:00`);
-  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-}
 
 const hhmm = (at: number) => new Date(at).toTimeString().slice(0, 5);
 
@@ -228,6 +223,7 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
   const favorites = useFavorites(cwd, "days");
   // Days are kept newest first; oldest first only mirrors the list and its keys.
   const [order, setOrder] = useSetting("monitorOrder");
+  const [separators] = useSetting("dateSeparators");
   const reversed = order === "oldest-first";
   const [value, setValue] = useState<Value>("score");
   const models = useMemo(() => (data ? modelsByRecency(data) : []), [data]);
@@ -266,7 +262,7 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
   const header = useMemo(() => {
     const live = selected?.day === dayKey(Date.now()) ? " · live" : "";
     const modelName = model ? shortModel(model) : ALL;
-    const title = selected ? `${dayName(selected.day)} · ${table ? "Responses" : VALUE_NAMES[value]}` : "Monitor";
+    const title = selected ? `${dayLabel(selected.day)} · ${table ? "Responses" : VALUE_NAMES[value]}` : "Monitor";
     const lines = previewHeader(title, previewWidth, {
       marker: "▁▅█ ",
       style: bold,
@@ -356,11 +352,14 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
           height={bodyHeight}
           empty={data ? "No responses" : "Reading…"}
           itemKey={(d) => d.day}
+          time={(d) => d.day}
+          period="year"
           render={(d, isSelected) => (
             <>
               {favorites.isMarked(d.day) && <Star />}
               <EntryText
-                text={dayName(d.day)}
+                // The year separators name the year.
+                text={dayLabel(d.day, separators ? "never" : "other")}
                 width={Math.max(4, listWidth - countWidth - 4 - (favorites.isMarked(d.day) ? 2 : 0))}
                 selected={isSelected}
                 active={active}

@@ -17,6 +17,7 @@ import { isViewShown, type ListOrder } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 import { VERSION } from "../version.js";
+import { entryGroups, periodLabel, periodOf, separatorText, separatorsAt, type Period } from "./days.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
@@ -495,6 +496,9 @@ interface ListProps<T> {
   onPick?: (index: number) => void;
   /** Show the items bottom-up (newest first for a chronological list). */
   reversed?: boolean;
+  /** The time of an item: a separator starts each day, or with `period` each year (see `entryGroups`). */
+  time?: (item: T) => string | number | undefined;
+  period?: Period;
 }
 
 /** Where a part of the Screen (list or preview) sits on the terminal, for mapping mouse positions to it. */
@@ -541,10 +545,10 @@ export function listWindow(count: number, selected: number, height: number): Lis
  * "▲ 7 more Home": how many entries (or, with `unit`, e.g. lines) are hidden
  * and the key that jumps to the far end.
  */
-export function MoreRow({ arrow, count, jumpKey, unit }: { arrow: string; count: number; jumpKey: string; unit?: string }) {
+export function MoreRow({ arrow, count, jumpKey, unit, day }: { arrow: string; count: number; jumpKey: string; unit?: string; day?: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more${unit ? ` ${unit}` : ""}  `}
+      {` ${arrow} ${count} more${unit ? ` ${unit}` : ""}${day ? ` · ${periodLabel(day)}` : ""}  `}
       <Text color="yellow">{jumpKey}</Text>
     </Text>
   );
@@ -557,18 +561,38 @@ export function MoreRow({ arrow, count, jumpKey, unit }: { arrow: string; count:
  * keeps its data in its natural order and only the display is mirrored.
  */
 export function List<T>(props: ListProps<T>) {
-  if (!props.reversed) return <ListRows {...props} />;
+  const [separators] = useSetting("dateSeparators");
+  // Days are taken in the natural order, so an item without a time joins the one before it.
+  const period = props.period ?? "day";
+  const days = separators && props.time ? entryGroups(props.items.map((item) => periodOf(props.time!(item), period)), period) : undefined;
+  if (!props.reversed) return <ListRows {...props} days={days} />;
   const last = props.items.length - 1;
   const flip = (i: number) => last - i;
   return (
     <ListRows
       {...props}
       items={[...props.items].reverse()}
+      days={days && [...days].reverse()}
       selected={flip(props.selected)}
       itemKey={(item, i) => props.itemKey(item, flip(i))}
       onPick={props.onPick && ((i) => props.onPick!(flip(i)))}
     />
   );
+}
+
+/** A row of a list: an item (by index) or the date separator before a day's first item. */
+type ListRow = { item: number } | { day: string; before: number };
+
+/** The rows of `count` items with a separator above each day's items (`days` in display order). */
+export function listRows(count: number, days: string[] | undefined): ListRow[] {
+  const before = separatorsAt(days);
+  const rows: ListRow[] = [];
+  for (let i = 0; i < count; i++) {
+    const day = before[i];
+    if (day) rows.push({ day, before: i });
+    rows.push({ item: i });
+  }
+  return rows;
 }
 
 /**
@@ -590,26 +614,45 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
 /** A direction on screen (Shift+↑/↓ between marks) in the list's own order. */
 export const orderedDir = (reversed: boolean, dir: 1 | -1): 1 | -1 => (reversed ? (-dir as 1 | -1) : dir);
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick }: ListProps<T>) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, days }: ListProps<T> & { days?: string[] }) {
   const focused = useFocused();
   const area = useContext(AreaContext);
-  const { from, to, above, below } = listWindow(items.length, selected, height);
+  const rows = listRows(items.length, days);
+  const selectedRow = rows.findIndex((r) => "item" in r && r.item === selected);
+  const { from, to } = listWindow(rows.length, Math.max(0, selectedRow), height);
+  const itemsIn = (part: ListRow[]) => part.filter((r) => "item" in r).length;
+  const above = itemsIn(rows.slice(0, from));
+  const below = itemsIn(rows.slice(to));
+  // With the day's separator scrolled away, the ▲ row names the day of the first entry shown.
+  const topRow = rows[from];
+  const topDay = from > 0 && days && topRow && "item" in topRow ? days[topRow.item] : undefined;
   useMouse((e) => {
     const at = inArea(area, e.x, e.y);
     if (!at || !onPick || items.length === 0) return;
     if (e.kind === "wheel") return onPick(Math.max(0, Math.min(items.length - 1, selected + e.delta)));
     // The ▲/▼ rows jump to the far end, like Home and End.
-    if (above > 0 && at.row === 0) return onPick(0);
-    const index = from + at.row - (above > 0 ? 1 : 0);
-    if (index >= to) return below > 0 && at.row === height - 1 ? onPick(items.length - 1) : undefined;
-    onPick(index);
+    if (from > 0 && at.row === 0) return onPick(0);
+    const index = from + at.row - (from > 0 ? 1 : 0);
+    if (index >= to) return to < rows.length && at.row === height - 1 ? onPick(items.length - 1) : undefined;
+    // A separator picks the first entry of its day.
+    const row = rows[index];
+    onPick("item" in row ? row.item : row.before);
   });
   if (items.length === 0) return <Text dimColor>{empty}</Text>;
+  const width = area.width || 40;
   return (
     <>
-      {above > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" />}
-      {items.slice(from, to).map((item, i) => {
-        const index = from + i;
+      {from > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" day={topDay} />}
+      {rows.slice(from, to).map((row) => {
+        if ("day" in row)
+          return (
+            // Keyed by the item below it: a day could come twice in an unordered list.
+            <Text key={`day-${itemKey(items[row.before], row.before)}`} dimColor wrap="truncate">
+              {separatorText(row.day, width)}
+            </Text>
+          );
+        const index = row.item;
+        const item = items[index];
         const isSelected = index === selected;
         // Without focus the selection stays visible but quiet.
         return (
@@ -624,7 +667,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick }
           </Text>
         );
       })}
-      {below > 0 && <MoreRow arrow="▼" count={below} jumpKey="End" />}
+      {to < rows.length && <MoreRow arrow="▼" count={below} jumpKey="End" />}
     </>
   );
 }
