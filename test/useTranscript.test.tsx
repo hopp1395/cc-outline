@@ -31,6 +31,25 @@ function renderProbe(path: string): { frame: () => string; unmount: () => void }
 }
 
 describe("useTranscript", () => {
+  it("opened on a continued transcript, starts with the turns of the ones before", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cco-continue-"));
+    writeFileSync(
+      join(dir, "first.jsonl"),
+      prompt("a", "fix it") + answer("r", "Done.") + prompt("c", "/compact") + line({ type: "continued-in", continuedInSessionId: "next" }),
+    );
+    const next = join(dir, "next.jsonl");
+    // As after /resume: the viewer opens the later transcript, which starts with the boundary and copies.
+    writeFileSync(
+      next,
+      line({ type: "system", subtype: "compact_boundary", uuid: "b" }) + answer("r", "Done.") + prompt("c", "/compact") + answer("n", "Go on."),
+    );
+    const probe = renderProbe(next);
+    await expect
+      .poll(probe.frame, { timeout: 3000 })
+      .toBe("next.jsonl|fix it=Done.@first.jsonl|/compact=Go on.@first.jsonl");
+    probe.unmount();
+  });
+
   it("reads on in the transcript a session continued in, keeping its turns", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cco-continue-"));
     const first = join(dir, "first.jsonl");

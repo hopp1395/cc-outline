@@ -96,7 +96,10 @@ export function deleteBlocker(id: string, activeId: string | undefined, running:
 
 /** Moves a session into the trash. Throws when it is active or running. */
 export function trashSession(summary: SessionSummary, activeId?: string): TrashEntry {
-  const blocker = deleteBlocker(summary.id, activeId, runningSessionIds());
+  // A session merged from several transcripts (`continues`) goes to the trash as a whole.
+  const ids = [summary.id, ...(summary.continues ?? [])];
+  const running = runningSessionIds();
+  const blocker = ids.map((id) => deleteBlocker(id, activeId, running)).find(Boolean);
   if (blocker) throw new Error(blocker);
   const root = claudeDir();
   const projectDir = dirname(summary.path);
@@ -107,7 +110,7 @@ export function trashSession(summary: SessionSummary, activeId?: string): TrashE
     id: summary.id,
     slug,
     deletedAt: Date.now(),
-    items: sessionItems(projectDir, summary.id).map((from) => ({ from, to: join(target, relative(root, from)) })),
+    items: ids.flatMap((id) => sessionItems(projectDir, id)).map((from) => ({ from, to: join(target, relative(root, from)) })),
     summary,
   };
   // Written first, so an interrupted move can still be traced and restored.

@@ -181,10 +181,12 @@ function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt
     state === "trash"
       ? red(`in the trash since ${dateTime(new Date(deletedAt ?? 0).toISOString())} · u restores it`)
       : `${state === "active" ? "active · " : state === "running" ? "running elsewhere · " : ""}${resumeCommand(s)}`;
+  // A session Claude Code went on with under a new id is shown as one; it names the ids it continues.
+  const continues = s.continues?.length ? [dim(`continues ${s.continues.map((id) => id.slice(0, 8)).join(", ")}`)] : [];
   return previewHeader(sessionTitle(s), width, {
     marker: state === "active" ? green("● ") : state === "running" ? green("▶ ") : "  ",
     style: bold,
-    details: [when, counts.join(" · "), ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []), last],
+    details: [when, counts.join(" · "), ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []), ...continues, last],
   });
 }
 

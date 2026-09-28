@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -10,6 +10,7 @@ import {
   transcriptForSession,
   type ActiveSession,
 } from "../transcript/locate.js";
+import { predecessors } from "../transcript/continuation.js";
 import { TranscriptParser, type AgentRun, type Plan, type PlanModeState, type Turn } from "../transcript/parse.js";
 import { FileTail, watchFile } from "../transcript/tail.js";
 
@@ -138,6 +139,19 @@ export function useTranscript(path: string | undefined): Transcript {
       f.tail = tail;
       tail.start();
     };
+    // A session that continued from other transcripts (e.g. /resume after /compact moved it) starts with their turns.
+    for (const earlier of predecessors(path)) {
+      f.visited.add(sessionIdOf(earlier));
+      f.parser.nextFile();
+      try {
+        f.parser.push(readFileSync(earlier, "utf8") + "\n");
+      } catch {
+        continue;
+      }
+      for (const t of f.parser.turns) t.transcript ??= earlier;
+      for (const a of f.parser.agents) a.transcript ??= earlier;
+    }
+    if (f.parser.turns.length > 0) publish(path);
     follow(path);
   }, [path]);
 
