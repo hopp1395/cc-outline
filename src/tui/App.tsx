@@ -7,6 +7,7 @@ import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
+import type { Turn } from "../transcript/parse.js";
 import { setViewerView } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -40,15 +41,26 @@ interface Props {
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
 
+/**
+ * When the last prompt was typed in Claude Code, if that was after `since`: the
+ * focus is there then. Notifications are not typed; turns loaded at the start are older.
+ */
+function typedInClaude(turns: Turn[], since: number): number | undefined {
+  const last = [...turns].reverse().find((t) => !t.notification);
+  const at = last?.timestamp ? Date.parse(last.timestamp) : NaN;
+  return at > since ? at : undefined;
+}
+
 const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
 
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement }: Props) {
   const { exit } = useApp();
+  const [startedAt] = useState(Date.now);
   const layout = useLayout();
-  const focused = useTerminalFocus(!unfocused);
   const path = useSessionPath(cwd, sessionId, claudePid);
   // Parsed once for the chat and the plan view.
   const transcript = useTranscript(path);
+  const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
   // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
   useTerminalTitle(transcript.title ?? basename(cwd));
   const [rememberView] = useSetting("rememberView");

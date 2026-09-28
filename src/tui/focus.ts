@@ -1,5 +1,6 @@
 import { useInput, useStdout } from "ink";
 import { createContext, useContext, useEffect, useState } from "react";
+import { parseMouse } from "./mouse.js";
 
 /** Terminal focus reporting (DECSET 1004): the terminal sends ESC[I on focus in and ESC[O on focus out. */
 const ENABLE = "\u001b[?1004h";
@@ -9,10 +10,24 @@ const FOCUS_IN = "[I";
 const FOCUS_OUT = "[O";
 
 /**
- * Whether the viewer's pane has the keyboard focus. Terminals without focus
- * reporting never send an event, so the viewer then stays "focused".
+ * What an input says about the focus: a focus report, else any key or click
+ * means the pane has it (a wheel step can reach a pane that has not).
+ * Undefined when it says nothing.
  */
-export function useTerminalFocus(initial = true): boolean {
+export function focusFromInput(input: string): boolean | undefined {
+  if (input === FOCUS_IN) return true;
+  if (input === FOCUS_OUT) return false;
+  if (input.startsWith("[<")) return parseMouse(input).some((e) => e.kind === "click") || undefined;
+  return true;
+}
+
+/**
+ * Whether the viewer's pane has the keyboard focus. Focus reports are the
+ * source, but not every terminal sends them (Windows Terminal 1.12 does not):
+ * then a key or click in the viewer means focused, and a prompt typed in
+ * Claude Code (`typedElsewhere`, its time) means the focus is there.
+ */
+export function useTerminalFocus(initial = true, typedElsewhere?: number): boolean {
   const { stdout } = useStdout();
   const [focused, setFocused] = useState(initial);
 
@@ -27,9 +42,13 @@ export function useTerminalFocus(initial = true): boolean {
     };
   }, [stdout]);
 
+  useEffect(() => {
+    if (typedElsewhere !== undefined) setFocused(false);
+  }, [typedElsewhere]);
+
   useInput((input) => {
-    if (input === FOCUS_IN) setFocused(true);
-    else if (input === FOCUS_OUT) setFocused(false);
+    const next = focusFromInput(input);
+    if (next !== undefined) setFocused(next);
   });
 
   return focused;
