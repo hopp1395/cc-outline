@@ -355,6 +355,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   // The session whose remembered selection was restored (or found to be missing); nothing is stored before.
   const restoredFor = useRef<string | undefined>(undefined);
   const justRestored = useRef(false);
+  // The selection stored for a turn this session does not have (see the restore below).
+  const unrestored = useRef<string | undefined>(undefined);
   const [pos, setPos] = useState(0);
   const [promptPos, setPromptPos] = useState(0);
 
@@ -407,9 +409,18 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     setHscroll(0);
   };
 
+  // A new session: reset the view. Its turns can come in the same render (a session continued from
+  // other transcripts is read at once), so the effects below run after this one and settle the selection.
   useEffect(() => {
-    if (follow && last >= 0 && selected !== last) showTurn(last);
-  }, [follow, last]);
+    setSelected(0);
+    setPos(0);
+    setFollow(true);
+  }, [path]);
+
+  // Following: select the newest turn, also of a session just switched to (then `selected` is the old session's).
+  useEffect(() => {
+    if (follow && last >= 0) showTurn(last);
+  }, [follow, last, path]);
 
   // Following: stick to the bottom of the latest answer while it grows.
   useEffect(() => {
@@ -423,18 +434,13 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     else setPos(Math.max(0, lines.length - base));
   };
 
-  // A new session starts with an empty transcript: reset the view.
-  useEffect(() => {
-    setSelected(0);
-    setPos(0);
-    setFollow(true);
-  }, [path]);
-
   // Once the turns of a session are there: back to the turn selected last time, unless the newest was followed.
   useEffect(() => {
     if (!path || restoredFor.current === path || turns.length === 0) return;
     restoredFor.current = path;
     const at = remembered.follow === false ? turns.findIndex((t) => t.id === remembered.selected) : -1;
+    // A turn of another session, e.g. the one /resume brings back: kept while this one is only followed.
+    unrestored.current = at < 0 && remembered.follow === false ? remembered.selected : undefined;
     if (at < 0) return;
     justRestored.current = true;
     setFollow(false);
@@ -449,11 +455,15 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       return;
     }
     if (!current) return;
+    if (live && unrestored.current) return;
+    unrestored.current = undefined;
     remembered.select(current.id, live);
     if (!detailOpen) remembered.set(current.id, pos);
   }, [current?.id, live, pos, detailOpen]);
 
   const select = (index: number) => {
+    // The user chose: from now on their selection is the one kept.
+    unrestored.current = undefined;
     const next = Math.max(0, Math.min(last, index));
     if (next !== selected) showTurn(next);
     setFollow(next === last);
