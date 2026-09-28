@@ -15,6 +15,8 @@ const FRAME_PREFIX = /^(?:\u001b\[2J(?:\u001b\[3J\u001b\[H|\u001b\[0f)|(?:\u001b
 const CURSOR_START = /^\u001b\[[0-9;?<>=]*[ -/]*[@-ln-~]/;
 /** Only escape sequences, no text: mode switches, cursor, queries. */
 const CONTROL_ONLY = /^(?:\u001b\[[0-9;?<>=]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_])*$/;
+/** Only OSC sequences (the window title): they neither draw nor move the cursor. */
+const OSC_ONLY = /^(?:\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\))+$/;
 
 /** The part of a stream the frame buffer needs. */
 export interface FrameStream {
@@ -51,6 +53,11 @@ export class FrameBuffer {
   write(text: string): void {
     // Ink's own synchronization around a frame: the frame gets ours.
     if (text === BSU || text === ESU) return;
+    // The title spins while Claude works; redrawing the screen for it each time would flicker.
+    if (OSC_ONLY.test(text)) {
+      this.out.write(text);
+      return;
+    }
     const body = text.replace(FRAME_PREFIX, "");
     // Without a known prefix, a frame starts with text or a colour, not with cursor movement.
     const unknown = body === text && CURSOR_START.test(body);
