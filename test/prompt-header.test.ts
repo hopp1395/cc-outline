@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import type { Turn } from "../src/transcript/parse.js";
-import { answerLines, compactLines, continuationDetails, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
+import { answerLines, commandName, compactLines, continuationDetails, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
 
 describe("jumpHint", () => {
   it("centres the badge and gives it a background", () => {
@@ -77,5 +77,20 @@ describe("compactLines", () => {
   it("heads the summary with what the compaction reported", () => {
     const lines = compactLines("Goal: fix it.", { trigger: "manual", preTokens: 216765, postTokens: 9633, durationMs: 43287 }, 60, true).map(stripAnsi);
     expect(lines).toEqual(["⟳ Compact summary · /compact · 217k → 10k tokens · 43 s", "", "Goal: fix it."]);
+  });
+});
+
+describe("slash commands", () => {
+  it("names the command a prompt runs, not a path", () => {
+    expect(commandName("/model sonnet")).toBe("/model");
+    expect(commandName("/cco:chat")).toBe("/cco:chat");
+    expect(commandName("/usr/bin is missing")).toBeUndefined();
+    expect(commandName("fix /model")).toBeUndefined();
+  });
+
+  it("shows the command's name in colour above the answer, without claiming the prompt was cut", () => {
+    const header = promptHeader("/model sonnet", 40, 10);
+    expect(header[0]).toContain("\u001b[38;2;217;119;87m/model\u001b[39m");
+    expect(header.map(stripAnsi)).toEqual(["❯ /model sonnet", "─".repeat(40)]);
   });
 });
