@@ -132,6 +132,12 @@ describe("TranscriptParser", () => {
       expect(turnMarkdown(p.turns[0], { tools: "off", thinking: false })).toBe("Fixed.");
     });
 
+    it("names the answer a continued transcript starts with, whose prompt is in the one before", () => {
+      const p = new TranscriptParser();
+      p.push(line({ type: "system", subtype: "compact_boundary", uuid: "b" }) + assistant("end_turn", [{ type: "text", text: "Merged." }]));
+      expect(p.turns.map((t) => [t.id, t.prompt])).toEqual([["start", "(continued after /compact)"]]);
+    });
+
     it("shows /compact once, without the summary it continues with", () => {
       const p = new TranscriptParser();
       p.push(

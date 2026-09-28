@@ -367,6 +367,8 @@ export class TranscriptParser {
   private takesAttachments = false;
   /** Uuids of the entries read, with `dedupe`: a continued session's transcript starts with copies of the last ones. */
   private seen?: Set<string>;
+  /** The transcript began with a compact boundary: it continues one whose turns are not read. */
+  private afterCompact = false;
   /**
    * `sidechains`: read sidechain entries like the main conversation. A
    * subagent's own transcript (`subagents/agent-<id>.jsonl`) consists of them.
@@ -468,6 +470,8 @@ export class TranscriptParser {
     if (entry.isSidechain) return false;
     // Attachments belong to a prompt only when they follow it directly; after /compact, Claude Code re-attaches files it read.
     if (entry.type === "user" || entry.type === "assistant" || entry.type === "system") this.takesAttachments = false;
+    // A transcript that begins with a compact boundary continues another; its first answer has no prompt here.
+    if (entry.type === "system" && entry.subtype === "compact_boundary" && this.turns.length === 0) this.afterCompact = true;
     if (entry.type === "system" && entry.subtype === "away_summary") return this.addRecap(entry.content);
     if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
     if (entry.type === "user") {
@@ -483,7 +487,8 @@ export class TranscriptParser {
     let turn = this.turns.at(-1);
     if (!turn) {
       // Assistant output before any prompt (e.g. resumed session): collect it anyway.
-      turn = { id: "start", prompt: "(session start)", timestamp: entry.timestamp, blocks: [] };
+      const prompt = this.afterCompact ? "(continued after /compact)" : "(session start)";
+      turn = { id: "start", prompt, timestamp: entry.timestamp, blocks: [] };
       this.turns.push(turn);
     }
     // Each line of a message carries its stop reason; the last one says whether Claude stopped or calls a tool.

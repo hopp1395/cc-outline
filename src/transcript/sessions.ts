@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { IncrementalFile } from "./incremental.js";
 import { claudeDir, projectDir } from "./locate.js";
 import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
@@ -24,6 +24,10 @@ export interface SessionSummary {
   /** First and last timestamp in the transcript. */
   start?: string;
   end?: string;
+  /** The session id this one went on in (`continued-in`); such a session is shown merged into that one. */
+  continuedIn?: string;
+  /** Ids of the sessions merged into this one, which it continued from, oldest first. */
+  continues?: string[];
 }
 
 /** What the overview keeps of a subagent. */
@@ -152,8 +156,54 @@ export class SessionReader {
       cwd: this.cwd,
       start: this.start,
       end: this.end,
+      continuedIn: this.parser.continuedIn,
     };
   }
+}
+
+const promptKey = (p: { text: string; timestamp?: string }) => `${p.timestamp ?? ""} ${p.text}`;
+
+/** `later` with `earlier`, the session it continued from, merged in: one session to the user. */
+function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionSummary {
+  // The later transcript starts with copies of the last entries, so some prompts are in both.
+  const prompts = new Set(earlier.prompts.map(promptKey));
+  const plans = new Set(earlier.plans.map((p) => p.id));
+  const agentKey = (a: SessionAgent) => `${a.started ?? ""} ${a.description}`;
+  const agents = new Set((earlier.agents ?? []).map(agentKey));
+  return {
+    ...later,
+    title: later.title ?? earlier.title,
+    prompts: [...earlier.prompts, ...later.prompts.filter((p) => !prompts.has(promptKey(p)))],
+    plans: [...earlier.plans, ...later.plans.filter((p) => !plans.has(p.id))],
+    files: [...new Set([...earlier.files, ...later.files])],
+    agents: [...(earlier.agents ?? []), ...(later.agents ?? []).filter((a) => !agents.has(agentKey(a)))],
+    branch: later.branch ?? earlier.branch,
+    cwd: earlier.cwd ?? later.cwd,
+    start: earlier.start ?? later.start,
+    end: later.end ?? earlier.end,
+    continues: [...(earlier.continues ?? []), earlier.id, ...(later.continues ?? [])],
+  };
+}
+
+/**
+ * Merges each session that went on under another id (`continuedIn`) into
+ * that one, which keeps its id: `claude --resume` takes the later one.
+ */
+export function mergeContinued(sessions: SessionSummary[]): SessionSummary[] {
+  const key = (s: SessionSummary, id = s.id) => join(dirname(s.path), id);
+  const byKey = new Map(sessions.map((s) => [key(s), s]));
+  // Oldest first, so a chain of several merges forward into its last session.
+  for (const s of [...sessions].sort(byStart)) {
+    if (!s.continuedIn) continue;
+    const own = key(s);
+    const next = key(s, s.continuedIn);
+    const earlier = byKey.get(own);
+    const later = byKey.get(next);
+    if (!earlier || !later || own === next) continue;
+    byKey.set(next, mergeSessions(earlier, later));
+    byKey.delete(own);
+  }
+  return [...byKey.values()];
 }
 
 /** Transcripts of one project (`cwd`) or, without it, of all projects. */
@@ -193,23 +243,24 @@ export class SessionIndex {
     onProgress?: (sessions: SessionSummary[], done: number, total: number) => void,
   ): Promise<SessionSummary[]> {
     const files = transcriptFiles(cwd);
-    const sessions: SessionSummary[] = [];
+    const summaries: SessionSummary[] = [];
+    // Continued sessions are merged before the filter: one part alone may hold only slash commands.
+    const sessions = () => mergeContinued(summaries).filter(hasWork).sort(byStart);
     let reported = Date.now();
     for (const [i, path] of files.entries()) {
       let reader = this.readers.get(path);
       if (!reader) this.readers.set(path, (reader = new SessionReader(path)));
-      const summary = reader.update();
-      if (hasWork(summary)) sessions.push(summary);
+      summaries.push(reader.update());
       if (onProgress && Date.now() - reported > 250) {
         reported = Date.now();
-        onProgress([...sessions].sort(byStart), i + 1, files.length);
+        onProgress(sessions(), i + 1, files.length);
       }
       await new Promise((r) => setImmediate(r));
     }
     // Forget transcripts that are gone (deleted, moved to the trash).
     const present = new Set(files);
     for (const path of this.readers.keys()) if (!present.has(path) && (!cwd || path.startsWith(projectDir(cwd)))) this.readers.delete(path);
-    return sessions.sort(byStart);
+    return sessions();
   }
 }
 
