@@ -124,6 +124,7 @@ Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` for the n
 - The lists ordered by time (Chat, Plan, Sessions with its trash, Monitor) show the oldest entry at the top, the Monitor the newest. `s` turns a list around and remembers it (the *order* settings). The keys follow what you see: `↑`/`↓` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
 - If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
+- Chat, Plan and Sessions (with its trash) show only the time of an entry; a dimmed line with the date (`── Mon 28 Sep 2026 ──`) starts each day, above its entries in either order. A list whose entries are all from today has none. The *date separators* setting turns the lines off. The lines cannot be selected (a click on one selects the day's first entry), and when the day's line has scrolled away, the `▲` row names the day (`▲ 12 more · Mon 28 Sep Home`). In a session's preview, plans, agents and prompts get these lines if the session spans several days. The Monitor's list of days gets a line per year (`── 2025 ──`) once it reaches into another year.
 - **Mouse:** a click selects an entry, the wheel moves to the previous or next one. In the preview the wheel scrolls, and a click on a web address (`https://…`, also one wrapped over two lines) opens it in the browser. To select text, hold `Shift` while dragging. The *mouse* setting turns this off.
 - `Space` marks the selected entry as a favourite (`★` at the start of its row) or removes the mark. `Shift+↑` and `Shift+↓` jump to the previous and next marked entry, and the top bar counts them (`★ 2`).
 - Marks are saved per project in `~/.claude/cco/<project-slug>.favorites.json`: turns by prompt, files by path, plans by their id, sessions by their id, Monitor days by their date. The settings are global, and so are their marks, in `~/.claude/cco/favorites.json`.
@@ -253,7 +254,7 @@ The Sessions view is an overview of your Claude Code sessions: of all projects b
 
 ![Sessions view: sessions of two projects on the left, an older session with its plans, changed files and prompts on the right](docs/sessions.svg)
 
-**List (left).** One entry per session, oldest first, with its start date and time, with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` or `!` commands and changed nothing are left out.
+**List (left).** One entry per session, oldest first, with its start time (under a line per day), with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` or `!` commands and changed nothing are left out.
 
 **Details (right).** Pinned at the top:
 - the name
@@ -311,6 +312,7 @@ The Settings view (`6`, or `/cco:settings`) shows every option with its value on
 | Start: placement | `right` / `left` / `window` | `right` | `p` in any view |
 | General: confirm quit | on / off | on | – |
 | General: marquee (long list entries scroll) | on / off | on | – |
+| General: date separators (a line per day in lists) | on / off | on | – |
 | General: remember positions (across restarts) | on / off | on | – |
 | General: view per session | on / off | on | – |
 | General: mouse | on / off | on | – |
@@ -330,6 +332,7 @@ What they do:
 - **placement** is where the viewer opens for sessions that have no place of their own: docked right or left of Claude Code, or in a window. `p` in the viewer moves it and remembers the place for the session (see [Usage](#usage)).
 - **confirm quit** makes `q` and `Esc` ask before the viewer closes.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
+- **date separators** puts a line with the date above each day's entries in Chat, Plan, Sessions and the trash, and one per year in the Monitor; off, Sessions and the trash show the date in each row again.
 - **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
 - **mouse** lets the viewer take the mouse: a click on a web address in the preview opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview or, over the list, moves to the previous or next entry. While it is on, the terminal leaves clicks to the viewer, so select text with `Shift`+drag (Windows Terminal). Off, the terminal keeps the mouse and opens addresses with `Ctrl`+click.
 - **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
