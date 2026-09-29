@@ -210,14 +210,6 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
 /** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
-const JUMP_LABEL =" ↓ Jump to bottom (ctrl+End) ";
-
-/** The "jump to bottom" hint as a badge with a background, centred in `width`. */
-export function jumpHint(width: number): string {
-  const indent = Math.max(0, Math.floor((width - stringWidth(JUMP_LABEL)) / 2));
-  return " ".repeat(indent) + "\u001b[48;2;38;79;120m\u001b[97m" + JUMP_LABEL + "\u001b[39m\u001b[49m";
-}
-
 /** The name of the slash command a prompt runs ("/model" of "/model sonnet"); not a path such as /usr/bin. */
 export function commandName(prompt: string): string | undefined {
   return /^\/[^\s/]+(?=\s|$)/.exec(prompt)?.[0];
@@ -450,10 +442,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
 
   const live = follow && selected === last;
   const base = bodyHeightBelow(header, bodyHeight);
-  // Not at the bottom of a longer answer: offer the way down, like Claude Code.
-  // At the bottom means the last line is visible without the hint row (pos >= lines - base).
-  const showJump = !detailOpen && !live && lines.length > base && pos < lines.length - base;
-  const viewport = showJump ? base - 1 : base;
+  const viewport = base;
   const scroll = agentPage
     ? makeScroll(agentPos, setAgentPos, lines.length, viewport)
     : promptOpen
@@ -516,6 +505,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   }, [live, detailOpen, scroll.max]);
 
   /** Ctrl+End: the bottom of this answer; for the latest turn also resume following. */
+  const jumpToTop = () => {
+    if (!detailOpen && selected === last && follow) setFollow(false);
+    scroll.set(0);
+  };
   const jumpToBottom = () => {
     if (detailOpen) return scroll.set(scroll.max);
     if (selected === last) setFollow(true);
@@ -737,7 +730,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             width={previewWidth}
             height={bodyHeight}
             hscroll={Math.min(hscroll, maxHscroll)}
-            footer={showJump ? jumpHint(previewWidth) : undefined}
+            onJump={(to) => (to === "end" ? jumpToBottom() : jumpToTop())}
             // The "Claude is working…" line ends the answer of the running turn.
             spinner={spinners.length ? { at: spinners, active } : undefined}
           />

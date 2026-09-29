@@ -112,7 +112,7 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 All views share one layout:
 - **Top bar:** the view tabs, a status summary and, on the right if there is room, the version of cc-outline. Options that are on are not repeated there; the help line highlights them.
-- **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row shows how many lines are hidden above (`▲ 5 more lines ctrl+Home`) or below (`▼ 15 more lines ctrl+End`), with the key that jumps there.
+- **Body:** a list on the left and a preview on the right. When the preview is longer than the pane, its first or last row becomes a blue badge that says how many lines are hidden above (`↑ 5 more lines (ctrl+Home)`) or below (`↓ 15 more lines (ctrl+End)`), with the key that jumps there; a click on the badge jumps as well. In a narrow preview the key is left out. A scroll bar on its right edge shows which part is in view: the thumb touches the top or bottom of the track only when the preview is at its very top or end. A click on the bar jumps there. The status in the top bar names the position: `top`, `end`, the lines in view in between (`121–160/300`), or `all` when everything fits.
 - **Help line:** the keys of the current view at the bottom.
 
 The viewer sets the terminal title to the session title, the one set with `/rename` or else the one Claude Code gave the session; until the session has one, the project folder. So its tab, and a window of its own in the taskbar, show which session it follows instead of just `cco`. Like Claude Code, the title starts with a status mark: `◐` and `◑` in turn while Claude works on the last turn, `✳` when it waits for you. A viewer opened with `--session` shows no mark. A Windows Terminal profile with `suppressApplicationTitle` keeps `cco`.
@@ -170,13 +170,13 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 
 **Follow mode** is on by default.
 - The newest turn is selected, and the view sticks to the bottom while the answer grows, like in Claude Code.
-- Scrolling up or selecting an older turn leaves follow mode. The badge `↓ Jump to bottom (ctrl+End)` then appears at the bottom of the preview. Scrolling back down to the end, `↓` to the newest turn, `Ctrl+End` or `G` resumes following. `f` toggles follow mode directly.
+- Scrolling up or selecting an older turn leaves follow mode. The badge `↓ 15 more lines (ctrl+End)` at the bottom of the preview then shows how much is left below; `Ctrl+End` or a click on it goes there. Scrolling back down to the end, `↓` to the newest turn, `Ctrl+End` or `G` resumes following. `f` toggles follow mode directly.
 - Each turn remembers where you left it scrolled. An older turn that is not scrolled to its end also shows the badge; there `Ctrl+End` jumps to the end of that answer.
 
 **Status.** The top bar shows:
 - the session id
 - the number of turns
-- the scroll position (`all` or a percentage)
+- the scroll position (`top`, `end`, the lines in view such as `121–160/300`, or `all`)
 - the number of marked turns (`★ 2`)
 - with wrapping off, how far the answer is scrolled sideways (`→ 16 cols`)
 
