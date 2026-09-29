@@ -33,8 +33,8 @@ const LIST_KEYS = (entry: string): [string, string][] => [
 const COMMON_KEYS: [string, string][] = [
   ["1 – 6", "chat / changes / plan / sessions / monitor / settings"],
   ["Tab ⇧Tab", "next / previous view"],
-  ["click", "select / open a link"],
-  ["wheel", "scroll"],
+  ["click wheel", "select, open a link / scroll"],
+  ["F5 ^R", "reload this view"],
   ["p", "move: right / left / window"],
   ["i", "this info"],
   ["q", "quit"],
@@ -63,7 +63,6 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["[ ]", "previous / next hunk"],
     ["w", "wrap lines"],
     ["^←→", "scroll sideways"],
-    ["r", "refresh"],
     ...COMMON_KEYS,
   ],
   plan: [

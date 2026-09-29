@@ -16,6 +16,7 @@ import { paneSwitchKey, useFocused } from "./focus.js";
 import { isViewShown, type ListOrder } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
+import { useReload } from "./reload.js";
 import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, separatorText, separatorsAt, type Period } from "./days.js";
 
@@ -438,6 +439,18 @@ function Footer({ items }: { items: string | FooterItem[] }) {
  */
 const VERSION_LABEL = ` v${VERSION} `;
 
+/** The status while the view reloads (F5), ahead of the view's own. */
+function ReloadStatus() {
+  const { status } = useReload();
+  if (status === "loading")
+    return (
+      <Text>
+        <Spinner active /> reloading… ·{" "}
+      </Text>
+    );
+  return status === "done" ? <Text color="green">reloaded · </Text> : null;
+}
+
 export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
   const focused = useFocused();
   const background = barBackground(useContext(SessionColorContext), focused);
@@ -462,6 +475,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
             <Text wrap="truncate">
               <Tabs mode={mode} focused={focused} />
               <Text> </Text>
+              <ReloadStatus />
               {status}
             </Text>
           </Box>

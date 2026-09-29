@@ -18,8 +18,9 @@ import { FileTail, watchFile } from "../transcript/tail.js";
  * Resolves which transcript to show. A fixed session wins; then the session of
  * the viewer's own Claude Code process (`claudePid`); otherwise the hook's
  * active-session file, falling back to the newest transcript of the project.
+ * A change of `reload` resolves it again at once.
  */
-export function useSessionPath(cwd: string, sessionId?: string, claudePid?: number): string | undefined {
+export function useSessionPath(cwd: string, sessionId?: string, claudePid?: number, reload = 0): string | undefined {
   const resolve = () => {
     if (sessionId) return transcriptForSession(cwd, sessionId);
     const own = claudePid ? readJson<ActiveSession>(claudeFile(cwd, claudePid)) : undefined;
@@ -31,6 +32,10 @@ export function useSessionPath(cwd: string, sessionId?: string, claudePid?: numb
     return findLatestTranscript(cwd);
   };
   const [path, setPath] = useState(resolve);
+
+  useEffect(() => {
+    if (reload > 0) setPath((prev) => resolve() ?? prev);
+  }, [reload]);
 
   useEffect(() => {
     if (sessionId) return;
@@ -69,6 +74,8 @@ export interface Transcript {
   continuedFrom?: string;
   /** Increments on every change. */
   version: number;
+  /** The `reload` the transcript was last read afresh for. */
+  loaded?: number;
 }
 
 /** One session read across its transcripts: the one opened, then those it continued in. */
@@ -87,22 +94,30 @@ const sessionIdOf = (file: string) => basename(file, ".jsonl");
 /**
  * Parses and follows a transcript. When the session continues in another
  * transcript, it reads on there with the same parser, so the turns so far stay.
+ * A change of `reload` reads it all again with a new parser; the turns read
+ * so far stay shown until the new ones replace them.
  */
-export function useTranscript(path: string | undefined): Transcript {
+export function useTranscript(path: string | undefined, reload = 0): Transcript {
   const [state, setState] = useState<Transcript>({ turns: [], plans: [], agents: [], version: 0 });
   const followed = useRef<Followed | undefined>(undefined);
+  const loaded = useRef(reload);
 
   useEffect(() => {
     const current = followed.current;
-    if (current && path) {
+    const fresh = reload !== loaded.current;
+    loaded.current = reload;
+    if (current && path && !fresh) {
       // Catch up first: the session may have moved on to `path`, and then its turns stay.
       current.tail?.poll();
       if (current.file === path) return;
     }
     void current?.tail?.stop();
     followed.current = undefined;
-    setState({ turns: [], plans: [], agents: [], file: path, version: 0 });
-    if (!path) return;
+    if (!fresh) setState({ turns: [], plans: [], agents: [], file: path, version: 0 });
+    if (!path) {
+      if (fresh) setState((s) => ({ turns: [], plans: [], agents: [], version: s.version + 1, loaded: reload }));
+      return;
+    }
 
     const f: Followed = { parser: new TranscriptParser({ dedupe: true }), visited: new Set([sessionIdOf(path)]) };
     followed.current = f;
@@ -117,6 +132,7 @@ export function useTranscript(path: string | undefined): Transcript {
         file,
         continuedFrom: f.from,
         version: s.version + 1,
+        loaded: s.loaded,
       }));
     const follow = (file: string) => {
       f.file = file;
@@ -156,7 +172,12 @@ export function useTranscript(path: string | undefined): Transcript {
     }
     if (f.parser.turns.length > 0) publish(path);
     follow(path);
-  }, [path]);
+    // The new parser replaces the turns shown so far even when the file had none.
+    if (fresh) {
+      publish(f.file!);
+      setState((s) => ({ ...s, loaded: reload }));
+    }
+  }, [path, reload]);
 
   useEffect(() => () => void followed.current?.tail?.stop(), []);
 

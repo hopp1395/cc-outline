@@ -2,7 +2,7 @@ import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, VIEW_SETTINGS, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
@@ -11,6 +11,7 @@ import { haystack } from "../filter.js";
 import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, Screen, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
+import { isReloadKey, useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
@@ -333,6 +334,11 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const current = settings[row.key];
   const entryKey = entries[index];
   const favorites = useFavorites(cwd, "settings");
+  // F5: settings.json is read again, so changes by other viewers show in every view.
+  useOnReload(({ done }) => {
+    reloadSettings();
+    done();
+  });
   const marked = entries.filter((e) => favorites.isMarked(e)).length;
   // A setting is found by its value, group and name as listed; its details are what it does.
   const filter = useListFilter({
@@ -408,7 +414,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
 
   useInput(
     (input, key) => {
-      if (filter.handleKey(input, key)) return;
+      // Ctrl+R reloads (App), which r must not take as "back to the default".
+      if (isReloadKey(input, key) || filter.handleKey(input, key)) return;
       const mark = markKeys(input, key);
       if (mark === "toggle") return !filter.none && favorites.toggle(entryKey);
       if (mark) {
