@@ -121,7 +121,7 @@ Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` for the n
 
 **Lists.** All lists work the same way:
 - `↑`/`↓` select the previous or next entry, `Home`/`End` the first or last one. The preview next to the list scrolls by page with `PgUp`/`PgDn` and by line with `Ctrl+↑`/`Ctrl+↓`; `Ctrl+Home`/`Ctrl+End` go to its top and bottom. `←`/`→` do nothing.
-- The lists ordered by time (Chat, Plan, Sessions with its trash, Monitor) show the oldest entry at the top, the Monitor the newest. `s` turns a list around and remembers it (the *order* settings). The keys follow what you see: `↑`/`↓` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
+- Chat and Plan show the oldest entry at the top; `s` turns the list around and remembers it (the *order* settings). Sessions (with its trash) and Monitor always show the newest at the top. The keys follow what you see: `↑`/`↓` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
 - If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
 - Chat, Plan and Sessions (with its trash) show only the time of an entry; a dimmed line with the date (`── Mon 28 Sep 2026 ──`) starts each day, above its entries in either order. A list whose entries are all from today has none. The *date separators* setting turns the lines off. The lines cannot be selected (a click on one selects the day's first entry), and when the day's line has scrolled away, the `▲` row names the day (`▲ 12 more · Mon 28 Sep Home`). In a session's preview, plans, agents and prompts get these lines if the session spans several days. The Monitor's list of days gets a line per year (`── 2025 ──`) once it reaches into another year.
@@ -255,7 +255,9 @@ The Sessions view is an overview of your Claude Code sessions: of all projects b
 
 ![Sessions view: sessions of two projects on the left, an older session with its plans, changed files and prompts on the right](docs/sessions.svg)
 
-**List (left).** One entry per session, oldest first, with its start time (under a line per day), with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` or `!` commands and changed nothing are left out.
+**List (left).** One entry per session, newest first, with its start time (under a line per day), with all projects also the project's folder name, and its name: the name given with `/rename`, otherwise its first prompt. The active session is marked with a green `●`, sessions running in another Claude Code with `▶`. Sessions that only ran slash commands such as `/resume` or `!` commands and changed nothing are left out.
+
+**Range.** The list holds the sessions started in the last 7 days (the *Sessions: range* setting: today, 7, 30 or 90 days, or unlimited; days count from midnight, today included). The active session and sessions running elsewhere are listed even if they started earlier. The last entry, `↓ more ↓` (centred, blue like the previews' "more lines"), reads the whole history with `Enter` or a click (`↓ loading… 42/97 ↓` meanwhile) and then goes; that holds until the viewer restarts, also if the setting changes. Transcripts last written before the range are not read at all, so a short range is quicker. A filter never hides it.
 
 **Details (right).** Pinned at the top:
 - the name
@@ -288,7 +290,7 @@ The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a 
 
 ![Monitor view: days with their number of responses on the left, the day's speed per half hour against the usual values, with a slow afternoon and an error, on the right](docs/monitor.svg)
 
-**List (left).** Every day with responses, newest first, with how many; today leads. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+↑`/`↓` jump between marked days.
+**List (left).** Every day with responses in the last 7 days (the *Monitor: range* setting, like in Sessions), newest first, with how many; today leads. The last entry, `↓ more ↓`, reads the whole history with `Enter` or a click. The usual values come from the days read, so a short range has fewer of them. `✗` marks a day with errors. Like every list, `Space` marks a day (`★`), for example one with a slump to come back to, and `Shift+↑`/`↓` jump between marked days.
 
 **Chart (right).** One bar per stretch of the day, as fine as the pane allows (5 to 60 minutes), with a y axis and the hours below:
 - `v` switches the value: **overall** (see below; the chart starts with it), **speed** (output tokens per second of a response, median per stretch), **wait** (seconds until its first block was finished; an upper bound of the time to the first token) and **responses** (how many started).
@@ -331,9 +333,9 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | Plan: order | oldest first / newest first | oldest first | `s` in Plan |
 | Sessions: tab | on / off | on | – |
 | Sessions: all projects | on / off | on | `a` in Sessions |
-| Sessions: order | oldest first / newest first | oldest first | `s` in Sessions |
+| Sessions: range | today / 7 days / 30 days / 90 days / unlimited | 7 days | – |
 | Monitor: tab | on / off | on | – |
-| Monitor: order | newest first / oldest first | newest first | `s` in Monitor |
+| Monitor: range | today / 7 days / 30 days / 90 days / unlimited | 7 days | – |
 
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
@@ -392,7 +394,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
-| `s` | newest / oldest first | – | newest / oldest first | newest / oldest first |
+| `s` | newest / oldest first | – | newest / oldest first | – |
 | `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
 | `F5` / `Ctrl+R` | reload the view (see below) | reload the view | reload the view | reload the view |
 | `p` | move the viewer: right, left or own window | move the viewer | move the viewer | move the viewer |

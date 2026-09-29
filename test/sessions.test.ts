@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -116,6 +116,18 @@ describe("SessionIndex", () => {
     );
     const sessions = await new SessionIndex().scan(cwd);
     expect(sessions.map((s) => s.id)).toEqual(["early", "cmd", "late"]);
+  });
+
+  it("reads only the transcripts written since a time, and the rest later", async () => {
+    const dir = projectDir(cwd);
+    writeFileSync(join(dir, "old.jsonl"), prompt("u1", "08:00", "Old"));
+    writeFileSync(join(dir, "new.jsonl"), prompt("u1", "09:00", "New"));
+    const since = Date.now() - 86_400_000;
+    const old = new Date(since - 86_400_000);
+    utimesSync(join(dir, "old.jsonl"), old, old);
+    const index = new SessionIndex();
+    expect((await index.scan(cwd, undefined, since)).map((s) => s.id)).toEqual(["new"]);
+    expect((await index.scan(cwd)).map((s) => s.id)).toEqual(["old", "new"]);
   });
 
   it("lists the sessions of all projects without a cwd", async () => {
