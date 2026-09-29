@@ -19,7 +19,7 @@ import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
 import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
-import { entryGroups, periodLabel, periodOf, separatorText, separatorsAt, type Period } from "./days.js";
+import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
@@ -547,6 +547,8 @@ interface ListProps<T> {
   /** The time of an item: a separator starts each day, or with `period` each year (see `entryGroups`). */
   time?: (item: T) => string | number | undefined;
   period?: Period;
+  /** The named group of an item (Settings): a separator with its name starts each group, whatever `dateSeparators` says. */
+  group?: (item: T) => string;
   /** A filter's entries (natural indexes); the others are left out. `selected` and `onPick` stay natural indexes. */
   shown?: number[];
   /** The filter in effect, shown in the top row: its text and "12 of 340". */
@@ -594,10 +596,10 @@ export function listWindow(count: number, selected: number, height: number): Lis
 }
 
 /** "▲ 7 more Home": how many entries of a list are hidden and the key that jumps to the far end. */
-export function MoreRow({ arrow, count, jumpKey, day }: { arrow: string; count: number; jumpKey: string; day?: string }) {
+export function MoreRow({ arrow, count, jumpKey, group }: { arrow: string; count: number; jumpKey: string; group?: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more${day ? ` · ${periodLabel(day)}` : ""}  `}
+      {` ${arrow} ${count} more${group ? ` · ${group}` : ""}  `}
       <Text color="yellow">{jumpKey}</Text>
     </Text>
   );
@@ -643,15 +645,19 @@ function ListBody<T>(all: ListProps<T>) {
   const props = all.shown ? shownOnly(all, all.shown) : all;
   // Days are taken in the natural order, so an item without a time joins the one before it.
   const period = props.period ?? "day";
-  const days = separators && props.time ? entryGroups(props.items.map((item) => periodOf(props.time!(item), period)), period) : undefined;
-  if (!props.reversed) return <ListRows {...props} days={days} />;
+  const groups = props.group
+    ? props.items.map(props.group)
+    : separators && props.time
+      ? entryGroups(props.items.map((item) => periodOf(props.time!(item), period)), period)
+      : undefined;
+  if (!props.reversed) return <ListRows {...props} groups={groups} />;
   const last = props.items.length - 1;
   const flip = (i: number) => last - i;
   return (
     <ListRows
       {...props}
       items={[...props.items].reverse()}
-      days={days && [...days].reverse()}
+      groups={groups && [...groups].reverse()}
       selected={flip(props.selected)}
       itemKey={(item, i) => props.itemKey(item, flip(i))}
       onPick={props.onPick && ((i) => props.onPick!(flip(i)))}
@@ -674,16 +680,16 @@ function shownOnly<T>(props: ListProps<T>, shown: number[]): ListProps<T> {
   };
 }
 
-/** A row of a list: an item (by index) or the date separator before a day's first item. */
-type ListRow = { item: number } | { day: string; before: number };
+/** A row of a list: an item (by index) or the separator before a group's (day's) first item. */
+type ListRow = { item: number } | { group: string; before: number };
 
-/** The rows of `count` items with a separator above each day's items (`days` in display order). */
-export function listRows(count: number, days: string[] | undefined): ListRow[] {
-  const before = separatorsAt(days);
+/** The rows of `count` items with a separator above each group's items (`groups` in display order). */
+export function listRows(count: number, groups: string[] | undefined): ListRow[] {
+  const before = separatorsAt(groups);
   const rows: ListRow[] = [];
   for (let i = 0; i < count; i++) {
-    const day = before[i];
-    if (day) rows.push({ day, before: i });
+    const group = before[i];
+    if (group) rows.push({ group, before: i });
     rows.push({ item: i });
   }
   return rows;
@@ -708,18 +714,20 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
 /** A direction on screen (Shift+↑/↓ between marks) in the list's own order. */
 export const orderedDir = (reversed: boolean, dir: 1 | -1): 1 | -1 => (reversed ? (-dir as 1 | -1) : dir);
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, days }: ListProps<T> & { days?: string[] }) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, groups, group }: ListProps<T> & { groups?: string[] }) {
   const focused = useFocused();
   const area = useContext(AreaContext);
-  const rows = listRows(items.length, days);
+  const rows = listRows(items.length, groups);
   const selectedRow = rows.findIndex((r) => "item" in r && r.item === selected);
   const { from, to } = listWindow(rows.length, Math.max(0, selectedRow), height);
   const itemsIn = (part: ListRow[]) => part.filter((r) => "item" in r).length;
   const above = itemsIn(rows.slice(0, from));
   const below = itemsIn(rows.slice(to));
-  // With the day's separator scrolled away, the ▲ row names the day of the first entry shown.
+  // With the group's separator scrolled away, the ▲ row names the group (day) of the first entry shown.
   const topRow = rows[from];
-  const topDay = from > 0 && days && topRow && "item" in topRow ? days[topRow.item] : undefined;
+  const topGroup = from > 0 && groups && topRow && "item" in topRow ? groups[topRow.item] : undefined;
+  // Named groups show as they are, days (and years) by their label.
+  const label = (key: string, full: boolean) => (group ? key : periodLabel(key, full ? "always" : "other"));
   useMouse((e) => {
     const at = inArea(area, e.x, e.y);
     if (!at || !onPick || items.length === 0) return;
@@ -728,7 +736,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
     if (from > 0 && at.row === 0) return onPick(0);
     const index = from + at.row - (from > 0 ? 1 : 0);
     if (index >= to) return to < rows.length && at.row === height - 1 ? onPick(items.length - 1) : undefined;
-    // A separator picks the first entry of its day.
+    // A separator picks the first entry of its group.
     const row = rows[index];
     onPick("item" in row ? row.item : row.before);
   });
@@ -736,13 +744,13 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
   const width = area.width || 40;
   return (
     <>
-      {from > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" day={topDay} />}
+      {from > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" group={topGroup && label(topGroup, false)} />}
       {rows.slice(from, to).map((row) => {
-        if ("day" in row)
+        if ("group" in row)
           return (
             // Keyed by the item below it: a day could come twice in an unordered list.
-            <Text key={`day-${itemKey(items[row.before], row.before)}`} dimColor wrap="truncate">
-              {separatorText(row.day, width)}
+            <Text key={`group-${itemKey(items[row.before], row.before)}`} dimColor wrap="truncate">
+              {ruleText(label(row.group, true), width)}
             </Text>
           );
         const index = row.item;
