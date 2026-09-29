@@ -8,13 +8,18 @@ import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
 import { nextMarked } from "../favorites.js";
 import { haystack } from "../filter.js";
-import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, Screen, Star, type Layout } from "./layout.js";
+import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, rule, Screen, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
 import { isReloadKey, useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
+import { renderMarkdown } from "../render/markdown.js";
+import { compareVersions, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
+import { VERSION } from "../version.js";
+import { useClipboard } from "./useClipboard.js";
+import { useUpdateInfo, type Update } from "./useUpdate.js";
 
 interface Props {
   layout: Layout;
@@ -27,6 +32,8 @@ interface Props {
   cwd: string;
   /** Deletes the project's saved data and reloads the views (App). */
   onResetData?: () => void;
+  /** An entry to select, asked for from outside (`releases`: /cco:releases; `update`: a click on the top bar). */
+  select?: { key: string; at: number };
 }
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
@@ -159,6 +166,15 @@ export const SETTING_ROWS: Row[] = [
     description:
       "What the list filter (Ctrl+F) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). In the filter dialog, ^L and ^D switch them on and off, which changes this setting.",
     values: FILTER_IN_VALUES.map((v) => [v, FILTER_IN_MEANINGS[v]]),
+  },
+  {
+    key: "updateCheck",
+    group: "General",
+    label: "update check",
+    description:
+      "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries below the settings show the notes of each version and run the update.",
+    values: ON_OFF("ask npm and GitHub when the viewer starts", "no network requests"),
+    notes: ["F5 in Settings checks once either way.", "The answer is kept in ~/.claude/cco/releases.json, so the notes also show offline."],
   },
   {
     key: "showTools",
@@ -317,49 +333,198 @@ function settingLines(row: Row, current: string | boolean, width: number): strin
   return lines;
 }
 
-/** The list: the settings, then the reset actions. */
-const LIST_ENTRIES: (Row | ResetAction)[] = [...SETTING_ROWS, ...RESET_ACTIONS];
+/** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
+type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
+type Entry = Row | ReleaseEntry | ResetAction;
 
-export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData }: Props) {
+const keyOf = (e: Entry): string =>
+  "key" in e ? e.key : "id" in e ? `reset:${e.id}` : e.kind === "release" ? `release:${e.release.tag}` : e.kind;
+
+function releaseEntries(update: Update): ReleaseEntry[] {
+  const offer: ReleaseEntry[] = update.state.kind !== "none" || update.run ? [{ kind: "update" }] : [];
+  if (update.releases.length === 0) return [...offer, { kind: "releases" }];
+  return [...offer, ...update.releases.map((release) => ({ kind: "release" as const, release }))];
+}
+
+/** The entry `key` asks for: `releases` is the update if there is one, else the installed release. */
+function resolveKey(key: string | undefined, entries: Entry[]): number {
+  const at = (k: string) => entries.findIndex((e) => keyOf(e) === k);
+  const installed = entries.findIndex((e) => "kind" in e && e.kind === "release" && e.release.version === VERSION);
+  const firstRelease = entries.findIndex((e) => "kind" in e);
+  if (key === "releases") return [at("update"), installed, firstRelease].find((i) => i >= 0) ?? 0;
+  // The update entry is gone once it ran: the viewer reopens on the version it installed.
+  if (key === "update" && at(key) < 0) return [installed, firstRelease].find((i) => i >= 0) ?? 0;
+  return key ? Math.max(0, at(key)) : 0;
+}
+
+const GREEN = (s: string) => `\u001b[32m${s}\u001b[39m`;
+const RED = (s: string) => `\u001b[31m${s}\u001b[39m`;
+const YELLOW = (s: string) => `\u001b[33m${s}\u001b[39m`;
+
+/** The last `n` lines a command wrote, without colours and with progress lines (\r) reduced to their last state. */
+function outputTail(text: string, n: number): string[] {
+  return text
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .split(/\r?\n/)
+    .map((l) => l.split("\r").at(-1) ?? "")
+    .filter((l) => l.trim() !== "")
+    .slice(-n);
+}
+
+const newerReleases = (update: Update) => update.releases.filter((r) => compareVersions(r.version, VERSION) > 0);
+const day = (iso?: string) => (iso ? iso.slice(0, 10) : undefined);
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** The update entry's details: what Enter does, the steps while they run, then the notes of the newer releases. */
+function updateLines(update: Update, width: number): string[] {
+  const wrap = (text: string, indent = "") =>
+    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
+      .split("\n")
+      .map((l) => indent + l);
+  const { state, run } = update;
+  const commands = UPDATE_STEPS.map((s) => `  ${s.command}`);
+  const lines: string[] = [];
+  if (run) {
+    for (const s of run.steps) {
+      const mark = s.status === "done" ? GREEN("✓") : s.status === "failed" ? RED("✗") : s.status === "running" ? YELLOW("●") : dim("○");
+      lines.push(...wrap(`${mark} ${s.step.label}: ${s.step.command}`));
+      if (s.status === "running" || s.status === "failed") for (const l of outputTail(s.output, 12)) lines.push(...wrap(dim(l), "    "));
+    }
+    lines.push("");
+    if (run.status === "failed")
+      lines.push(...wrap("The update stopped. Run the rest by hand (c copies it), then close the viewer with q and open it again:"), ...remainingCommands(run.steps).map((c) => `  ${c}`));
+    else if (run.status === "done")
+      lines.push(...wrap(`Updated to v${run.target}. The viewer opens again with it; if it does not, close it with q and open it again. Restart Claude Code for the plugin.`));
+    else lines.push(dim("Updating…"));
+  } else if (state.kind === "update") {
+    lines.push(
+      ...wrap(`v${state.target} is out; this is v${VERSION}. Enter asks, then runs:`),
+      ...commands,
+      "",
+      ...wrap(dim("Then the viewer opens again with the new version. The plugin (hooks, /cco:… commands) takes effect when Claude Code restarts.")),
+    );
+  } else if (state.kind === "restart") {
+    lines.push(...wrap(`v${state.target} is installed; this viewer still runs v${VERSION}. Enter opens it again with the new version.`));
+  } else if (state.kind === "dev") {
+    lines.push(
+      ...wrap(`v${state.target} is out; this is v${VERSION}, run from ${tilde(update.root)} (npm link or npx), which cco does not update. Update the checkout, or install the release (c copies it):`),
+      ...commands,
+    );
+  }
+  for (const r of newerReleases(update)) lines.push("", rule(width, `v${r.version}`), "", ...releaseLines(r, width));
+  return lines;
+}
+
+function releaseLines(release: Release, width: number): string[] {
+  return release.body.trim() ? renderMarkdown(release.body, width) : [dim("No notes for this release.")];
+}
+
+/** The details while no release notes are known. */
+function releasesNote(update: Update, width: number): string[] {
+  const text = update.checking
+    ? "Asking npm and GitHub…"
+    : !update.enabled && update.checkedAt === undefined
+      ? "The update check is off (General: update check), so cco has not asked GitHub for the release notes. F5 checks once."
+      : "npm and GitHub could not be reached. F5 tries again.";
+  return wrapAnsi(text, Math.max(10, width), { hard: true }).split("\n");
+}
+
+/** The list: the settings, the releases, then the reset actions. */
+export function settingsEntries(update: Update): Entry[] {
+  return [...SETTING_ROWS, ...releaseEntries(update), ...RESET_ACTIONS];
+}
+
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, select: asked }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const settings = useSettings();
+  const update = useUpdateInfo();
+  const copy = useClipboard();
+  const [copied, setCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const positions = usePositions(cwd, "settings");
-  const entries = [...SETTING_ROWS.map((r) => r.key as string), ...RESET_ACTIONS.map((a) => `reset:${a.id}`)];
-  const [index, setIndex] = useState(() => Math.max(0, entries.indexOf(positions.selected ?? "")));
-  // Below the settings come the reset actions.
-  const reset = index >= SETTING_ROWS.length ? RESET_ACTIONS[index - SETTING_ROWS.length] : undefined;
-  const row = SETTING_ROWS[Math.min(index, SETTING_ROWS.length - 1)];
-  const current = settings[row.key];
+  const listEntries = settingsEntries(update);
+  const entries = listEntries.map(keyOf);
+  // Kept by key: the releases arrive after the start and move the entries below them.
+  const [selectedKey, setSelectedKey] = useState(() => positions.selected);
+  const index = entries.includes(selectedKey ?? "") ? entries.indexOf(selectedKey!) : resolveKey(selectedKey, listEntries);
+  const entry = listEntries[index];
+  const row = "key" in entry ? entry : undefined;
+  const reset = "id" in entry ? entry : undefined;
+  const release = "kind" in entry ? entry : undefined;
+  const current = row ? settings[row.key] : undefined;
   const entryKey = entries[index];
   const favorites = useFavorites(cwd, "settings");
-  // F5: settings.json is read again, so changes by other viewers show in every view.
+  // F5: settings.json is read again, so changes by other viewers show in every view, and npm and GitHub are asked again.
   useOnReload(({ done }) => {
     reloadSettings();
-    done();
+    void update.recheck().then(done);
   });
   const marked = entries.filter((e) => favorites.isMarked(e)).length;
   // A setting is found by its value, group and name as listed; its details are what it does.
   const filter = useListFilter({
-    items: LIST_ENTRIES,
-    text: (r) =>
-      "key" in r
-        ? { list: haystack([valueName(settings[r.key]), r.group, r.label]), details: r.description }
-        : { list: haystack(["Reset", r.label]), details: r.description },
-    deps: [settings],
+    items: listEntries,
+    text: (e) =>
+      "key" in e
+        ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: e.description }
+        : "id" in e
+          ? { list: haystack(["Reset", e.label]), details: e.description }
+          : e.kind === "release"
+            ? { list: haystack(["Releases", e.release.tag, e.release.title]), details: e.release.body }
+            : { list: haystack(["Releases", entryLabel(e)]), details: "" },
+    deps: [settings, update.releases, update.state],
     selected: index,
     select: (i) => select(i),
     layout,
     onTyping,
   });
 
-  useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
+  const updating = update.run?.status === "running";
+  // While the update runs, the app keeps q, p and the other views away from it.
+  useEffect(() => onModal?.(confirmation !== undefined || updating), [confirmation, updating]);
   useEffect(() => positions.select(entryKey), [entryKey]);
+  useEffect(() => {
+    if (asked) setSelectedKey(entries[resolveKey(asked.key, listEntries)]);
+  }, [asked?.at]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
   const canReset = changed.length > 0 || marked > 0;
   const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
+  const newer = newerReleases(update);
+  const asOf = update.stale && update.checkedAt ? `as of ${day(new Date(update.checkedAt).toISOString())}` : undefined;
+
+  function entryLabel(e: ReleaseEntry): string {
+    if (e.kind === "release") return `v${e.release.version}${e.release.title !== e.release.tag ? ` ${e.release.title}` : ""}`;
+    if (e.kind === "releases") return update.checking ? "checking…" : "release notes";
+    const { state, run } = update;
+    if (run) return `update to v${run.target}`;
+    if (state.kind === "restart") return `restart with v${state.target}`;
+    if (state.kind === "dev") return `v${state.target} is out`;
+    return state.kind === "update" ? `update to v${state.target}` : "update";
+  }
+
+  function releaseHeader(e: ReleaseEntry): string[] {
+    if (e.kind === "release") {
+      const r = e.release;
+      const cmp = compareVersions(r.version, VERSION);
+      const details = [[day(r.date), cmp === 0 ? "installed" : cmp > 0 ? "new" : undefined, asOf].filter(Boolean).join(" · ")];
+      return previewHeader(entryLabel(e), previewWidth, { marker: "◆ ", style: bold, details: r.url ? [...details, r.url] : details });
+    }
+    if (e.kind === "releases") return previewHeader("Releases", previewWidth, { marker: "◆ ", style: bold, details: [update.enabled ? "update check on" : "update check off"] });
+    const detail = update.install === "dev" ? `development install · v${VERSION}` : `installed v${VERSION}`;
+    const title = entryLabel(e);
+    return previewHeader(title[0].toUpperCase() + title.slice(1), previewWidth, {
+      marker: "↑ ",
+      style: bold,
+      details: [[detail, newer.length > 0 ? plural(newer.length, "newer release") : undefined, asOf].filter(Boolean).join(" · ")],
+    });
+  }
+
   const header = useMemo(
     () =>
       fitHeader(
@@ -369,27 +534,35 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               style: bold,
               details: [reset.id === "settings" ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}` : `${saved.length} of 4 files saved`],
             })
-          : previewHeader(`${row.group}: ${row.label}`, previewWidth, {
-              marker: "⚙ ",
-              style: bold,
-              details: [`${valueName(current)} · default ${valueName(DEFAULT_SETTINGS[row.key])}`],
-            }),
+          : release
+            ? releaseHeader(release)
+            : previewHeader(`${row!.group}: ${row!.label}`, previewWidth, {
+                marker: "⚙ ",
+                style: bold,
+                details: [`${valueName(current!)} · default ${valueName(DEFAULT_SETTINGS[row!.key])}`],
+              }),
         bodyHeight,
       ),
-    [reset, row, current, changed.length, marked, saved.length, previewWidth, bodyHeight],
+    [entry, update, current, changed.length, marked, saved.length, previewWidth, bodyHeight],
   );
   const lines = useMemo(
     () =>
       reset
         ? resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
-        : settingLines(row, current, previewWidth),
-    [reset, row, current, changed.length, marked, saved, previewWidth],
+        : release
+          ? release.kind === "update"
+            ? updateLines(update, previewWidth)
+            : release.kind === "release"
+              ? releaseLines(release.release, previewWidth)
+              : releasesNote(update, previewWidth)
+          : settingLines(row!, current!, previewWidth),
+    [entry, update, current, changed.length, marked, saved, previewWidth],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
 
   const set = (changes: Partial<Settings>) => updateSettings(changes);
-  const select = (i: number) => setIndex(Math.max(0, Math.min(entries.length - 1, i)));
+  const select = (i: number) => setSelectedKey(entries[Math.max(0, Math.min(entries.length - 1, i))]);
   const askResetSettings = () =>
     setConfirmation({
       title: "Reset all settings?",
@@ -411,6 +584,18 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       danger: true,
       onConfirm: () => onResetData?.(),
     });
+  const { state } = update;
+  const canUpdate = state.kind === "update" && !updating && update.run?.status !== "done";
+  const askUpdate = () =>
+    state.kind === "update" &&
+    setConfirmation({
+      title: `Update cco to v${state.target}?`,
+      lines: [...UPDATE_STEPS.map((s) => s.command), "Then the viewer opens again with the new version."],
+      onConfirm: update.start,
+    });
+  // What c copies on the update entry: the commands still to run.
+  const commandsToCopy = update.run?.status === "failed" ? remainingCommands(update.run.steps) : UPDATE_STEPS.map((s) => s.command);
+  const onUpdate = release?.kind === "update";
 
   useInput(
     (input, key) => {
@@ -422,24 +607,60 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         const target = nextMarked(filter.markIds(entries), favorites.marks, index, mark);
         return target !== undefined && select(target);
       }
-      if (filter.none && (key.return || input === "r")) return;
+      if (filter.none && (key.return || input === "r" || input === "c")) return;
       if (reset && key.return) {
         if (reset.id === "settings") return canReset && askResetSettings();
         return saved.length > 0 && askResetData();
       }
-      if (!reset && key.return) {
+      if (onUpdate && key.return) {
+        if (state.kind === "restart") return update.restart();
+        return canUpdate && askUpdate();
+      }
+      if (onUpdate && input === "c") {
+        void copy(commandsToCopy.join("\n")).then(() => setCopied(true));
+        return;
+      }
+      if (row && key.return) {
         // The last view besides Settings stays: hiding it would leave only this one.
         if (isLastView(settings, row.key)) return;
-        return set({ [row.key]: nextValue(row, current) });
+        return set({ [row.key]: nextValue(row, current!) });
       }
-      if (input === "r" && !reset) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
+      if (input === "r" && row) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
     { isActive: active && confirmation === undefined && !filter.open },
   );
 
-  const valueWidth = Math.max(...SETTING_ROWS.map((r) => valueName(settings[r.key]).length));
+  /** What a row shows: a value (or mark) column, the group and the label. */
+  const rowParts = (e: Entry): { value: string; color?: string; group: string; label: string } => {
+    if ("key" in e) {
+      const value = settings[e.key];
+      return { value: valueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", group: e.group, label: e.label };
+    }
+    if ("id" in e) return { value: "↺", group: "Reset", label: e.label };
+    if (e.kind === "release") {
+      const cmp = compareVersions(e.release.version, VERSION);
+      return { value: cmp === 0 ? "installed" : cmp > 0 ? "new" : "", color: cmp === 0 ? "green" : "yellow", group: "Releases", label: entryLabel(e) };
+    }
+    if (e.kind === "update") return { value: state.kind === "restart" ? "↻" : "↑", color: "yellow", group: "Releases", label: entryLabel(e) };
+    return { value: "", group: "Releases", label: entryLabel(e) };
+  };
+
+  const valueWidth = Math.max(...SETTING_ROWS.map((r) => valueName(settings[r.key]).length), update.releases.length > 0 ? "installed".length : 0);
+  const entryFooter = reset
+    ? [{ text: "↵ reset", priority: 4 }]
+    : onUpdate
+      ? [
+          ...(canUpdate ? [{ text: "↵ update", priority: 4 }] : state.kind === "restart" ? [{ text: "↵ restart", priority: 4 }] : []),
+          { text: "c copy commands", priority: 3 },
+        ]
+      : release
+        ? [{ text: "F5 check", priority: 2 }]
+        : [
+            { text: "↵ change", priority: 4 },
+            { text: "r default", priority: 3 },
+          ];
   return (
     <>
       <Screen
@@ -448,48 +669,34 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         status={
           <Text dimColor={!focused}>
             {/* The filter's count first: the path can be long. */}
-            {filter.shown && `${filter.count(LIST_ENTRIES.length)} entries · `}
+            {filter.shown && `${filter.count(listEntries.length)} entries · `}
+            {copied && <Text color="green">copied · </Text>}
             {tilde(settingsFile())}
             {changed.length > 0 && <Text color="yellow">{` · ${changed.length} changed`}</Text>}
+            {update.checking && ` · checking for updates…`}
           </Text>
         }
         list={
           <List
             onPick={select}
-            items={LIST_ENTRIES}
+            items={listEntries}
             shown={filter.shown}
-          filter={filter.banner}
+            filter={filter.banner}
             selected={index}
             height={bodyHeight}
             empty={filter.empty ?? "No settings"}
-            itemKey={(r) => ("key" in r ? r.key : `reset:${r.id}`)}
-            render={(r, isSelected) => {
-              const star = favorites.isMarked("key" in r ? r.key : `reset:${r.id}`);
-              if (!("key" in r)) {
-                return (
-                  <>
-                    <Text>{"↺".padEnd(valueWidth)} </Text>
-                    <Text dimColor={!isSelected}>Reset </Text>
-                    {star && <Star />}
-                    <EntryText
-                      text={r.label}
-                      width={Math.max(4, listWidth - valueWidth - 8 - (star ? 2 : 0))}
-                      selected={isSelected}
-                      active={active && confirmation === undefined}
-                    />
-                  </>
-                );
-              }
-              const value = settings[r.key];
-              const isDefault = value === DEFAULT_SETTINGS[r.key];
+            itemKey={keyOf}
+            render={(e, isSelected) => {
+              const star = favorites.isMarked(keyOf(e));
+              const { value, color, group, label } = rowParts(e);
               return (
                 <>
-                  <Text color={isDefault ? undefined : "yellow"}>{valueName(value).padEnd(valueWidth)} </Text>
-                  <Text dimColor={!isSelected}>{r.group} </Text>
+                  <Text color={color}>{value.padEnd(valueWidth)} </Text>
+                  <Text dimColor={!isSelected}>{group} </Text>
                   {star && <Star />}
                   <EntryText
-                    text={r.label}
-                    width={Math.max(4, listWidth - valueWidth - r.group.length - 2 - (star ? 2 : 0))}
+                    text={label}
+                    width={Math.max(4, listWidth - valueWidth - group.length - 2 - (star ? 2 : 0))}
                     selected={isSelected}
                     active={active && confirmation === undefined}
                   />
@@ -502,20 +709,19 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           filter.none ? (
             <Text dimColor>No setting matches the filter</Text>
           ) : (
-          <Preview
-            header={header}
-            lines={lines}
-            scroll={scroll.scroll}
-            width={previewWidth}
-            height={bodyHeight}
-            onWheel={(d) => scroll.by(d)}
-          />
+            <Preview
+              header={header}
+              lines={lines}
+              scroll={scroll.scroll}
+              width={previewWidth}
+              height={bodyHeight}
+              onWheel={(d) => scroll.by(d)}
+            />
           )
         }
         footer={[
           { text: "↑↓ setting", priority: 4 },
-          { text: reset ? "↵ reset" : "↵ change", priority: 4 },
-          ...(reset ? [] : [{ text: "r default", priority: 3 }]),
+          ...entryFooter,
           ...markFooter(favorites.isMarked(entryKey), marked),
           ...filter.footer,
           ...(canReset ? [{ text: "R reset all", priority: 2 }] : []),

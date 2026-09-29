@@ -5,7 +5,7 @@ import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
-import { readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
+import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
@@ -24,6 +24,7 @@ import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
+import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
@@ -39,6 +40,10 @@ interface Props {
   claudePid?: number;
   /** Where the viewer was opened (passed on by `cco open`); p moves it elsewhere. */
   placement?: Placement;
+  /** An entry to select in the start view (`releases` in Settings, from /cco:releases). */
+  select?: string;
+  /** The viewer reopened after an update to this version. */
+  updatedTo?: string;
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
@@ -61,7 +66,7 @@ const RELOADED_MS = 1500;
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   const layout = useLayout();
@@ -119,7 +124,28 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   });
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
-  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: setMode, onSessionEnd: exit });
+  // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
+  const [settingsSelect, setSettingsSelect] = useState(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
+  const showView = (view: Mode, select?: string) => {
+    setMode(view);
+    if (select) setSettingsSelect({ key: select, at: Date.now() });
+  };
+  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: showView, onSessionEnd: exit });
+
+  // The update check runs once at the start, if the setting is on then.
+  const [checkUpdates] = useState(() => readSettings().updateCheck);
+  const update = useUpdate({
+    enabled: checkUpdates,
+    updatedTo,
+    onOpen: () => showView("settings", "update"),
+    // The viewer reopens where it is, running the new version's CLI.
+    onRestart: (version) => {
+      const where = placement ?? resolvePlacement(cwd, sessionOf(path));
+      if (!moveViewer(cwd, mode, where, claudePid, version)) return false;
+      exit();
+      return true;
+    },
+  });
 
   // The process's session went on in another transcript: it is the process's session now.
   const { continuedFrom } = transcript;
@@ -218,6 +244,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // All views stay mounted so the chat keeps following the transcript while hidden.
   return (
     <FocusContext.Provider value={focused}>
+    <UpdateContext.Provider value={update}>
     <SessionColorContext.Provider value={transcript.color}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
@@ -285,7 +312,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         <Box display={mode === "settings" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("settings")}>
           <MouseContext.Provider value={mouseFor("settings")}>
-          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} onTyping={setTyping} onResetData={resetProjectData} />
+          <SettingsView
+            cwd={cwd}
+            layout={layout}
+            active={mode === "settings" && !blocked}
+            onModal={setModal}
+            onTyping={setTyping}
+            onResetData={resetProjectData}
+            select={settingsSelect}
+          />
           </MouseContext.Provider>
           </ReloadContext.Provider>
         </Box>
@@ -320,6 +355,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         )}
       </Box>
     </SessionColorContext.Provider>
+    </UpdateContext.Provider>
     </FocusContext.Provider>
   );
 }

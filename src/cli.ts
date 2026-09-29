@@ -36,7 +36,10 @@ program
   .addOption(pidOption("--claude-pid <pid>", "follow the session of this Claude Code process"))
   // Where the pane was opened, so p in the viewer knows the current place.
   .addOption(new Option("--placement <placement>", "where the viewer runs").choices(PLACEMENT_VALUES).hideHelp())
-  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement }) => {
+  .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
+  // After an update the viewer reopens and says so once.
+  .addOption(new Option("--updated-to <version>").hideHelp())
+  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string }) => {
     const claudePid = validPid(opts.claudePid);
     // The App records the view it actually starts in.
     registerViewer(opts.cwd, opts.view ?? "chat", claudePid);
@@ -50,6 +53,8 @@ program
       unfocused: opts.unfocused,
       claudePid,
       placement: opts.placement,
+      select: opts.select,
+      updatedTo: opts.updatedTo,
     });
     process.exit(0);
   });
@@ -68,11 +73,13 @@ program
   .addOption(pidOption("--claude-pid <pid>", "the Claude Code process the viewer belongs to (default: CLAUDE_PID)"))
   // Moving with p: the running viewer quits, and the new one opens once it is gone.
   .addOption(pidOption("--after-pid <pid>", "open once this viewer process has exited"))
-  .action(async (opts: { cwd: string; view: Mode; placement?: Placement; claudePid?: number; afterPid?: number }) => {
+  .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
+  .addOption(new Option("--updated-to <version>").hideHelp())
+  .action(async (opts: { cwd: string; view: Mode; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string }) => {
     const afterPid = validPid(opts.afterPid);
     if (afterPid) await waitForExit(afterPid);
     const claudePid = validPid(opts.claudePid) ?? claudePidFromEnv();
-    console.log(openPane(opts.cwd, opts.view, { claudePid, placement: opts.placement, replace: afterPid !== undefined }));
+    console.log(openPane(opts.cwd, opts.view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo }));
   });
 
 await program.parseAsync();

@@ -88,7 +88,7 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   settings: [
     ...LIST_KEYS("setting"),
-    ["↵", "next value"],
+    ["↵", "next value / update"],
     ["r", "back to the default"],
     ["R", "reset all"],
     ...COMMON_KEYS,

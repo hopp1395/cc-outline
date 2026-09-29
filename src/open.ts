@@ -105,6 +105,10 @@ export interface OpenOptions {
   placement?: Placement;
   /** Open a new viewer even if one runs, because it is about to quit (moving with p). */
   replace?: boolean;
+  /** An entry to select in the view (`releases` in Settings). */
+  select?: string;
+  /** The viewer reopens after an update to this version, and says so. */
+  updatedTo?: string;
 }
 
 /**
@@ -114,7 +118,7 @@ export interface OpenOptions {
 export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): string {
   const { claudePid } = opts;
   if (!opts.replace && runningViewer(cwd, claudePid) !== undefined) {
-    requestView(cwd, view, claudePid);
+    requestView(cwd, view, claudePid, opts.select);
     return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
   }
   const terminal = detectTerminal();
@@ -130,6 +134,8 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");
   if (unfocused) viewer.push("--unfocused");
+  if (opts.select) viewer.push("--select", opts.select);
+  if (opts.updatedTo) viewer.push("--updated-to", opts.updatedTo);
   // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
   if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
@@ -174,11 +180,13 @@ function sessionOfProcess(cwd: string, claudePid: number | undefined): string | 
  * Moves the running viewer (this process) to `placement`: starts `cco open`
  * detached, which waits until this process has exited and then opens the
  * viewer there. The caller quits right after. False without a supported terminal.
+ * After an update (`updatedTo`), the CLI started is the new one.
  */
-export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined): boolean {
+export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string): boolean {
   if (!detectTerminal()) return false;
   const args = [CLI, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
   if (claudePid) args.push("--claude-pid", String(claudePid));
+  if (updatedTo) args.push("--updated-to", updatedTo);
   spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
 }

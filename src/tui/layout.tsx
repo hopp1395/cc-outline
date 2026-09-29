@@ -17,6 +17,7 @@ import { isViewShown, type ListOrder } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
+import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, separatorText, separatorsAt, type Period } from "./days.js";
 
@@ -451,17 +452,34 @@ function ReloadStatus() {
   return status === "done" ? <Text color="green">reloaded · </Text> : null;
 }
 
+/**
+ * The label right of the top bar: the version, or the update on offer (` v0.7.0 → 0.8.0 `,
+ * ` ↻ 0.8.0 ` once another viewer installed it) with a short form for narrow panes.
+ */
+export function versionLabels(state: ReturnType<typeof useUpdateInfo>["state"]): { full: string; short?: string } {
+  if (state.kind === "update") return { full: ` v${VERSION} → ${state.target} `, short: ` ↑ ${state.target} ` };
+  if (state.kind === "restart") return { full: ` ↻ ${state.target} `, short: ` ↻ ${state.target} ` };
+  return { full: VERSION_LABEL };
+}
+
 export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
   const focused = useFocused();
   const background = barBackground(useContext(SessionColorContext), focused);
-  // The version goes right of the tabs and status, only if they leave room for it.
+  const update = useUpdateInfo();
+  const labels = versionLabels(update.state);
+  // The version goes right of the tabs and status, only if they leave room for it; an update always shows.
   const barRef = useRef<DOMElement>(null);
-  const [showVersion, setShowVersion] = useState(false);
+  const [fits, setFits] = useState(false);
   useLayoutEffect(() => {
     if (!barRef.current) return;
-    const fits = measureElement(barRef.current).width + VERSION_LABEL.length <= layout.columns;
-    if (fits !== showVersion) setShowVersion(fits);
+    const now = measureElement(barRef.current).width + labels.full.length <= layout.columns;
+    if (now !== fits) setFits(now);
   });
+  const label = fits ? labels.full : labels.short;
+  // A click on the update opens it in Settings.
+  useMouse((e) => {
+    if (e.kind === "click" && e.y === 0 && label && e.x >= layout.columns - label.length) update.open();
+  }, labels.short !== undefined);
   const help = focused
     ? typeof footer === "string"
       ? footer
@@ -475,12 +493,20 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
             <Text wrap="truncate">
               <Tabs mode={mode} focused={focused} />
               <Text> </Text>
+              {update.notice && <Text color="green">{`updated to v${update.notice} · restart Claude Code for the plugin · `}</Text>}
               <ReloadStatus />
               {status}
             </Text>
           </Box>
         </Box>
-        {showVersion && <Text dimColor={!focused}>{VERSION_LABEL}</Text>}
+        {label &&
+          (labels.short ? (
+            <Text color="yellowBright" bold>
+              {label}
+            </Text>
+          ) : (
+            <Text dimColor={!focused}>{label}</Text>
+          ))}
       </Box>
       <Box height={layout.bodyHeight}>
         <Box flexDirection="column" width={layout.listWidth} height={layout.bodyHeight}>
