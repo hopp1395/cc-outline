@@ -32,6 +32,7 @@ import { nextMarked } from "../favorites.js";
 import { haystack } from "../filter.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
+import { useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -175,11 +176,22 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const selectedRef = useRef(selectedPath);
   selectedRef.current = selectedPath;
   useEffect(() => positions.select(selectedPath), [selectedPath]);
-  const busy = useRef(false);
+  // The refresh running, which another one waits for instead of starting a second.
+  const running = useRef<Promise<void> | undefined>(undefined);
 
   const refresh = useCallback(async () => {
-    if (!root || busy.current) return;
-    busy.current = true;
+    if (!root) return;
+    if (running.current) return running.current;
+    const run = load(root);
+    running.current = run;
+    try {
+      await run;
+    } finally {
+      running.current = undefined;
+    }
+  }, [root]);
+
+  const load = async (root: string) => {
     try {
       const [next, nextBranch] = await Promise.all([listChanges(root), branchStatus(root)]);
       setFiles((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
@@ -194,10 +206,30 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       setError(undefined);
     } catch (err) {
       setError((err as Error).message.split("\n")[0]);
-    } finally {
-      busy.current = false;
     }
-  }, [root]);
+  };
+
+  // F5: the repository is looked up again (e.g. after git init), then read once the refresh running has ended.
+  useOnReload(({ done }) => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const found = (await repoRoot(cwd)) ?? null;
+        if (cancelled) return;
+        if (found !== root) setRoot(found);
+        else {
+          await running.current;
+          await refresh();
+        }
+      } finally {
+        // Also when it failed: F5 is refused while a reload runs.
+        done();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // Poll only while visible; Claude edits files between prompts, so this keeps the view current.
   useEffect(() => {
@@ -306,7 +338,6 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       if (key.escape && showFile) return toggleFile(false);
       if (input === "]") return jumpHunk(1);
       if (input === "[") return jumpHunk(-1);
-      if (input === "r") return void refresh();
     },
     { isActive: active && !filter.open },
   );
@@ -383,7 +414,6 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
-        { text: "r refresh", priority: 2 },
         { text: "1-6/tab view", priority: 1 },
       ]}
     />
