@@ -748,8 +748,10 @@ export class TranscriptParser {
       notification,
     });
     this.takesAttachments = false;
-    const agent = this.agents.find((a) => a.id === notification.toolUseId);
+    // After a resume, an agent the previous process left running is reported by its task id alone.
+    const agent = this.agents.find((a) => (notification.toolUseId ? a.id === notification.toolUseId : a.agentId !== undefined && a.agentId === notification.taskId));
     if (agent) {
+      notification.toolUseId = agent.id;
       const status = notification.status;
       agent.status = status === "completed" ? "completed" : status === "failed" ? "failed" : status === "killed" || status === "stopped" ? "killed" : agent.status;
       agent.result = notification.result || agent.result;
