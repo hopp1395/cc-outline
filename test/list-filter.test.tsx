@@ -95,6 +95,19 @@ describe("list filter in the settings", () => {
     view.unmount();
   });
 
+  it("shows only the separators of groups with a match", async () => {
+    const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    view.press(CTRL_F);
+    await tick();
+    await type(view, "wrap");
+    view.press("\r");
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("⌕  wrap");
+    const separators = view.frame().match(/── \w+/g);
+    expect(separators).toEqual(["── Chat", "── Changes", "── Plan"]);
+    view.unmount();
+  });
+
   it("opens with the filter used last, selected, so typing replaces it", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
