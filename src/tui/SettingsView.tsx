@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
@@ -117,6 +117,18 @@ function listOrder(key: keyof Settings, view: string, what: string): Row {
       ["newest-first", "newest at the top, oldest at the bottom"],
     ],
     viewKey: `s in ${view}`,
+  };
+}
+
+
+/** A view's row for how far back its list reaches at first. */
+function listRange(key: keyof Settings, view: string, what: string, dated: string): Row {
+  return {
+    key,
+    group: view,
+    label: "range",
+    description: `How far back the ${view} list reaches when it is read: the ${what} ${dated} today or in the days before it, counted in calendar days from midnight. The list shows the newest at the top and ends with "↓ more ↓", which reads the whole history until the viewer restarts. Transcripts last written before the range are not read, so a short range reads faster.`,
+    values: RANGE_VALUES.map((v): [string, string] => [v, v === "all" ? "the whole history, without ↓ more ↓" : v === "today" ? "only today" : `today and the ${Number.parseInt(v, 10) - 1} days before`]),
   };
 }
 
@@ -268,12 +280,15 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("all projects", "this project"),
     viewKey: "a in Sessions",
   },
-  listOrder("sessionsOrder", "Sessions", "sessions (and the trash)"),
+  listRange("sessionsRange", "Sessions", "sessions", "started"),
   viewTab("viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"),
-  listOrder("monitorOrder", "Monitor", "days"),
+  {
+    ...listRange("monitorRange", "Monitor", "days", "with responses"),
+    notes: ["The usual values (the median of the 30 days before a day) come from the days read, so a short range has fewer of them."],
+  },
 ];
 
-const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v);
+const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v in RANGE_NAMES ? RANGE_NAMES[v as keyof typeof RANGE_NAMES] : v);
 
 /** A value as the list shows it: the order values without "-first", so the labels keep their room. */
 export const shortValueName = (v: string | boolean) => (v === "newest-first" ? "newest" : v === "oldest-first" ? "oldest" : valueName(v));

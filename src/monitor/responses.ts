@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { IncrementalFile } from "../transcript/incremental.js";
-import { transcriptFiles } from "../transcript/sessions.js";
+import { transcriptFiles, writtenSince } from "../transcript/sessions.js";
 
 /**
  * One API response of Claude, from the lines of its message in a transcript.
@@ -151,9 +151,11 @@ export interface Measurements {
 export class ResponseIndex {
   private readers = new Map<string, ResponseReader>();
 
-  async scan(onProgress?: (done: number, total: number) => void): Promise<Measurements> {
+  /** With `since` (epoch ms), only transcripts written since then are read; the responses before it stay in. */
+  async scan(onProgress?: (done: number, total: number) => void, since?: number): Promise<Measurements> {
     const main = transcriptFiles();
-    const files = [...main, ...subagentFiles(main)];
+    const all = [...main, ...subagentFiles(main)];
+    const files = writtenSince(all, since);
     let reported = Date.now();
     for (const [i, path] of files.entries()) {
       let reader = this.readers.get(path);
@@ -165,7 +167,7 @@ export class ResponseIndex {
       }
       await new Promise((r) => setImmediate(r));
     }
-    const present = new Set(files);
+    const present = new Set(all);
     for (const path of this.readers.keys()) if (!present.has(path)) this.readers.delete(path);
     const responses: Response[] = [];
     const errors: ApiError[] = [];
@@ -175,6 +177,12 @@ export class ResponseIndex {
     }
     return { responses: responses.sort((a, b) => a.start - b.start), errors: errors.sort((a, b) => a.at - b.at) };
   }
+}
+
+/** The responses and errors from `since` (epoch ms) on; all without it. */
+export function measuredSince(data: Measurements, since: number | undefined): Measurements {
+  if (since === undefined) return data;
+  return { responses: data.responses.filter((r) => r.start >= since), errors: data.errors.filter((e) => e.at >= since) };
 }
 
 /** "2026-09-27" in local time. */

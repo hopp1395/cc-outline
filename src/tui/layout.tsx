@@ -542,6 +542,8 @@ interface ListProps<T> {
   render: (item: T, selected: boolean) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
+  /** A click on an entry, after `onPick` selected it (the wheel only picks). */
+  onClick?: (index: number) => void;
   /** Show the items bottom-up (newest first for a chronological list). */
   reversed?: boolean;
   /** The time of an item: a separator starts each day, or with `period` each year (see `entryGroups`). */
@@ -661,6 +663,7 @@ function ListBody<T>(all: ListProps<T>) {
       selected={flip(props.selected)}
       itemKey={(item, i) => props.itemKey(item, flip(i))}
       onPick={props.onPick && ((i) => props.onPick!(flip(i)))}
+      onClick={props.onClick && ((i) => props.onClick!(flip(i)))}
     />
   );
 }
@@ -677,6 +680,7 @@ function shownOnly<T>(props: ListProps<T>, shown: number[]): ListProps<T> {
     selected: shown.indexOf(props.selected),
     itemKey: (item, i) => props.itemKey(item, shown[i]),
     onPick: props.onPick && ((i) => props.onPick!(shown[i])),
+    onClick: props.onClick && ((i) => props.onClick!(shown[i])),
   };
 }
 
@@ -714,7 +718,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
 /** A direction on screen (Shift+↑/↓ between marks) in the list's own order. */
 export const orderedDir = (reversed: boolean, dir: 1 | -1): 1 | -1 => (reversed ? (-dir as 1 | -1) : dir);
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, groups, group }: ListProps<T> & { groups?: string[] }) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, groups, group }: ListProps<T> & { groups?: string[] }) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, groups);
@@ -739,6 +743,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
     // A separator picks the first entry of its group.
     const row = rows[index];
     onPick("item" in row ? row.item : row.before);
+    if ("item" in row && e.kind === "click") onClick?.(row.item);
   });
   if (items.length === 0) return <Text dimColor>{empty}</Text>;
   const width = area.width || 40;
@@ -756,17 +761,28 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         const index = row.item;
         const item = items[index];
         const isSelected = index === selected;
-        // Without focus the selection stays visible but quiet.
+        if (!isSelected)
+          return (
+            <Text key={itemKey(item, index)} wrap="truncate">
+              {render(item, false)}
+            </Text>
+          );
+        // The selection spans the list's width, also past a short entry: a row of spaces in the
+        // same style fills the rest. Without focus the selection stays visible but quiet.
+        const style = { inverse: focused, bold: focused, backgroundColor: focused ? undefined : INACTIVE_SELECTION };
         return (
-          <Text
-            key={itemKey(item, index)}
-            wrap="truncate"
-            inverse={isSelected && focused}
-            bold={isSelected && focused}
-            backgroundColor={isSelected && !focused ? INACTIVE_SELECTION : undefined}
-          >
-            {render(item, isSelected)}
-          </Text>
+          <Box key={itemKey(item, index)} width={width} height={1}>
+            <Box overflow="hidden">
+              <Text wrap="truncate" {...style}>
+                {render(item, true)}
+              </Text>
+            </Box>
+            <Box flexGrow={1} flexBasis={0} overflow="hidden">
+              <Text wrap="wrap" {...style}>
+                {" ".repeat(width)}
+              </Text>
+            </Box>
+          </Box>
         );
       })}
       {to < rows.length && <MoreRow arrow="▼" count={below} jumpKey="End" />}

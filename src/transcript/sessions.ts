@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { IncrementalFile } from "./incremental.js";
@@ -226,6 +226,18 @@ export function transcriptFiles(cwd?: string): string[] {
   });
 }
 
+/** `files` last written at or after `since` (epoch ms); all of them without it. */
+export function writtenSince(files: string[], since: number | undefined): string[] {
+  if (since === undefined) return files;
+  return files.filter((f) => {
+    try {
+      return statSync(f).mtimeMs >= since;
+    } catch {
+      return false;
+    }
+  });
+}
+
 const byStart = (a: SessionSummary, b: SessionSummary) => (a.start ?? "").localeCompare(b.start ?? "");
 
 /** Sessions of one project or of all, kept up to date by re-reading only files that changed. */
@@ -236,13 +248,17 @@ export class SessionIndex {
    * Sessions with work in them (see `hasWork`), oldest first, of the project
    * `cwd` or, without it, of all projects. Yields between files so a first
    * scan over many large transcripts does not freeze the viewer, and reports
-   * what it has so far through `onProgress`.
+   * what it has so far through `onProgress`. With `since` (epoch ms), only
+   * transcripts written since then are read: the sessions of a range of days
+   * are among them, since a session's start is before its last write.
    */
   async scan(
     cwd?: string,
     onProgress?: (sessions: SessionSummary[], done: number, total: number) => void,
+    since?: number,
   ): Promise<SessionSummary[]> {
-    const files = transcriptFiles(cwd);
+    const all = transcriptFiles(cwd);
+    const files = writtenSince(all, since);
     const summaries: SessionSummary[] = [];
     // Continued sessions are merged before the filter: one part alone may hold only slash commands.
     const sessions = () => mergeContinued(summaries).filter(hasWork).sort(byStart);
@@ -258,7 +274,7 @@ export class SessionIndex {
       await new Promise((r) => setImmediate(r));
     }
     // Forget transcripts that are gone (deleted, moved to the trash).
-    const present = new Set(files);
+    const present = new Set(all);
     for (const path of this.readers.keys()) if (!present.has(path) && (!cwd || path.startsWith(projectDir(cwd)))) this.readers.delete(path);
     return sessions();
   }
