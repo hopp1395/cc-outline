@@ -59,6 +59,26 @@ describe("subagents in the transcript", () => {
     expect(p.agents[0].status).toBe("failed");
   });
 
+  it("stops an agent the previous process left running, named by its task id alone", () => {
+    const p = new TranscriptParser();
+    p.push(
+      prompt("u1", "map the repo") +
+        agentCall("t1", { description: "Map the repo", run_in_background: true }) +
+        toolResult("t1", "Async agent launched", { isAsync: true, status: "async_launched", agentId: "abc" }),
+    );
+    const content = [
+      "<task-notification>",
+      "<task-id>abc</task-id>",
+      "<status>stopped</status>",
+      '<summary>Background agent "Map the repo" didn\'t finish before the previous session ended</summary>',
+      "</task-notification>",
+    ].join("\n");
+    p.push(line({ type: "user", uuid: "n1", origin: { kind: "task-notification" }, message: { role: "user", content } }));
+    expect(p.agents[0].status).toBe("killed");
+    expect(p.turns[1].notification).toMatchObject({ taskId: "abc", toolUseId: "t1" });
+    expect(turnAgents(p.turns[1], p.agents).map((a) => a.id)).toEqual(["t1"]);
+  });
+
   it("completes a foreground agent with its result", () => {
     const p = new TranscriptParser();
     p.push(
