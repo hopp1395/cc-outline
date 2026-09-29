@@ -1,6 +1,6 @@
 {
   "name": "cc-outline",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "Jan Hoppe",
   "description": "Terminal split pane for Claude Code: the session rendered as Markdown with subagents and attachments, git diffs with syntax highlighting, plan-mode plans with version diffs, and a session browser across projects",
   "keywords": [
