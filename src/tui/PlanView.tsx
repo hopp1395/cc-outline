@@ -10,7 +10,9 @@ import { watchFile } from "../transcript/tail.js";
 import { nextMarked } from "../favorites.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
+import { haystack } from "../filter.js";
 import { useFavorites } from "./useFavorites.js";
+import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import {
@@ -25,7 +27,6 @@ import {
   EntryText,
   flipOrder,
   orderedDir,
-  orderedNav,
   orderFooter,
   Star,
   truncate,
@@ -45,6 +46,8 @@ interface Props {
   active: boolean;
   /** Reports whether the changes view is open, so Esc closes it instead of quitting. */
   onDiffOpen?: (open: boolean) => void;
+  /** The filter dialog opened or closed. */
+  onTyping?: (typing: boolean) => void;
 }
 
 const STATUS: Record<PlanStatus, { icon: string; color: string; label: string; ansi: string }> = {
@@ -135,7 +138,7 @@ function usePlanFile(planMode: PlanModeState | undefined) {
   return file;
 }
 
-export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, active, onDiffOpen }: Props) {
+export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, active, onDiffOpen, onTyping }: Props) {
   const planFile = usePlanFile(planMode);
   const copy = useClipboard();
   const draft = draftPlan(planMode, planFile, presented);
@@ -143,8 +146,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const plans = useMemo(() => (draft ? [...presented, draft] : presented), [presented, draft?.text, draft?.timestamp]);
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
-  const last = plans.length - 1;
-  const [selected, setSelected] = useState(last);
+  const newest = plans.length - 1;
+  const [selected, setSelected] = useState(newest);
   // Following: the newest plan stays selected when Claude presents another one.
   const [follow, setFollow] = useState(true);
   const [showDiff, setShowDiff] = useState(false);
@@ -156,9 +159,22 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   // Marked plans of the project, by tool call id.
   const favorites = useFavorites(cwd, "plans");
   const markedCount = plans.filter((p) => favorites.isMarked(p.id)).length;
+  const index = Math.max(0, Math.min(selected, newest));
+  // A plan is found by its title; its details are its text, its status and the feedback it got.
+  const filter = useListFilter({
+    items: plans,
+    text: (p) => ({ list: planTitle(p.text), details: haystack([p.text, p.status, STATUS[p.status].label, p.feedback]) }),
+    selected: index,
+    select: (i) => select(i),
+    reversed,
+    layout,
+    onTyping,
+  });
+  // The newest plan shown: following stays on it, also while a filter is on.
+  const last = filter.last;
 
   useEffect(() => {
-    if (follow) setSelected(last);
+    if (follow && last >= 0) setSelected(last);
   }, [follow, last]);
 
   // Selection and each plan's scroll position survive switching plans and restarting the viewer.
@@ -176,8 +192,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
     setSelected(at);
   }, [plans.length]);
 
-  const index = Math.max(0, Math.min(selected, last));
-  const plan = plans[index];
+  const plan = filter.none ? undefined : plans[index];
   const previous = index > 0 ? plans[index - 1] : undefined;
   const diffOpen = showDiff && previous !== undefined;
 
@@ -226,6 +241,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
     setHscroll(0);
   };
   const select = (next: number) => {
+    if (last < 0) return;
     const target = Math.max(0, Math.min(last, next));
     setFollow(target === last);
     if (target === index) return;
@@ -239,6 +255,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
 
   useInput(
     (input, key) => {
+      if (filter.handleKey(input, key)) return;
       // Checked first: Shift+↑/↓ jump between marked plans.
       const mark = markKeys(input, key);
       if (mark === "toggle") {
@@ -247,7 +264,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       }
       if (mark) {
         const target = nextMarked(
-          plans.map((p) => p.id),
+          filter.markIds(plans.map((p) => p.id)),
           favorites.marks,
           index,
           orderedDir(reversed, mark),
@@ -260,17 +277,9 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
         return setHscroll(0);
       }
       if (input === "s") return setOrder(flipOrder);
-      const nav = {
-        ...orderedNav(reversed, {
-          select: (delta: number) => select(index + delta),
-          first: () => select(0),
-          last: () => select(last),
-        }),
-        scroll,
-        page: viewport - 2,
-      };
+      const nav = { ...filter.nav, scroll, page: viewport - 2 };
       if (handleNavigation(input, key, nav)) return;
-      if (key.return && previous) return toggleDiff(!showDiff);
+      if (key.return && plan && previous) return toggleDiff(!showDiff);
       if (key.escape && diffOpen) return toggleDiff(false);
       if (input === "c" && plan) {
         copy(plan.text).then(
@@ -279,11 +288,12 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
         );
       }
     },
-    { isActive: active },
+    { isActive: active && !filter.open },
   );
 
   let preview;
   if (!hasSession) preview = <Text dimColor>No Claude Code session found</Text>;
+  else if (filter.none) preview = <Text dimColor>No plan matches the filter</Text>;
   else if (!plan)
     preview = (
       <Text dimColor>
@@ -314,12 +324,13 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   );
 
   return (
+    <>
     <Screen
       layout={layout}
       mode="plan"
       status={
         <Text dimColor={!focused}>
-          {plans.length} {plans.length === 1 ? "plan" : "plans"}
+          {filter.count(plans.length)} {plans.length === 1 ? "plan" : "plans"}
           {counts.approved > 0 && <Text color="green">{` · ${counts.approved} approved`}</Text>}
           {counts.rejected > 0 && <Text color="red">{` · ${counts.rejected} rejected`}</Text>}
           {counts.pending > 0 && <Text color="yellow">{` · ${counts.pending} waiting`}</Text>}
@@ -334,9 +345,11 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
             reversed={reversed}
             onPick={select}
           items={plans}
+          shown={filter.shown}
+          filter={filter.banner}
           selected={index}
           height={bodyHeight}
-          empty="No plans yet"
+          empty={filter.empty ?? "No plans yet"}
           itemKey={(p) => p.id}
           time={(p) => p.timestamp}
           render={(p, isSelected) => {
@@ -366,6 +379,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           { text: "PgUp/Dn scroll", priority: 1 },
           ...(previous ? [{ text: "↵ changes", on: diffOpen }] : []),
           ...markFooter(favorites.isMarked(plan?.id), markedCount),
+          ...filter.footer,
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "w wrap", on: wrap, priority: 2 },
           ...(plans.length > 0 ? [{ text: "End follow", on: follow, priority: 2 }] : []),
@@ -374,5 +388,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
         ]
       }
     />
+    {filter.dialog}
+    </>
   );
 }

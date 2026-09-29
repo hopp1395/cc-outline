@@ -22,6 +22,7 @@ import {
 import { dayLabel } from "./days.js";
 import { useFocused } from "./focus.js";
 import { nextMarked } from "../favorites.js";
+import { haystack, type FilterText } from "../filter.js";
 import {
   bold,
   dim,
@@ -32,7 +33,6 @@ import {
   markFooter,
   markKeys,
   orderedDir,
-  orderedNav,
   orderFooter,
   previewHeader,
   rule,
@@ -44,6 +44,7 @@ import {
 import { useSetting } from "./useSetting.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
+import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 
 interface Props {
@@ -53,6 +54,8 @@ interface Props {
   /** The view takes keys. */
   active: boolean;
   cwd: string;
+  /** The filter dialog opened or closed. */
+  onTyping?: (typing: boolean) => void;
 }
 
 /** What the chart shows; v steps through them. */
@@ -74,6 +77,27 @@ const REFRESH_MS = 3000;
 const shortModel = (m: string) => m.replace(/^claude-/, "");
 
 const hhmm = (at: number) => new Date(at).toTimeString().slice(0, 5);
+
+const WEEKDAYS_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+/** The models that answered on each day. */
+function modelsByDay(data: Measurements | undefined): Map<string, Set<string>> {
+  const byDay = new Map<string, Set<string>>();
+  for (const r of data?.responses ?? []) {
+    const day = dayKey(r.start);
+    let models = byDay.get(day);
+    if (!models) byDay.set(day, (models = new Set()));
+    models.add(r.model);
+  }
+  return byDay;
+}
+
+/** What a day is found by in the filter: in the list its date written several ways, in the details the models of that day. */
+function dayText(day: string, models: Set<string> | undefined): FilterText {
+  const [y, m, d] = day.split("-");
+  const weekday = WEEKDAYS_DE[new Date(`${day}T12:00:00`).getDay()];
+  return { list: haystack([day, `${d}.${m}.${y}`, `${dayLabel(day, "always")} ${weekday}`]), details: haystack([...(models ?? [])].map(shortModel)) };
+}
 
 /**
  * The responses of all projects, read while `visible` and refreshed every
@@ -215,7 +239,7 @@ function responseTable(data: Measurements, day: string, model: string | undefine
   return { heading, rows: rows.length ? rows.map((r) => r.line) : [dim("No responses on this day.")] };
 }
 
-export function MonitorView({ layout, visible, active, cwd }: Props) {
+export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const { data, progress } = useMeasurements(visible);
@@ -239,7 +263,19 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
     const i = days.findIndex((d) => d.day === positions.selected);
     if (i > 0) setIndex(i);
   }, [days]);
-  const selected = days[Math.min(index, Math.max(0, days.length - 1))];
+  const current = Math.min(index, Math.max(0, days.length - 1));
+  const dayModels = useMemo(() => modelsByDay(data), [data]);
+  const filter = useListFilter({
+    items: days,
+    text: (d) => dayText(d.day, dayModels.get(d.day)),
+    deps: [dayModels],
+    selected: current,
+    select: (i) => select(i),
+    reversed,
+    layout,
+    onTyping,
+  });
+  const selected = filter.none ? undefined : days[current];
   useEffect(() => {
     if (selected && restored.current) positions.select(selected.day);
   }, [selected?.day]);
@@ -278,6 +314,7 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
   }, [selected?.day, value, model, minutes, previewWidth, bodyHeight, table, stats, rows]);
   const viewport = bodyHeightBelow(header, bodyHeight);
   const lines = useMemo(() => {
+    if (data && filter.none) return [dim("No day matches the filter")];
     if (!data || !selected || !stats) return [dim(progress ? `reading transcripts ${progress.done}/${progress.total}…` : "reading transcripts…")];
     if (rows) return rows.rows;
     const { buckets, typical } = stats;
@@ -292,17 +329,17 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
       colourOf: colourFor(value),
     });
     return [...chart, ...legend(value), "", ...dayFigures(data, selected.day, model, buckets, typical)];
-  }, [data, selected?.day, value, model, minutes, viewport, progress, stats, rows]);
+  }, [data, selected?.day, value, model, minutes, viewport, progress, stats, rows, filter.none]);
   // The table keeps its own position per day.
   const scroll = positions.scroll(`${selected?.day ?? ""}${table ? "#table" : ""}`, lines.length, viewport);
 
   const select = (i: number) => setIndex(Math.max(0, Math.min(days.length - 1, i)));
-  const current = Math.min(index, Math.max(0, days.length - 1));
   const markedCount = days.filter((d) => favorites.isMarked(d.day)).length;
   const choices = [...models, ALL];
 
   useInput(
     (input, key) => {
+      if (filter.handleKey(input, key)) return;
       if (key.return) return setTable((t) => !t);
       if (input === "v" && !table) return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
@@ -311,7 +348,7 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
       if (mark === "toggle") return selected && favorites.toggle(selected.day);
       if (mark) {
         const target = nextMarked(
-          days.map((d) => d.day),
+          filter.markIds(days.map((d) => d.day)),
           favorites.marks,
           current,
           orderedDir(reversed, mark),
@@ -319,27 +356,20 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
         return target !== undefined && select(target);
       }
       if (input === "s") return setOrder(flipOrder);
-      handleNavigation(input, key, {
-        ...orderedNav(reversed, {
-          select: (delta: number) => select(index + delta),
-          first: () => select(0),
-          last: () => select(days.length - 1),
-        }),
-        scroll,
-        page: viewport - 2,
-      });
+      handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active },
+    { isActive: active && !filter.open },
   );
 
   const countWidth = Math.max(1, ...days.map((d) => String(d.count).length));
   return (
+    <>
     <Screen
       layout={layout}
       mode="monitor"
       status={
         <Text dimColor={!focused}>
-          {data ? `${data.responses.length} responses · ${models.length} models` : progress ? `reading ${progress.done}/${progress.total}` : "reading…"}
+          {data ? `${data.responses.length} responses · ${models.length} models${filter.shown ? ` · ${filter.count(days.length)} days` : ""}` : progress ? `reading ${progress.done}/${progress.total}` : "reading…"}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
         </Text>
       }
@@ -348,9 +378,11 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
           reversed={reversed}
           onPick={select}
           items={days}
+          shown={filter.shown}
+          filter={filter.banner}
           selected={current}
           height={bodyHeight}
-          empty={data ? "No responses" : "Reading…"}
+          empty={filter.empty ?? (data ? "No responses" : "Reading…")}
           itemKey={(d) => d.day}
           time={(d) => d.day}
           period="year"
@@ -378,11 +410,14 @@ export function MonitorView({ layout, visible, active, cwd }: Props) {
         orderFooter(order, "newest-first"),
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(selected?.day), markedCount),
+        ...filter.footer,
         { text: "↵ table", on: table, priority: 3 },
         ...(table ? [] : [{ text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 }]),
         { text: `m ${model ? shortModel(model) : "all"}`, on: true, priority: 3 },
         { text: "1-6/tab view", priority: 1 },
       ]}
     />
+    {filter.dialog}
+    </>
   );
 }
