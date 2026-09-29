@@ -6,6 +6,7 @@ import {
   orderedDir,
   orderedNav,
   orderFooter,
+  scrollPosition,
   listWindow,
   MARQUEE_MAX_SCROLL,
   marqueeOffset,
@@ -172,3 +173,18 @@ describe("list order", () => {
   });
 });
 
+
+describe("scrollPosition", () => {
+  it("names the top and the end", () => {
+    expect(scrollPosition(0, 260, 300, 40)).toBe("top");
+    expect(scrollPosition(260, 260, 300, 40)).toBe("end");
+  });
+
+  it("lists the lines shown in between", () => {
+    expect(scrollPosition(120, 260, 300, 40)).toBe("121–160/300");
+  });
+
+  it("says all when the content fits", () => {
+    expect(scrollPosition(0, 0, 30, 40)).toBe("all");
+  });
+});

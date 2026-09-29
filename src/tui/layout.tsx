@@ -48,7 +48,7 @@ export interface Scroll {
   max: number;
   set: (n: number) => void;
   by: (delta: number) => void;
-  /** "all" or how far down the view reaches, e.g. "42%". */
+  /** Where the view is: "all", "top", "end", or the lines shown in between, e.g. "121–160/300". */
   position: string;
 }
 
@@ -71,8 +71,16 @@ export function makeScroll(
     set: (n) => setRaw(clamp(n)),
     // Functional update so several keys in one input chunk all count.
     by: (delta) => setRaw((s) => clamp(Math.min(s, max) + delta)),
-    position: lineCount > height ? `${Math.round(((clamped + height) / lineCount) * 100)}%` : "all",
+    position: scrollPosition(clamped, max, lineCount, height),
   };
+}
+
+/** The status text for a view at `scroll` (see `Scroll.position`). */
+export function scrollPosition(scroll: number, max: number, lineCount: number, height: number): string {
+  if (lineCount <= height) return "all";
+  if (scroll <= 0) return "top";
+  if (scroll >= max) return "end";
+  return `${scroll + 1}–${scroll + height}/${lineCount}`;
 }
 
 /** Vertical scroll position within `lineCount` lines shown `height` at a time. */
@@ -545,14 +553,11 @@ export function listWindow(count: number, selected: number, height: number): Lis
   return { from, to, above: from, below: count - to };
 }
 
-/**
- * "▲ 7 more Home": how many entries (or, with `unit`, e.g. lines) are hidden
- * and the key that jumps to the far end.
- */
-export function MoreRow({ arrow, count, jumpKey, unit, day }: { arrow: string; count: number; jumpKey: string; unit?: string; day?: string }) {
+/** "▲ 7 more Home": how many entries of a list are hidden and the key that jumps to the far end. */
+export function MoreRow({ arrow, count, jumpKey, day }: { arrow: string; count: number; jumpKey: string; day?: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more${unit ? ` ${unit}` : ""}${day ? ` · ${periodLabel(day)}` : ""}  `}
+      {` ${arrow} ${count} more${day ? ` · ${periodLabel(day)}` : ""}  `}
       <Text color="yellow">{jumpKey}</Text>
     </Text>
   );

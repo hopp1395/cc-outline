@@ -1,19 +1,7 @@
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import type { Turn } from "../src/transcript/parse.js";
-import { answerLines, commandName, compactLines, continuationDetails, jumpHint, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
-
-describe("jumpHint", () => {
-  it("centres the badge and gives it a background", () => {
-    const hint = jumpHint(60);
-    const plain = strip(hint);
-    const left = plain.length - plain.trimStart().length;
-    expect(plain.trim()).toBe("↓ Jump to bottom (ctrl+End)");
-    // Badge is 29 columns incl. its padding: indent (60 - 29) / 2 = 15, plus the badge's own leading space.
-    expect(left).toBe(16);
-    expect(hint).toContain("\u001b[48;2;");
-  });
-});
+import { answerLines, commandName, compactLines, continuationDetails, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
 
 const strip = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
 
