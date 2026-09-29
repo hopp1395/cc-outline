@@ -5,6 +5,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown, stripBoxes } from "../render/markdown.js";
 import { nextMarked } from "../favorites.js";
+import { haystack } from "../filter.js";
 import { turnImageFiles } from "../images.js";
 import { openInDefaultApp } from "../open.js";
 import {
@@ -30,7 +31,6 @@ import {
   List,
   flipOrder,
   orderedDir,
-  orderedNav,
   orderFooter,
   previewHeader,
   rule,
@@ -48,6 +48,7 @@ import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import { useFavorites } from "./useFavorites.js";
+import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { useSubagent, type Subagent } from "./useSubagent.js";
@@ -65,6 +66,8 @@ interface Props {
   onPromptOpen?: (open: boolean) => void;
   /** The viewer follows the running session, so its last unfinished turn is one Claude works on. */
   liveSession?: boolean;
+  /** The filter dialog opened or closed. */
+  onTyping?: (typing: boolean) => void;
 }
 
 /** t steps through the tool levels: off → compact → full → off. */
@@ -348,7 +351,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight } = layout;
@@ -373,10 +376,26 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const favorites = useFavorites(cwd, "turns", path);
   const markedCount = turns.filter((t) => favorites.isMarked(t.id)).length;
 
-  const last = turns.length - 1;
-  const current = turns[Math.min(selected, Math.max(0, last))];
+  // A turn is found by its prompt; its details are what came with it and the subagents it started.
+  const filter = useListFilter({
+    items: turns,
+    text: (t) => ({
+      list: t.prompt,
+      details: haystack([...(t.attachments ?? []).map(attachmentName), ...turnAgents(t, transcript.agents).map((a) => a.description)]),
+    }),
+    deps: [version],
+    selected,
+    select: (i) => select(i),
+    reversed,
+    layout,
+    onTyping,
+  });
+  // The newest turn shown: following and End go there, also while a filter is on.
+  const last = filter.last;
+  const newest = turns.length - 1;
+  const current = filter.none ? undefined : turns[Math.min(selected, Math.max(0, newest))];
   // Claude works on the last turn until it is done or interrupted.
-  const isRunning = (t: Turn | undefined) => liveSession && t !== undefined && t === turns[last] && !t.done && !t.interrupted;
+  const isRunning = (t: Turn | undefined) => liveSession && t !== undefined && t === turns[newest] && !t.done && !t.interrupted;
   const agentsOf = (t: Turn | undefined) => turnAgents(t, transcript.agents);
   // Background agents keep running after their turn ended.
   const agentsRunning = (t: Turn) => liveSession && !t.notification && agentsOf(t).some((a) => a.status === "running");
@@ -531,6 +550,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   }, [current?.id, live, pos, detailOpen]);
 
   const select = (index: number) => {
+    if (last < 0) return;
     // The user chose: from now on their selection is the one kept.
     unrestored.current = undefined;
     const next = Math.max(0, Math.min(last, index));
@@ -566,7 +586,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   /** Selects the next or previous marked turn. */
   const jumpMark = (dir: 1 | -1) => {
     const target = nextMarked(
-      turns.map((t) => t.id),
+      filter.markIds(turns.map((t) => t.id)),
       favorites.marks,
       selected,
       orderedDir(reversed, dir),
@@ -576,6 +596,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
 
   useInput(
     (input, key) => {
+      if (filter.handleKey(input, key)) return;
       // a / A step through the turn's subagents and, past the last / first, back to the answer.
       if (input === "a" || input === "A") {
         if (currentAgents.length === 0) return notify("no subagents in this turn");
@@ -605,15 +626,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         if (up && follow) setFollow(false);
         if (down && scroll.scroll + down >= scroll.max) setFollow(true);
       }
-      const nav = {
-        ...orderedNav(reversed, {
-          select: (delta: number) => select(selected + delta),
-          first: () => select(0),
-          last: () => select(last),
-        }),
-        scroll,
-        page,
-      };
+      const nav = { ...filter.nav, scroll, page };
       if (handleNavigation(input, key, nav)) return;
       if (key.return && current) return togglePrompt(!promptOpen);
       if (key.escape && promptOpen) return togglePrompt(false);
@@ -634,19 +647,20 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         );
       }
     },
-    { isActive: active },
+    { isActive: active && !filter.open },
   );
 
   const session = path ? basename(path, ".jsonl").slice(0, 8) : "none";
 
   return (
+    <>
     <Screen
       layout={layout}
       mode="chat"
       status={
         // Full brightness on the focused (blue) bar, dimmed otherwise.
         <Text dimColor={!focused}>
-          session {session} · {turns.length} turns · {scroll.position}
+          session {session} · {filter.count(turns.length)} turns · {scroll.position}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {/* Options (follow, tools, thinking, wrap) show as highlighted keys in the help line, not here. */}
           {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
@@ -657,9 +671,11 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             reversed={reversed}
             onPick={select}
           items={turns}
+          shown={filter.shown}
+          filter={filter.banner}
           selected={selected}
           height={bodyHeight}
-          empty="Waiting for prompts…"
+          empty={filter.empty ?? "Waiting for prompts…"}
           itemKey={(t, i) => t.id + i}
           time={(t) => t.timestamp}
           render={(t, isSelected) => {
@@ -743,6 +759,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
+          ...filter.footer,
           orderFooter(order, "oldest-first"),
           ...markFooter(favorites.isMarked(current?.id), markedCount),
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
@@ -755,5 +772,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         ])
       }
     />
+    {filter.dialog}
+    </>
   );
 }

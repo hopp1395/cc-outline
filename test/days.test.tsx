@@ -100,7 +100,7 @@ describe("linesByDay", () => {
 
 async function listOutput(
   items: { id: string; ts?: string }[],
-  opts: { selected: number; height: number; reversed?: boolean; period?: "day" | "year" },
+  opts: { selected: number; height: number; reversed?: boolean; period?: "day" | "year"; shown?: number[] },
 ) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 30, rows: opts.height });
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
@@ -120,6 +120,7 @@ async function listOutput(
         time={(i) => i.ts}
         reversed={opts.reversed}
         period={opts.period}
+        shown={opts.shown}
         render={(i) => <Text>{i.id}</Text>}
       />
     </AreaContext.Provider>,
@@ -159,6 +160,20 @@ describe("List with times", () => {
     const days = [{ id: "2026-01-02", ts: "2026-01-02" }, { id: "2025-12-31", ts: "2025-12-31" }, { id: "2025-12-30", ts: "2025-12-30" }];
     const lines = await listOutput(days, { selected: 0, height: 10, period: "year" });
     expect(lines.slice(0, 5)).toEqual(["── 2026 ────────────", "2026-01-02", "── 2025 ────────────", "2025-12-31", "2025-12-30"]);
+  });
+
+  it("shows only a filter's entries, with the separators of their days, also reversed", async () => {
+    expect((await listOutput(items, { selected: 3, height: 10, shown: [1, 3] })).slice(0, 4)).toEqual([
+      "── Sun 27 Sep 2026 ─",
+      "b",
+      "── Mon 28 Sep 2026 ─",
+      "d",
+    ]);
+    expect((await listOutput(items, { selected: 1, height: 10, shown: [0, 1], reversed: true })).slice(0, 3)).toEqual([
+      "── Sun 27 Sep 2026 ─",
+      "b",
+      "a",
+    ]);
   });
 
   it("shows no separators with the setting off", async () => {

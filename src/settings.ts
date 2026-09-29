@@ -11,6 +11,10 @@ export type AutoOpen = (typeof AUTO_OPEN_VALUES)[number];
 export const ORDER_VALUES = ["oldest-first", "newest-first"] as const;
 export type ListOrder = (typeof ORDER_VALUES)[number];
 
+/** What the list filter (Ctrl+F) looks at: the entries' rows, their details, or both. */
+export const FILTER_IN_VALUES = ["list", "details", "both"] as const;
+export type FilterIn = (typeof FILTER_IN_VALUES)[number];
+
 /** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
 export type Placement = (typeof PLACEMENT_VALUES)[number];
@@ -36,6 +40,8 @@ export interface Settings {
   rememberView: boolean;
   /** The viewer takes the mouse: click opens links and selects entries, the wheel scrolls. */
   mouse: boolean;
+  /** What the list filter looks at (^L / ^D in its dialog). */
+  filterIn: FilterIn;
   /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. Questions always show. */
   showTools: ToolLevel;
   /** Chat: show thinking blocks (h). */
@@ -72,6 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rememberPositions: true,
   rememberView: true,
   mouse: true,
+  filterIn: "list",
   showTools: "off",
   showThinking: false,
   showAgents: true,
@@ -127,6 +134,7 @@ export function shownView(settings: Settings, mode: Mode): Mode {
 const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   autoOpen: AUTO_OPEN_VALUES,
   placement: PLACEMENT_VALUES,
+  filterIn: FILTER_IN_VALUES,
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
