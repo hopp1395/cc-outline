@@ -31,10 +31,8 @@ import {
   previewHeader,
   Screen,
   EntryText,
-  flipOrder,
   orderedDir,
   orderedNav,
-  orderFooter,
   Star,
   truncate,
   wrapPath,
@@ -49,6 +47,7 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { projectSlug } from "../transcript/locate.js";
+import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 
 interface Props {
   cwd: string;
@@ -206,14 +205,18 @@ function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt
  * few seconds. The first scan fills the list as it goes; `progress` counts the
  * transcripts read so far. `refresh` rescans at once. A reload of the view
  * (F5) reads every transcript again with a new index; the list stays until
- * that scan is done.
+ * that scan is done. With `since`, only transcripts written since then are
+ * read; when it changes (load more), the list also stays until the scan is done.
  */
-function useSessions(cwd: string, visible: boolean, all: boolean) {
+function useSessions(cwd: string, visible: boolean, all: boolean, since: number | undefined) {
   const index = useRef(new SessionIndex());
   const reload = useReload();
   const loaded = useRef(reload.count);
+  const sinceRef = useRef(since);
   const scanRef = useRef<() => Promise<void>>(async () => {});
   const [sessions, setSessions] = useState<SessionSummary[]>();
+  // The last finished scan read every transcript (no `since`).
+  const [complete, setComplete] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number }>();
   const [running, setRunning] = useState<Set<string>>(new Set());
 
@@ -222,6 +225,8 @@ function useSessions(cwd: string, visible: boolean, all: boolean) {
     const fresh = reload.count !== loaded.current;
     loaded.current = reload.count;
     if (fresh) index.current = new SessionIndex();
+    const extending = since !== sinceRef.current;
+    sinceRef.current = since;
     const current = index.current;
     let cancelled = false;
     let busy = false;
@@ -241,12 +246,13 @@ function useSessions(cwd: string, visible: boolean, all: boolean) {
           // Only the first scan shows partial lists; later ones just update the finished list.
           // A reload keeps the list and shows only the progress.
           if (cancelled || !first) return;
-          if (!reloading) setSessions(partial);
+          if (!reloading && !extending) setSessions(partial);
           setProgress({ done, total });
-        });
+        }, since);
         if (!cancelled) {
           first = false;
           setSessions(result);
+          setComplete(since === undefined);
           setProgress(undefined);
           setRunning(runningSessionIds());
         }
@@ -263,9 +269,9 @@ function useSessions(cwd: string, visible: boolean, all: boolean) {
       clearInterval(timer);
       finish();
     };
-  }, [cwd, visible, all, reload.count]);
+  }, [cwd, visible, all, reload.count, since]);
 
-  return { sessions, progress, running, refresh: () => void scanRef.current() };
+  return { sessions, progress, running, complete, refresh: () => void scanRef.current() };
 }
 
 /** Short name of the project a session belongs to: its folder name. */
@@ -290,17 +296,26 @@ function sessionText(s: SessionSummary): FilterText {
   };
 }
 
+/** An entry of the list: a session, or load more at its oldest end. */
+type Entry = SessionSummary | LoadMore;
+const LOAD_MORE_ID = "load-more";
+const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : e.id);
+
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const copy = useClipboard();
   const [all, setAll] = useSetting("allProjects");
-  // The trash follows the same order as the sessions.
-  const [order, setOrder] = useSetting("sessionsOrder");
   const [separators] = useSetting("dateSeparators");
-  const reversed = order === "newest-first";
-  const { sessions, progress, running, refresh } = useSessions(cwd, visible, all);
+  const range = useListRange("sessionsRange");
+  const { sessions: read, progress, running, complete, refresh } = useSessions(cwd, visible, all, range.since);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
+  // The sessions started in the range; the active and running ones also when they started before it.
+  const sessions = useMemo(() => {
+    const since = range.since;
+    if (!read || since === undefined) return read;
+    return read.filter((s) => !s.start || Date.parse(s.start) >= since || s.id === activeId || running.has(s.id));
+  }, [read, range.since, activeId, running]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
   // The session moved to the trash last, for u (undo) in the list.
@@ -311,15 +326,23 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
   const [selectedId, setSelectedId] = useState<string | undefined>(positions.selected);
   // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
-  useEffect(() => positions.select(selectedId), [selectedId]);
+  useEffect(() => {
+    if (selectedId !== LOAD_MORE_ID) positions.select(selectedId);
+  }, [selectedId]);
   const [trashSelectedId, setTrashSelectedId] = useState<string>();
   const [flash, setFlash] = useState<string>();
   const favorites = useFavorites(cwd, "sessions");
 
-  const list = trashOpen ? trash.map((e) => e.summary) : (sessions ?? []);
+  // The sessions are kept oldest first and shown newest first, so load more (the oldest end) comes last;
+  // the trash is kept and shown with the latest deletion first.
+  const reversed = !trashOpen;
+  const more = showsLoadMore(range, complete);
+  const sessionList: Entry[] = useMemo(() => (more && sessions ? [LOAD_MORE, ...sessions] : (sessions ?? [])), [more, sessions]);
+  const list: Entry[] = trashOpen ? trash.map((e) => e.summary) : sessionList;
   // The time the list is sorted by and shown with: the start, in the trash the deletion.
   const deletedAt = new Map(trash.map((e) => [e.id, e.deletedAt]));
-  const listedAt = (s: SessionSummary) => {
+  const listedAt = (s: Entry) => {
+    if (isLoadMore(s)) return undefined;
     const deleted = trashOpen ? deletedAt.get(s.id) : undefined;
     return deleted !== undefined ? new Date(deleted).toISOString() : s.start;
   };
@@ -327,23 +350,38 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const currentId = trashOpen ? trashSelectedId : selectedId;
   const setCurrentId = trashOpen ? setTrashSelectedId : setSelectedId;
 
-  const found = list.findIndex((s) => s.id === currentId);
+  const found = list.findIndex((s) => entryId(s) === currentId);
   // The list starts at the newest session (last); the trash at the latest deletion (first).
   const index = found >= 0 ? found : trashOpen ? 0 : list.length - 1;
   // Only the sessions are filtered, not the trash; their filter stays while the trash is open.
-  const sessionList = sessions ?? [];
-  const sessionFound = sessionList.findIndex((s) => s.id === selectedId);
+  const sessionFound = sessionList.findIndex((s) => entryId(s) === selectedId);
   const filter = useListFilter({
     items: sessionList,
-    text: sessionText,
+    text: (e) => (isLoadMore(e) ? { list: "", details: "" } : sessionText(e)),
     selected: sessionFound >= 0 ? sessionFound : sessionList.length - 1,
     select: (i) => select(i),
-    reversed,
+    reversed: true,
     layout,
     enabled: !trashOpen,
     onTyping,
+    pinned: isLoadMore,
   });
-  const session = filter.none ? undefined : list[index];
+  const picked = filter.none ? undefined : list[index];
+  const onLoadMore = isLoadMore(picked);
+  const session = isLoadMore(picked) ? undefined : picked;
+  // The oldest session before load more was clicked: the one read next to it gets the selection.
+  const loadedAfter = useRef<string | undefined>(undefined);
+  const loadMore = () => {
+    if (range.requested) return;
+    loadedAfter.current = sessions?.[0]?.id;
+    range.loadAll();
+  };
+  // Once the whole history is read and the entry is gone, the selection moves to the newest of the sessions read now.
+  useEffect(() => {
+    if (more || selectedId !== LOAD_MORE_ID || !sessions) return;
+    const at = sessions.findIndex((s) => s.id === loadedAfter.current);
+    setSelectedId(sessions[at >= 0 ? Math.max(0, at - 1) : sessions.length - 1]?.id);
+  }, [more, sessions]);
   const entry = trashOpen ? trash[index] : undefined;
   const stateOf = (s: SessionSummary): State =>
     trashOpen ? "trash" : s.id === activeId ? "active" : running.has(s.id) ? "running" : undefined;
@@ -364,11 +402,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
 
   const select = (next: number) => {
     const target = list[Math.max(0, Math.min(list.length - 1, next))];
-    if (!target || target.id === session?.id) return;
-    setCurrentId(target.id);
+    if (!target || target === picked) return;
+    setCurrentId(entryId(target));
   };
-  /** After removing the selected entry: select its neighbour. */
-  const selectNeighbour = () => setCurrentId((list[index + 1] ?? list[index - 1])?.id);
+  /** After removing the selected entry: select its neighbour, a session rather than load more. */
+  const selectNeighbour = () =>
+    setCurrentId([list[index + 1], list[index - 1]].find((e): e is SessionSummary => e !== undefined && !isLoadMore(e))?.id);
 
   const notify = (msg: string) => {
     setFlash(msg);
@@ -490,7 +529,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         if (mark === "toggle") return session && favorites.toggle(session.id);
         if (mark) {
           const target = nextMarked(
-            filter.markIds(list.map((s) => s.id)),
+            filter.markIds(list.map(entryId)),
             favorites.marks,
             index,
             orderedDir(reversed, mark),
@@ -503,6 +542,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           const s = lastTrashed;
           return restore(s, () => setSelectedId(s.id));
         }
+        if (key.return && onLoadMore) return loadMore();
         if (key.return && session) return start(session);
         if (input === "c" && session) {
           const command = resumeCommand(session);
@@ -512,7 +552,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           );
         }
       }
-      if (input === "s") return setOrder(flipOrder);
       handleNavigation(input, key, {
         ...(trashOpen
           ? orderedNav(reversed, {
@@ -532,6 +571,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
   else if (filter.none) preview = <Text dimColor>No session matches the filter</Text>;
+  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, "sessions", sessionList.length - 1, range.requested).join("\n")}</Text>;
   else if (!session) preview = <Text dimColor>{all ? "No Claude Code sessions found" : `No Claude Code session found for ${cwd}`}</Text>;
   else
     preview = (
@@ -549,7 +589,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const footer = trashOpen
     ? [
         { text: "↑↓ session", priority: 4 },
-        orderFooter(order, "oldest-first"),
         { text: "PgUp/Dn scroll", priority: 1 },
         { text: "u restore", priority: 4 },
         { text: "x delete", priority: 3 },
@@ -559,11 +598,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       ]
     : [
         { text: "↑↓ session", priority: 4 },
-        orderFooter(order, "oldest-first"),
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         ...filter.footer,
-        { text: "↵ start", priority: 3 },
+        { text: onLoadMore ? "↵ load more" : "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
@@ -582,7 +620,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             {trashOpen ? (
               <Text color="red">TRASH · {plural(trash.length, "session")}</Text>
             ) : sessions ? (
-              `${filter.count(list.length)} ${list.length === 1 ? "session" : "sessions"}`
+              `${filter.count(sessions.length)} ${sessions.length === 1 ? "session" : "sessions"}`
             ) : (
               "…"
             )}
@@ -595,15 +633,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           <List
             reversed={reversed}
             onPick={select}
+            onClick={(i) => isLoadMore(list[i]) && loadMore()}
             items={list}
             shown={filter.shown}
           filter={filter.banner}
             selected={index}
             height={bodyHeight}
             empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
-            itemKey={(s) => s.id}
+            itemKey={entryId}
             time={listedAt}
             render={(s, isSelected) => {
+              if (isLoadMore(s)) return <LoadMoreRow progress={range.requested ? progress : undefined} />;
               const marked = favorites.isMarked(s.id);
               const state = stateOf(s);
               const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";

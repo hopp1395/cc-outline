@@ -16,6 +16,7 @@ import {
   typicalBuckets,
   waitOf,
   dayKey,
+  measuredSince,
   type Bucket,
   type Measurements,
 } from "../monitor/responses.js";
@@ -27,13 +28,10 @@ import {
   bold,
   dim,
   EntryText,
-  flipOrder,
   handleNavigation,
   List,
   markFooter,
   markKeys,
-  orderedDir,
-  orderFooter,
   previewHeader,
   rule,
   Screen,
@@ -47,6 +45,7 @@ import { useFavorites } from "./useFavorites.js";
 import { useReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
+import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 
 interface Props {
   layout: Layout;
@@ -103,13 +102,17 @@ function dayText(day: string, models: Set<string> | undefined): FilterText {
 /**
  * The responses of all projects, read while `visible` and refreshed every
  * few seconds; only what was appended to a transcript is read again.
- * A reload of the view (F5) reads them all again with a new index.
+ * A reload of the view (F5) reads them all again with a new index. With
+ * `since`, only transcripts written since then are read, and only the
+ * responses since then are returned.
  */
-function useMeasurements(visible: boolean) {
+function useMeasurements(visible: boolean, since: number | undefined) {
   const index = useRef(new ResponseIndex());
   const reload = useReload();
   const loaded = useRef(reload.count);
   const [data, setData] = useState<Measurements>();
+  // The last finished scan read every transcript (no `since`).
+  const [complete, setComplete] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number }>();
   useEffect(() => {
     if (!visible) return;
@@ -129,9 +132,10 @@ function useMeasurements(visible: boolean) {
       if (busy) return;
       busy = true;
       try {
-        const result = await index.current.scan((done, total) => !cancelled && setProgress({ done, total }));
+        const result = await index.current.scan((done, total) => !cancelled && setProgress({ done, total }), since);
         if (!cancelled) {
-          setData(result);
+          setData(measuredSince(result, since));
+          setComplete(since === undefined);
           setProgress(undefined);
         }
       } finally {
@@ -146,8 +150,8 @@ function useMeasurements(visible: boolean) {
       clearInterval(timer);
       finish();
     };
-  }, [visible, reload.count]);
-  return { data, progress };
+  }, [visible, reload.count, since]);
+  return { data, progress, complete };
 }
 
 /** A bar's colour: red when clearly worse than usual at that time, green when clearly better. */
@@ -255,21 +259,26 @@ function responseTable(data: Measurements, day: string, model: string | undefine
   return { heading, rows: rows.length ? rows.map((r) => r.line) : [dim("No responses on this day.")] };
 }
 
+/** An entry of the list: a day, or load more after the oldest. */
+type Entry = ReturnType<typeof daysWithData>[number] | LoadMore;
+
 export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
-  const { data, progress } = useMeasurements(visible);
+  const range = useListRange("monitorRange");
+  const { data, progress, complete } = useMeasurements(visible, range.since);
+  const more = showsLoadMore(range, complete);
   const positions = usePositions(cwd, "monitor");
   const favorites = useFavorites(cwd, "days");
-  // Days are kept newest first; oldest first only mirrors the list and its keys.
-  const [order, setOrder] = useSetting("monitorOrder");
   const [separators] = useSetting("dateSeparators");
-  const reversed = order === "oldest-first";
   const [value, setValue] = useState<Value>("score");
   const models = useMemo(() => (data ? modelsByRecency(data) : []), [data]);
   const [modelChoice, setModel] = useState<string>(ALL);
   const model = modelChoice === ALL ? undefined : modelChoice;
   const days = useMemo(() => (data ? daysWithData(data, model) : []), [data, model]);
+  // Newest first, then load more while only the range is read.
+  // The selection stays on the index of the entry, which is the newest of the days read next.
+  const entries: Entry[] = useMemo(() => (more && data ? [...days, LOAD_MORE] : days), [days, more, data]);
   const [index, setIndex] = useState(0);
   // Restores the day selected last, once the days are known.
   const restored = useRef(false);
@@ -279,19 +288,24 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
     const i = days.findIndex((d) => d.day === positions.selected);
     if (i > 0) setIndex(i);
   }, [days]);
-  const current = Math.min(index, Math.max(0, days.length - 1));
+  const current = Math.min(index, Math.max(0, entries.length - 1));
   const dayModels = useMemo(() => modelsByDay(data), [data]);
   const filter = useListFilter({
-    items: days,
-    text: (d) => dayText(d.day, dayModels.get(d.day)),
+    items: entries,
+    text: (d) => (isLoadMore(d) ? { list: "", details: "" } : dayText(d.day, dayModels.get(d.day))),
     deps: [dayModels],
     selected: current,
     select: (i) => select(i),
-    reversed,
     layout,
     onTyping,
+    pinned: isLoadMore,
   });
-  const selected = filter.none ? undefined : days[current];
+  const picked = filter.none ? undefined : entries[current];
+  const onLoadMore = isLoadMore(picked);
+  const selected = isLoadMore(picked) ? undefined : picked;
+  const loadMore = () => {
+    if (!range.requested) range.loadAll();
+  };
   useEffect(() => {
     if (selected && restored.current) positions.select(selected.day);
   }, [selected?.day]);
@@ -331,6 +345,7 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
   const viewport = bodyHeightBelow(header, bodyHeight);
   const lines = useMemo(() => {
     if (data && filter.none) return [dim("No day matches the filter")];
+    if (data && onLoadMore) return loadMoreLines(range, "days with responses", days.length, range.requested).map(dim);
     if (!data || !selected || !stats) return [dim(progress ? `reading transcripts ${progress.done}/${progress.total}…` : "reading transcripts…")];
     if (rows) return rows.rows;
     const { buckets, typical } = stats;
@@ -345,17 +360,18 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       colourOf: colourFor(value),
     });
     return [...chart, ...legend(value), "", ...dayFigures(data, selected.day, model, buckets, typical)];
-  }, [data, selected?.day, value, model, minutes, viewport, progress, stats, rows, filter.none]);
+  }, [data, selected?.day, value, model, minutes, viewport, progress, stats, rows, filter.none, onLoadMore, range.since]);
   // The table keeps its own position per day.
   const scroll = positions.scroll(`${selected?.day ?? ""}${table ? "#table" : ""}`, lines.length, viewport);
 
-  const select = (i: number) => setIndex(Math.max(0, Math.min(days.length - 1, i)));
+  const select = (i: number) => setIndex(Math.max(0, Math.min(entries.length - 1, i)));
   const markedCount = days.filter((d) => favorites.isMarked(d.day)).length;
   const choices = [...models, ALL];
 
   useInput(
     (input, key) => {
       if (filter.handleKey(input, key)) return;
+      if (key.return && onLoadMore) return loadMore();
       if (key.return) return setTable((t) => !t);
       if (input === "v" && !table) return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
@@ -364,14 +380,13 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       if (mark === "toggle") return selected && favorites.toggle(selected.day);
       if (mark) {
         const target = nextMarked(
-          filter.markIds(days.map((d) => d.day)),
+          filter.markIds(entries.map((d) => (isLoadMore(d) ? "" : d.day))),
           favorites.marks,
           current,
-          orderedDir(reversed, mark),
+          mark,
         );
         return target !== undefined && select(target);
       }
-      if (input === "s") return setOrder(flipOrder);
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
     { isActive: active && !filter.open },
@@ -391,18 +406,21 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       }
       list={
         <List
-          reversed={reversed}
           onPick={select}
-          items={days}
+          onClick={(i) => isLoadMore(entries[i]) && loadMore()}
+          items={entries}
           shown={filter.shown}
           filter={filter.banner}
           selected={current}
           height={bodyHeight}
           empty={filter.empty ?? (data ? "No responses" : "Reading…")}
-          itemKey={(d) => d.day}
-          time={(d) => d.day}
+          itemKey={(d) => (isLoadMore(d) ? "load-more" : d.day)}
+          time={(d) => (isLoadMore(d) ? undefined : d.day)}
           period="year"
-          render={(d, isSelected) => (
+          render={(d, isSelected) =>
+            isLoadMore(d) ? (
+              <LoadMoreRow progress={range.requested ? progress : undefined} />
+            ) : (
             <>
               {favorites.isMarked(d.day) && <Star />}
               <EntryText
@@ -415,7 +433,8 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
               <Text dimColor={!isSelected}> {String(d.count).padStart(countWidth)}</Text>
               {d.errors > 0 && <Text color="red"> ✗</Text>}
             </>
-          )}
+            )
+          }
         />
       }
       preview={
@@ -423,11 +442,10 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       }
       footer={[
         { text: "↑↓ day", priority: 4 },
-        orderFooter(order, "newest-first"),
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(selected?.day), markedCount),
         ...filter.footer,
-        { text: "↵ table", on: table, priority: 3 },
+        onLoadMore ? { text: "↵ load more", priority: 3 } : { text: "↵ table", on: table, priority: 3 },
         ...(table ? [] : [{ text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 }]),
         { text: `m ${model ? shortModel(model) : "all"}`, on: true, priority: 3 },
         { text: "1-6/tab view", priority: 1 },

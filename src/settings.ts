@@ -7,9 +7,32 @@ import type { Mode } from "./tui/layout.js";
 export const AUTO_OPEN_VALUES = ["remember", "always", "never"] as const;
 export type AutoOpen = (typeof AUTO_OPEN_VALUES)[number];
 
-/** Order of a time-ordered list (Chat, Plan, Sessions, Monitor). */
+/** Order of a time-ordered list (Chat, Plan); Sessions and Monitor always show the newest first. */
 export const ORDER_VALUES = ["oldest-first", "newest-first"] as const;
 export type ListOrder = (typeof ORDER_VALUES)[number];
+
+/** How far back the Sessions and Monitor lists reach at first; "load more" in the list reads the rest. */
+export const RANGE_VALUES = ["today", "7d", "30d", "90d", "all"] as const;
+export type ListRange = (typeof RANGE_VALUES)[number];
+
+/** How the range values are shown. */
+export const RANGE_NAMES: Record<ListRange, string> = {
+  today: "today",
+  "7d": "7 days",
+  "30d": "30 days",
+  "90d": "90 days",
+  all: "unlimited",
+};
+
+/**
+ * Local midnight of the first day `range` covers (today counts: "7d" is today
+ * and the 6 days before), or undefined for "all".
+ */
+export function rangeStart(range: ListRange, now = new Date()): number | undefined {
+  if (range === "all") return undefined;
+  const days = range === "today" ? 1 : Number.parseInt(range, 10);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
+}
 
 /** What the list filter (Ctrl+F) looks at: the entries' rows, their details, or both. */
 export const FILTER_IN_VALUES = ["list", "details", "both"] as const;
@@ -58,11 +81,12 @@ export interface Settings {
   planWrap: boolean;
   /** Sessions: show the sessions of all projects, not only this one (a). */
   allProjects: boolean;
-  /** Order of the time-ordered lists (s in each). */
+  /** Order of the Chat and Plan lists (s in each). */
   chatOrder: ListOrder;
   planOrder: ListOrder;
-  sessionsOrder: ListOrder;
-  monitorOrder: ListOrder;
+  /** How far back the Sessions and Monitor lists reach until "load more". */
+  sessionsRange: ListRange;
+  monitorRange: ListRange;
   /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
   viewChat: boolean;
   viewGit: boolean;
@@ -91,8 +115,8 @@ export const DEFAULT_SETTINGS: Settings = {
   allProjects: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
-  sessionsOrder: "oldest-first",
-  monitorOrder: "newest-first",
+  sessionsRange: "7d",
+  monitorRange: "7d",
   viewChat: true,
   viewGit: true,
   viewPlan: true,
@@ -141,8 +165,8 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
-  sessionsOrder: ORDER_VALUES,
-  monitorOrder: ORDER_VALUES,
+  sessionsRange: RANGE_VALUES,
+  monitorRange: RANGE_VALUES,
 };
 
 export function settingsFile(): string {

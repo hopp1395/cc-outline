@@ -51,6 +51,8 @@ interface Options<T> {
   enabled?: boolean;
   /** The dialog opened or closed: the app ignores its keys meanwhile. */
   onTyping?: (typing: boolean) => void;
+  /** Entries a filter never hides and the counts leave out ("load more"). */
+  pinned?: (item: T) => boolean;
 }
 
 /**
@@ -59,7 +61,7 @@ interface Options<T> {
  * natural index, and gets the indexes to show. Kept while the viewer runs,
  * until the view is reloaded.
  */
-export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping }: Options<T>): ListFilter {
+export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, pinned }: Options<T>): ListFilter {
   const [applied, setApplied] = useState("");
   // The text the dialog starts with: the filter used last.
   const [recent, setRecent] = useState("");
@@ -73,7 +75,14 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
     () => (match ? items.map((item) => pickText(text(item), filterIn)) : undefined),
     [match !== undefined, items, filterIn, ...deps],
   );
-  const shown = useMemo(() => (match && texts ? filterIndices(texts, match) : undefined), [match, texts]);
+  const shown = useMemo(() => {
+    if (!match || !texts) return undefined;
+    const found = new Set(filterIndices(texts, match));
+    return items.flatMap((item, i) => (found.has(i) || pinned?.(item) ? [i] : []));
+  }, [match, texts]);
+  // The entries that count: all but the pinned ones.
+  const matched = shown && (pinned ? shown.filter((i) => !pinned(items[i])).length : shown.length);
+  const counted = pinned ? items.filter((item) => !pinned(item)).length : items.length;
 
   useEffect(() => {
     onTyping?.(open);
@@ -129,17 +138,17 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
       return ids.map((id, i) => (visible.has(i) ? id : ""));
     },
     handleKey,
-    count: (total) => (shown ? `${shown.length}/${total}` : String(total)),
+    count: (total) => (shown ? `${matched}/${total}` : String(total)),
     empty: shown?.length === 0 && items.length > 0 ? "No matches" : undefined,
-    banner: shown ? { query: query.trim(), count: `${shown.length} of ${items.length}` } : undefined,
+    banner: shown ? { query: query.trim(), count: `${matched} of ${counted}` } : undefined,
     footer: shown || !enabled ? [] : [{ text: "^F filter", priority: 2 }],
     dialog:
       line && enabled ? (
         <FilterDialog
           layout={layout}
           line={line}
-          shown={shown?.length ?? items.length}
-          total={items.length}
+          shown={matched ?? counted}
+          total={counted}
           onChange={setLine}
           onKeep={() => {
             const kept = line.text.trim();
