@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { TranscriptParser, type AgentRun, type Turn } from "../transcript/parse.js";
 import { subagentFile } from "../transcript/subagents.js";
 import { FileTail } from "../transcript/tail.js";
+import { useReload } from "./reload.js";
 
 /** How often to look for a subagent's transcript that is not there yet. */
 const FIND_MS = 1000;
@@ -17,8 +18,10 @@ export interface Subagent {
 /**
  * Reads and follows the transcript of `agent` (of the session in
  * `transcript`) while it is shown. Undefined `agent`: nothing is read.
+ * A reload of the view (F5) reads it again.
  */
 export function useSubagent(transcript: string | undefined, agent: AgentRun | undefined): Subagent {
+  const { count } = useReload();
   const [state, setState] = useState<Subagent>({ turns: [], version: 0 });
   const agentKey = agent ? `${agent.id}:${agent.agentId ?? ""}` : undefined;
 
@@ -47,7 +50,7 @@ export function useSubagent(transcript: string | undefined, agent: AgentRun | un
       clearInterval(finder);
       void tail?.stop();
     };
-  }, [transcript, agentKey]);
+  }, [transcript, agentKey, count]);
 
   return state;
 }

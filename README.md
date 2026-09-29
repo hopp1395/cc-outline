@@ -211,7 +211,7 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 **Status.** The top bar shows the current branch, the files and line counts, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
 
-**Refresh.** While the view is visible, it re-reads git every 2 seconds; `r` refreshes at once. The selected file stays selected as long as it is still changed.
+**Refresh.** While the view is visible, it re-reads git every 2 seconds; `F5` refreshes at once and also finds a repository created since (`git init`). The selected file stays selected as long as it is still changed.
 
 **Syntax highlighting** exists so far for C# (`.cs`, `.csx`). Add more languages through the `LANGUAGES` map in `src/render/diff.ts`.
 
@@ -379,13 +379,15 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `a` | – | – | – | all projects ↔ this project |
 | `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
-| `r` | – | refresh now | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
 | `s` | newest / oldest first | – | newest / oldest first | newest / oldest first |
 | `Ctrl+←` / `Ctrl+→` | scroll sideways (wrapping off) | scroll sideways (wrapping off) | scroll sideways (wrapping off) | – |
+| `F5` / `Ctrl+R` | reload the view (see below) | reload the view | reload the view | reload the view |
 | `p` | move the viewer: right, left or own window | move the viewer | move the viewer | move the viewer |
 | `i` | info dialog | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit | quit |
+
+**Reloading.** `F5` (or `Ctrl+R`, for terminals that keep F5 to themselves) reads the shown view's data again from scratch and redraws the screen, in every view: the Chat and Plan views the transcript (both, since they share it), the subagent shown and the plan file; Changes git; Sessions and Monitor all transcripts; Settings `settings.json`, with changes made by other viewers. Marks are read again too. The selection, scroll positions and open details stay; a list filter is dropped. The top bar says `reloading…` until the data is there, then `reloaded`. While a dialog is open, `F5` does nothing.
 
 Quitting with `q` or `Esc` asks first, unless *confirm quit* is off in the Settings view. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
 

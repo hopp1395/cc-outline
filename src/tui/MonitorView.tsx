@@ -44,6 +44,7 @@ import {
 import { useSetting } from "./useSetting.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
+import { useReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 
@@ -102,15 +103,28 @@ function dayText(day: string, models: Set<string> | undefined): FilterText {
 /**
  * The responses of all projects, read while `visible` and refreshed every
  * few seconds; only what was appended to a transcript is read again.
+ * A reload of the view (F5) reads them all again with a new index.
  */
 function useMeasurements(visible: boolean) {
   const index = useRef(new ResponseIndex());
+  const reload = useReload();
+  const loaded = useRef(reload.count);
   const [data, setData] = useState<Measurements>();
   const [progress, setProgress] = useState<{ done: number; total: number }>();
   useEffect(() => {
     if (!visible) return;
+    const fresh = reload.count !== loaded.current;
+    loaded.current = reload.count;
+    if (fresh) index.current = new ResponseIndex();
     let cancelled = false;
     let busy = false;
+    let reloading = fresh;
+    // Also when the scan fails or stops early: F5 is refused while a reload runs.
+    const finish = () => {
+      if (!reloading) return;
+      reloading = false;
+      reload.done();
+    };
     const scan = async () => {
       if (busy) return;
       busy = true;
@@ -122,6 +136,7 @@ function useMeasurements(visible: boolean) {
         }
       } finally {
         busy = false;
+        finish();
       }
     };
     void scan();
@@ -129,8 +144,9 @@ function useMeasurements(visible: boolean) {
     return () => {
       cancelled = true;
       clearInterval(timer);
+      finish();
     };
-  }, [visible]);
+  }, [visible, reload.count]);
   return { data, progress };
 }
 

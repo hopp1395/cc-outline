@@ -4,6 +4,7 @@ import { compileFilter, filterIndices, lineOf, nearestShown, stepShown, type Fil
 import type { FilterIn } from "../settings.js";
 import { FilterDialog } from "./FilterDialog.js";
 import { orderedNav, type FooterItem, type Layout } from "./layout.js";
+import { useOnReload } from "./reload.js";
 import { useSetting } from "./useSetting.js";
 
 export interface ListFilter {
@@ -55,7 +56,8 @@ interface Options<T> {
 /**
  * The filter of one list (Ctrl+F). Like `reversed`, it only changes what is
  * shown: the view keeps its data, selection, positions and marks on the
- * natural index, and gets the indexes to show. Kept while the viewer runs.
+ * natural index, and gets the indexes to show. Kept while the viewer runs,
+ * until the view is reloaded.
  */
 export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping }: Options<T>): ListFilter {
   const [applied, setApplied] = useState("");
@@ -76,6 +78,12 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   useEffect(() => {
     onTyping?.(open);
   }, [open]);
+
+  // A reload of the view (F5) drops the filter.
+  useOnReload(() => {
+    setApplied("");
+    setLine(undefined);
+  });
 
   // A hidden entry is not left selected: the nearest shown one before it takes over.
   useEffect(() => {

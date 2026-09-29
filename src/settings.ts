@@ -170,6 +170,11 @@ export function subscribeSettings(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Tells the listeners to read the settings again, e.g. after another viewer changed them (F5). */
+export function reloadSettings(): void {
+  for (const listener of listeners) listener();
+}
+
 /** Merges `changes` into the stored settings, re-reading first so other viewers' changes survive. */
 export function updateSettings(changes: Partial<Settings>): void {
   writeJson(settingsFile(), { ...readSettings(), ...changes });

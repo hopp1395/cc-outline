@@ -12,6 +12,7 @@ import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import { haystack } from "../filter.js";
 import { useFavorites } from "./useFavorites.js";
+import { useReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -112,9 +113,10 @@ export function draftPlan(
   return { id: "draft", text: file.text, timestamp: new Date(file.mtime).toISOString(), prompt: planMode.prompt, status: "draft" };
 }
 
-/** Text and modification time of the plan file while plan mode is on, kept current. */
+/** Text and modification time of the plan file while plan mode is on, kept current; read again on F5. */
 function usePlanFile(planMode: PlanModeState | undefined) {
   const [file, setFile] = useState<{ text: string; mtime: number }>();
+  const { count } = useReload();
   useEffect(() => {
     setFile(undefined);
     if (!planMode) return;
@@ -134,7 +136,7 @@ function usePlanFile(planMode: PlanModeState | undefined) {
       clearInterval(timer);
       void watcher.close();
     };
-  }, [planMode?.file, planMode?.since]);
+  }, [planMode?.file, planMode?.since, count]);
   return file;
 }
 
