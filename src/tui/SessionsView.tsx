@@ -44,6 +44,7 @@ import { planTitle } from "./PlanView.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { haystack, type FilterText } from "../filter.js";
 import { useFavorites } from "./useFavorites.js";
+import { useOnReload, useReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -203,10 +204,14 @@ function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt
  * The sessions of the project (or, with `all`, of every project) and which of
  * them run in a Claude Code process, read while `visible` and refreshed every
  * few seconds. The first scan fills the list as it goes; `progress` counts the
- * transcripts read so far. `refresh` rescans at once.
+ * transcripts read so far. `refresh` rescans at once. A reload of the view
+ * (F5) reads every transcript again with a new index; the list stays until
+ * that scan is done.
  */
 function useSessions(cwd: string, visible: boolean, all: boolean) {
   const index = useRef(new SessionIndex());
+  const reload = useReload();
+  const loaded = useRef(reload.count);
   const scanRef = useRef<() => Promise<void>>(async () => {});
   const [sessions, setSessions] = useState<SessionSummary[]>();
   const [progress, setProgress] = useState<{ done: number; total: number }>();
@@ -214,18 +219,29 @@ function useSessions(cwd: string, visible: boolean, all: boolean) {
 
   useEffect(() => {
     if (!visible) return;
+    const fresh = reload.count !== loaded.current;
+    loaded.current = reload.count;
+    if (fresh) index.current = new SessionIndex();
     const current = index.current;
     let cancelled = false;
     let busy = false;
     let first = true;
+    let reloading = fresh;
+    // Also when the scan fails or stops early: F5 is refused while a reload runs.
+    const finish = () => {
+      if (!reloading) return;
+      reloading = false;
+      reload.done();
+    };
     const scan = async () => {
       if (busy) return;
       busy = true;
       try {
         const result = await current.scan(all ? undefined : cwd, (partial, done, total) => {
           // Only the first scan shows partial lists; later ones just update the finished list.
+          // A reload keeps the list and shows only the progress.
           if (cancelled || !first) return;
-          setSessions(partial);
+          if (!reloading) setSessions(partial);
           setProgress({ done, total });
         });
         if (!cancelled) {
@@ -236,6 +252,7 @@ function useSessions(cwd: string, visible: boolean, all: boolean) {
         }
       } finally {
         busy = false;
+        finish();
       }
     };
     scanRef.current = scan;
@@ -244,8 +261,9 @@ function useSessions(cwd: string, visible: boolean, all: boolean) {
     return () => {
       cancelled = true;
       clearInterval(timer);
+      finish();
     };
-  }, [cwd, visible, all]);
+  }, [cwd, visible, all, reload.count]);
 
   return { sessions, progress, running, refresh: () => void scanRef.current() };
 }
@@ -372,6 +390,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (open) setTrash(listTrash(trashScope));
     setTrashOpen(open);
   };
+  // F5 in the trash reads it again too.
+  useOnReload(() => {
+    if (trashOpen) setTrash(listTrash(trashScope));
+  });
 
   /** Enter: after a confirmation, continues the session in a new terminal tab, unless it already runs somewhere. */
   const start = (s: SessionSummary) => {

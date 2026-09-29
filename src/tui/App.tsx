@@ -1,6 +1,6 @@
-import { Box, useApp, useInput } from "ink";
+import { Box, useApp, useInput, useStdout } from "ink";
 import { basename } from "node:path";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
@@ -20,6 +20,7 @@ import { MouseContext, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { SessionColorContext, useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
+import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
@@ -54,13 +55,25 @@ function typedInClaude(turns: Turn[], since: number): number | undefined {
 
 const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
 
+/** How long the status says "reloaded" after a reload finished. */
+const RELOADED_MS = 1500;
+/** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
+const REDRAW = "\u001b[?25l";
+const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
+
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   const layout = useLayout();
-  const opened = useSessionPath(cwd, sessionId, claudePid);
+  const { stdout } = useStdout();
+  // F5 reloads the shown view: how often each was reloaded, and the one reloading now.
+  const [reloads, setReloads] = useState(NO_RELOADS);
+  const [reloading, setReloading] = useState<{ mode: Mode; done: boolean }>();
+  // The chat and the plan view share the transcript: a reload of either reads it afresh.
+  const transcriptReload = reloads.chat + reloads.plan;
+  const opened = useSessionPath(cwd, sessionId, claudePid, transcriptReload);
   // Parsed once for the chat and the plan view.
-  const transcript = useTranscript(opened);
+  const transcript = useTranscript(opened, transcriptReload);
   // The transcript read now: the session may have continued in another one.
   const path = transcript.file ?? opened;
   const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
@@ -150,6 +163,33 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (generation > 0) suspendPositionWrites(false);
   }, [generation]);
 
+  const finishReload = useCallback(
+    (m: Mode) => setReloading((r) => (r?.mode === m && !r.done ? { mode: m, done: true } : r)),
+    [],
+  );
+  useEffect(() => {
+    if (!reloading?.done) return;
+    const timer = setTimeout(() => setReloading(undefined), RELOADED_MS);
+    return () => clearTimeout(timer);
+  }, [reloading]);
+  // The transcript is read synchronously; it is loaded once it reports the reload.
+  useEffect(() => {
+    if (transcriptReload > 0 && transcript.loaded === transcriptReload) finishReload(reloading?.mode === "plan" ? "plan" : "chat");
+  }, [transcript.loaded]);
+  // A reload still running is not started again.
+  const reload = () => {
+    if (reloading && !reloading.done) return;
+    stdout.write(REDRAW);
+    setReloads((r) => ({ ...r, [mode]: r[mode] + 1 }));
+    setReloading({ mode, done: false });
+  };
+  useReloadKey(reload, !(modal || typing || quitAsked || placementOpen || infoOpen));
+  const reloadOf = (m: Mode) => ({
+    count: reloads[m],
+    status: reloading?.mode === m ? (reloading.done ? ("done" as const) : ("loading" as const)) : undefined,
+    done: () => finishReload(m),
+  });
+
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
   const choosePlacement = (choice: Placement) => {
     const id = sessionOf(path);
@@ -182,6 +222,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("chat")}>
           <MouseContext.Provider value={mouseFor("chat")}>
           <ChatView
             cwd={cwd}
@@ -194,8 +235,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             liveSession={!sessionId}
           />
           </MouseContext.Provider>
+          </ReloadContext.Provider>
         </Box>
         <Box display={mode === "git" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("git")}>
           <MouseContext.Provider value={mouseFor("git")}>
           <GitView
             cwd={cwd}
@@ -205,8 +248,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onTyping={setTyping}
           />
           </MouseContext.Provider>
+          </ReloadContext.Provider>
         </Box>
         <Box display={mode === "plan" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("plan")}>
           <MouseContext.Provider value={mouseFor("plan")}>
           <PlanView
             cwd={cwd}
@@ -219,8 +264,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onTyping={setTyping}
           />
           </MouseContext.Provider>
+          </ReloadContext.Provider>
         </Box>
         <Box display={mode === "sessions" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("sessions")}>
           <MouseContext.Provider value={mouseFor("sessions")}>
           <SessionsView
             cwd={cwd}
@@ -233,16 +280,21 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onModal={setModal}
           />
           </MouseContext.Provider>
+          </ReloadContext.Provider>
         </Box>
         <Box display={mode === "settings" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("settings")}>
           <MouseContext.Provider value={mouseFor("settings")}>
           <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} onTyping={setTyping} onResetData={resetProjectData} />
           </MouseContext.Provider>
+          </ReloadContext.Provider>
         </Box>
         <Box display={mode === "monitor" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("monitor")}>
           <MouseContext.Provider value={mouseFor("monitor")}>
           <MonitorView cwd={cwd} layout={layout} visible={mode === "monitor"} active={mode === "monitor" && !blocked} onTyping={setTyping} />
           </MouseContext.Provider>
+          </ReloadContext.Provider>
         </Box>
         </Fragment>
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
