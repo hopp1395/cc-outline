@@ -40,7 +40,12 @@ export function periodLabel(key: string, year: "always" | "other" = "other"): st
 
 /** "── Sun 27 Sep 2026 ─────" (or "── 2026 ───") across `width` columns. */
 export function separatorText(key: string, width: number): string {
-  const head = `── ${periodLabel(key, "always")} `;
+  return ruleText(periodLabel(key, "always"), width);
+}
+
+/** "── Chat ─────": a separator with `label` across `width` columns. */
+export function ruleText(label: string, width: number): string {
+  const head = `── ${label} `;
   return head + "─".repeat(Math.max(0, width - head.length));
 }
 

@@ -1,6 +1,7 @@
 import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
+import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { projectData } from "../projectData.js";
@@ -59,7 +60,7 @@ export const RESET_ACTIONS: ResetAction[] = [
 
 interface Row {
   key: keyof Settings;
-  /** Area the setting belongs to, shown before the label. */
+  /** Area the setting belongs to, the list's separator above it. */
   group: string;
   label: string;
   description: string;
@@ -93,7 +94,33 @@ const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
   both: "rows and details",
 };
 
-/** Every setting the view offers; the list and the details come from here. */
+/** The first row of a view's group: whether the view has a tab. */
+function viewTab(key: keyof Settings, name: string, number: string, what: string): Row {
+  return {
+    key,
+    group: name,
+    label: "tab",
+    description: `Whether the ${name} view (${what}) has a tab. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs. A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (6) cannot be hidden, and at least one other view stays shown.`,
+    values: ON_OFF("show its tab", "hide it"),
+  };
+}
+
+/** The last row of a view's group: which end of its list is at the top. */
+function listOrder(key: keyof Settings, view: string, what: string): Row {
+  return {
+    key,
+    group: view,
+    label: "order",
+    description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. The keys follow what you see: ↑/↓ go up and down the list, Home and g to the top, End and G to the bottom.`,
+    values: [
+      ["oldest-first", "oldest at the top, newest at the bottom"],
+      ["newest-first", "newest at the top, oldest at the bottom"],
+    ],
+    viewKey: `s in ${view}`,
+  };
+}
+
+/** Every setting the view offers, by group; the list and the details come from here. */
 export const SETTING_ROWS: Row[] = [
   {
     key: "autoOpen",
@@ -176,6 +203,7 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("ask npm and GitHub when the viewer starts", "no network requests"),
     notes: ["F5 in Settings checks once either way.", "The answer is kept in ~/.claude/cco/releases.json, so the notes also show offline."],
   },
+  viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   {
     key: "showTools",
     group: "Chat",
@@ -211,6 +239,8 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("wrap", "scroll sideways"),
     viewKey: "w in Chat",
   },
+  listOrder("chatOrder", "Chat", "turns"),
+  viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
   {
     key: "wrap",
     group: "Changes",
@@ -219,6 +249,7 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("wrap", "scroll sideways"),
     viewKey: "w in Changes",
   },
+  viewTab("viewPlan", "Plan", "3", "the plans Claude presented in plan mode"),
   {
     key: "planWrap",
     group: "Plan",
@@ -227,6 +258,8 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("wrap", "scroll sideways"),
     viewKey: "w in Plan",
   },
+  listOrder("planOrder", "Plan", "plans"),
+  viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
   {
     key: "allProjects",
     group: "Sessions",
@@ -235,46 +268,15 @@ export const SETTING_ROWS: Row[] = [
     values: ON_OFF("all projects", "this project"),
     viewKey: "a in Sessions",
   },
-  ...(
-    [
-      ["chatOrder", "Chat", "turns"],
-      ["planOrder", "Plan", "plans"],
-      ["sessionsOrder", "Sessions", "sessions (and the trash)"],
-      ["monitorOrder", "Monitor", "days"],
-    ] as const
-  ).map(
-    ([key, view, what]): Row => ({
-      key,
-      group: view,
-      label: "order",
-      description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. The keys follow what you see: ↑/↓ go up and down the list, Home and g to the top, End and G to the bottom.`,
-      values: [
-        ["oldest-first", "oldest at the top, newest at the bottom"],
-        ["newest-first", "newest at the top, oldest at the bottom"],
-      ],
-      viewKey: `s in ${view}`,
-    }),
-  ),
-  ...(
-    [
-      ["viewChat", "Chat", "1", "the session's turns, rendered as Markdown"],
-      ["viewGit", "Changes", "2", "the changed files with their diffs"],
-      ["viewPlan", "Plan", "3", "the plans Claude presented in plan mode"],
-      ["viewSessions", "Sessions", "4", "the overview of past sessions"],
-      ["viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"],
-    ] as const
-  ).map(
-    ([key, name, number, what]): Row => ({
-      key,
-      group: "Views",
-      label: name,
-      description: `Whether the ${name} view (${what}) has a tab. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs. A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (6) cannot be hidden, and at least one other view stays shown.`,
-      values: ON_OFF("show its tab", "hide it"),
-    }),
-  ),
+  listOrder("sessionsOrder", "Sessions", "sessions (and the trash)"),
+  viewTab("viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"),
+  listOrder("monitorOrder", "Monitor", "days"),
 ];
 
 const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v);
+
+/** A value as the list shows it: the order values without "-first", so the labels keep their room. */
+export const shortValueName = (v: string | boolean) => (v === "newest-first" ? "newest" : v === "oldest-first" ? "oldest" : valueName(v));
 
 /** The value after `current` in the row's order, wrapping around. */
 /** Whether `key` is the setting of the only view besides Settings that is still shown. */
@@ -336,6 +338,9 @@ function settingLines(row: Row, current: string | boolean, width: number): strin
 /** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
 type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
 type Entry = Row | ReleaseEntry | ResetAction;
+
+/** The group an entry is listed under. */
+const groupOf = (e: Entry): string => ("key" in e ? e.group : "id" in e ? "Reset" : "Releases");
 
 const keyOf = (e: Entry): string =>
   "key" in e ? e.key : "id" in e ? `reset:${e.id}` : e.kind === "release" ? `release:${e.release.tag}` : e.kind;
@@ -632,22 +637,21 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     { isActive: active && confirmation === undefined && !filter.open },
   );
 
-  /** What a row shows: a value (or mark) column, the group and the label. */
-  const rowParts = (e: Entry): { value: string; color?: string; group: string; label: string } => {
+  /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
+  const rowParts = (e: Entry): { value: string; color?: string; label: string } => {
     if ("key" in e) {
       const value = settings[e.key];
-      return { value: valueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", group: e.group, label: e.label };
+      return { value: shortValueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
     }
-    if ("id" in e) return { value: "↺", group: "Reset", label: e.label };
+    if ("id" in e) return { value: "↺", label: e.label };
     if (e.kind === "release") {
       const cmp = compareVersions(e.release.version, VERSION);
-      return { value: cmp === 0 ? "installed" : cmp > 0 ? "new" : "", color: cmp === 0 ? "green" : "yellow", group: "Releases", label: entryLabel(e) };
+      return { value: cmp === 0 ? "installed" : cmp > 0 ? "new" : "", color: cmp === 0 ? "green" : "yellow", label: entryLabel(e) };
     }
-    if (e.kind === "update") return { value: state.kind === "restart" ? "↻" : "↑", color: "yellow", group: "Releases", label: entryLabel(e) };
-    return { value: "", group: "Releases", label: entryLabel(e) };
+    if (e.kind === "update") return { value: state.kind === "restart" ? "↻" : "↑", color: "yellow", label: entryLabel(e) };
+    return { value: "", label: entryLabel(e) };
   };
 
-  const valueWidth = Math.max(...SETTING_ROWS.map((r) => valueName(settings[r.key]).length), update.releases.length > 0 ? "installed".length : 0);
   const entryFooter = reset
     ? [{ text: "↵ reset", priority: 4 }]
     : onUpdate
@@ -686,20 +690,18 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             height={bodyHeight}
             empty={filter.empty ?? "No settings"}
             itemKey={keyOf}
+            group={groupOf}
             render={(e, isSelected) => {
               const star = favorites.isMarked(keyOf(e));
-              const { value, color, group, label } = rowParts(e);
+              const { value, color, label } = rowParts(e);
+              // The value keeps its place at the right end; a label too long for the rest is cut (or scrolls).
+              const labelWidth = Math.max(4, listWidth - (star ? 2 : 0) - (value ? stringWidth(value) + 1 : 0));
+              const pad = Math.max(0, labelWidth - stringWidth(label));
               return (
                 <>
-                  <Text color={color}>{value.padEnd(valueWidth)} </Text>
-                  <Text dimColor={!isSelected}>{group} </Text>
                   {star && <Star />}
-                  <EntryText
-                    text={label}
-                    width={Math.max(4, listWidth - valueWidth - group.length - 2 - (star ? 2 : 0))}
-                    selected={isSelected}
-                    active={active && confirmation === undefined}
-                  />
+                  <EntryText text={label} width={labelWidth} selected={isSelected} active={active && confirmation === undefined} />
+                  {value && <Text color={color}>{" ".repeat(pad + 1) + value}</Text>}
                 </>
               );
             }}
