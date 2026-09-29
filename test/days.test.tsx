@@ -79,12 +79,12 @@ describe("dayLabel", () => {
 });
 
 describe("listRows", () => {
-  it("puts a separator row above each day", () => {
+  it("puts a separator row above each group", () => {
     expect(listRows(3, ["a", "a", "b"])).toEqual([
-      { day: "a", before: 0 },
+      { group: "a", before: 0 },
       { item: 0 },
       { item: 1 },
-      { day: "b", before: 2 },
+      { group: "b", before: 2 },
       { item: 2 },
     ]);
     expect(listRows(2, undefined)).toEqual([{ item: 0 }, { item: 1 }]);

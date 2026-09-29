@@ -305,7 +305,7 @@ Below the chart: the day's overall index, median speed and wait against the usua
 
 ## Settings view
 
-The Settings view (`6`, or `/cco:settings`) shows every option with its value on the left and, on the right, what it does, all possible values (the current one marked `●`, the default named) and the key that switches it in its own view. Values that differ from the default are yellow, and the top bar counts them.
+The Settings view (`6`, or `/cco:settings`) lists every option under a line with its group (`── Chat ──`), with its value at the right end of the row; a name too long for the list is cut, never the value. The preview shows what it does, all possible values (the current one marked `●`, the default named) and the key that switches it in its own view. Values that differ from the default are yellow, and the top bar counts them.
 
 | Setting | Values | Default | Also |
 |---|---|---|---|
@@ -318,16 +318,22 @@ The Settings view (`6`, or `/cco:settings`) shows every option with its value on
 | General: view per session | on / off | on | – |
 | General: mouse | on / off | on | – |
 | General: update check | on / off | on | – |
+| Chat: tab | on / off | on | – |
 | Chat: tool calls | off / compact / full | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
 | Chat: agents | on / off | on | – |
 | Chat: wrap | on / off | on | `w` in Chat |
+| Chat: order | oldest first / newest first | oldest first | `s` in Chat |
+| Changes: tab | on / off | on | – |
 | Changes: wrap | on / off | on | `w` in Changes |
+| Plan: tab | on / off | on | – |
 | Plan: wrap | on / off | on | `w` in Plan |
+| Plan: order | oldest first / newest first | oldest first | `s` in Plan |
+| Sessions: tab | on / off | on | – |
 | Sessions: all projects | on / off | on | `a` in Sessions |
-| Chat / Plan / Sessions: order | oldest first / newest first | oldest first | `s` in the view |
+| Sessions: order | oldest first / newest first | oldest first | `s` in Sessions |
+| Monitor: tab | on / off | on | – |
 | Monitor: order | newest first / oldest first | newest first | `s` in Monitor |
-| Views: Chat, Changes, Plan, Sessions, Monitor | on / off | on | – |
 
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
@@ -338,9 +344,9 @@ What they do:
 - **remember positions** keeps the selected entries and scroll positions across restarts of the viewer; off, they are kept only while it runs.
 - **mouse** lets the viewer take the mouse: a click on a web address in the preview opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview or, over the list, moves to the previous or next entry. While it is on, the terminal leaves clicks to the viewer, so select text with `Shift`+drag (Windows Terminal). Off, the terminal keeps the mouse and opens addresses with `Ctrl`+click.
 - **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
-- **Views** hide views you do not use: a hidden view has no tab, and its number key does nothing; the other views keep their numbers. A `/cco:…` command or `--view` that names it still opens it, with its tab shown while it is open. On start, a remembered view that is hidden is replaced by the first shown one. Settings cannot be hidden, and at least one other view stays shown.
+- **tab** (the first entry of each view's group) hides a view you do not use: a hidden view has no tab, and its number key does nothing; the other views keep their numbers. A `/cco:…` command or `--view` that names it still opens it, with its tab shown while it is open. On start, a remembered view that is hidden is replaced by the first shown one. Settings cannot be hidden, and at least one other view stays shown.
 - **update check** asks npm for the latest version and GitHub for the release notes when the viewer starts (see *Releases* below). Off, the viewer makes no network requests; `F5` in Settings still checks once.
-- The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
+- The other **Chat**, **Changes**, **Plan**, **Sessions** and **Monitor** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 
 Keys:
 - `↑`/`↓` select a setting, `Enter` switches to the next value. A change applies right away in all views.
