@@ -42,7 +42,9 @@ import {
 } from "./layout.js";
 import { planTitle } from "./PlanView.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { haystack, type FilterText } from "../filter.js";
 import { useFavorites } from "./useFavorites.js";
+import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { projectSlug } from "../transcript/locate.js";
@@ -60,6 +62,8 @@ interface Props {
   onTrashOpen?: (open: boolean) => void;
   /** Reports whether a confirmation is open; the app then leaves all keys to it. */
   onModal?: (open: boolean) => void;
+  /** The filter dialog opened or closed. */
+  onTyping?: (typing: boolean) => void;
 }
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
@@ -251,7 +255,24 @@ function projectName(s: SessionSummary): string {
   return s.cwd ? basename(s.cwd) : basename(dirname(s.path));
 }
 
-export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal }: Props) {
+/** What a session is found by in the filter: in the list its title and project; in the details where and on which branch it ran, its prompts, files, plans and agents. */
+function sessionText(s: SessionSummary): FilterText {
+  return {
+    list: haystack([sessionTitle(s), projectName(s)]),
+    details: haystack([
+      s.cwd,
+      s.branch,
+      s.id,
+      ...(s.continues ?? []),
+      ...s.prompts.map((p) => p.text),
+      ...s.files,
+      ...s.plans.map((p) => planTitle(p.text)),
+      ...(s.agents ?? []).map((a) => a.description),
+    ]),
+  };
+}
+
+export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const copy = useClipboard();
@@ -291,7 +312,20 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const found = list.findIndex((s) => s.id === currentId);
   // The list starts at the newest session (last); the trash at the latest deletion (first).
   const index = found >= 0 ? found : trashOpen ? 0 : list.length - 1;
-  const session = list[index];
+  // Only the sessions are filtered, not the trash; their filter stays while the trash is open.
+  const sessionList = sessions ?? [];
+  const sessionFound = sessionList.findIndex((s) => s.id === selectedId);
+  const filter = useListFilter({
+    items: sessionList,
+    text: sessionText,
+    selected: sessionFound >= 0 ? sessionFound : sessionList.length - 1,
+    select: (i) => select(i),
+    reversed,
+    layout,
+    enabled: !trashOpen,
+    onTyping,
+  });
+  const session = filter.none ? undefined : list[index];
   const entry = trashOpen ? trash[index] : undefined;
   const stateOf = (s: SessionSummary): State =>
     trashOpen ? "trash" : s.id === activeId ? "active" : running.has(s.id) ? "running" : undefined;
@@ -415,6 +449,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
 
   useInput(
     (input, key) => {
+      if (filter.handleKey(input, key)) return;
       if (input === "T") return toggleTrash(!trashOpen);
       if (input === "a") {
         setAll((a) => !a);
@@ -433,7 +468,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         if (mark === "toggle") return session && favorites.toggle(session.id);
         if (mark) {
           const target = nextMarked(
-            list.map((s) => s.id),
+            filter.markIds(list.map((s) => s.id)),
             favorites.marks,
             index,
             orderedDir(reversed, mark),
@@ -457,21 +492,24 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       }
       if (input === "s") return setOrder(flipOrder);
       handleNavigation(input, key, {
-        ...orderedNav(reversed, {
-          select: (delta: number) => select(index + delta),
-          first: () => select(0),
-          last: () => select(list.length - 1),
-        }),
+        ...(trashOpen
+          ? orderedNav(reversed, {
+              select: (delta: number) => select(index + delta),
+              first: () => select(0),
+              last: () => select(list.length - 1),
+            })
+          : filter.nav),
         scroll,
         page: viewport - 2,
       });
     },
-    { isActive: active && confirmation === undefined },
+    { isActive: active && confirmation === undefined && !filter.open },
   );
 
   let preview;
   if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
+  else if (filter.none) preview = <Text dimColor>No session matches the filter</Text>;
   else if (!session) preview = <Text dimColor>{all ? "No Claude Code sessions found" : `No Claude Code session found for ${cwd}`}</Text>;
   else
     preview = (
@@ -502,6 +540,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         orderFooter(order, "oldest-first"),
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
+        ...filter.footer,
         { text: "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
@@ -521,7 +560,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             {trashOpen ? (
               <Text color="red">TRASH · {plural(trash.length, "session")}</Text>
             ) : sessions ? (
-              plural(list.length, "session")
+              `${filter.count(list.length)} ${list.length === 1 ? "session" : "sessions"}`
             ) : (
               "…"
             )}
@@ -535,9 +574,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             reversed={reversed}
             onPick={select}
             items={list}
+            shown={filter.shown}
+          filter={filter.banner}
             selected={index}
             height={bodyHeight}
-            empty={trashOpen ? "Trash is empty" : sessions ? "No sessions" : "…"}
+            empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
             itemKey={(s) => s.id}
             time={listedAt}
             render={(s, isSelected) => {
@@ -571,6 +612,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
       )}
+      {filter.dialog}
     </>
   );
 }

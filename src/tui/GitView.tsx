@@ -29,8 +29,10 @@ import {
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { nextMarked } from "../favorites.js";
+import { haystack } from "../filter.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
+import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 
@@ -40,6 +42,8 @@ interface Props {
   active: boolean;
   /** Reports whether the whole-file view is open, so Esc closes it instead of quitting. */
   onFileOpen?: (open: boolean) => void;
+  /** The filter dialog opened or closed. */
+  onTyping?: (typing: boolean) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -131,7 +135,7 @@ const POLL_MS = 2000;
 /** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
-export function GitView({ cwd, layout, active, onFileOpen }: Props) {
+export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const [root, setRoot] = useState<string | null>();
   const [files, setFiles] = useState<FileChange[]>([]);
@@ -156,7 +160,16 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   }, [cwd]);
 
   const selectedIndex = Math.max(0, files.findIndex((f) => f.path === selectedPath));
-  const current = files[selectedIndex];
+  // A file is found by its path; its details are the path it was renamed from and its status.
+  const filter = useListFilter({
+    items: files,
+    text: (f) => ({ list: f.path, details: haystack([f.oldPath, STATUS_LABEL[f.status]]) }),
+    selected: selectedIndex,
+    select: (i) => select(i),
+    layout,
+    onTyping,
+  });
+  const current = filter.none ? undefined : files[selectedIndex];
 
   // The refresh keeps the selected file, also the one restored before the list was read.
   const selectedRef = useRef(selectedPath);
@@ -259,7 +272,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   /** Selects the next or previous marked file. */
   const jumpMark = (dir: 1 | -1) => {
     const target = nextMarked(
-      files.map((f) => f.path),
+      filter.markIds(files.map((f) => f.path)),
       favorites.marks,
       selectedIndex,
       dir,
@@ -277,6 +290,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
 
   useInput(
     (input, key) => {
+      if (filter.handleKey(input, key)) return;
       // Checked first because plain ↑/↓ switch files.
       const mark = markKeys(input, key);
       if (mark === "toggle") return current && favorites.toggle(current.path);
@@ -286,13 +300,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
         setWrap((w) => !w);
         return setHscroll(0);
       }
-      const nav = {
-        select: (delta: number) => select(selectedIndex + delta),
-        first: () => select(0),
-        last: () => select(files.length - 1),
-        scroll,
-        page: viewport - 2,
-      };
+      const nav = { ...filter.nav, scroll, page: viewport - 2 };
       if (handleNavigation(input, key, nav)) return;
       if (key.return && current) return toggleFile(!showFile);
       if (key.escape && showFile) return toggleFile(false);
@@ -300,7 +308,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
       if (input === "[") return jumpHunk(-1);
       if (input === "r") return void refresh();
     },
-    { isActive: active },
+    { isActive: active && !filter.open },
   );
 
   const markedCount = files.filter((f) => favorites.isMarked(f.path)).length;
@@ -309,6 +317,7 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
   let preview;
   if (root === null) preview = <Text dimColor>{cwd} is not inside a git repository</Text>;
   else if (error) preview = <Text color="red">git: {error}</Text>;
+  else if (filter.none) preview = <Text dimColor>No file matches the filter</Text>;
   else if (!current) preview = <Text dimColor>Working tree clean</Text>;
   else
     preview = (
@@ -326,13 +335,14 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
     );
 
   return (
+    <>
     <Screen
       layout={layout}
       mode="git"
       status={
         <Text dimColor={!focused}>
           <BranchInfo status={branch} bold={focused} />
-          {files.length} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
+          {filter.count(files.length)} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
@@ -342,9 +352,11 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
         <List
             onPick={select}
           items={files}
+          shown={filter.shown}
+          filter={filter.banner}
           selected={selectedIndex}
           height={bodyHeight}
-          empty={root === undefined ? "Loading…" : "No changes"}
+          empty={filter.empty ?? (root === undefined ? "Loading…" : "No changes")}
           itemKey={(f) => f.path}
           render={(f, isSelected) => {
             const marked = favorites.isMarked(f.path);
@@ -368,11 +380,14 @@ export function GitView({ cwd, layout, active, onFileOpen }: Props) {
         ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
         { text: "↵ file", on: showFile },
         ...markFooter(favorites.isMarked(current?.path), markedCount),
+        ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
         { text: "r refresh", priority: 2 },
         { text: "1-6/tab view", priority: 1 },
       ]}
     />
+    {filter.dialog}
+    </>
   );
 }
