@@ -24,6 +24,7 @@ const LIST_KEYS = (entry: string): [string, string][] => [
   ["Home End g G", `first / last ${entry}`],
   ["Space", `mark ${entry} ★`],
   ["⇧↑↓", "previous / next marked"],
+  ["^F", "filter the list (again: clear)"],
   ["PgUp PgDn", "scroll by page"],
   ["^↑↓", "scroll by line"],
   ["^Home ^End", "top / bottom"],

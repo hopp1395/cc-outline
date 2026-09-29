@@ -499,6 +499,10 @@ interface ListProps<T> {
   /** The time of an item: a separator starts each day, or with `period` each year (see `entryGroups`). */
   time?: (item: T) => string | number | undefined;
   period?: Period;
+  /** A filter's entries (natural indexes); the others are left out. `selected` and `onPick` stay natural indexes. */
+  shown?: number[];
+  /** The filter in effect, shown in the top row: its text and "12 of 340". */
+  filter?: { query: string; count: string };
 }
 
 /** Where a part of the Screen (list or preview) sits on the terminal, for mapping mouse positions to it. */
@@ -561,7 +565,37 @@ export function MoreRow({ arrow, count, jumpKey, unit, day }: { arrow: string; c
  * keeps its data in its natural order and only the display is mirrored.
  */
 export function List<T>(props: ListProps<T>) {
+  const area = useContext(AreaContext);
+  if (!props.filter) return <ListBody {...props} />;
+  // The filter in effect takes the top row; the entries (and the mouse) start below it.
+  const height = Math.max(1, props.height - 1);
+  return (
+    <>
+      <FilterRow filter={props.filter} width={area.width || 40} />
+      <AreaContext.Provider value={{ ...area, y: area.y + 1, height }}>
+        <ListBody {...props} height={height} />
+      </AreaContext.Provider>
+    </>
+  );
+}
+
+/** The top row of a filtered list: the filter text, how many entries match, and the key that drops it. */
+function FilterRow({ filter, width }: { filter: { query: string; count: string }; width: number }) {
+  return (
+    <Text wrap="truncate">
+      <Text color="black" backgroundColor="yellow">{" ⌕ "}</Text>
+      <Text color="yellow" bold>{` ${truncate(filter.query, Math.max(4, width - filter.count.length - 16))}`}</Text>
+      <Text dimColor>
+        {` · ${filter.count} · `}
+        <Text color="yellow">^F</Text> clear
+      </Text>
+    </Text>
+  );
+}
+
+function ListBody<T>(all: ListProps<T>) {
   const [separators] = useSetting("dateSeparators");
+  const props = all.shown ? shownOnly(all, all.shown) : all;
   // Days are taken in the natural order, so an item without a time joins the one before it.
   const period = props.period ?? "day";
   const days = separators && props.time ? entryGroups(props.items.map((item) => periodOf(props.time!(item), period)), period) : undefined;
@@ -578,6 +612,21 @@ export function List<T>(props: ListProps<T>) {
       onPick={props.onPick && ((i) => props.onPick!(flip(i)))}
     />
   );
+}
+
+/**
+ * The list of the entries a filter shows (`shown`: natural indexes), with
+ * `selected`, `onPick` and `itemKey` mapped like for `reversed`, which applies after it.
+ */
+function shownOnly<T>(props: ListProps<T>, shown: number[]): ListProps<T> {
+  return {
+    ...props,
+    shown: undefined,
+    items: shown.map((i) => props.items[i]),
+    selected: shown.indexOf(props.selected),
+    itemKey: (item, i) => props.itemKey(item, shown[i]),
+    onPick: props.onPick && ((i) => props.onPick!(shown[i])),
+  };
 }
 
 /** A row of a list: an item (by index) or the date separator before a day's first item. */

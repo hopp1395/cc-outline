@@ -82,6 +82,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [placementOpen, setPlacementOpen] = useState(false);
   // A view's confirmation dialog takes all keys while it is open.
   const [modal, setModal] = useState(false);
+  // A view's filter dialog takes the typed keys; the mouse still reaches the list.
+  const [typing, setTyping] = useState(false);
   // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
   const [quitAsked, setQuitAsked] = useState(false);
   const [confirmQuit] = useSetting("confirmQuit");
@@ -156,7 +158,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || quitAsked || placementOpen) return;
+    if (modal || typing || quitAsked || placementOpen) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -188,6 +190,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             layout={layout}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
+            onTyping={setTyping}
             liveSession={!sessionId}
           />
           </MouseContext.Provider>
@@ -199,6 +202,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             layout={layout}
             active={mode === "git" && !blocked}
             onFileOpen={setDetail("git")}
+            onTyping={setTyping}
           />
           </MouseContext.Provider>
         </Box>
@@ -212,6 +216,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             layout={layout}
             active={mode === "plan" && !blocked}
             onDiffOpen={setDetail("plan")}
+            onTyping={setTyping}
           />
           </MouseContext.Provider>
         </Box>
@@ -224,18 +229,19 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             visible={mode === "sessions"}
             active={mode === "sessions" && !blocked}
             onTrashOpen={setDetail("sessions")}
+            onTyping={setTyping}
             onModal={setModal}
           />
           </MouseContext.Provider>
         </Box>
         <Box display={mode === "settings" ? "flex" : "none"}>
           <MouseContext.Provider value={mouseFor("settings")}>
-          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} onResetData={resetProjectData} />
+          <SettingsView cwd={cwd} layout={layout} active={mode === "settings" && !blocked} onModal={setModal} onTyping={setTyping} onResetData={resetProjectData} />
           </MouseContext.Provider>
         </Box>
         <Box display={mode === "monitor" ? "flex" : "none"}>
           <MouseContext.Provider value={mouseFor("monitor")}>
-          <MonitorView cwd={cwd} layout={layout} visible={mode === "monitor"} active={mode === "monitor" && !blocked} />
+          <MonitorView cwd={cwd} layout={layout} visible={mode === "monitor"} active={mode === "monitor" && !blocked} onTyping={setTyping} />
           </MouseContext.Provider>
         </Box>
         </Fragment>

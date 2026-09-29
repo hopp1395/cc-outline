@@ -2,14 +2,16 @@ import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, PLACEMENT_VALUES, VIEW_SETTINGS, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, VIEW_SETTINGS, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { useFocused } from "./focus.js";
 import { nextMarked } from "../favorites.js";
+import { haystack } from "../filter.js";
 import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, Screen, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
+import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
 
@@ -19,6 +21,8 @@ interface Props {
   active: boolean;
   /** Reports whether a confirmation is open; the app then leaves all keys to it. */
   onModal?: (open: boolean) => void;
+  /** The filter dialog opened or closed. */
+  onTyping?: (typing: boolean) => void;
   cwd: string;
   /** Deletes the project's saved data and reloads the views (App). */
   onResetData?: () => void;
@@ -73,6 +77,12 @@ export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], strin
   right: "a pane right of Claude Code",
   left: "a pane left of Claude Code",
   window: "a window of its own (in tmux: a tmux window)",
+};
+
+const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
+  list: "what the rows show",
+  details: "what the previews add",
+  both: "rows and details",
 };
 
 /** Every setting the view offers; the list and the details come from here. */
@@ -140,6 +150,14 @@ export const SETTING_ROWS: Row[] = [
     label: "mouse",
     description: "Whether the viewer takes the mouse: a click on a web address opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview (or moves through the list). While it is on, the terminal leaves clicks to the viewer: select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier).",
     values: ON_OFF("clicks and wheel go to the viewer", "the terminal keeps the mouse (Ctrl+click opens links)"),
+  },
+  {
+    key: "filterIn",
+    group: "General",
+    label: "filter in",
+    description:
+      "What the list filter (Ctrl+F) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). In the filter dialog, ^L and ^D switch them on and off, which changes this setting.",
+    values: FILTER_IN_VALUES.map((v) => [v, FILTER_IN_MEANINGS[v]]),
   },
   {
     key: "showTools",
@@ -298,7 +316,10 @@ function settingLines(row: Row, current: string | boolean, width: number): strin
   return lines;
 }
 
-export function SettingsView({ layout, active, onModal, cwd, onResetData }: Props) {
+/** The list: the settings, then the reset actions. */
+const LIST_ENTRIES: (Row | ResetAction)[] = [...SETTING_ROWS, ...RESET_ACTIONS];
+
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const settings = useSettings();
@@ -313,6 +334,19 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
   const entryKey = entries[index];
   const favorites = useFavorites(cwd, "settings");
   const marked = entries.filter((e) => favorites.isMarked(e)).length;
+  // A setting is found by its value, group and name as listed; its details are what it does.
+  const filter = useListFilter({
+    items: LIST_ENTRIES,
+    text: (r) =>
+      "key" in r
+        ? { list: haystack([valueName(settings[r.key]), r.group, r.label]), details: r.description }
+        : { list: haystack(["Reset", r.label]), details: r.description },
+    deps: [settings],
+    selected: index,
+    select: (i) => select(i),
+    layout,
+    onTyping,
+  });
 
   useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
   useEffect(() => positions.select(entryKey), [entryKey]);
@@ -374,12 +408,14 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
 
   useInput(
     (input, key) => {
+      if (filter.handleKey(input, key)) return;
       const mark = markKeys(input, key);
-      if (mark === "toggle") return favorites.toggle(entryKey);
+      if (mark === "toggle") return !filter.none && favorites.toggle(entryKey);
       if (mark) {
-        const target = nextMarked(entries, favorites.marks, index, mark);
+        const target = nextMarked(filter.markIds(entries), favorites.marks, index, mark);
         return target !== undefined && select(target);
       }
+      if (filter.none && (key.return || input === "r")) return;
       if (reset && key.return) {
         if (reset.id === "settings") return canReset && askResetSettings();
         return saved.length > 0 && askResetData();
@@ -391,15 +427,9 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
       }
       if (input === "r" && !reset) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
-      handleNavigation(input, key, {
-        select: (delta) => select(index + delta),
-        first: () => select(0),
-        last: () => select(entries.length - 1),
-        scroll,
-        page: viewport - 2,
-      });
+      handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined },
+    { isActive: active && confirmation === undefined && !filter.open },
   );
 
   const valueWidth = Math.max(...SETTING_ROWS.map((r) => valueName(settings[r.key]).length));
@@ -410,6 +440,8 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
         mode="settings"
         status={
           <Text dimColor={!focused}>
+            {/* The filter's count first: the path can be long. */}
+            {filter.shown && `${filter.count(LIST_ENTRIES.length)} entries · `}
             {tilde(settingsFile())}
             {changed.length > 0 && <Text color="yellow">{` · ${changed.length} changed`}</Text>}
           </Text>
@@ -417,10 +449,12 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
         list={
           <List
             onPick={select}
-            items={[...SETTING_ROWS, ...RESET_ACTIONS]}
+            items={LIST_ENTRIES}
+            shown={filter.shown}
+          filter={filter.banner}
             selected={index}
             height={bodyHeight}
-            empty="No settings"
+            empty={filter.empty ?? "No settings"}
             itemKey={(r) => ("key" in r ? r.key : `reset:${r.id}`)}
             render={(r, isSelected) => {
               const star = favorites.isMarked("key" in r ? r.key : `reset:${r.id}`);
@@ -458,6 +492,9 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
           />
         }
         preview={
+          filter.none ? (
+            <Text dimColor>No setting matches the filter</Text>
+          ) : (
           <Preview
             header={header}
             lines={lines}
@@ -466,12 +503,14 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
             height={bodyHeight}
             onWheel={(d) => scroll.by(d)}
           />
+          )
         }
         footer={[
           { text: "↑↓ setting", priority: 4 },
           { text: reset ? "↵ reset" : "↵ change", priority: 4 },
           ...(reset ? [] : [{ text: "r default", priority: 3 }]),
           ...markFooter(favorites.isMarked(entryKey), marked),
+          ...filter.footer,
           ...(canReset ? [{ text: "R reset all", priority: 2 }] : []),
           { text: "1-6/tab view", priority: 1 },
         ]}
@@ -479,6 +518,7 @@ export function SettingsView({ layout, active, onModal, cwd, onResetData }: Prop
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
       )}
+      {filter.dialog}
     </>
   );
 }
