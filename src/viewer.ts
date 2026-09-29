@@ -10,6 +10,8 @@ export interface ViewerInfo {
 
 export interface ControlRequest {
   view: Mode;
+  /** An entry to select in the view (`releases` in Settings). */
+  select?: string;
   /** Epoch ms; a viewer ignores requests older than its own start. */
   at: number;
 }
@@ -61,8 +63,8 @@ export function anyRunningViewer(cwd: string): boolean {
   });
 }
 
-export function requestView(cwd: string, view: Mode, claudePid?: number): void {
-  writeJson(controlFile(cwd, claudePid), { view, at: Date.now() } satisfies ControlRequest);
+export function requestView(cwd: string, view: Mode, claudePid?: number, select?: string): void {
+  writeJson(controlFile(cwd, claudePid), { view, select, at: Date.now() } satisfies ControlRequest);
 }
 
 export function readControl(cwd: string, claudePid?: number): ControlRequest | undefined {
