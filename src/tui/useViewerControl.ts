@@ -20,7 +20,7 @@ export function useViewerControl(opts: {
   cwd: string;
   claudePid?: number;
   followActive: boolean;
-  onView: (view: Mode) => void;
+  onView: (view: Mode, select?: string) => void;
   onSessionEnd: () => void;
 }): void {
   const { cwd, claudePid, followActive, onView, onSessionEnd } = opts;
@@ -29,7 +29,7 @@ export function useViewerControl(opts: {
     const started = Date.now();
     const control = watchFile(controlFile(cwd, claudePid), () => {
       const req = readControl(cwd, claudePid);
-      if (req && req.at >= started) onView(req.view);
+      if (req && req.at >= started) onView(req.view, req.select);
     });
 
     let timer: NodeJS.Timeout | undefined;

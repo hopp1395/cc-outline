@@ -69,7 +69,7 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` and `/cco:monitor` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings`, `/cco:monitor` and `/cco:releases` commands. The npm package is its own plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
@@ -78,7 +78,7 @@ claude plugin install cco@cc-outline
 
 **3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`. The viewer then opens on every start; set *auto open* to `remember` or `never` in the Settings view to change that.
 
-**Updating.** Update the CLI and the plugin, then restart Claude Code. New commands such as `/cco:settings` only appear after the plugin update:
+**Updating.** When a new version is out, the top bar shows it (`v0.7.0 → 0.8.0`, in narrow panes `↑ 0.8.0`) and the *Releases* entries in the Settings view (`/cco:releases`) show its release notes; `Enter` on *update to v0.8.0* runs the three commands below, then the viewer opens again with the new version (see [Settings view](#settings-view)). By hand: update the CLI and the plugin, then restart Claude Code. New commands such as `/cco:settings` only appear after the plugin update:
 
 ```sh
 npm install -g cc-outline
@@ -102,7 +102,7 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 ## Usage
 
-- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`**, **`/cco:settings`** or **`/cco:monitor`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane.
+- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`**, **`/cco:settings`** or **`/cco:monitor`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane. **`/cco:releases`** opens the Settings view on the release notes and the update, if one is out.
 - **Where it opens:** docked right of Claude Code (default), docked left, or in a window of its own, as the *placement* setting says. `p` in the viewer moves it: `1` right, `2` left, `3` window. The viewer closes and reopens there, keeping its selection and scroll positions, and the session remembers the place for the next time it opens (on start, `/resume` in a new Claude Code, `/cco:…`). A window takes the keyboard focus from Claude Code, also when it opens on start, since Windows Terminal cannot hand the focus back to another window. In tmux, *window* is a tmux window. A viewer that already runs stays where it is when you change the setting or `/resume` another session.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
@@ -317,6 +317,7 @@ The Settings view (`6`, or `/cco:settings`) shows every option with its value on
 | General: remember positions (across restarts) | on / off | on | – |
 | General: view per session | on / off | on | – |
 | General: mouse | on / off | on | – |
+| General: update check | on / off | on | – |
 | Chat: tool calls | off / compact / full | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
 | Chat: agents | on / off | on | – |
@@ -338,12 +339,17 @@ What they do:
 - **mouse** lets the viewer take the mouse: a click on a web address in the preview opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview or, over the list, moves to the previous or next entry. While it is on, the terminal leaves clicks to the viewer, so select text with `Shift`+drag (Windows Terminal). Off, the terminal keeps the mouse and opens addresses with `Ctrl`+click.
 - **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
 - **Views** hide views you do not use: a hidden view has no tab, and its number key does nothing; the other views keep their numbers. A `/cco:…` command or `--view` that names it still opens it, with its tab shown while it is open. On start, a remembered view that is hidden is replaced by the first shown one. Settings cannot be hidden, and at least one other view stays shown.
+- **update check** asks npm for the latest version and GitHub for the release notes when the viewer starts (see *Releases* below). Off, the viewer makes no network requests; `F5` in Settings still checks once.
 - The **Chat**, **Changes**, **Plan** and **Sessions** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 
 Keys:
 - `↑`/`↓` select a setting, `Enter` switches to the next value. A change applies right away in all views.
 - `Space` marks a setting or a reset entry `★` like in every list, `Shift+↑`/`↓` jump between them.
 - `r` sets the selected setting back to its default, `R` resets all of them and removes the marks of the settings, after a confirmation.
+- **Releases**, below the settings, lists every release of cco with its notes, newest first; the installed one is marked `installed`, newer ones `new`. `/cco:releases` opens the viewer here, and a click on the top bar's update does too. The viewer asks npm and GitHub once when it starts (setting *update check*), `F5` asks again, and the answer is kept in `~/.claude/cco/releases.json` for offline use.
+  - When a newer version is out, the first entry is *update to v…*: its details show the notes of every newer release. `Enter` asks, then runs `npm install -g cc-outline@latest`, `claude plugin marketplace update cc-outline` and `claude plugin update cco@cc-outline`, showing each step and its output. When all succeed, the viewer opens again in the same place and view with the new version, and says once that Claude Code needs a restart for the plugin. If a step fails, the update stops there and shows its output; `c` copies the commands still to run.
+  - Another viewer that is still on the old version offers *restart with v…* instead, which only reopens it.
+  - A cco run from a checkout (`npm link`) or through npx is not updated: the entry only says that a new version is out.
 - **Reset**, at the end of the list, has two entries; `Enter` shows what would change and asks first:
   - *all settings to default*, the same as `R`, which also removes the marks `★` of the settings.
   - *saved data of this project* deletes what cco remembers for the project: the marks `★` of every list, the selected entries and scroll positions, the view and placement of each session, and whether the viewer was open at the last exit. The settings stay, and transcripts, sessions and git are not touched. The views reload empty.

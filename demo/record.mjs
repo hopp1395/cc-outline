@@ -29,6 +29,8 @@ const home = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
 process.env.USERPROFILE = process.env.HOME = root;
 process.env.WT_SESSION = "demo";
 delete process.env.TMUX;
+// The images show no update check: the viewer finds neither npm nor GitHub.
+globalThis.fetch = () => Promise.reject(new Error("no network in the demo"));
 
 const { render } = await import("ink");
 const { createElement } = await import("react");
