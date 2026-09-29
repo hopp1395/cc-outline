@@ -12,6 +12,10 @@ export interface WatchOptions {
   unfocused?: boolean;
   claudePid?: number;
   placement?: Placement;
+  /** An entry to select in the start view (`releases` in Settings). */
+  select?: string;
+  /** Reopened after an update to this version. */
+  updatedTo?: string;
 }
 
 /**
