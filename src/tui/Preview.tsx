@@ -117,6 +117,11 @@ export function moreBadge(to: "top" | "end", count: number, width: number): stri
   const more = `${arrow} ${count} more`;
   const unit = `${more} ${count === 1 ? "line" : "lines"}`;
   const label = [`${unit} (${key})`, unit].find((l) => l.length + 2 <= width) ?? more;
+  return centredBadge(label, width);
+}
+
+/** `label` as a blue badge centred in `width` columns, like the "more lines" rows. */
+export function centredBadge(label: string, width: number): string {
   const text = ` ${label} `;
   const indent = Math.max(0, Math.floor((width - text.length) / 2));
   return " ".repeat(indent) + BADGE_ON + text + BADGE_OFF;

@@ -6,6 +6,7 @@ import {
   dayKey,
   dayScore,
   daysWithData,
+  measuredSince,
   modelsByRecency,
   ResponseReader,
   scoreOf,
@@ -66,6 +67,14 @@ describe("buckets", () => {
     ],
     errors: [{ at: Date.parse(at("10:12:00")), text: "limit" }],
   };
+
+  it("keeps the responses and errors of a range", () => {
+    const since = Date.parse(at("00:00:00"));
+    const kept = measuredSince(data, since);
+    expect(kept.responses.map((r) => dayKey(r.start))).toEqual(["2026-09-27", "2026-09-27", "2026-09-27", "2026-09-27"]);
+    expect(kept.errors).toHaveLength(1);
+    expect(measuredSince(data, undefined)).toBe(data);
+  });
 
   it("takes medians per stretch of the selected day and model", () => {
     const b = dayBuckets(data, "2026-09-27", 60, "claude-opus-5-5");

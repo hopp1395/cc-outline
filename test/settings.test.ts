@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, isViewShown, nextShownView, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
+import { DEFAULT_SETTINGS, isViewShown, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
 import { isLastView, nextValue, SETTING_ROWS } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
@@ -44,10 +44,27 @@ describe("settings", () => {
 
   it("accepts only known list orders", () => {
     mkdirSync(dirname(settingsFile()), { recursive: true });
-    writeFileSync(settingsFile(), JSON.stringify({ chatOrder: "newest-first", monitorOrder: "sideways" }));
+    writeFileSync(settingsFile(), JSON.stringify({ chatOrder: "newest-first", planOrder: "sideways" }));
     expect(readSettings().chatOrder).toBe("newest-first");
-    expect(readSettings().monitorOrder).toBe("newest-first");
     expect(readSettings().planOrder).toBe("oldest-first");
+  });
+
+  it("accepts only known list ranges and ignores the old Sessions and Monitor orders", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ sessionsRange: "90d", monitorRange: "forever", sessionsOrder: "newest-first" }));
+    const settings = readSettings();
+    expect(settings.sessionsRange).toBe("90d");
+    expect(settings.monitorRange).toBe("7d");
+    expect("sessionsOrder" in settings).toBe(false);
+  });
+
+  it("starts a range at local midnight, today counted", () => {
+    const now = new Date(2026, 8, 29, 15, 30);
+    expect(rangeStart("today", now)).toBe(new Date(2026, 8, 29).getTime());
+    expect(rangeStart("7d", now)).toBe(new Date(2026, 8, 23).getTime());
+    expect(rangeStart("30d", now)).toBe(new Date(2026, 7, 31).getTime());
+    expect(rangeStart("90d", now)).toBe(new Date(2026, 6, 2).getTime());
+    expect(rangeStart("all", now)).toBeUndefined();
   });
 
   it("reads the old on/off tool setting as a level", () => {
