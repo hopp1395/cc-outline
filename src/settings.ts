@@ -67,7 +67,7 @@ export interface Settings {
   filterIn: FilterIn;
   /** Ask npm and GitHub for a newer version and the release notes when the viewer starts. */
   updateCheck: boolean;
-  /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. Questions always show. */
+  /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. With it off, questions still show, framed. */
   showTools: ToolLevel;
   /** Chat: show thinking blocks (h). */
   showThinking: boolean;
