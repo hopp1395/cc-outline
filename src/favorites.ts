@@ -76,9 +76,3 @@ export function removeFavorite(cwd: string, kind: FavoriteKind, id: string): voi
   all[kind] = all[kind].filter((x) => x !== id);
   writeAll(file, kind, all);
 }
-
-/** Index of the next (dir 1) or previous (dir -1) marked entry after `from`, if any. */
-export function nextMarked(ids: string[], marks: string[], from: number, dir: 1 | -1): number | undefined {
-  for (let i = from + dir; i >= 0 && i < ids.length; i += dir) if (marks.includes(ids[i])) return i;
-  return undefined;
-}

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown, stripBoxes } from "../render/markdown.js";
-import { nextMarked } from "../favorites.js";
 import { haystack } from "../filter.js";
 import { turnImageFiles } from "../images.js";
 import { openInDefaultApp } from "../open.js";
@@ -30,7 +29,6 @@ import {
   handleNavigation,
   List,
   flipOrder,
-  orderedDir,
   orderFooter,
   previewHeader,
   rule,
@@ -392,6 +390,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     reversed,
     layout,
     onTyping,
+    marked: (t) => favorites.isMarked(t.id),
   });
   // The newest turn shown: following and End go there, also while a filter is on.
   const last = filter.last;
@@ -589,12 +588,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   };
   /** Selects the next or previous marked turn. */
   const jumpMark = (dir: 1 | -1) => {
-    const target = nextMarked(
-      filter.markIds(turns.map((t) => t.id)),
-      favorites.marks,
-      selected,
-      orderedDir(reversed, dir),
-    );
+    const target = filter.nextMark(dir);
     if (target !== undefined) select(target);
   };
 
@@ -615,7 +609,11 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       if (key.ctrl && key.end) return jumpToBottom();
       // Checked first because plain ↑/↓ switch turns.
       const mark = markKeys(input, key);
-      if (mark === "toggle") return current && favorites.toggle(current.id);
+      if (mark === "toggle") {
+        if (!current) return;
+        if (favorites.isMarked(current.id)) filter.unmarking(selected);
+        return favorites.toggle(current.id);
+      }
       if (mark) return jumpMark(mark);
       if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
@@ -678,6 +676,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           onClick={(i) => isDoubleClick(i) && i === selected && current && togglePrompt(!promptOpen)}
           items={turns}
           shown={filter.shown}
+          pinned={filter.pinned}
           filter={filter.banner}
           selected={selected}
           height={bodyHeight}

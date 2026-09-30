@@ -4,6 +4,7 @@ import { compileFilter, filterIndices, lineOf, nearestShown, stepShown, type Fil
 import type { FilterIn } from "../settings.js";
 import { FilterDialog } from "./FilterDialog.js";
 import { orderedNav, type FooterItem, type Layout } from "./layout.js";
+import { afterUnpin, nextMarkedIn, pinnedRows, screenOrder, stepOrder, type PinnedRows } from "../pinned.js";
 import { useOnReload } from "./reload.js";
 import { useSetting } from "./useSetting.js";
 
@@ -20,8 +21,12 @@ export interface ListFilter {
   nav: { select: (delta: number) => void; first: () => void; last: () => void };
   /** The last shown entry, -1 when none is: what "the newest" means while a filter is on. */
   last: number;
-  /** Ids for nextMarked, with those of hidden entries blanked so jumps skip them. */
-  markIds: (ids: string[]) => string[];
+  /** The Pinned group (setting `pinnedGroup`), passed to `List`; undefined while off or nothing shown is marked. */
+  pinned: PinnedRows | undefined;
+  /** Shift+↑/↓: the next marked entry shown, down (1) or up (-1) the screen. */
+  nextMark: (dir: 1 | -1) => number | undefined;
+  /** Before `index` is unmarked: a pinned entry hands the selection to the next pinned one. */
+  unmarking: (index: number) => void;
   /** Ctrl+F: opens the dialog, or drops the filter in effect. True when the key was taken. */
   handleKey: (input: string, key: Key) => boolean;
   /** "12/340" while filtered, else the total. */
@@ -52,7 +57,9 @@ interface Options<T> {
   /** The dialog opened or closed: the app ignores its keys meanwhile. */
   onTyping?: (typing: boolean) => void;
   /** Entries a filter never hides and the counts leave out ("load more"). */
-  pinned?: (item: T) => boolean;
+  keep?: (item: T) => boolean;
+  /** Marked entries: Shift+↑/↓ jump to them, and the Pinned group shows them first. */
+  marked?: (item: T) => boolean;
 }
 
 /**
@@ -61,7 +68,7 @@ interface Options<T> {
  * natural index, and gets the indexes to show. Kept while the viewer runs,
  * until the view is reloaded.
  */
-export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, pinned }: Options<T>): ListFilter {
+export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, keep, marked }: Options<T>): ListFilter {
   const [applied, setApplied] = useState("");
   // The text the dialog starts with: the filter used last.
   const [recent, setRecent] = useState("");
@@ -78,11 +85,16 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   const shown = useMemo(() => {
     if (!match || !texts) return undefined;
     const found = new Set(filterIndices(texts, match));
-    return items.flatMap((item, i) => (found.has(i) || pinned?.(item) ? [i] : []));
+    return items.flatMap((item, i) => (found.has(i) || keep?.(item) ? [i] : []));
   }, [match, texts]);
-  // The entries that count: all but the pinned ones.
-  const matched = shown && (pinned ? shown.filter((i) => !pinned(items[i])).length : shown.length);
-  const counted = pinned ? items.filter((item) => !pinned(item)).length : items.length;
+  // The entries that count: all but the kept ones.
+  const matched = shown && (keep ? shown.filter((i) => !keep(items[i])).length : shown.length);
+  const counted = keep ? items.filter((item) => !keep(item)).length : items.length;
+  const [pinnedGroup] = useSetting("pinnedGroup");
+  const isMarked = (i: number) => marked?.(items[i]) ?? false;
+  // The entries top to bottom, and with the Pinned group the marked ones first.
+  const screen = screenOrder(items.length, shown, reversed);
+  const pinned = pinnedGroup && enabled && marked ? pinnedRows(screen, isMarked) : undefined;
 
   useEffect(() => {
     onTyping?.(open);
@@ -102,7 +114,16 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   }, [shown, selected]);
 
   const last = shown ? (shown.at(-1) ?? -1) : items.length - 1;
-  const nav = orderedNav(reversed, {
+  // With the Pinned group, ↑↓ and first/last follow the rows on screen.
+  const pinnedNav = pinned && {
+    select: (delta: number) => {
+      const next = stepOrder(pinned.order, selected, delta);
+      if (next !== undefined) select(next);
+    },
+    first: () => select(pinned.order[0]),
+    last: () => select(pinned.order.at(-1)!),
+  };
+  const nav = pinnedNav ?? orderedNav(reversed, {
     select: (delta: number) => {
       if (!shown) return select(selected + delta);
       const next = stepShown(shown, selected, delta);
@@ -132,10 +153,11 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
     open,
     nav,
     last,
-    markIds: (ids) => {
-      if (!shown) return ids;
-      const visible = new Set(shown);
-      return ids.map((id, i) => (visible.has(i) ? id : ""));
+    pinned,
+    nextMark: (dir) => nextMarkedIn(pinned?.order ?? screen, selected, dir, isMarked),
+    unmarking: (index) => {
+      const next = afterUnpin(pinned, index);
+      if (next !== undefined) select(next);
     },
     handleKey,
     count: (total) => (shown ? `${matched}/${total}` : String(total)),

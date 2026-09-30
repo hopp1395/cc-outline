@@ -30,7 +30,6 @@ import {
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
-import { nextMarked } from "../favorites.js";
 import { haystack } from "../filter.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
@@ -175,6 +174,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     select: (i) => select(i),
     layout,
     onTyping,
+    marked: (f) => favorites.isMarked(f.path),
   });
   const current = filter.none ? undefined : files[selectedIndex];
 
@@ -309,12 +309,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   };
   /** Selects the next or previous marked file. */
   const jumpMark = (dir: 1 | -1) => {
-    const target = nextMarked(
-      filter.markIds(files.map((f) => f.path)),
-      favorites.marks,
-      selectedIndex,
-      dir,
-    );
+    const target = filter.nextMark(dir);
     if (target !== undefined) select(target);
   };
   const notify = (msg: string) => {
@@ -343,7 +338,11 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       if (filter.handleKey(input, key)) return;
       // Checked first because plain ↑/↓ switch files.
       const mark = markKeys(input, key);
-      if (mark === "toggle") return current && favorites.toggle(current.path);
+      if (mark === "toggle") {
+        if (!current) return;
+        if (favorites.isMarked(current.path)) filter.unmarking(selectedIndex);
+        return favorites.toggle(current.path);
+      }
       if (mark) return jumpMark(mark);
       if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
       if (input === "w") {
@@ -404,6 +403,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
           onClick={(i) => isDoubleClick(i) && openExternal()}
           items={files}
           shown={filter.shown}
+          pinned={filter.pinned}
           filter={filter.banner}
           selected={selectedIndex}
           height={bodyHeight}
