@@ -205,7 +205,9 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 - Repositories without any commit are diffed against the empty tree.
 - Binary files are only named.
 
-**Whole file.** `Enter` switches to the complete file as it is now, with line numbers and highlighting but without change markers. There, `]` and `[` jump between the changed blocks. `Enter` or `Esc` returns to the diff. Deleted files have no content after the change, so the view says so.
+**Whole file.** `Ctrl+Enter` switches to the complete file as it is now, with line numbers and highlighting but without change markers. There, `]` and `[` jump between the changed blocks. `Ctrl+Enter` or `Esc` returns to the diff. Deleted files have no content after the change, so the view says so.
+
+**Opening.** `Enter` or a double click on a file in the list opens it as it is now in the app the system uses for its type (via `explorer.exe`, `open` or `xdg-open`). Deleted files cannot be opened. In tmux, `Ctrl+Enter` only arrives with `extended-keys` on.
 
 **Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Ctrl+←/→` scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
 
@@ -380,11 +382,12 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+↑` / `Ctrl+↓` | scroll by line | scroll by line | scroll by line | scroll by line |
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
-| `Enter` | full prompt ↔ answer | whole file ↔ diff | plan ↔ changes to the previous version | start the session in a new tab |
+| `Enter` | full prompt ↔ answer | open the file in the app the system uses for it (also: double click) | plan ↔ changes to the previous version | start the session in a new tab |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | tool calls off / compact / full; thinking | – | – | – |
 | `o` | open the turn's pasted images | – | – | – |
+| `Ctrl+Enter` | – | whole file ↔ diff | – | – |
 | `a` / `A` | next / previous subagent of the turn, past the last / first back to the answer (`Esc` back) | – | – | – |
 | `c` | copy the turn's Markdown | – | copy the plan | copy the resume command |
 | `d` / `Del` | – | – | – | move the session to the trash |

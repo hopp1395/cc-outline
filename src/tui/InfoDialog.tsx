@@ -59,7 +59,8 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   git: [
     ...LIST_KEYS("file"),
-    ["↵", "whole file / diff"],
+    ["^↵", "whole file / diff"],
+    ["↵ 2×click", "open in its app"],
     ["[ ]", "previous / next hunk"],
     ["w", "wrap lines"],
     ["^←→", "scroll sideways"],

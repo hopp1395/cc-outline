@@ -1,4 +1,6 @@
 import { Text, useInput } from "ink";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { parseDiff } from "../git/diff.js";
@@ -36,6 +38,8 @@ import { useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
+import { openInDefaultApp } from "../open.js";
+import { doubleClicks, useCtrlEnter } from "./openKey.js";
 
 interface Props {
   cwd: string;
@@ -153,6 +157,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   // Marked files of the project, by path.
   const favorites = useFavorites(cwd, "files");
   const [branch, setBranch] = useState<BranchStatus>();
+  const [flash, setFlash] = useState<string>();
+  const [isDoubleClick] = useState(() => doubleClicks());
   const showFileRef = useRef(showFile);
   showFileRef.current = showFile;
 
@@ -311,6 +317,18 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     );
     if (target !== undefined) select(target);
   };
+  const notify = (msg: string) => {
+    setFlash(msg);
+    setTimeout(() => setFlash(undefined), 2000);
+  };
+  /** Opens the selected file as it is now in the app the system uses for it. */
+  const openExternal = () => {
+    if (!root || !current) return;
+    const file = join(root, current.path);
+    if (!existsSync(file)) return notify(`${current.path} no longer exists`);
+    openInDefaultApp(file);
+    notify(`opened ${current.path}`);
+  };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
     // Once scrolled, the first row is the "▲ more" indicator, so the first readable line is one further down.
@@ -334,13 +352,14 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       }
       const nav = { ...filter.nav, scroll, page: viewport - 2 };
       if (handleNavigation(input, key, nav)) return;
-      if (key.return && current) return toggleFile(!showFile);
+      if (key.return && current) return openExternal();
       if (key.escape && showFile) return toggleFile(false);
       if (input === "]") return jumpHunk(1);
       if (input === "[") return jumpHunk(-1);
     },
     { isActive: active && !filter.open },
   );
+  useCtrlEnter(() => current && toggleFile(!showFile), active && !filter.open);
 
   const markedCount = files.filter((f) => favorites.isMarked(f.path)).length;
   const totals = files.reduce((acc, f) => [acc[0] + (f.added ?? 0), acc[1] + (f.removed ?? 0)], [0, 0]);
@@ -382,6 +401,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       list={
         <List
             onPick={select}
+          onClick={(i) => isDoubleClick(i) && openExternal()}
           items={files}
           shown={filter.shown}
           filter={filter.banner}
@@ -405,11 +425,12 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         />
       }
       preview={preview}
-      footer={[
+      footer={flash ?? [
         { text: "↑↓ file", priority: 4 },
         { text: "PgUp/Dn scroll", priority: 1 },
         ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
-        { text: "↵ file", on: showFile },
+        { text: "^↵ file", on: showFile },
+        { text: "↵ open", priority: 1 },
         ...markFooter(favorites.isMarked(current?.path), markedCount),
         ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
