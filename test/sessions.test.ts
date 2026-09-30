@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { projectDir } from "../src/transcript/locate.js";
-import { displayPath, formatDuration, insideProject, SessionIndex, SessionReader } from "../src/transcript/sessions.js";
+import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, SessionReader } from "../src/transcript/sessions.js";
 
 const line = (o: unknown) => JSON.stringify(o) + "\n";
 const prompt = (uuid: string, time: string, text: string, branch = "main") =>
@@ -116,6 +116,25 @@ describe("SessionIndex", () => {
     );
     const sessions = await new SessionIndex().scan(cwd);
     expect(sessions.map((s) => s.id)).toEqual(["early", "cmd", "late"]);
+  });
+
+  it("orders sessions by their last question to Claude, not by their start or Claude's work", async () => {
+    const dir = projectDir(cwd);
+    // Started first, asked again last.
+    writeFileSync(join(dir, "long.jsonl"), prompt("u1", "08:00", "Start") + prompt("u2", "13:00", "Go on"));
+    // Claude still worked late, but the question came early; a slash command later does not count.
+    writeFileSync(
+      join(dir, "busy.jsonl"),
+      prompt("u1", "11:00", "Work") + tool("e1", "14:00", "Edit", { file_path: "/a.cs" }) + prompt("u2", "15:00", "<command-name>/rename</command-name>"),
+    );
+    // No question at all: its last entry.
+    writeFileSync(
+      join(dir, "cmd.jsonl"),
+      prompt("u1", "10:00", "<command-name>/fix</command-name>") + tool("e1", "12:00", "Edit", { file_path: "/b.cs" }),
+    );
+    const sessions = await new SessionIndex().scan(cwd);
+    expect(sessions.map((s) => s.id)).toEqual(["busy", "cmd", "long"]);
+    expect(sessions.map(lastActive)).toEqual(["2026-09-26T11:00:00.000Z", "2026-09-26T12:00:00.000Z", "2026-09-26T13:00:00.000Z"]);
   });
 
   it("reads only the transcripts written since a time, and the rest later", async () => {

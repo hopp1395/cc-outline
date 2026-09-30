@@ -88,6 +88,19 @@ describe("list range", () => {
     view.unmount();
   });
 
+  it("lists a session started before the range but asked again in it", async () => {
+    session("old", "Old work", Date.now() - 60 * DAY);
+    const path = join(projectDir(cwd), "resumed.jsonl");
+    const ask = (uuid: string, text: string, at: number) =>
+      JSON.stringify({ type: "user", uuid, timestamp: new Date(at).toISOString(), cwd, message: { role: "user", content: text } }) + "\n";
+    writeFileSync(path, ask("r1", "Started long ago", Date.now() - 60 * DAY) + ask("r2", "Resumed today", Date.now() - 60_000));
+    const view = renderView(<SessionsView cwd={cwd} layout={layout} visible active />);
+    await until(() => view.frame().includes("more ↓"));
+    expect(view.frame()).toContain("Started long ago");
+    expect(view.frame()).not.toContain("Old work");
+    view.unmount();
+  });
+
   it("keeps load more at the end of a filtered list", async () => {
     session("today", "Work of today", Date.now() - 60_000);
     const view = renderView(<SessionsView cwd={cwd} layout={layout} visible active />);
