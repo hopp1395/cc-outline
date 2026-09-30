@@ -240,17 +240,31 @@ export function writtenSince(files: string[], since: number | undefined): string
 
 const byStart = (a: SessionSummary, b: SessionSummary) => (a.start ?? "").localeCompare(b.start ?? "");
 
+/**
+ * When the session was last worked in: its last question to Claude (a queued
+ * one too; not a slash or `!` command), else its last entry. The Sessions
+ * list is sorted, dated and cut to its range by it, so a long session or one
+ * continued with /resume comes up again, but not merely because Claude works.
+ */
+export function lastActive(s: SessionSummary): string | undefined {
+  let last: string | undefined;
+  for (const p of s.prompts) if (p.timestamp && !isCommand(p.text) && (!last || p.timestamp > last)) last = p.timestamp;
+  return last ?? s.end ?? s.start;
+}
+
+const byLastActive = (a: SessionSummary, b: SessionSummary) => (lastActive(a) ?? "").localeCompare(lastActive(b) ?? "");
+
 /** Sessions of one project or of all, kept up to date by re-reading only files that changed. */
 export class SessionIndex {
   private readers = new Map<string, SessionReader>();
 
   /**
-   * Sessions with work in them (see `hasWork`), oldest first, of the project
+   * Sessions with work in them (see `hasWork`), by `lastActive` oldest first, of the project
    * `cwd` or, without it, of all projects. Yields between files so a first
    * scan over many large transcripts does not freeze the viewer, and reports
    * what it has so far through `onProgress`. With `since` (epoch ms), only
    * transcripts written since then are read: the sessions of a range of days
-   * are among them, since a session's start is before its last write.
+   * are among them, since a session's last question is before its last write.
    */
   async scan(
     cwd?: string,
@@ -261,7 +275,7 @@ export class SessionIndex {
     const files = writtenSince(all, since);
     const summaries: SessionSummary[] = [];
     // Continued sessions are merged before the filter: one part alone may hold only slash commands.
-    const sessions = () => mergeContinued(summaries).filter(hasWork).sort(byStart);
+    const sessions = () => mergeContinued(summaries).filter(hasWork).sort(byLastActive);
     let reported = Date.now();
     for (const [i, path] of files.entries()) {
       let reader = this.readers.get(path);
