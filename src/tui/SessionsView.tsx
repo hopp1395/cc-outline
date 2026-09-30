@@ -23,6 +23,7 @@ import { switchToSession } from "../switchSession.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
+import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import {
@@ -370,6 +371,7 @@ const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : e.id);
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
+  const [isDoubleClick] = useState(() => doubleClicks());
   const copy = useClipboard();
   const [all, setAll] = useSetting("allProjects");
   const [separators] = useSetting("dateSeparators");
@@ -724,7 +726,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           <List
             reversed={reversed}
             onPick={select}
-            onClick={(i) => isLoadMore(list[i]) && loadMore()}
+            // Load more takes a single click; on a session, a double click does what Enter does.
+            onClick={(i) => {
+              const e = list[i];
+              if (isLoadMore(e)) return loadMore();
+              if (isDoubleClick(i) && i === index && !trashOpen && e) start(e);
+            }}
             items={list}
             shown={filter.shown}
           filter={filter.banner}
