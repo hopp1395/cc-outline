@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nextMarked } from "../favorites.js";
-import { displayPath, formatDuration, insideProject, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
+import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
   emptyTrash,
@@ -377,11 +377,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since);
   const running = useRunning(visible);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
-  // The sessions started in the range; the active and running ones also when they started before it.
+  // The sessions last worked in during the range (see lastActive); the active and running ones also when that was before it.
   const sessions = useMemo(() => {
     const since = range.since;
     if (!read || since === undefined) return read;
-    return read.filter((s) => !s.start || Date.parse(s.start) >= since || s.id === activeId || running.has(s.id));
+    return read.filter((s) => {
+      const at = lastActive(s);
+      return !at || Date.parse(at) >= since || s.id === activeId || running.has(s.id);
+    });
   }, [read, range.since, activeId, running]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
@@ -406,12 +409,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const more = showsLoadMore(range, complete);
   const sessionList: Entry[] = useMemo(() => (more && sessions ? [LOAD_MORE, ...sessions] : (sessions ?? [])), [more, sessions]);
   const list: Entry[] = trashOpen ? trash.map((e) => e.summary) : sessionList;
-  // The time the list is sorted by and shown with: the start, in the trash the deletion.
+  // The time the list is sorted by and shown with: the last question to Claude (lastActive), in the trash the deletion.
   const deletedAt = new Map(trash.map((e) => [e.id, e.deletedAt]));
   const listedAt = (s: Entry) => {
     if (isLoadMore(s)) return undefined;
     const deleted = trashOpen ? deletedAt.get(s.id) : undefined;
-    return deleted !== undefined ? new Date(deleted).toISOString() : s.start;
+    return deleted !== undefined ? new Date(deleted).toISOString() : lastActive(s);
   };
   const markedCount = (sessions ?? []).filter((s) => favorites.isMarked(s.id)).length;
   const currentId = trashOpen ? trashSelectedId : selectedId;
