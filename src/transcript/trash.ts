@@ -33,25 +33,38 @@ export function sessionItems(projectDir: string, id: string): string[] {
   ].filter((p) => existsSync(p));
 }
 
-/** Ids of sessions whose Claude Code process is still running (from ~/.claude/sessions/<pid>.json). */
-export function runningSessionIds(): Set<string> {
+/** What a running session's Claude Code is doing: working, waiting for the user (permission, question), or idle. */
+export type SessionActivity = "busy" | "waiting" | "idle";
+
+/**
+ * Sessions whose Claude Code process is still running (from ~/.claude/sessions/<pid>.json), with the
+ * `status` it writes there; undefined for versions that write none (before 2.1.283).
+ */
+export function runningSessions(): Map<string, SessionActivity | undefined> {
   const dir = join(claudeDir(), "sessions");
-  const ids = new Set<string>();
+  const sessions = new Map<string, SessionActivity | undefined>();
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".json"));
   } catch {
-    return ids;
+    return sessions;
   }
   for (const name of names) {
     try {
-      const info = JSON.parse(readFileSync(join(dir, name), "utf8")) as { pid?: unknown; sessionId?: unknown };
-      if (typeof info.sessionId === "string" && typeof info.pid === "number" && isAlive(info.pid)) ids.add(info.sessionId);
+      const info = JSON.parse(readFileSync(join(dir, name), "utf8")) as { pid?: unknown; sessionId?: unknown; status?: unknown };
+      if (typeof info.sessionId !== "string" || typeof info.pid !== "number" || !isAlive(info.pid)) continue;
+      const status = info.status === "busy" || info.status === "waiting" || info.status === "idle" ? info.status : undefined;
+      sessions.set(info.sessionId, status);
     } catch {
       // Being rewritten or not ours: skip it.
     }
   }
-  return ids;
+  return sessions;
+}
+
+/** Ids of sessions whose Claude Code process is still running. */
+export function runningSessionIds(): Set<string> {
+  return new Set(runningSessions().keys());
 }
 
 function trashRoot(): string {
