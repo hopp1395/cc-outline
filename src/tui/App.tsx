@@ -9,7 +9,7 @@ import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionVie
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
-import { setViewerView } from "../viewer.js";
+import { setViewerView, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
@@ -45,6 +45,8 @@ interface Props {
   select?: string;
   /** The viewer reopened after an update to this version. */
   updatedTo?: string;
+  /** Started by /cco:update: check for an update at once and offer it. */
+  action?: ViewerAction;
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
@@ -67,7 +69,7 @@ const RELOADED_MS = 1500;
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   const layout = useLayout();
@@ -125,11 +127,20 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
 
   // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
   const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
-  const showView = (view: Mode, select?: string, ask?: boolean) => {
-    setMode(view);
+  const showView = (view: Mode | undefined, select?: string, ask?: boolean) => {
+    if (view) setMode(view);
     if (select) setSettingsSelect({ key: select, at: Date.now(), ask });
   };
-  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: showView, onSessionEnd: exit });
+  // Requests of cco open: a view, and /cco:restart and /cco:update.
+  const onRequest = (view: Mode | undefined, select?: string, action?: ViewerAction) => {
+    showView(view, select);
+    if (action === "restart") restartViewer();
+    if (action === "update") checkForUpdate();
+  };
+  // The watcher keeps the first callback; the restart needs the view and session shown now.
+  const request = useRef(onRequest);
+  request.current = onRequest;
+  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: exit });
 
   // The update check runs once at the start, unless the setting is off then.
   const [updateMode] = useState(() => readSettings().updateMode);
@@ -158,6 +169,19 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     offered.current = true;
     showView("settings", "update", true);
   }, [update.offer]);
+
+  // /cco:update: Settings on the update entry, a check now whatever the setting says, then the update found, asked for.
+  const [updateChecked, setUpdateChecked] = useState<number>();
+  const checkForUpdate = () => {
+    showView("settings", "update");
+    void update.recheck().then(() => setUpdateChecked(Date.now()));
+  };
+  useEffect(() => {
+    if (updateChecked !== undefined && update.state.kind === "update" && !update.run) showView("settings", "update", true);
+  }, [updateChecked]);
+  useEffect(() => {
+    if (initialAction === "update") checkForUpdate();
+  }, []);
 
   // The process's session went on in another transcript: it is the process's session now.
   const { continuedFrom } = transcript;
@@ -194,6 +218,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    */
   // Reset: restart. The viewer reopens where it is, running the CLI on disk now.
   const restartViewer = () => {
+    // A viewer of one session (--session) was not opened by cco open, which cannot reopen it.
+    if (sessionId) return;
     if (moveViewer(cwd, mode, placement ?? resolvePlacement(cwd, sessionOf(path)), claudePid)) exit();
   };
   const resetProjectData = () => {

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveSessionPlacement } from "../src/sessionViews.js";
 import { updateSettings } from "../src/settings.js";
 import { claudeFile, writeJson } from "../src/transcript/locate.js";
-import { registerViewer, unregisterViewer } from "../src/viewer.js";
+import { readControl, registerViewer, unregisterViewer } from "../src/viewer.js";
 
 const spawned: { cmd: string; args: string[]; env?: NodeJS.ProcessEnv; windowsHide?: boolean }[] = [];
 vi.mock("node:child_process", () => ({
@@ -185,6 +185,26 @@ describe("openPane", () => {
     openPane(cwd, "git", { claudePid: 9, replace: true });
     expect(spawned).toHaveLength(1);
     unregisterViewer(cwd, 9);
+  });
+
+  it("asks a running viewer to restart or to offer the update, keeping its view for a restart", () => {
+    process.env.WT_SESSION = "x";
+    registerViewer(cwd, "git", 11);
+    expect(openPane(cwd, undefined, { claudePid: 11, action: "restart" })).toMatch(/restarts in the same place and view/);
+    expect(readControl(cwd, 11)).toMatchObject({ action: "restart" });
+    expect(readControl(cwd, 11)).not.toHaveProperty("view");
+    expect(openPane(cwd, "settings", { claudePid: 11, action: "update" })).toMatch(/checks for an update/);
+    expect(readControl(cwd, 11)).toMatchObject({ view: "settings", action: "update" });
+    expect(spawned).toEqual([]);
+    unregisterViewer(cwd, 11);
+  });
+
+  it("opens a viewer when none runs: a restart in the session's last view, an update checking at once", () => {
+    process.env.WT_SESSION = "x";
+    expect(openPane(cwd, undefined, { claudePid: 12, action: "restart" })).toBe("Opened cco in a Windows Terminal pane.");
+    expect(call(0).viewer).not.toMatch(/--view|--action/);
+    openPane(cwd, "settings", { claudePid: 12, action: "update" });
+    expect(call(1).viewer).toMatch(/--view settings .*--action update/);
   });
 
   it("moves the viewer through cco open, which waits for this process to exit", () => {
