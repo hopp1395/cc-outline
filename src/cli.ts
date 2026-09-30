@@ -12,6 +12,24 @@ const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
 const pidOption = (flags: string, description: string) => new Option(flags, description).argParser(Number).hideHelp();
 const validPid = (pid: number | undefined) => (pid && Number.isInteger(pid) ? pid : undefined);
 
+/**
+ * Loads a module with React's production build. React picks its build from
+ * `NODE_ENV` when it is first loaded, and its development build records every
+ * render as a `performance.measure`, which Node keeps: a viewer whose spinner
+ * ran all night had filled its 4 GB heap. `NODE_ENV` goes back afterwards,
+ * so the programs the viewer starts (claude, npm) do not inherit it.
+ */
+async function importProduction<T>(load: () => Promise<T>): Promise<T> {
+  const saved = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    return await load();
+  } finally {
+    if (saved === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = saved;
+  }
+}
+
 /** Waits until process `pid` has exited, at most `timeoutMs`. */
 async function waitForExit(pid: number, timeoutMs = 3000): Promise<void> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -45,7 +63,7 @@ program
     registerViewer(opts.cwd, opts.view ?? "chat", claudePid);
     // Also covers exits that bypass Ink, e.g. the pane being closed.
     process.on("exit", () => unregisterViewer(opts.cwd, claudePid));
-    const { runViewer } = await import("./watch.js");
+    const { runViewer } = await importProduction(() => import("./watch.js"));
     await runViewer({
       cwd: opts.cwd,
       sessionId: opts.session,
