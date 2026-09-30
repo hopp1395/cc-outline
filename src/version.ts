@@ -1,4 +1,4 @@
 /** Keep in sync with package.json (checked by test/version.test.ts). */
-export const VERSION = "0.8.2";
+export const VERSION = "0.8.3";
 export const AUTHOR = "Jan Hoppe";
 export const LICENSE = "MIT";
