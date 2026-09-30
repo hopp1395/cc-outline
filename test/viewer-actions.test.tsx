@@ -40,7 +40,7 @@ describe("/cco:update", () => {
       debug: true,
       patchConsole: false,
     });
-    await expect.poll(() => frame, { timeout: 2000 }).toContain("settings.json");
+    await expect.poll(() => frame, { timeout: 2000 }).toContain("auto open");
     await expect.poll(() => asked.some((u) => u.includes("registry.npmjs.org")), { timeout: 2000 }).toBe(true);
     app.unmount();
   });
