@@ -9,9 +9,11 @@ import {
   mergeReleases,
   parseReleases,
   readCachedReleases,
+  releasesBetween,
   remainingCommands,
   runUpdate,
   saveReleases,
+  takeSeenVersion,
   updateState,
   UPDATE_STEPS,
 } from "../src/update.js";
@@ -93,6 +95,33 @@ describe("the cache", () => {
     expect(readCachedReleases()).toBeUndefined();
     saveReleases({ latest: "0.8.0", releases: [], checkedAt: 3 });
     expect(readCachedReleases()).toEqual({ latest: "0.8.0", releases: [], checkedAt: 3 });
+  });
+});
+
+describe("the version seen", () => {
+  let saved: string | undefined;
+  beforeEach(() => {
+    saved = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-seen-"));
+  });
+  afterEach(() => {
+    process.env.CLAUDE_CONFIG_DIR = saved;
+  });
+
+  it("returns the version run before once a newer one runs, and keeps the newest", () => {
+    expect(takeSeenVersion("0.8.0")).toBeUndefined();
+    expect(takeSeenVersion("0.8.0")).toBeUndefined();
+    expect(takeSeenVersion("0.9.1")).toBe("0.8.0");
+    expect(takeSeenVersion("0.9.1")).toBeUndefined();
+    // An older viewer still running neither shows notes nor lowers it.
+    expect(takeSeenVersion("0.8.0")).toBeUndefined();
+    expect(takeSeenVersion("0.10.0")).toBe("0.9.1");
+  });
+
+  it("picks the releases after one version up to another, skipped ones included", () => {
+    const release = (version: string) => ({ tag: `v${version}`, version, title: `v${version}`, body: "" });
+    const releases = ["0.11.0", "0.10.0", "0.9.2", "0.9.1", "0.8.0"].map(release);
+    expect(releasesBetween(releases, "0.8.0", "0.10.0").map((r) => r.version)).toEqual(["0.10.0", "0.9.2", "0.9.1"]);
   });
 });
 

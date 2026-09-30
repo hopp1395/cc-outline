@@ -38,6 +38,10 @@ export function rangeStart(range: ListRange, now = new Date()): number | undefin
 export const FILTER_IN_VALUES = ["list", "details", "both"] as const;
 export type FilterIn = (typeof FILTER_IN_VALUES)[number];
 
+/** The update check at the viewer's start: `on` asks npm and GitHub, `auto` also offers the update right away, `off` asks nothing. */
+export const UPDATE_VALUES = ["on", "off", "auto"] as const;
+export type UpdateMode = (typeof UPDATE_VALUES)[number];
+
 /** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
 export type Placement = (typeof PLACEMENT_VALUES)[number];
@@ -67,8 +71,8 @@ export interface Settings {
   mouse: boolean;
   /** What the list filter looks at (^L / ^D in its dialog). */
   filterIn: FilterIn;
-  /** Ask npm and GitHub for a newer version and the release notes when the viewer starts. */
-  updateCheck: boolean;
+  /** Ask npm and GitHub for a newer version and the release notes when the viewer starts; `auto` also offers to install it. */
+  updateMode: UpdateMode;
   /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. With it off, questions still show, framed. */
   showTools: ToolLevel;
   /** Chat: show thinking blocks (h). */
@@ -108,7 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rememberView: true,
   mouse: true,
   filterIn: "list",
-  updateCheck: true,
+  updateMode: "auto",
   showTools: "off",
   showThinking: false,
   showAgents: true,
@@ -165,6 +169,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   autoOpen: AUTO_OPEN_VALUES,
   placement: PLACEMENT_VALUES,
   filterIn: FILTER_IN_VALUES,
+  updateMode: UPDATE_VALUES,
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
@@ -181,6 +186,9 @@ export function readSettings(): Settings {
   const stored = readJson<Partial<Record<keyof Settings, unknown>>>(settingsFile()) ?? {};
   // showTools was on/off before it got levels.
   if (typeof stored.showTools === "boolean") stored.showTools = stored.showTools ? "compact" : "off";
+  // updateMode was the on/off setting updateCheck before it got auto; since every change stored all settings, only off was chosen.
+  const legacy = (stored as { updateCheck?: unknown }).updateCheck;
+  if (stored.updateMode === undefined && legacy === false) stored.updateMode = "off";
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];
