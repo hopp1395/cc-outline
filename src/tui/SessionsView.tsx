@@ -12,7 +12,9 @@ import {
   purgeSession,
   restoreSession,
   runningSessionIds,
+  runningSessions,
   trashSession,
+  type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
 import { resumeInNewTab } from "../open.js";
@@ -68,6 +70,10 @@ interface Props {
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
 const REFRESH_MS = 3000;
+/** How often Claude Code's status of the running sessions is read (~/.claude/sessions/<pid>.json). */
+const ACTIVITY_MS = 1000;
+/** Half a blink of a working session's marker. */
+const BLINK_MS = 500;
 
 const STATUS_ICON: Record<PlanStatus, string> = {
   draft: "\u001b[36m✎\u001b[39m",
@@ -181,7 +187,10 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
 
 type State = "active" | "running" | "trash" | undefined;
 
-function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt?: number): string[] {
+/** What the header says a running session's Claude does; nothing while it is idle. */
+const ACTIVITY_TEXT: Record<SessionActivity, string> = { busy: "working · ", waiting: "waiting for input · ", idle: "" };
+
+function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt?: number, activity?: SessionActivity): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
   const counts = [
     plural(s.prompts.length, "prompt"),
@@ -192,11 +201,11 @@ function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt
   const last =
     state === "trash"
       ? red(`in the trash since ${dateTime(new Date(deletedAt ?? 0).toISOString())} · u restores it`)
-      : `${state === "active" ? "active · " : state === "running" ? "running elsewhere · " : ""}${resumeCommand(s)}`;
+      : `${state === "active" ? "active · " : state === "running" ? "running elsewhere · " : ""}${activity ? ACTIVITY_TEXT[activity] : ""}${resumeCommand(s)}`;
   // A session Claude Code went on with under a new id is shown as one; it names the ids it continues.
   const continues = s.continues?.length ? [dim(`continues ${s.continues.map((id) => id.slice(0, 8)).join(", ")}`)] : [];
   return previewHeader(sessionTitle(s), width, {
-    marker: state === "active" ? green("● ") : state === "running" ? green("▶ ") : "  ",
+    marker: state === "active" || state === "running" ? (activity === "waiting" ? yellow : green)(state === "active" ? "● " : "▶ ") : "  ",
     style: bold,
     details: [when, counts.join(" · "), ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []), ...continues, last],
   });
@@ -221,7 +230,6 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
   // The last finished scan read every transcript (no `since`).
   const [complete, setComplete] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number }>();
-  const [running, setRunning] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!visible) return;
@@ -257,7 +265,6 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
           setSessions(result);
           setComplete(since === undefined);
           setProgress(undefined);
-          setRunning(runningSessionIds());
         }
       } finally {
         busy = false;
@@ -274,7 +281,57 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
     };
   }, [cwd, visible, all, reload.count, since]);
 
-  return { sessions, progress, running, complete, refresh: () => void scanRef.current() };
+  return { sessions, progress, complete, refresh: () => void scanRef.current() };
+}
+
+const sameActivities = (a: Map<string, SessionActivity | undefined>, b: Map<string, SessionActivity | undefined>) =>
+  a.size === b.size && [...a].every(([id, activity]) => b.has(id) && b.get(id) === activity);
+
+/**
+ * The sessions running in a Claude Code process and what it does in each, read every second while
+ * `visible`; the map only changes when one of them does, so the memoized header stays.
+ */
+function useRunning(visible: boolean): Map<string, SessionActivity | undefined> {
+  const [running, setRunning] = useState<Map<string, SessionActivity | undefined>>(() => new Map());
+  useEffect(() => {
+    if (!visible) return;
+    const read = () => {
+      const next = runningSessions();
+      setRunning((prev) => (sameActivities(prev, next) ? prev : next));
+    };
+    read();
+    const timer = setInterval(read, ACTIVITY_MS);
+    return () => clearInterval(timer);
+  }, [visible]);
+  return running;
+}
+
+/**
+ * The marker of the active (`●`) or a running (`▶`) session in the list: yellow while its Claude waits
+ * for the user, green otherwise, turning bright and dim while it works. Owns its timer so only it
+ * re-renders; the phase comes from the clock, so all working sessions blink together.
+ */
+function SessionMarker({ symbol, activity }: { symbol: string; activity?: SessionActivity }) {
+  const busy = activity === "busy";
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      timer = setTimeout(() => {
+        setTick((n) => n + 1);
+        next();
+      }, BLINK_MS - (Date.now() % BLINK_MS));
+    };
+    next();
+    return () => clearTimeout(timer);
+  }, [busy]);
+  const dimmed = busy && Math.floor(Date.now() / BLINK_MS) % 2 === 1;
+  return (
+    <Text color={activity === "waiting" ? "yellow" : "green"} dimColor={dimmed}>
+      {symbol}
+    </Text>
+  );
 }
 
 /** Short name of the project a session belongs to: its folder name. */
@@ -311,7 +368,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [all, setAll] = useSetting("allProjects");
   const [separators] = useSetting("dateSeparators");
   const range = useListRange("sessionsRange");
-  const { sessions: read, progress, running, complete, refresh } = useSessions(cwd, visible, all, range.since);
+  const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since);
+  const running = useRunning(visible);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   // The sessions started in the range; the active and running ones also when they started before it.
   const sessions = useMemo(() => {
@@ -391,7 +449,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
 
   const header = useMemo(() => {
     if (!session) return [];
-    return fitHeader(sessionHeader(session, stateOf(session), previewWidth, entry?.deletedAt), bodyHeight);
+    const state = stateOf(session);
+    const activity = state === "active" || state === "running" ? running.get(session.id) : undefined;
+    return fitHeader(sessionHeader(session, state, previewWidth, entry?.deletedAt, activity), bodyHeight);
   }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight]);
   const lines = useMemo(
     () => (session ? sessionLines(session, cwd, previewWidth, separators) : []),
@@ -658,7 +718,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {marked && <Star />}
                   {/* Without the date separators, the date is back in each row. */}
                   <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
-                  {badge && <Text color="green">{badge}</Text>}
+                  {badge && <SessionMarker symbol={badge} activity={running.get(s.id)} />}
                   {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
                   {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
                   <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
