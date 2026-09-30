@@ -7,7 +7,6 @@ import { renderMarkdown } from "../render/markdown.js";
 import { readFileSync, statSync } from "node:fs";
 import type { Plan, PlanModeState, PlanStatus } from "../transcript/parse.js";
 import { watchFile } from "../transcript/tail.js";
-import { nextMarked } from "../favorites.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
@@ -28,7 +27,6 @@ import {
   Screen,
   EntryText,
   flipOrder,
-  orderedDir,
   orderFooter,
   Star,
   truncate,
@@ -173,6 +171,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
     reversed,
     layout,
     onTyping,
+    marked: (p) => favorites.isMarked(p.id),
   });
   // The newest plan shown: following stays on it, also while a filter is on.
   const last = filter.last;
@@ -264,15 +263,12 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       const mark = markKeys(input, key);
       if (mark === "toggle") {
         if (plan?.status === "draft") return notify("a plan can be marked once it is presented");
-        return plan && favorites.toggle(plan.id);
+        if (!plan) return;
+        if (favorites.isMarked(plan.id)) filter.unmarking(index);
+        return favorites.toggle(plan.id);
       }
       if (mark) {
-        const target = nextMarked(
-          filter.markIds(plans.map((p) => p.id)),
-          favorites.marks,
-          index,
-          orderedDir(reversed, mark),
-        );
+        const target = filter.nextMark(mark);
         return target !== undefined && select(target);
       }
       if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
@@ -352,6 +348,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           onClick={(i) => isDoubleClick(i) && i === index && plan && previous && toggleDiff(!showDiff)}
           items={plans}
           shown={filter.shown}
+          pinned={filter.pinned}
           filter={filter.banner}
           selected={index}
           height={bodyHeight}

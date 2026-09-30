@@ -79,15 +79,16 @@ describe("dayLabel", () => {
 });
 
 describe("listRows", () => {
-  it("puts a separator row above each group", () => {
-    expect(listRows(3, ["a", "a", "b"])).toEqual([
+  it("puts the separator rows above their items", () => {
+    expect(listRows(3, [["a"], undefined, ["b", "c"]])).toEqual([
       { group: "a", before: 0 },
       { item: 0 },
       { item: 1 },
       { group: "b", before: 2 },
+      { group: "c", before: 2 },
       { item: 2 },
     ]);
-    expect(listRows(2, undefined)).toEqual([{ item: 0 }, { item: 1 }]);
+    expect(listRows(2, [])).toEqual([{ item: 0 }, { item: 1 }]);
   });
 });
 
@@ -100,7 +101,7 @@ describe("linesByDay", () => {
 
 async function listOutput(
   items: { id: string; ts?: string }[],
-  opts: { selected: number; height: number; reversed?: boolean; period?: "day" | "year"; shown?: number[] },
+  opts: { selected: number; height: number; reversed?: boolean; period?: "day" | "year"; shown?: number[]; pinned?: { order: number[]; count: number } },
 ) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 30, rows: opts.height });
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
@@ -121,6 +122,7 @@ async function listOutput(
         reversed={opts.reversed}
         period={opts.period}
         shown={opts.shown}
+        pinned={opts.pinned}
         render={(i) => <Text>{i.id}</Text>}
       />
     </AreaContext.Provider>,
@@ -174,6 +176,21 @@ describe("List with times", () => {
       "b",
       "a",
     ]);
+  });
+
+  it("shows the pinned entries first, between their own separators, and the rest's days below", async () => {
+    const lines = await listOutput(items, { selected: 3, height: 10, pinned: { order: [3, 1, 0, 2], count: 2 } });
+    expect(lines.slice(0, 7)).toEqual(["── ★ Pinned ────────", "d", "b", "── Pinned end ──────", "── Sun 27 Sep 2026 ─", "a", "c"]);
+  });
+
+  it("ends the Pinned group with its line also without other separators", async () => {
+    updateSettings({ dateSeparators: false });
+    try {
+      const lines = await listOutput(items, { selected: 0, height: 10, pinned: { order: [2, 0, 1, 3], count: 1 } });
+      expect(lines.slice(0, 6)).toEqual(["── ★ Pinned ────────", "c", "── Pinned end ──────", "a", "b", "d"]);
+    } finally {
+      updateSettings({ dateSeparators: true });
+    }
   });
 
   it("shows no separators with the setting off", async () => {

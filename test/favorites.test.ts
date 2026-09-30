@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearFavorites, globalFavoritesFile, nextMarked, readFavorites, toggleFavorite } from "../src/favorites.js";
+import { clearFavorites, globalFavoritesFile, readFavorites, toggleFavorite } from "../src/favorites.js";
 import { favoritesFile } from "../src/transcript/locate.js";
 
 const cwd = join(tmpdir(), "cco-project");
@@ -60,21 +60,5 @@ describe("favorites", () => {
     mkdirSync(dirname(favoritesFile(cwd)), { recursive: true });
     writeFileSync(favoritesFile(cwd), "{ not json");
     expect(readFavorites(cwd, "plans")).toEqual([]);
-  });
-});
-
-describe("nextMarked", () => {
-  const ids = ["a", "b", "c", "d", "e"];
-  it("finds the next and previous marked entry", () => {
-    expect(nextMarked(ids, ["b", "d"], 0, 1)).toBe(1);
-    expect(nextMarked(ids, ["b", "d"], 1, 1)).toBe(3);
-    expect(nextMarked(ids, ["b", "d"], 4, -1)).toBe(3);
-    expect(nextMarked(ids, ["b", "d"], 3, -1)).toBe(1);
-  });
-
-  it("returns undefined past the last mark", () => {
-    expect(nextMarked(ids, ["b"], 1, 1)).toBeUndefined();
-    expect(nextMarked(ids, ["b"], 1, -1)).toBeUndefined();
-    expect(nextMarked(ids, [], 2, 1)).toBeUndefined();
   });
 });
