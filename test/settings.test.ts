@@ -42,6 +42,18 @@ describe("settings", () => {
     expect(readSettings().autoOpen).toBe("never");
   });
 
+  it("keeps the former update check off, and takes the default auto for on", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ updateCheck: false }));
+    expect(readSettings().updateMode).toBe("off");
+    writeFileSync(settingsFile(), JSON.stringify({ updateCheck: true }));
+    expect(readSettings().updateMode).toBe("auto");
+    writeFileSync(settingsFile(), JSON.stringify({ updateCheck: false, updateMode: "on" }));
+    expect(readSettings().updateMode).toBe("on");
+    writeFileSync(settingsFile(), JSON.stringify({ updateMode: "sometimes" }));
+    expect(readSettings().updateMode).toBe("auto");
+  });
+
   it("accepts only known list orders", () => {
     mkdirSync(dirname(settingsFile()), { recursive: true });
     writeFileSync(settingsFile(), JSON.stringify({ chatOrder: "newest-first", planOrder: "sideways" }));

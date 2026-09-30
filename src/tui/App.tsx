@@ -18,6 +18,7 @@ import { InfoDialog } from "./InfoDialog.js";
 import { MonitorView } from "./MonitorView.js";
 import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
+import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { SessionColorContext, tabAt, useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
@@ -110,8 +111,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Mouse events go to the shown view only, and to none while a dialog is open.
   const mouseFor = (m: Mode) => mouse && mode === m && !blocked && !modal;
   const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
-  // Views take no keys while a dialog of the app is open.
-  const blocked = infoOpen || quitAsked || placementOpen;
   const [gitRoot, setGitRoot] = useState<string | null>();
   // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
   const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
@@ -125,17 +124,17 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
 
   // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
-  const [settingsSelect, setSettingsSelect] = useState(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
-  const showView = (view: Mode, select?: string) => {
+  const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
+  const showView = (view: Mode, select?: string, ask?: boolean) => {
     setMode(view);
-    if (select) setSettingsSelect({ key: select, at: Date.now() });
+    if (select) setSettingsSelect({ key: select, at: Date.now(), ask });
   };
   useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: showView, onSessionEnd: exit });
 
-  // The update check runs once at the start, if the setting is on then.
-  const [checkUpdates] = useState(() => readSettings().updateCheck);
+  // The update check runs once at the start, unless the setting is off then.
+  const [updateMode] = useState(() => readSettings().updateMode);
   const update = useUpdate({
-    enabled: checkUpdates,
+    mode: updateMode,
     updatedTo,
     onOpen: () => showView("settings", "update"),
     // The viewer reopens where it is, running the new version's CLI.
@@ -146,6 +145,19 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       return true;
     },
   });
+
+  // After an update: the notes of every version since the one run before, until closed.
+  const whatsNewOpen = update.whatsNew.length > 0;
+  // Views take no keys while a dialog of the app is open.
+  const blocked = infoOpen || quitAsked || placementOpen || whatsNewOpen;
+
+  // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
+  const offered = useRef(false);
+  useEffect(() => {
+    if (!update.offer || offered.current) return;
+    offered.current = true;
+    showView("settings", "update", true);
+  }, [update.offer]);
 
   // The process's session went on in another transcript: it is the process's session now.
   const { continuedFrom } = transcript;
@@ -180,6 +192,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    * state, then remounts the views so none keeps them in memory. Their
    * unmount would save positions again, so writes pause until the new ones are up.
    */
+  // Reset: restart. The viewer reopens where it is, running the CLI on disk now.
+  const restartViewer = () => {
+    if (moveViewer(cwd, mode, placement ?? resolvePlacement(cwd, sessionOf(path)), claudePid)) exit();
+  };
   const resetProjectData = () => {
     suspendPositionWrites(true);
     clearProjectData(cwd);
@@ -209,7 +225,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     setReloads((r) => ({ ...r, [mode]: r[mode] + 1 }));
     setReloading({ mode, done: false });
   };
-  useReloadKey(reload, !(modal || typing || quitAsked || placementOpen || infoOpen));
+  useReloadKey(reload, !(modal || typing || blocked));
   const reloadOf = (m: Mode) => ({
     count: reloads[m],
     status: reloading?.mode === m ? (reloading.done ? ("done" as const) : ("loading" as const)) : undefined,
@@ -224,7 +240,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || placementOpen) return;
+    if (modal || typing || quitAsked || placementOpen || whatsNewOpen) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -327,6 +343,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onModal={setModal}
             onTyping={setTyping}
             onResetData={resetProjectData}
+            onRestart={sessionId ? undefined : restartViewer}
             select={settingsSelect}
           />
           </MouseContext.Provider>
@@ -340,6 +357,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           </ReloadContext.Provider>
         </Box>
         </Fragment>
+        {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
         {placementOpen && (
           <PlacementDialog

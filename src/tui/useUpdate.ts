@@ -1,19 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
+  compareVersions,
   fetchReleases,
   installedVersion,
   installKind,
   mergeReleases,
   packageRoot,
   readCachedReleases,
+  releasesBetween,
   runUpdate,
   saveReleases,
+  takeSeenVersion,
   updateState,
   type InstallKind,
   type Release,
   type StepResult,
   type UpdateState,
 } from "../update.js";
+import type { UpdateMode } from "../settings.js";
 import { VERSION } from "../version.js";
 
 /** An update run from the Settings view: its steps as they go, then whether it worked. */
@@ -32,14 +36,21 @@ export interface Update {
   /** The last check reached neither or only one of them: what shows is older. */
   stale: boolean;
   checking: boolean;
-  /** The setting updateCheck: whether the viewer asks at its start. */
-  enabled: boolean;
+  /** The setting update at the start: whether the viewer asks (on, auto) and offers the update at once (auto). */
+  mode: UpdateMode;
+  /** With auto: the check at the start found an update, so the viewer offers it (once). */
+  offer: boolean;
   install: InstallKind;
   root: string;
   state: UpdateState;
   run?: UpdateRun;
   /** The version this viewer was just updated to (it reopened afterwards): the top bar says so once. */
   notice?: string;
+  /** The notes of every version since the one a viewer ran before (skipped ones too), newest first; empty once closed. */
+  whatsNew: Release[];
+  /** The version the notes start after. */
+  whatsNewFrom?: string;
+  closeWhatsNew: () => void;
   /** Checks now (F5 in Settings), also with the setting off. */
   recheck: () => Promise<void>;
   /** Runs the update steps; the viewer reopens when they all succeed. */
@@ -54,7 +65,10 @@ const NO_UPDATE: Update = {
   releases: [],
   stale: false,
   checking: false,
-  enabled: false,
+  mode: "off",
+  offer: false,
+  whatsNew: [],
+  closeWhatsNew: () => {},
   install: "dev",
   root: "",
   state: { kind: "none" },
@@ -72,11 +86,12 @@ export const useUpdateInfo = () => useContext(UpdateContext);
 const NOTICE_MS = 15_000;
 
 /**
- * Reads the cached releases at once and, with `enabled` (the updateCheck
- * setting at the start), asks npm and GitHub once. `onRestart` reopens the
+ * Reads the cached releases at once and, unless `mode` (the update setting
+ * at the start) is off, asks npm and GitHub once; with auto, `offer` turns
+ * true when that check found an update. `onRestart` reopens the
  * viewer with the given version (App: `moveViewer`, then exit).
  */
-export function useUpdate(opts: { enabled: boolean; updatedTo?: string; onOpen: () => void; onRestart: (version: string) => boolean }): Update {
+export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: () => void; onRestart: (version: string) => boolean }): Update {
   const root = useMemo(packageRoot, []);
   const install = useMemo(() => installKind(root), [root]);
   const [cache, setCache] = useState(readCachedReleases);
@@ -85,6 +100,14 @@ export function useUpdate(opts: { enabled: boolean; updatedTo?: string; onOpen: 
   const [checking, setChecking] = useState(false);
   const [run, setRun] = useState<UpdateRun>();
   const [notice, setNotice] = useState(opts.updatedTo);
+  const [startChecked, setStartChecked] = useState(false);
+  // The version seen before this one. A viewer updated from a version that kept none says only
+  // where it went (updatedTo): its notes then start after the release before this one.
+  const [since, setSince] = useState(() => {
+    const before = takeSeenVersion(VERSION);
+    if (install !== "npm") return undefined;
+    return before ? { from: before } : opts.updatedTo ? { from: undefined } : undefined;
+  });
   const handlers = useRef(opts);
   handlers.current = opts;
 
@@ -102,7 +125,7 @@ export function useUpdate(opts: { enabled: boolean; updatedTo?: string; onOpen: 
 
   // Only at the start: switching the setting on later waits for the next start or F5.
   useEffect(() => {
-    if (opts.enabled) void recheck();
+    if (opts.mode !== "off") void recheck().then(() => setStartChecked(true));
   }, []);
 
   useEffect(() => {
@@ -110,6 +133,10 @@ export function useUpdate(opts: { enabled: boolean; updatedTo?: string; onOpen: 
     const timer = setTimeout(() => setNotice(undefined), NOTICE_MS);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  const releases = cache?.releases ?? [];
+  const from = since && (since.from ?? releases.find((r) => compareVersions(r.version, VERSION) < 0)?.version);
+  const whatsNew = from ? releasesBetween(releases, from, VERSION) : [];
 
   const state = updateState(cache?.latest, VERSION, install, installed);
 
@@ -130,17 +157,21 @@ export function useUpdate(opts: { enabled: boolean; updatedTo?: string; onOpen: 
   };
 
   return {
-    releases: cache?.releases ?? [],
+    releases,
     latest: cache?.latest,
     checkedAt: cache?.checkedAt,
     stale,
     checking,
-    enabled: opts.enabled,
+    mode: opts.mode,
+    offer: opts.mode === "auto" && startChecked && state.kind === "update" && !run,
     install,
     root,
     state,
     run,
     notice,
+    whatsNew,
+    whatsNewFrom: from,
+    closeWhatsNew: () => setSince(undefined),
     recheck,
     start,
     restart,
