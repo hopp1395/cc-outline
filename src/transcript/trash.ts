@@ -36,25 +36,35 @@ export function sessionItems(projectDir: string, id: string): string[] {
 /** What a running session's Claude Code is doing: working, waiting for the user (permission, question), or idle. */
 export type SessionActivity = "busy" | "waiting" | "idle";
 
-/**
- * Sessions whose Claude Code process is still running (from ~/.claude/sessions/<pid>.json), with the
- * `status` it writes there; undefined for versions that write none (before 2.1.283).
- */
-export function runningSessions(): Map<string, SessionActivity | undefined> {
+/** A session's Claude Code process, as it registers itself in ~/.claude/sessions/<pid>.json. */
+export interface RunningSession {
+  pid: number;
+  /** Its `status`; undefined for versions that write none (before 2.1.283). */
+  activity?: SessionActivity;
+  /** The session's name, which Claude Code also shows as the terminal title. */
+  name?: string;
+  /** `bg` for a session the Claude Code daemon runs, with the `jobId` that `claude attach` takes. */
+  kind?: string;
+  jobId?: string;
+}
+
+/** Sessions whose Claude Code process is still running, by session id. */
+export function runningSessions(): Map<string, RunningSession> {
   const dir = join(claudeDir(), "sessions");
-  const sessions = new Map<string, SessionActivity | undefined>();
+  const sessions = new Map<string, RunningSession>();
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".json"));
   } catch {
     return sessions;
   }
+  const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
   for (const name of names) {
     try {
-      const info = JSON.parse(readFileSync(join(dir, name), "utf8")) as { pid?: unknown; sessionId?: unknown; status?: unknown };
+      const info = JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>;
       if (typeof info.sessionId !== "string" || typeof info.pid !== "number" || !isAlive(info.pid)) continue;
-      const status = info.status === "busy" || info.status === "waiting" || info.status === "idle" ? info.status : undefined;
-      sessions.set(info.sessionId, status);
+      const activity = info.status === "busy" || info.status === "waiting" || info.status === "idle" ? info.status : undefined;
+      sessions.set(info.sessionId, { pid: info.pid, activity, name: text(info.name), kind: text(info.kind), jobId: text(info.jobId) });
     } catch {
       // Being rewritten or not ours: skip it.
     }

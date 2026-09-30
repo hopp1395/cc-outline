@@ -14,10 +14,12 @@ import {
   runningSessionIds,
   runningSessions,
   trashSession,
+  type RunningSession,
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
 import { resumeInNewTab } from "../open.js";
+import { switchToSession } from "../switchSession.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
@@ -284,20 +286,24 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
   return { sessions, progress, complete, refresh: () => void scanRef.current() };
 }
 
-const sameActivities = (a: Map<string, SessionActivity | undefined>, b: Map<string, SessionActivity | undefined>) =>
-  a.size === b.size && [...a].every(([id, activity]) => b.has(id) && b.get(id) === activity);
+const sameRunning = (a: Map<string, RunningSession>, b: Map<string, RunningSession>) =>
+  a.size === b.size &&
+  [...a].every(([id, r]) => {
+    const o = b.get(id);
+    return o !== undefined && o.pid === r.pid && o.activity === r.activity && o.name === r.name;
+  });
 
 /**
  * The sessions running in a Claude Code process and what it does in each, read every second while
  * `visible`; the map only changes when one of them does, so the memoized header stays.
  */
-function useRunning(visible: boolean): Map<string, SessionActivity | undefined> {
-  const [running, setRunning] = useState<Map<string, SessionActivity | undefined>>(() => new Map());
+function useRunning(visible: boolean): Map<string, RunningSession> {
+  const [running, setRunning] = useState<Map<string, RunningSession>>(() => new Map());
   useEffect(() => {
     if (!visible) return;
     const read = () => {
       const next = runningSessions();
-      setRunning((prev) => (sameActivities(prev, next) ? prev : next));
+      setRunning((prev) => (sameRunning(prev, next) ? prev : next));
     };
     read();
     const timer = setInterval(read, ACTIVITY_MS);
@@ -450,7 +456,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const header = useMemo(() => {
     if (!session) return [];
     const state = stateOf(session);
-    const activity = state === "active" || state === "running" ? running.get(session.id) : undefined;
+    const activity = state === "active" || state === "running" ? running.get(session.id)?.activity : undefined;
     return fitHeader(sessionHeader(session, state, previewWidth, entry?.deletedAt, activity), bodyHeight);
   }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight]);
   const lines = useMemo(
@@ -472,9 +478,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const selectNeighbour = () =>
     setCurrentId([list[index + 1], list[index - 1]].find((e): e is SessionSummary => e !== undefined && !isLoadMore(e))?.id);
 
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const notify = (msg: string) => {
     setFlash(msg);
-    setTimeout(() => setFlash(undefined), 3000);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(undefined), 3000);
   };
   /** Runs a trash operation, reporting a failure instead of throwing. */
   const attempt = (action: () => void, done: string) => {
@@ -497,11 +505,28 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (trashOpen) setTrash(listTrash(trashScope));
   });
 
-  /** Enter: after a confirmation, continues the session in a new terminal tab, unless it already runs somewhere. */
+  /**
+   * Enter: after a confirmation, continues the session in a new terminal tab, or, when it already runs in
+   * another Claude Code, switches to the tab it runs in.
+   */
   const start = (s: SessionSummary) => {
     const state = stateOf(s);
     if (state === "active") return notify("this is the active session");
-    if (runningSessionIds().has(s.id)) return notify("the session is already running in another Claude Code");
+    const other = runningSessions().get(s.id);
+    if (other) {
+      return setConfirmation({
+        title: "Switch to the tab this session runs in?",
+        lines: [
+          truncate(sessionTitle(s), 56),
+          `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
+          "It already runs in another Claude Code.",
+        ],
+        onConfirm: () => {
+          notify("looking for its tab…");
+          void switchToSession(other, s.title ? [s.title] : []).then(notify);
+        },
+      });
+    }
     const dir = s.cwd ?? cwd;
     if (!existsSync(dir)) return notify(`folder not found: ${tilde(dir)}`);
     setConfirmation({
@@ -664,7 +689,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         ...filter.footer,
-        { text: onLoadMore ? "↵ load more" : "↵ start", priority: 3 },
+        { text: onLoadMore ? "↵ load more" : session && stateOf(session) === "running" ? "↵ switch" : "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
@@ -718,7 +743,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {marked && <Star />}
                   {/* Without the date separators, the date is back in each row. */}
                   <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
-                  {badge && <SessionMarker symbol={badge} activity={running.get(s.id)} />}
+                  {badge && <SessionMarker symbol={badge} activity={running.get(s.id)?.activity} />}
                   {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
                   {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
                   <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
