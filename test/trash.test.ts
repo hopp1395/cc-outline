@@ -130,10 +130,17 @@ describe("trash", () => {
     registerRunning("s4", process.pid, "busy");
     registerRunning("s5", process.ppid, "waiting");
     registerRunning("s6", 2 ** 22 + 12345, "busy");
-    expect(runningSessions()).toEqual(new Map([["s4", "busy"], ["s5", "waiting"]]));
+    const activities = new Map([...runningSessions()].map(([id, r]) => [id, r.activity]));
+    expect(activities).toEqual(new Map([["s4", "busy"], ["s5", "waiting"]]));
     registerRunning("s4", process.pid, "starting");
-    expect(runningSessions().get("s4")).toBeUndefined();
-    expect(runningSessions().has("s4")).toBe(true);
+    expect(runningSessions().get("s4")).toEqual({ pid: process.pid });
+  });
+
+  it("reads the name and the job of a background session", () => {
+    mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
+    const info = { pid: process.pid, sessionId: "s7", name: "review", kind: "bg", jobId: "feec72a8", status: "idle" };
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify(info));
+    expect(runningSessions().get("s7")).toEqual({ pid: process.pid, activity: "idle", name: "review", kind: "bg", jobId: "feec72a8" });
   });
 
   it("ignores registrations of processes that are gone", () => {

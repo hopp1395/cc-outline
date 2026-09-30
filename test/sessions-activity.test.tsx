@@ -43,7 +43,7 @@ function renderView() {
     patchConsole: false,
   });
   const raw = () => frames.at(-1) ?? "";
-  return { frames, raw, frame: () => stripAnsi(raw()), unmount: () => app.unmount() };
+  return { frames, raw, frame: () => stripAnsi(raw()), press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
 }
 
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,6 +94,21 @@ describe("session activity", () => {
     await until(() => view.frame().includes("running elsewhere · claude --resume s1"));
     expect(marker(view.raw())).toContain("\u001b[32m");
     expect(marker(view.raw())).not.toContain("\u001b[2m");
+    view.unmount();
+  });
+
+  it("offers to switch to a session running elsewhere instead of starting it", async () => {
+    session("s1", "Some work");
+    running("s1", "idle");
+    const view = renderView();
+    await until(() => view.frame().includes("↵ switch"));
+    expect(view.frame()).toContain("↵ switch");
+    view.press("\r");
+    await until(() => view.frame().includes("Switch to the tab this session runs in?"));
+    expect(view.frame()).toContain("It already runs in another Claude Code.");
+    view.press("\u001b");
+    await until(() => !view.frame().includes("Switch to the tab"));
+    expect(view.frame()).not.toContain("Switch to the tab");
     view.unmount();
   });
 });
