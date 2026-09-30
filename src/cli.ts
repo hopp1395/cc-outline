@@ -1,6 +1,7 @@
 import { Command, Option } from "commander";
+import { recordCli } from "./cliPath.js";
 import { runHook } from "./hook.js";
-import { openPane } from "./open.js";
+import { openedFromQueue, openPane } from "./open.js";
 import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
@@ -97,7 +98,11 @@ program
     const afterPid = validPid(opts.afterPid);
     if (afterPid) await waitForExit(afterPid);
     const claudePid = validPid(opts.claudePid) ?? claudePidFromEnv();
-    console.log(openPane(opts.cwd, opts.view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo }));
+    // Moving with p is not a command of Claude Code's.
+    const queued = afterPid === undefined && openedFromQueue(opts.cwd, claudePid);
+    console.log(openPane(opts.cwd, opts.view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued }));
   });
 
+// For the plugin's launcher, which starts this file without npm's shim.
+recordCli();
 await program.parseAsync();

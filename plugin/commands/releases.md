@@ -1,8 +1,8 @@
 ---
 description: Open the cco release notes (and the update, if one is out) in the settings view
-allowed-tools: Bash(cco open:*)
+allowed-tools: Bash(node:*)
 ---
 
-!`cco open --view settings --select releases`
+!`node "${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs" open --view settings --select releases`
 
 Reply with the line above only. Do not run any tools.

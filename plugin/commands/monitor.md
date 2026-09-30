@@ -1,8 +1,8 @@
 ---
 description: Open the cco monitor view (response speed, wait and errors over the day) in a split pane
-allowed-tools: Bash(cco open:*)
+allowed-tools: Bash(node:*)
 ---
 
-!`cco open --view monitor`
+!`node "${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs" open --view monitor`
 
 Reply with the line above only. Do not run any tools.
