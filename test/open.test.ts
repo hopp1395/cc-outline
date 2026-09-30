@@ -23,6 +23,7 @@ beforeEach(() => {
   delete process.env.TMUX;
   delete process.env.WT_SESSION;
   delete process.env.WT_PROFILE_ID;
+  delete process.env.TMUX_PANE;
 });
 afterEach(() => {
   process.env = { ...saved };
@@ -145,6 +146,24 @@ describe("openPane", () => {
     openPane(cwd, "chat", { keepFocus: true, placement: "window" });
     expect(spawned[0].args.slice(0, 3)).toEqual(["split-window", "-h", "-b"]);
     expect(spawned[1].args.slice(0, 4)).toEqual(["new-window", "-d", "-n", "cco"]);
+  });
+
+  it("opens a queued command's viewer in the process's window, since another tab may be active by then", () => {
+    process.env.WT_SESSION = "x";
+    expect(openPane(cwd, "chat", { claudePid: 42, queued: true })).toMatch(/window: Claude was busy.*Press p in it/);
+    expect(call().before).toEqual(["-w", "cco-42", "new-tab", "--title", "cco", "-d", cwd]);
+    expect(call().viewer).toMatch(/ --placement window --claude-pid 42$/);
+    // A window already asked for stays one, and says nothing more.
+    expect(openPane(cwd, "chat", { claudePid: 42, queued: true, placement: "window" })).toBe("Opened cco chat in a Windows Terminal window.");
+  });
+
+  it("targets Claude Code's own tmux pane, not the active one", () => {
+    process.env.TMUX = "/tmp/tmux";
+    process.env.TMUX_PANE = "%3";
+    openPane(cwd, "chat", { placement: "left", queued: true });
+    openPane(cwd, "chat", { keepFocus: true, placement: "window" });
+    expect(spawned[0].args.slice(0, 5)).toEqual(["split-window", "-h", "-b", "-t", "%3"]);
+    expect(spawned[1].args.slice(0, 6)).toEqual(["new-window", "-d", "-a", "-t", "%3", "-n"]);
   });
 
   it("takes the placement of the process's session, else the setting", () => {
