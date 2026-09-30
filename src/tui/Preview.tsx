@@ -1,13 +1,25 @@
 import { Box, Text } from "ink";
 import sliceAnsi from "slice-ansi";
-import { useContext } from "react";
+import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { openInDefaultApp } from "../open.js";
 import { AreaContext, inArea, Spinner } from "./layout.js";
-import { linkAt } from "./links.js";
+import { linkAt, stripAnsi } from "./links.js";
 import { useMouse } from "./mouse.js";
+import { highlightColumns, type Point, type Selection, selectedColumns, selectedText } from "./selection.js";
+import { useClipboard } from "./useClipboard.js";
 
 /** Lines scrolled per wheel step. */
 const WHEEL_LINES = 3;
+/** How long the "copied" badge stays. */
+const COPIED_MS = 1500;
+/** Columns `previewHeader` puts before each line: the marker, then the wrapped lines' indentation. */
+const HEADER_INDENT = 2;
+
+/** Where a selection is: in the sticky header or in the scrolling lines. */
+type Region = "header" | "body";
+
+/** Whether `line` is a plain rule, like the one that closes a header. */
+const isRule = (line: string) => /^─+$/.test(stripAnsi(line));
 
 interface Props {
   /** Sticky lines above the scrolling area, e.g. the prompt or file name. */
@@ -32,7 +44,7 @@ interface Props {
   onWheel?: (delta: number) => void;
   /** A click on the top or bottom badge; without it, the preview scrolls there through `onWheel`. */
   onJump?: (to: "top" | "end") => void;
-  /** A link was clicked and opened. */
+  /** A link was clicked and opened; links open on release, so a drag that starts on one selects instead. */
   onLink?: (url: string) => void;
 }
 
@@ -176,12 +188,94 @@ export function Preview({
   const area = useContext(AreaContext);
   const jump = (target: "top" | "end") =>
     onJump ? onJump(target) : onWheel?.(target === "top" ? -scroll : lines.length - bodyHeight - scroll);
-  // A click on a web address opens it, one on the scroll bar or a badge jumps there; the wheel scrolls.
+  const copy = useClipboard();
+  // The header (the prompt, a path) selects apart from the scrolling lines, without its closing rule.
+  const headerLines = header.length - (header.length > 0 && isRule(header.at(-1)!) ? 1 : 0);
+  const source = (region: Region) => (region === "header" ? header : lines);
+  // The selection counts only while the line it started in is unchanged: other lines (another entry, a new width) drop it.
+  const [selection, setSelection] = useState<Selection & { region: Region; check: string }>();
+  const selected = selection && source(selection.region)[selection.anchor.line] === selection.check ? selection : undefined;
+  const [copied, setCopied] = useState<string>();
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(undefined), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  // The press the left button is held since: where a drag selects from, and the link it opens if it is let go without one.
+  const press = useRef<{ region: Region; at?: Point; url?: string; dragged: boolean }>(undefined);
+  /** The cell of the lines under body row `bodyRow` and column `col`, kept within the lines shown. */
+  const pointAt = (bodyRow: number, col: number): Point => {
+    const index = Math.max(from, Math.min(to - 1, from + bodyRow - (above > 0 ? 1 : 0)));
+    const c = Math.max(0, Math.min(width - 1, col));
+    return { line: index, col: pinned.includes(index) || c < frozen ? c : c + hscroll };
+  };
+  /** The same for the header, which does not scroll. */
+  const headerPointAt = (row: number, col: number): Point => ({
+    line: Math.max(0, Math.min(headerLines - 1, row)),
+    col: Math.max(0, Math.min(width - 1, col)),
+  });
+  /**
+   * Columns every line of a selection starting at `at` leaves out: the gutter
+   * (line numbers) when it starts right of it; in the header the marker and
+   * the indentation of its wrapped lines (`previewHeader`).
+   */
+  const gutterFor = (region: Region, at: Point) => {
+    if (region === "body") return frozen > 0 && at.col >= frozen ? frozen : 0;
+    const indented = header.slice(1, headerLines).every((l) => stripAnsi(l).startsWith(" ".repeat(HEADER_INDENT)));
+    return indented && at.col >= HEADER_INDENT ? HEADER_INDENT : 0;
+  };
+  // A click on a web address opens it, one on the scroll bar or a badge jumps there; the wheel scrolls; a drag selects text and copies it.
   useMouse((e) => {
+    // The right button drops the selection, wherever it is pressed.
+    if (e.kind === "right") {
+      press.current = undefined;
+      return setSelection(undefined);
+    }
+    if (e.kind === "drag" || e.kind === "release") {
+      const held = press.current;
+      if (!held) return;
+      if (e.kind === "release") {
+        press.current = undefined;
+        if (held.dragged && selected) {
+          const text = selectedText(source(selected.region), selected);
+          const count = text.split("\n").length;
+          if (text)
+            copy(text).then(
+              () => setCopied(`copied ${count === 1 ? "1 line" : `${count} lines`}`),
+              () => setCopied("copy failed"),
+            );
+        } else if (!held.dragged && held.url) {
+          openInDefaultApp(held.url);
+          onLink?.(held.url);
+        }
+        return;
+      }
+      // A drag from where there is nothing to select (the header's rule) no longer opens a link either.
+      if (!held.at) {
+        held.dragged = true;
+        return;
+      }
+      let focus: Point;
+      if (held.region === "header") focus = headerPointAt(e.y - area.y, e.x - area.x);
+      else {
+        const bodyRow = e.y - area.y - header.length;
+        // Dragging past the top or bottom scrolls on, a line per move.
+        if (bodyRow < (above > 0 ? 1 : 0) && from > 0) onWheel?.(-1);
+        else if (bodyRow > bodyHeight - 1 - (below > 0 ? 1 : 0) && to < lines.length) onWheel?.(1);
+        focus = pointAt(bodyRow, e.x - area.x);
+      }
+      if (!held.dragged && focus.line === held.at.line && focus.col === held.at.col) return;
+      held.dragged = true;
+      const { region, at } = held;
+      setSelection({ anchor: at, focus, from: gutterFor(region, at), region, check: source(region)[at.line] });
+      return;
+    }
     // The scroll bar sits in the column right of the area.
     const at = inArea({ ...area, width: area.width + (thumb ? 1 : 0) }, e.x, e.y);
     if (!at) return;
     if (e.kind === "wheel") return onWheel?.(e.delta * WHEEL_LINES);
+    setSelection(undefined);
+    press.current = undefined;
     const bodyRow = at.row - header.length;
     if (thumb && at.col >= width) {
       if (bodyRow >= 0 && bodyRow < bodyHeight) onWheel?.(scrollAtRow(bodyRow, lines.length, bodyHeight) - scroll);
@@ -189,46 +283,47 @@ export function Preview({
     }
     if (above > 0 && bodyRow === 0) return jump("top");
     if (below > 0 && bodyRow === bodyHeight - 1) return jump("end");
-    let url: string | undefined;
-    if (at.row < header.length) url = linkAt(header, at.row, at.col, width);
-    else {
-      const index = from + at.row - header.length - (above > 0 ? 1 : 0);
-      if (index < from || index >= to) return;
-      const shifted = pinned.includes(index) || at.col < frozen ? at.col : at.col + hscroll;
-      url = linkAt(lines, index, shifted, width);
+    if (at.row < header.length) {
+      const url = linkAt(header, at.row, at.col, width);
+      press.current = { region: "header", at: at.row < headerLines ? headerPointAt(at.row, at.col) : undefined, url, dragged: false };
+      return;
     }
-    if (!url) return;
-    openInDefaultApp(url);
-    onLink?.(url);
+    const index = from + bodyRow - (above > 0 ? 1 : 0);
+    if (index < from || index >= to) return;
+    const point = pointAt(bodyRow, at.col);
+    press.current = { region: "body", at: point, url: linkAt(lines, index, point.col, width), dragged: false };
   });
-  const visible = lines.slice(from, to);
-  const body = (
-    <>
-      {above > 0 && <Text wrap="truncate">{moreBadge("top", above, width)}</Text>}
-      {visible.map((line, i) => {
-        const spin = spinner?.at.find((s) => s.line === from + i);
-        return spin ? (
-          <Text key={from + i} wrap="truncate">
-            {sliceAnsi(line, 0, spin.col)}
-            <Spinner active={spinner!.active} />
-            {sliceAnsi(line, spin.col + 1)}
-          </Text>
-        ) : (
-          // Lines are pre-wrapped (or shifted) to `width`; a lone space keeps empty lines from collapsing.
-          <Text key={from + i} wrap="truncate">
-            {(pinned.includes(from + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
-          </Text>
-        );
-      })}
-      {below > 0 && <Text wrap="truncate">{moreBadge("end", below, width)}</Text>}
-    </>
-  );
+  const marked = (line: string, index: number, region: Region) => {
+    const cols = selected?.region === region && selectedColumns(selected, index);
+    return cols ? highlightColumns(line, cols[0], cols[1]) : line;
+  };
+  const rows: ReactNode[] = lines.slice(from, to).map((raw, i) => {
+    const line = marked(raw, from + i, "body");
+    const spin = spinner?.at.find((s) => s.line === from + i);
+    return spin ? (
+      <Text key={from + i} wrap="truncate">
+        {sliceAnsi(line, 0, spin.col)}
+        <Spinner active={spinner!.active} />
+        {sliceAnsi(line, spin.col + 1)}
+      </Text>
+    ) : (
+      // Lines are pre-wrapped (or shifted) to `width`; a lone space keeps empty lines from collapsing.
+      <Text key={from + i} wrap="truncate">
+        {(pinned.includes(from + i) ? line : shiftLine(line, hscroll, frozen, width)) || " "}
+      </Text>
+    );
+  });
+  if (above > 0) rows.unshift(<Text key="above" wrap="truncate">{moreBadge("top", above, width)}</Text>);
+  if (below > 0) rows.push(<Text key="below" wrap="truncate">{moreBadge("end", below, width)}</Text>);
+  // "copied" takes the bottom row for a moment, over the badge or the last line.
+  if (copied) rows.splice(Math.min(rows.length, bodyHeight - 1), 1, <Text key="copied" wrap="truncate">{centredBadge(copied, width)}</Text>);
+  const body = <>{rows}</>;
   return (
     // The scroll bar takes the column right of the preview, which the layout leaves free.
     <Box flexDirection="column" width={width + (thumb ? 1 : 0)} height={height} overflow="hidden">
       {header.map((line, i) => (
         <Text key={`h${i}`} wrap="truncate">
-          {line || " "}
+          {marked(line, i, "header") || " "}
         </Text>
       ))}
       {thumb ? (

@@ -2,15 +2,18 @@ import { useInput, useStdout } from "ink";
 import { createContext, useContext, useEffect } from "react";
 
 /**
- * Mouse reporting: button presses and releases (DECSET 1000, which includes
- * the wheel) in SGR encoding (1006). While it is on, the terminal leaves
- * clicks to the viewer; Windows Terminal still selects text with Shift+drag.
+ * Mouse reporting: button presses, releases and moves with a button held
+ * (DECSET 1002, which includes the wheel) in SGR encoding (1006). While it is
+ * on, the terminal leaves clicks and drags to the viewer, which selects text
+ * in the preview itself (`Preview`); Windows Terminal still selects with
+ * Shift+drag.
  */
-const ENABLE = "\u001b[?1000h\u001b[?1006h";
-const DISABLE = "\u001b[?1000l\u001b[?1006l";
+const ENABLE = "\u001b[?1002h\u001b[?1006h";
+const DISABLE = "\u001b[?1002l\u001b[?1006l";
 
 export interface MouseEvent {
-  kind: "click" | "wheel";
+  /** `click` is a press of the left button, `drag` a move while it is held, `release` letting it go; `right` a press of the right button. */
+  kind: "click" | "drag" | "release" | "right" | "wheel";
   /** Wheel: -1 up, 1 down. */
   delta: number;
   /** Zero-based cell the event happened in. */
@@ -21,7 +24,7 @@ export interface MouseEvent {
 // Ink hands SGR reports to useInput without the leading ESC, one per call: "[<0;12;5M".
 const SGR = /\[<(\d+);(\d+);(\d+)([Mm])/g;
 
-/** The mouse events in `input`: left-button presses and wheel steps; releases, drags and other buttons are left out. */
+/** The mouse events in `input`: the left button's presses, drags and releases, the right button's presses and wheel steps; the rest is left out. */
 export function parseMouse(input: string): MouseEvent[] {
   const events: MouseEvent[] = [];
   for (const [, code, col, row, final] of input.matchAll(SGR)) {
@@ -29,10 +32,15 @@ export function parseMouse(input: string): MouseEvent[] {
     const x = Number(col) - 1;
     const y = Number(row) - 1;
     // Bits 4, 8 and 16 are Shift, Alt and Ctrl; bit 32 marks motion.
-    if (button & 32) continue;
-    const base = button & ~(4 | 8 | 16);
-    if (base === 64 || base === 65) events.push({ kind: "wheel", delta: base === 64 ? -1 : 1, x, y });
-    else if (base === 0 && final === "M") events.push({ kind: "click", delta: 0, x, y });
+    const base = button & ~(4 | 8 | 16 | 32);
+    const moved = (button & 32) !== 0;
+    if (base === 64 || base === 65) {
+      if (!moved) events.push({ kind: "wheel", delta: base === 64 ? -1 : 1, x, y });
+    } else if (base === 0) {
+      events.push({ kind: final === "m" ? "release" : moved ? "drag" : "click", delta: 0, x, y });
+    } else if (base === 2 && final === "M" && !moved) {
+      events.push({ kind: "right", delta: 0, x, y });
+    }
   }
   return events;
 }
