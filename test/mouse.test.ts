@@ -10,10 +10,19 @@ describe("parseMouse", () => {
     expect(parseMouse("[<65;3;4M[<65;3;4M").map((e) => e.delta)).toEqual([1, 1]);
   });
 
-  it("ignores releases, drags, other buttons and other input", () => {
-    expect(parseMouse("[<0;12;5m")).toEqual([]);
-    expect(parseMouse("[<32;12;5M")).toEqual([]);
-    expect(parseMouse("[<2;12;5M")).toEqual([]);
+  it("reads drags and releases of the left button", () => {
+    expect(parseMouse("[<32;12;5M")).toEqual([{ kind: "drag", delta: 0, x: 11, y: 4 }]);
+    expect(parseMouse("[<0;12;5m")).toEqual([{ kind: "release", delta: 0, x: 11, y: 4 }]);
+  });
+
+  it("reads presses of the right button", () => {
+    expect(parseMouse("[<2;12;5M")).toEqual([{ kind: "right", delta: 0, x: 11, y: 4 }]);
+  });
+
+  it("ignores other buttons and other input", () => {
+    expect(parseMouse("[<1;12;5M")).toEqual([]);
+    expect(parseMouse("[<34;12;5M")).toEqual([]);
+    expect(parseMouse("[<2;12;5m")).toEqual([]);
     expect(parseMouse("x")).toEqual([]);
     // With a modifier held it is still a click.
     expect(parseMouse("[<16;1;1M")).toEqual([{ kind: "click", delta: 0, x: 0, y: 0 }]);
