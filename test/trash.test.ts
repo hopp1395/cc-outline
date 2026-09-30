@@ -11,6 +11,7 @@ import {
   purgeSession,
   restoreSession,
   runningSessionIds,
+  runningSessions,
   sessionItems,
   trashSession,
 } from "../src/transcript/trash.js";
@@ -39,9 +40,9 @@ function createSession(id: string) {
   writeFileSync(join(claudeDir(), "file-history", id, "v1"), "old");
 }
 
-function registerRunning(id: string, pid: number) {
+function registerRunning(id: string, pid: number, status?: string) {
   mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
-  writeFileSync(join(claudeDir(), "sessions", `${pid}.json`), JSON.stringify({ pid, sessionId: id }));
+  writeFileSync(join(claudeDir(), "sessions", `${pid}.json`), JSON.stringify({ pid, sessionId: id, status }));
 }
 
 describe("trash", () => {
@@ -123,6 +124,16 @@ describe("trash", () => {
     expect(runningSessionIds()).toEqual(new Set(["s2"]));
     expect(() => trashSession(summary("s2"))).toThrow(/running/);
     expect(sessionItems(projectDir(cwd), "s2")).toHaveLength(3);
+  });
+
+  it("reads what a running session is doing", () => {
+    registerRunning("s4", process.pid, "busy");
+    registerRunning("s5", process.ppid, "waiting");
+    registerRunning("s6", 2 ** 22 + 12345, "busy");
+    expect(runningSessions()).toEqual(new Map([["s4", "busy"], ["s5", "waiting"]]));
+    registerRunning("s4", process.pid, "starting");
+    expect(runningSessions().get("s4")).toBeUndefined();
+    expect(runningSessions().has("s4")).toBe(true);
   });
 
   it("ignores registrations of processes that are gone", () => {
