@@ -43,7 +43,9 @@ describe("WhatsNewDialog", () => {
     expect(view.frame()).toContain("v0.10.0 · 2026-09-30");
     expect(view.frame()).toContain("Newest thing");
     expect(view.frame()).not.toContain("Fix 30");
-    // End scrolls to the last line: the skipped release's notes are there too.
+    // End scrolls to the last line: the skipped release's notes are there too. The key handler
+    // is attached after the first frame (slow CI runners): let the effects run first.
+    await new Promise((resolve) => setTimeout(resolve, 30));
     view.press("\u001b[F");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Fix 30");
     view.press("\r");

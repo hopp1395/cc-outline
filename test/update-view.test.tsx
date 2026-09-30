@@ -108,9 +108,10 @@ describe("releases in the settings", () => {
       </UpdateContext.Provider>,
     );
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
-    view.press("\r");
+    // The dialog shows before its key handler is attached (slow CI runners): let the effects run first.
     await tick();
-    expect(started).toBe(1);
+    view.press("\r");
+    await expect.poll(() => started, { timeout: 2000 }).toBe(1);
     view.unmount();
   });
 
