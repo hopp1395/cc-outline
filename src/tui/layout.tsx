@@ -20,6 +20,7 @@ import { useReload } from "./reload.js";
 import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
+import { PINNED_END_LABEL, PINNED_LABEL, type PinnedRows } from "../pinned.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
@@ -581,6 +582,8 @@ interface ListProps<T> {
   shown?: number[];
   /** The filter in effect, shown in the top row: its text and "12 of 340". */
   filter?: { query: string; count: string };
+  /** The Pinned group (`ListFilter.pinned`): the rows in screen order, which replaces `shown` and `reversed`. */
+  pinned?: PinnedRows;
 }
 
 /** Where a part of the Screen (list or preview) sits on the terminal, for mapping mouse positions to it. */
@@ -670,28 +673,75 @@ function FilterRow({ filter, width }: { filter: { query: string; count: string }
 
 function ListBody<T>(all: ListProps<T>) {
   const [separators] = useSetting("dateSeparators");
+  if (all.pinned) return <PinnedList {...all} pinned={all.pinned} separators={separators} />;
   const props = all.shown ? shownOnly(all, all.shown) : all;
-  // Days are taken in the natural order, so an item without a time joins the one before it.
-  const period = props.period ?? "day";
-  const groups = props.group
-    ? props.items.map(props.group)
-    : separators && props.time
-      ? entryGroups(props.items.map((item) => periodOf(props.time!(item), period)), period)
-      : undefined;
-  if (!props.reversed) return <ListRows {...props} groups={groups} />;
+  const groups = groupKeys(props, props.items, separators);
+  if (!props.reversed) return <ListRows {...props} {...separatorRows(props, groups)} />;
   const last = props.items.length - 1;
   const flip = (i: number) => last - i;
   return (
     <ListRows
       {...props}
+      {...separatorRows(props, groups && [...groups].reverse())}
       items={[...props.items].reverse()}
-      groups={groups && [...groups].reverse()}
       selected={flip(props.selected)}
       itemKey={(item, i) => props.itemKey(item, flip(i))}
       onPick={props.onPick && ((i) => props.onPick!(flip(i)))}
       onClick={props.onClick && ((i) => props.onClick!(flip(i)))}
     />
   );
+}
+
+/**
+ * The group of each of `items` (in natural order): its named group, else its
+ * day or year while separators are on. Days are taken in the natural order,
+ * so an item without a time joins the one before it.
+ */
+function groupKeys<T>(props: ListProps<T>, items: T[], separators: boolean): string[] | undefined {
+  const period = props.period ?? "day";
+  if (props.group) return items.map(props.group);
+  return separators && props.time ? entryGroups(items.map((item) => periodOf(props.time!(item), period)), period) : undefined;
+}
+
+/** How a group key reads: a named group as it is, a day (or year) by its label, with the year in a separator. */
+const groupLabel = <T,>(props: ListProps<T>, key: string, full: boolean) => (props.group ? key : periodLabel(key, full ? "always" : "other"));
+
+/** The separators above the items (groups in display order) and the group the ▲ row names for each. */
+function separatorRows<T>(props: ListProps<T>, groups: string[] | undefined): Pick<RowsProps, "heads" | "tops"> {
+  return {
+    heads: separatorsAt(groups).map((key) => (key === undefined ? undefined : [groupLabel(props, key, true)])),
+    tops: groups?.map((key) => groupLabel(props, key, false)),
+  };
+}
+
+/**
+ * The list with a Pinned group: `pinned.order` from the top, the pinned
+ * entries under "★ Pinned", the rest after "Pinned end" with its own
+ * separators, as without the group.
+ */
+function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned: PinnedRows; separators: boolean }) {
+  const { order, count } = pinned;
+  // The rest's groups are taken in natural order, like without the group.
+  const rest = order.slice(count).sort((a, b) => a - b);
+  const keys = groupKeys(props, rest.map((i) => props.items[i]), separators);
+  const keyOf = new Map(rest.map((i, n) => [i, keys?.[n]]));
+  const heads: (string[] | undefined)[] = [];
+  const tops: (string | undefined)[] = [];
+  let previous: string | undefined;
+  order.forEach((i, at) => {
+    if (at < count) {
+      heads.push(at === 0 ? [PINNED_LABEL] : undefined);
+      tops.push(PINNED_LABEL);
+      return;
+    }
+    const key = keyOf.get(i);
+    const head = at === count ? [PINNED_END_LABEL] : [];
+    if (key !== undefined && (at === count || key !== previous)) head.push(groupLabel(props, key, true));
+    previous = key;
+    heads.push(head.length ? head : undefined);
+    tops.push(key === undefined ? undefined : groupLabel(props, key, false));
+  });
+  return <ListRows {...shownOnly(props, order)} heads={heads} tops={tops} />;
 }
 
 /**
@@ -710,19 +760,23 @@ function shownOnly<T>(props: ListProps<T>, shown: number[]): ListProps<T> {
   };
 }
 
-/** A row of a list: an item (by index) or the separator before a group's (day's) first item. */
+/** A row of a list: an item (by index) or a separator (its label) before a group's (day's) first item. */
 type ListRow = { item: number } | { group: string; before: number };
 
-/** The rows of `count` items with a separator above each group's items (`groups` in display order). */
-export function listRows(count: number, groups: string[] | undefined): ListRow[] {
-  const before = separatorsAt(groups);
+/** The rows of `count` items with the separators of `heads` (labels, in display order) above them. */
+export function listRows(count: number, heads: (string[] | undefined)[]): ListRow[] {
   const rows: ListRow[] = [];
   for (let i = 0; i < count; i++) {
-    const group = before[i];
-    if (group) rows.push({ group, before: i });
+    for (const group of heads[i] ?? []) rows.push({ group, before: i });
     rows.push({ item: i });
   }
   return rows;
+}
+
+/** What ListRows adds to a list's props: the separators above each item, and each item's group for the ▲ row. */
+interface RowsProps {
+  heads: (string[] | undefined)[];
+  tops: (string | undefined)[] | undefined;
 }
 
 /**
@@ -741,13 +795,10 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-/** A direction on screen (Shift+↑/↓ between marks) in the list's own order. */
-export const orderedDir = (reversed: boolean, dir: 1 | -1): 1 | -1 => (reversed ? (-dir as 1 | -1) : dir);
-
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, groups, group }: ListProps<T> & { groups?: string[] }) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
-  const rows = listRows(items.length, groups);
+  const rows = listRows(items.length, heads);
   const selectedRow = rows.findIndex((r) => "item" in r && r.item === selected);
   const { from, to } = listWindow(rows.length, Math.max(0, selectedRow), height);
   const itemsIn = (part: ListRow[]) => part.filter((r) => "item" in r).length;
@@ -755,9 +806,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
   const below = itemsIn(rows.slice(to));
   // With the group's separator scrolled away, the ▲ row names the group (day) of the first entry shown.
   const topRow = rows[from];
-  const topGroup = from > 0 && groups && topRow && "item" in topRow ? groups[topRow.item] : undefined;
-  // Named groups show as they are, days (and years) by their label.
-  const label = (key: string, full: boolean) => (group ? key : periodLabel(key, full ? "always" : "other"));
+  const topGroup = from > 0 && tops && topRow && "item" in topRow ? tops[topRow.item] : undefined;
   useMouse((e) => {
     const at = inArea(area, e.x, e.y);
     if (!at || !onPick || items.length === 0 || (e.kind !== "click" && e.kind !== "wheel")) return;
@@ -775,13 +824,13 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
   const width = area.width || 40;
   return (
     <>
-      {from > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" group={topGroup && label(topGroup, false)} />}
+      {from > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" group={topGroup} />}
       {rows.slice(from, to).map((row) => {
         if ("group" in row)
           return (
             // Keyed by the item below it: a day could come twice in an unordered list.
-            <Text key={`group-${itemKey(items[row.before], row.before)}`} dimColor wrap="truncate">
-              {ruleText(label(row.group, true), width)}
+            <Text key={`group-${row.group}-${itemKey(items[row.before], row.before)}`} dimColor wrap="truncate">
+              {ruleText(row.group, width)}
             </Text>
           );
         const index = row.item;

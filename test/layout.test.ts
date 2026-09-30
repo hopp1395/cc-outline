@@ -4,7 +4,6 @@ import {
   fitFooter,
   flipOrder,
   leadParts,
-  orderedDir,
   orderedNav,
   orderFooter,
   scrollPosition,
@@ -164,8 +163,6 @@ describe("list order", () => {
     mirrored.last();
     orderedNav(false, nav).select(1);
     expect(calls).toEqual(["select -1", "last", "first", "select 1"]);
-    expect(orderedDir(true, 1)).toBe(-1);
-    expect(orderedDir(false, 1)).toBe(1);
   });
 
   it("flips and names the order, highlighted when not the default", () => {
