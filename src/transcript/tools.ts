@@ -204,7 +204,16 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
         const note = str(obj(a).notes);
         if (note) notes[q] = note;
       }
-      return { status: "ok", answers, notes };
+      // For the compact and full levels: the answers after the line, and per question its answer below it.
+      const asked = questionTexts(input);
+      const given = asked.map((q) => answers[q]).filter((a): a is string => a !== undefined);
+      const detail = asked
+        .map((q) => {
+          const answer = answers[q] === undefined ? "*not answered*" : `**${escapeMd(answers[q])}**`;
+          return `- *${escapeMd(q)}* → ${answer}${notes[q] ? `  \n  note: ${escapeMd(notes[q])}` : ""}`;
+        })
+        .join("\n");
+      return { status: "ok", answers, notes, summary: given.length ? given.map(escapeMd).join("; ") : "not answered", detail: detail || undefined };
     }
     case "ExitPlanMode":
     case "Skill":
@@ -255,15 +264,27 @@ function toolTitle(name: string, input: unknown, cwd?: string): string {
       return code(str(i.query) ?? "");
     case "Skill":
       return code(`/${[str(i.skill), str(i.args)].filter(Boolean).join(" ")}`);
+    case "AskUserQuestion": {
+      const asked = questionTexts(input);
+      return asked.length === 1 ? `*${escapeMd(asked[0])}*` : `*${plural(asked.length, "question")}*`;
+    }
     default:
       return keyInput(input);
   }
 }
 
-/** A tool call as the chat shows it at `level` ("off" shows only questions). */
+/** The questions of an AskUserQuestion call. */
+function questionTexts(input: unknown): string[] {
+  const questions = Array.isArray(obj(input).questions) ? (obj(input).questions as unknown[]) : [];
+  return questions.map((q) => str(obj(q).question) ?? "");
+}
+
+/**
+ * A tool call as the chat shows it at `level`. "off" shows only questions,
+ * framed; with the other levels they are a tool call like the rest.
+ */
 export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string): string {
-  if (name === "AskUserQuestion") return questionMarkdown(input, outcome);
-  if (level === "off") return "";
+  if (level === "off") return name === "AskUserQuestion" ? questionMarkdown(input, outcome) : "";
   if (name === "ExitPlanMode") {
     const decision =
       outcome === undefined
