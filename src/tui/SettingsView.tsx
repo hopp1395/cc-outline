@@ -220,7 +220,7 @@ export const SETTING_ROWS: Row[] = [
     key: "showTools",
     group: "Chat",
     label: "tool calls",
-    description: "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. Claude's questions and your answers (AskUserQuestion) always show.",
+    description: "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame; otherwise they are a tool call like the others.",
     values: [
       ["off", "hide them"],
       ["compact", "a line each, with the result: lines read, +/− of an edit, ✓ or ✗ of a command"],

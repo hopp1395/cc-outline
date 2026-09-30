@@ -91,6 +91,20 @@ describe("toolMarkdown", () => {
     expect(md).toBe(" 1/2 One  A?\n\n- ● **x**\n\n┃ You: x\n\n---\n\n 2/2  B?\n\n- ○ y\n\n┃ You: something else (own answer)");
   });
 
+  it("frames questions only with tools off: compact and full show them as a tool call", () => {
+    const outcome = toolOutcome("AskUserQuestion", question, { answers: { "Where should it open?": "Left" }, annotations: { "Where should it open?": { notes: "keep it simple" } } }, "", false);
+    expect(toolMarkdown("AskUserQuestion", question, outcome, "compact")).toBe("**⚙ AskUserQuestion** *Where should it open?* · Left");
+    expect(toolMarkdown("AskUserQuestion", question, outcome, "full")).toBe(
+      "**⚙ AskUserQuestion** *Where should it open?* · Left\n\n- *Where should it open?* → **Left**  \n  note: keep it simple",
+    );
+    expect(toolMarkdown("AskUserQuestion", question, undefined, "compact")).toBe("**⚙ AskUserQuestion** *Where should it open?*");
+    const two = { questions: [{ question: "A?", options: [{ label: "x" }] }, { question: "B?", options: [{ label: "y" }] }] };
+    const partly = toolOutcome("AskUserQuestion", two, { answers: { "A?": "x" } }, "", false);
+    expect(toolMarkdown("AskUserQuestion", two, partly, "full")).toBe("**⚙ AskUserQuestion** *2 questions* · x\n\n- *A?* → **x**\n- *B?* → *not answered*");
+    const denied = toolOutcome("AskUserQuestion", question, undefined, "The user doesn't want to proceed", true);
+    expect(toolMarkdown("AskUserQuestion", question, denied, "compact")).toBe("**⚙ AskUserQuestion** *Where should it open?* · ⊘ denied");
+  });
+
   it("compact: one line with the result; full: command and output", () => {
     const input = { command: "npm test", description: "Run the tests" };
     const outcome = toolOutcome("Bash", input, { stdout: "ok" }, "ok", false);
