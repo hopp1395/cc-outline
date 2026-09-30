@@ -108,6 +108,8 @@ To load the plugin for a single session without installing it, run `claude --plu
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
   - `--view chat|git|plan|sessions|settings|monitor`: view to start with (default: the session's last view, see *view per session*, else `chat`)
+
+  A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ pair`), see [Sessions](#sessions-view).
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
 
 All views share one layout:
@@ -280,6 +282,8 @@ Below it:
 
 **Starting.** `Enter` asks for a confirmation (`Enter` yes, `Esc` no) and then continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session is not started a second time. For a session already running in another Claude Code, `Enter` (`↵ switch`) asks whether to switch to the tab it runs in and brings that tab to the front instead: in tmux its pane, in Windows Terminal the tab titled with the session's name (it takes a second or two; with two tabs of the same name, nothing is switched). A background session without a tab is named with its `claude attach <id>` command. In other terminals the help line names the command to run instead.
 
+**Pairing.** A viewer started by hand (`cco watch`, not by a `/cco:…` command or on start) belongs to no Claude Code. `Enter` on a session running in a Claude Code that has no viewer yet (`↵ pair`) pairs it with that Claude Code after a confirmation: the viewer stays where it is, switches to that session's project and shows its chat, follows it like a viewer opened with `/cco:chat` (also after `/clear` and `/resume`), and closes when that Claude Code ends. Its `/cco:…` commands then use this viewer instead of opening another one. A viewer that belongs to a Claude Code already switches to the tab as described above.
+
 **Deleting.** Claude Code has no command to delete a session; cc-outline moves it to a trash of its own first.
 - `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
 - Moved are the transcript, the session's folder next to it (subagents, title), its file history for `/rewind` and its session environment. The shared prompt history (`history.jsonl`) and plan files in `~/.claude/plans/` stay.
@@ -387,7 +391,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+↑` / `Ctrl+↓` | scroll by line | scroll by line | scroll by line | scroll by line |
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
-| `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | start the session in a new tab, or switch to the tab it runs in |
+| `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | start the session in a new tab, switch to the tab it runs in, or pair a viewer started by hand with it |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | tool calls off / compact / full; thinking | – | – | – |

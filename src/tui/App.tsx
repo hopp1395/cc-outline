@@ -9,7 +9,7 @@ import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionVie
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
-import { setViewerView, type ViewerAction } from "../viewer.js";
+import { pairViewer, setViewerView, type PairTarget, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
@@ -47,6 +47,8 @@ interface Props {
   updatedTo?: string;
   /** Started by /cco:update: check for an update at once and offer it. */
   action?: ViewerAction;
+  /** Pairs the viewer with a running Claude Code process (Sessions); the viewer then shows its session. */
+  onPair?: (cwd: string, claudePid: number) => void;
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
@@ -69,7 +71,7 @@ const RELOADED_MS = 1500;
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   const layout = useLayout();
@@ -216,6 +218,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    * state, then remounts the views so none keeps them in memory. Their
    * unmount would save positions again, so writes pause until the new ones are up.
    */
+  /** Sessions: pairs this viewer with a running Claude Code process; false if a viewer runs for it already. */
+  const pairWith = (target: PairTarget) => {
+    if (!onPair || !pairViewer({ cwd, claudePid }, target)) return false;
+    onPair(target.cwd, target.claudePid);
+    return true;
+  };
   // Reset: restart. The viewer reopens where it is, running the CLI on disk now.
   const restartViewer = () => {
     // A viewer of one session (--session) was not opened by cco open, which cannot reopen it.
@@ -355,6 +363,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onTrashOpen={setDetail("sessions")}
             onTyping={setTyping}
             onModal={setModal}
+            // Only a viewer without a Claude Code process pairs; one opened by /cco:… keeps its own.
+            onPair={claudePid === undefined && onPair ? pairWith : undefined}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>

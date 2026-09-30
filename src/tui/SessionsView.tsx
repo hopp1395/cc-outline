@@ -19,6 +19,7 @@ import {
 } from "../transcript/trash.js";
 import { resumeInNewTab } from "../open.js";
 import { switchToSession } from "../switchSession.js";
+import { runningViewer, type PairTarget } from "../viewer.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
@@ -67,6 +68,11 @@ interface Props {
   onModal?: (open: boolean) => void;
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;
+  /**
+   * Pairs the viewer with a running Claude Code process; only for a viewer started without one
+   * (cco watch by hand). False if a viewer runs for that process already.
+   */
+  onPair?: (target: PairTarget) => boolean;
 }
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
@@ -366,7 +372,7 @@ type Entry = SessionSummary | LoadMore;
 const LOAD_MORE_ID = "load-more";
 const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : e.id);
 
-export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping }: Props) {
+export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -509,11 +515,35 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (trashOpen) setTrash(listTrash(trashScope));
   });
 
+  /** The Claude Code process this viewer can pair with for `s`: it runs the session, and no viewer runs for it. */
+  const pairTarget = (s: SessionSummary): PairTarget | undefined => {
+    const claude = onPair ? running.get(s.id) : undefined;
+    const dir = s.cwd ?? cwd;
+    if (!claude || runningViewer(dir, claude.pid)) return undefined;
+    return { cwd: dir, claudePid: claude.pid, sessionId: s.id, transcript: s.path };
+  };
+
   /**
-   * Enter: after a confirmation, continues the session in a new terminal tab, or, when it already runs in
-   * another Claude Code, switches to the tab it runs in.
+   * Enter: after a confirmation, pairs this viewer with the Claude Code the session runs in (a viewer
+   * started without one, when that has none), continues the session in a new terminal tab, or, when it
+   * already runs in another Claude Code, switches to the tab it runs in.
    */
   const start = (s: SessionSummary) => {
+    const target = pairTarget(s);
+    if (target) {
+      return setConfirmation({
+        title: "Pair the viewer with this session?",
+        lines: [
+          truncate(sessionTitle(s), 56),
+          truncate(`running in ${tilde(target.cwd)}`, 56),
+          "The viewer stays here and follows it in the chat;",
+          "it closes when that Claude Code ends.",
+        ],
+        onConfirm: () => {
+          if (!onPair?.(target)) notify("another viewer paired with it first");
+        },
+      });
+    }
     const state = stateOf(s);
     if (state === "active") return notify("this is the active session");
     const other = runningSessions().get(s.id);
@@ -692,7 +722,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         ...filter.footer,
-        { text: onLoadMore ? "↵ load more" : session && stateOf(session) === "running" ? "↵ switch" : "↵ start", priority: 3 },
+        { text: onLoadMore ? "↵ load more" : session && pairTarget(session) ? "↵ pair" : session && stateOf(session) === "running" ? "↵ switch" : "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),

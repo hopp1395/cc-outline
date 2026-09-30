@@ -1,6 +1,6 @@
 import { rmSync } from "node:fs";
 import type { Mode } from "./tui/layout.js";
-import { controlFile, projectStateFiles, readJson, restoreFile, viewerFile, writeJson } from "./transcript/locate.js";
+import { claudeFile, controlFile, projectStateFiles, readJson, restoreFile, viewerFile, writeJson, type ActiveSession } from "./transcript/locate.js";
 
 export interface ViewerInfo {
   pid: number;
@@ -38,8 +38,40 @@ export function isAlive(pid: number): boolean {
   }
 }
 
+/** The registration of this process's viewer, removed on exit; pairing moves it. */
+let registered: { cwd: string; claudePid?: number } | undefined;
+
 export function registerViewer(cwd: string, view: Mode, claudePid?: number): void {
+  registered = { cwd, claudePid };
   writeJson(viewerFile(cwd, claudePid), { pid: process.pid, view } satisfies ViewerInfo);
+}
+
+/** Removes the registration this process made last (on exit). */
+export function unregisterCurrentViewer(): void {
+  if (registered) unregisterViewer(registered.cwd, registered.claudePid);
+}
+
+/** A Claude Code process to pair a viewer with, and the session it runs. */
+export interface PairTarget {
+  cwd: string;
+  claudePid: number;
+  sessionId: string;
+  transcript: string;
+}
+
+/**
+ * Pairs this viewer, started without a Claude Code process (cco watch by hand), with `target`:
+ * its registration moves there, so /cco:… of that process finds it. False if a viewer runs for it already.
+ * The process's session file is written if its hooks have not (yet): the viewer follows it.
+ */
+export function pairViewer(from: { cwd: string; claudePid?: number }, target: PairTarget): boolean {
+  if (runningViewer(target.cwd, target.claudePid)) return false;
+  const own = claudeFile(target.cwd, target.claudePid);
+  if (!readJson<ActiveSession>(own))
+    writeJson(own, { session_id: target.sessionId, transcript_path: target.transcript, cwd: target.cwd, updated: new Date().toISOString() } satisfies ActiveSession);
+  unregisterViewer(from.cwd, from.claudePid);
+  registerViewer(target.cwd, "chat", target.claudePid);
+  return true;
 }
 
 /** Records the view the running viewer shows; ignored if another viewer took over. */
