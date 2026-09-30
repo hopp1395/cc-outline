@@ -45,6 +45,7 @@ import {
   type Layout,
 } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import { useFavorites } from "./useFavorites.js";
@@ -370,6 +371,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const [agentIndex, setAgentIndex] = useState<number>();
   const [agentPos, setAgentPos] = useState(0);
   const focused = useFocused();
+  const [isDoubleClick] = useState(() => doubleClicks());
   const [hscroll, setHscroll] = useState(0);
   const [flash, setFlash] = useState<string>();
   const [promptOpen, setPromptOpen] = useState(false);
@@ -672,6 +674,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         <List
             reversed={reversed}
             onPick={select}
+          // A double click does what Enter does.
+          onClick={(i) => isDoubleClick(i) && i === selected && current && togglePrompt(!promptOpen)}
           items={turns}
           shown={filter.shown}
           filter={filter.banner}

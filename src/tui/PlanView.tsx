@@ -8,6 +8,7 @@ import { readFileSync, statSync } from "node:fs";
 import type { Plan, PlanModeState, PlanStatus } from "../transcript/parse.js";
 import { watchFile } from "../transcript/tail.js";
 import { nextMarked } from "../favorites.js";
+import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import { haystack } from "../filter.js";
@@ -148,6 +149,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const plans = useMemo(() => (draft ? [...presented, draft] : presented), [presented, draft?.text, draft?.timestamp]);
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
+  const [isDoubleClick] = useState(() => doubleClicks());
   const newest = plans.length - 1;
   const [selected, setSelected] = useState(newest);
   // Following: the newest plan stays selected when Claude presents another one.
@@ -346,6 +348,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
         <List
             reversed={reversed}
             onPick={select}
+          // A double click does what Enter does.
+          onClick={(i) => isDoubleClick(i) && i === index && plan && previous && toggleDiff(!showDiff)}
           items={plans}
           shown={filter.shown}
           filter={filter.banner}
