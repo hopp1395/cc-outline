@@ -1,9 +1,13 @@
 import { Text, useInput } from "ink";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { useEffect, useMemo, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings, type UpdateMode } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { detectTerminal, type Terminal } from "../open.js";
+import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
+import { dayLabel, dayOf } from "./days.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { doubleClicks } from "./openKey.js";
@@ -66,34 +70,52 @@ export const RESET_ACTIONS: ResetAction[] = [
   },
 ];
 
+/** What a setting's texts can depend on: today for dates, the project for paths, the terminal for its keys and names. */
+export interface TextContext {
+  now: Date;
+  cwd: string;
+  terminal?: Terminal;
+}
+
+/** A text of the details, fixed or written for where it is shown (examples with today's dates, this project's files). */
+type Text = string | ((c: TextContext) => string);
+
+export const textOf = (text: Text, c: TextContext): string => (typeof text === "string" ? text : text(c));
+
 interface Row {
   key: keyof Settings;
   /** Area the setting belongs to, the list's separator above it. */
   group: string;
   label: string;
-  description: string;
-  /** The values in the order Enter steps through them, each with what it does. */
-  values: [value: string | boolean, meaning: string][];
+  description: Text;
+  /** The values in the order Enter steps through them, each with what it does, with an example where one helps. */
+  values: [value: string | boolean, meaning: Text][];
   /** The key that switches it in its own view, e.g. "t in Chat". */
   viewKey?: string;
-  notes?: string[];
+  notes?: Text[];
 }
 
-const ON_OFF = (on: string, off: string): Row["values"] => [
+const ON_OFF = (on: Text, off: Text): Row["values"] => [
   [true, on],
   [false, off],
 ];
 
-const UPDATE_MEANINGS: Record<UpdateMode, string> = {
-  on: "ask npm and GitHub when the viewer starts",
-  off: "no network requests",
-  auto: "ask when the viewer starts and offer a newer version at once",
+/** "Thu 24 Sep" for the day `days` before today. */
+const daysAgo = (days: number, now: Date) => dayLabel(dayOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - days).getTime())!, "always");
+
+/** "Thu 24 Sep" for the first day `range` covers. */
+const firstDay = (range: ListRange, now: Date) => dayLabel(dayOf(rangeStart(range, now))!, "other", now.getTime());
+
+const UPDATE_MEANINGS: Record<UpdateMode, Text> = {
+  on: "ask npm and GitHub when the viewer starts; a newer version shows in the top bar (v0.7.0 → 0.8.0), and you update when you like",
+  off: "no network requests; F5 here still checks once",
+  auto: "as on, and once the check finds a newer version, the viewer opens it here and asks whether to install it, once per start",
 };
 
-const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], string> = {
-  remember: "reopen it if it was open when Claude Code last exited in the project",
-  always: "open it on every start, in every project; the chat unless another view was open last",
-  never: "never open it by itself; /cco:… commands still do",
+const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], Text> = {
+  remember: "reopen it only if it was open when Claude Code last exited in the project: closed with q in one project, it stays closed there and still opens in the others",
+  always: "open it on every start, in every project; in the chat, unless another view was open last (e.g. Changes, where you left it)",
+  never: "never open it by itself; /cco:chat, /cco:git and the other /cco:… commands still do",
 };
 
 export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], string> = {
@@ -102,11 +124,30 @@ export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], strin
   window: "a window of its own (in tmux: a tmux window)",
 };
 
-const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
-  list: "what the rows show",
-  details: "what the previews add",
-  both: "rows and details",
+/** The placements as the details explain them: the pane's size, and how to get to a window in this terminal. */
+const PLACEMENT_DETAILS: Record<(typeof PLACEMENT_VALUES)[number], Text> = {
+  right: "a pane right of Claude Code; each takes half of the tab",
+  left: "the same, left of Claude Code",
+  window: (c) =>
+    c.terminal === "wt"
+      ? "a Windows Terminal window of its own, one per Claude Code; Claude Code keeps the whole tab, Alt+Tab switches"
+      : c.terminal === "tmux"
+        ? "a tmux window of its own next to Claude Code's; Claude Code keeps the whole window, your prefix and n or p (Ctrl+b n) switch"
+        : PLACEMENT_MEANINGS.window,
 };
+
+const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
+  list: "what the rows show, e.g. a prompt, a file path or a session's title",
+  details: "what the previews add, e.g. a session's changed files or a plan's text",
+  both: "rows and details: finds the most, also entries that only mention the words somewhere",
+};
+
+/** How to select text while the viewer has the mouse, in this terminal. */
+function selectText(terminal: Terminal | undefined): string {
+  if (terminal === "wt") return "select text with Shift+drag";
+  if (terminal === "tmux") return "select text with Shift+drag, or your terminal's modifier (Option in iTerm2)";
+  return "select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier)";
+}
 
 /** The first row of a view's group: whether the view has a tab. */
 function viewTab(key: keyof Settings, name: string, number: string, what: string): Row {
@@ -114,8 +155,8 @@ function viewTab(key: keyof Settings, name: string, number: string, what: string
     key,
     group: name,
     label: "tab",
-    description: `Whether the ${name} view (${what}) has a tab. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs. A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (6) cannot be hidden, and at least one other view stays shown.`,
-    values: ON_OFF("show its tab", "hide it"),
+    description: `Whether the ${name} view (${what}) has a tab. Hide a view you do not use, and the tab bar gets shorter. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs (with Plan hidden, Sessions stays 4). A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (6) cannot be hidden, and at least one other view stays shown.`,
+    values: ON_OFF(`show its tab; ${number} and Tab reach it`, `hide it; ${number} and Tab skip it`),
   };
 }
 
@@ -125,15 +166,14 @@ function listOrder(key: keyof Settings, view: string, what: string): Row {
     key,
     group: view,
     label: "order",
-    description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. The keys follow what you see: ↑/↓ go up and down the list, Home and g to the top, End and G to the bottom.`,
+    description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. Oldest first reads like Claude Code, from the top down; newest first puts the latest right under the tabs, where a long list starts. The keys follow what you see: ↑/↓ go up and down the list, Home and g to the top, End and G to the bottom.`,
     values: [
-      ["oldest-first", "oldest at the top, newest at the bottom"],
-      ["newest-first", "newest at the top, oldest at the bottom"],
+      ["oldest-first", `oldest at the top, newest at the bottom: new ${what} appear below`],
+      ["newest-first", `newest at the top, oldest at the bottom: new ${what} appear at the top`],
     ],
     viewKey: `s in ${view}`,
   };
 }
-
 
 /** A view's row for how far back its list reaches at first. */
 function listRange(key: keyof Settings, view: string, what: string, dated: string): Row {
@@ -141,8 +181,27 @@ function listRange(key: keyof Settings, view: string, what: string, dated: strin
     key,
     group: view,
     label: "range",
-    description: `How far back the ${view} list reaches when it is read: the ${what} ${dated} today or in the days before it, counted in calendar days from midnight. The list shows the newest at the top and ends with "↓ more ↓", which reads the whole history until the viewer restarts. Transcripts last written before the range are not read, so a short range reads faster.`,
-    values: RANGE_VALUES.map((v): [string, string] => [v, v === "all" ? "the whole history, without ↓ more ↓" : v === "today" ? "only today" : `today and the ${Number.parseInt(v, 10) - 1} days before`]),
+    description: `How far back the ${view} list reaches when it is read: the ${what} ${dated} today or in the days before it, counted in calendar days from midnight. A short range opens faster when there are many transcripts: those last written before it are not read. The list shows the newest at the top and ends with "↓ more ↓", which reads the rest until the viewer restarts.`,
+    values: RANGE_VALUES.map((v): [string, Text] => [
+      v,
+      v === "all"
+        ? "the whole history, without ↓ more ↓; the first read takes longer with many transcripts"
+        : v === "today"
+          ? (c) => `only today, since ${firstDay(v, c.now)} 00:00`
+          : (c) => `today and the ${Number.parseInt(v, 10) - 1} days before, since ${firstDay(v, c.now)} 00:00`,
+    ]),
+  };
+}
+
+/** A view's wrap setting: long lines wrap at the pane's edge or are cut and scroll sideways. */
+function wrapRow(key: keyof Settings, group: string, what: string, off: string): Row {
+  return {
+    key,
+    group,
+    label: "wrap",
+    description: `Whether long lines ${what} wrap at the edge of the pane; off, they are cut and ctrl+←/→ scrolls sideways.`,
+    values: ON_OFF("wrap at the edge; nothing is cut off", `cut at the edge, ctrl+←/→ scrolls; ${off}`),
+    viewKey: `w in ${group}`,
   };
 }
 
@@ -152,18 +211,26 @@ export const SETTING_ROWS: Row[] = [
     key: "autoOpen",
     group: "Start",
     label: "auto open",
-    description: "Whether the viewer opens by itself when Claude Code starts (also with --resume and --continue). The focus stays in Claude Code, and no second viewer opens while one runs in the project.",
+    description:
+      "Whether the viewer opens by itself when Claude Code starts (also with --resume and --continue). The focus stays in Claude Code, and no second viewer opens while one runs in the project. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
     values: AUTO_OPEN_VALUES.map((v) => [v, AUTO_OPEN_MEANINGS[v]]),
-    notes: ["Needs the plugin's hooks, and Windows Terminal or tmux.", "Takes effect at the next start of Claude Code."],
+    notes: [
+      (c) =>
+        c.terminal
+          ? `Needs the plugin's hooks, and Windows Terminal or tmux (here: ${c.terminal === "wt" ? "Windows Terminal" : "tmux"}).`
+          : "Needs the plugin's hooks, and Windows Terminal or tmux; neither is found here, so it does not open.",
+      "Takes effect at the next start of Claude Code.",
+    ],
   },
   {
     key: "placement",
     group: "Start",
     label: "placement",
-    description: "Where the viewer opens, when Claude Code starts and with /cco:… commands. p in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
-    values: PLACEMENT_VALUES.map((v) => [v, PLACEMENT_MEANINGS[v]]),
+    description:
+      "Where the viewer opens, when Claude Code starts and with /cco:… commands. right and left suit a wide screen, where both fit side by side; window keeps Claude Code at full width, for a narrow one. p in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
+    values: PLACEMENT_VALUES.map((v) => [v, PLACEMENT_DETAILS[v]]),
     notes: [
-      "A window takes the focus from Claude Code: Windows Terminal cannot hand it back to another window.",
+      (c) => (c.terminal === "tmux" ? "" : "A window takes the focus from Claude Code: Windows Terminal cannot hand it back to another window."),
       "Takes effect the next time the viewer opens; a running viewer stays where it is.",
     ],
   },
@@ -171,15 +238,20 @@ export const SETTING_ROWS: Row[] = [
     key: "confirmQuit",
     group: "General",
     label: "confirm quit",
-    description: "Whether q and Esc ask before the viewer closes. The viewer still closes by itself when the session ends.",
-    values: ON_OFF("ask first (Enter yes, Esc no)", "close right away"),
+    description:
+      "Whether q and Esc ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it. The viewer still closes by itself when the session ends; /cco:chat opens it again.",
+    values: ON_OFF("ask first: Quit cco? Enter yes, Esc no", "close at the first q or Esc"),
   },
   {
     key: "marquee",
     group: "General",
     label: "marquee",
-    description: "Whether the selected list entry scrolls sideways when it is too long for the list, at most 250 columns, then from the start.",
-    values: ON_OFF("scroll long entries", "cut them off with …"),
+    description:
+      "Whether the selected list entry scrolls sideways when it is too long for the list, at most 250 columns, then from the start. Useful in a narrow pane, where prompts, paths and session titles are cut.",
+    values: ON_OFF(
+      "the selected entry scrolls to its end and starts over; the others are cut with …",
+      "every entry is cut with …, e.g. Fix the date separa…; the preview's header shows it in full",
+    ),
   },
   {
     key: "dateSeparators",
@@ -187,45 +259,58 @@ export const SETTING_ROWS: Row[] = [
     label: "date separators",
     description:
       "Whether Chat, Plan, Sessions and the trash show a line with the date (── Mon 28 Sep 2026 ──) above each day's entries, unless all of them are from today; the entries then show only their time. The Monitor's days get a line per year (── 2025 ──) once they reach into another year. Off, Sessions and the trash show the date in each row again.",
-    values: ON_OFF("a line per day", "no lines"),
+    values: ON_OFF(
+      (c) => `a line per day, e.g. ── ${daysAgo(1, c.now)} ── above yesterday's entries; the rows show only 14:32`,
+      (c) => `no lines; Sessions and the trash show ${dayOf(new Date(c.now.getFullYear(), c.now.getMonth(), c.now.getDate() - 1).getTime())!.slice(5)} 14:32 in each row`,
+    ),
   },
   {
     key: "pinnedGroup",
     group: "General",
     label: "pinned group",
     description:
-      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (Space) at the top, under ── ★ Pinned ── and above ── Pinned end ──, in the order of the list. They then show only there, not in their place below; ↑↓, Home/End and Shift+↑/↓ follow the rows on screen. A filter applies to them too. Sessions and the Monitor pin only what their range has read.",
-    values: ON_OFF("marked entries at the top", "marked entries in their place"),
+      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (Space) at the top, under ── ★ Pinned ── and above ── Pinned end ──, in the order of the list. They then show only there, not in their place below; ↑↓, Home/End and Shift+↑/↓ follow the rows on screen. A filter applies to them too. Sessions and the Monitor pin only what their range has read. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
+    values: ON_OFF("marked entries at the top, under ── ★ Pinned ──", "marked entries in their place, with ★; Shift+↑/↓ jumps between them"),
   },
   {
     key: "rememberPositions",
     group: "General",
     label: "remember positions",
     description: "Whether every list keeps its selected entry and the scroll position of each entry across restarts of the viewer. Switching entries keeps positions either way while the viewer runs.",
-    values: ON_OFF("store them per project", "start fresh after each restart"),
-    notes: ["Stored in ~/.claude/cco/<project>.positions.json; switching off keeps the file.", "Takes effect when the viewer starts."],
+    values: ON_OFF(
+      "store them per project, e.g. Changes reopens on the same file, scrolled to the same hunk",
+      "start fresh after each restart: the newest turn in Chat, the first entry elsewhere, each scrolled to the top",
+    ),
+    notes: [(c) => `Stored in ${tilde(positionsFile(c.cwd))}; switching off keeps the file.`, "Takes effect when the viewer starts."],
   },
   {
     key: "rememberView",
     group: "General",
     label: "view per session",
-    description: "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer without --view, and when the viewer follows it after /resume. A /cco:… command still opens the view it names.",
-    values: ON_OFF("reopen the session's last view", "start in the chat, or the view shown last in the project"),
-    notes: ["Stored per project in ~/.claude/cco/<project>.views.json."],
+    description:
+      "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer without --view, and when the viewer follows it after /resume. A /cco:… command still opens the view it names.",
+    values: ON_OFF(
+      "reopen the session's last view, e.g. a session left in Changes comes back in Changes after claude --resume",
+      "start in the chat, or the view shown last in the project",
+    ),
+    notes: [(c) => `Stored per project in ${tilde(sessionViewsFile(c.cwd))}.`],
   },
   {
     key: "mouse",
     group: "General",
     label: "mouse",
-    description: "Whether the viewer takes the mouse: a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what Enter does, and the wheel scrolls the preview (or moves through the list). While it is on, the terminal leaves clicks to the viewer: select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier).",
-    values: ON_OFF("clicks and wheel go to the viewer", "the terminal keeps the mouse (Ctrl+click opens links)"),
+    description: (c) =>
+      `Whether the viewer takes the mouse: a click on a tab switches to it, a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what Enter does, and the wheel scrolls the preview (or moves through the list). A drag in the preview selects lines and copies them when released. While it is on, the terminal leaves clicks to the viewer: ${selectText(c.terminal)}.`,
+    values: ON_OFF("clicks and wheel go to the viewer", (c) =>
+      c.terminal === "tmux" ? "tmux and the terminal keep the mouse, as in any other pane" : "the terminal keeps the mouse: a drag selects text, Ctrl+click opens links",
+    ),
   },
   {
     key: "filterIn",
     group: "General",
     label: "filter in",
     description:
-      "What the list filter (Ctrl+F) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). In the filter dialog, ^L and ^D switch them on and off, which changes this setting.",
+      "What the list filter (Ctrl+F) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). For example, with the details, src/tui in Sessions finds the sessions that changed a file there, although no row shows it. Every word must match, in any order; * stands for any characters, ? for one. In the filter dialog, ^L and ^D switch them on and off, which changes this setting.",
     values: FILTER_IN_VALUES.map((v) => [v, FILTER_IN_MEANINGS[v]]),
   },
   {
@@ -233,7 +318,7 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "update",
     description:
-      "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries at the end of the list show the notes of each version and run the update. With auto, the viewer also opens the update here as soon as the check finds one and asks whether to install it.",
+      "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries at the end of the list show the notes of each version and run the update. With auto, the viewer also opens the update here as soon as the check finds one and asks whether to install it. Choose on to update when it suits you, off without network access.",
     values: UPDATE_VALUES.map((v) => [v, UPDATE_MEANINGS[v]]),
     notes: ["F5 in Settings checks once either way.", "The answer is kept in ~/.claude/cco/releases.json, so the notes also show offline."],
   },
@@ -242,11 +327,12 @@ export const SETTING_ROWS: Row[] = [
     key: "showTools",
     group: "Chat",
     label: "tool calls",
-    description: "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame; otherwise they are a tool call like the others.",
+    description:
+      "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame; otherwise they are a tool call like the others.",
     values: [
-      ["off", "hide them"],
-      ["compact", "a line each, with the result: lines read, +/− of an edit, ✓ or ✗ of a command"],
-      ["full", "also the command, the last 10 lines of its output, and found files"],
+      ["off", "hide them; Claude's text reads as one answer"],
+      ["compact", "a line each, with the result, e.g. ⚙ Read src/app.ts · 120 lines, ⚙ Edit src/app.ts · +4 −2, ⚙ Bash Run the tests · ✓ · 38 lines"],
+      ["full", "also the command, the last 10 lines of its output, and the first 5 files a search found"],
     ],
     viewKey: "t in Chat",
   },
@@ -254,52 +340,32 @@ export const SETTING_ROWS: Row[] = [
     key: "showThinking",
     group: "Chat",
     label: "thinking",
-    description: "Whether the chat shows Claude's thinking blocks.",
-    values: ON_OFF("show them", "hide them"),
+    description: "Whether the chat shows Claude's thinking blocks: what it considered before an answer or a tool call. Useful to see why Claude took a path; the turns get much longer.",
+    values: ON_OFF("show them where Claude thought, between the text", "hide them; only what Claude wrote to you"),
     viewKey: "h in Chat",
   },
   {
     key: "showAgents",
     group: "Chat",
     label: "agents",
-    description: "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. a in Chat opens what a subagent did.",
-    values: ON_OFF("show them", "hide them"),
+    description:
+      "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. a in Chat opens what a subagent did.",
+    values: ON_OFF("show them, e.g. an Explore agent searching the code, with its status", "hide them; a still opens what they did"),
   },
-  {
-    key: "chatWrap",
-    group: "Chat",
-    label: "wrap",
-    description: "Whether long lines in the chat wrap; off, they are cut and ctrl+←/→ scrolls sideways.",
-    values: ON_OFF("wrap", "scroll sideways"),
-    viewKey: "w in Chat",
-  },
+  wrapRow("chatWrap", "Chat", "in the chat", "useful for wide tables and code blocks"),
   listOrder("chatOrder", "Chat", "turns"),
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
-  {
-    key: "wrap",
-    group: "Changes",
-    label: "wrap",
-    description: "Whether long lines in diffs wrap; off, they are cut and ctrl+←/→ scrolls sideways.",
-    values: ON_OFF("wrap", "scroll sideways"),
-    viewKey: "w in Changes",
-  },
+  wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),
   viewTab("viewPlan", "Plan", "3", "the plans Claude presented in plan mode"),
-  {
-    key: "planWrap",
-    group: "Plan",
-    label: "wrap",
-    description: "Whether long lines of plans wrap; off, they are cut and ctrl+←/→ scrolls sideways.",
-    values: ON_OFF("wrap", "scroll sideways"),
-    viewKey: "w in Plan",
-  },
+  wrapRow("planWrap", "Plan", "of plans", "useful for wide tables and code blocks"),
   listOrder("planOrder", "Plan", "plans"),
   viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
   {
     key: "allProjects",
     group: "Sessions",
     label: "all projects",
-    description: "Whether the Sessions view lists the sessions of all projects or only of this one. The trash follows the same choice.",
-    values: ON_OFF("all projects", "this project"),
+    description: "Whether the Sessions view lists the sessions of all projects or only of this one. All projects helps to find a session started in another folder; the trash follows the same choice.",
+    values: ON_OFF("all projects with sessions in ~/.claude/projects", (c) => `only this one, ${basename(c.cwd) || c.cwd}`),
     viewKey: "a in Sessions",
   },
   listRange("sessionsRange", "Sessions", "sessions", "started"),
@@ -354,21 +420,24 @@ function resetLines(action: ResetAction, changed: string[], marked: number, save
   return lines;
 }
 
-function settingLines(row: Row, current: string | boolean, width: number): string[] {
+export function settingLines(row: Row, current: string | boolean, width: number, context: TextContext): string[] {
   const wrap = (text: string, indent = "") =>
     wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
       .split("\n")
       .map((l) => indent + l);
-  const lines = [...wrap(row.description), ""];
+  const lines = [...wrap(textOf(row.description, context)), ""];
   lines.push(bold("Values"));
   for (const [value, meaning] of row.values) {
+    // A blank line below the heading and between the values: most take two or three lines with their example.
+    lines.push("");
     const selected = value === current;
     const name = valueName(value) + (value === DEFAULT_SETTINGS[row.key] ? " (default)" : "");
-    const [first, ...rest] = wrap(`${name}: ${meaning}`, "  ");
-    lines.push((selected ? "\u001b[32m● " : dim("○ ")) + first.slice(2) + (selected ? "\u001b[39m" : ""), ...rest);
+    // The value on a line of its own, what it does indented below it.
+    // Names in colour, so they stand out from their descriptions: the current one green, the others gray.
+    lines.push(selected ? `\u001b[32m● ${name}\u001b[39m` : `${dim("○")} \u001b[90m${name}\u001b[39m`, ...wrap(textOf(meaning, context), "  "));
   }
   if (row.viewKey) lines.push("", dim(`Also ${row.viewKey}.`));
-  for (const note of row.notes ?? []) lines.push("", ...wrap(dim(note)));
+  for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
   return lines;
 }
 
@@ -487,6 +556,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const settings = useSettings();
+  // The examples' dates are today's; a new day writes them anew on the next render.
+  const today = dayOf(Date.now());
+  const context = useMemo((): TextContext => ({ now: new Date(), cwd, terminal: detectTerminal() }), [cwd, today]);
   const update = useUpdateInfo();
   const copy = useClipboard();
   const [copied, setCopied] = useState(false);
@@ -515,13 +587,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     items: listEntries,
     text: (e) =>
       "key" in e
-        ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: e.description }
+        ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: textOf(e.description, context) }
         : "id" in e
           ? { list: haystack(["Reset", e.label]), details: e.description }
           : e.kind === "release"
             ? { list: haystack(["Releases", e.release.tag, e.release.title]), details: e.release.body }
             : { list: haystack(["Releases", entryLabel(e)]), details: "" },
-    deps: [settings, update.releases, update.state],
+    deps: [settings, update.releases, update.state, context],
     selected: index,
     select: (i) => select(i),
     layout,
@@ -613,8 +685,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             : release.kind === "release"
               ? releaseLines(release.release, previewWidth)
               : releasesNote(update, previewWidth)
-          : settingLines(row!, current!, previewWidth),
-    [entry, update, current, changed.length, marked, saved, previewWidth],
+          : settingLines(row!, current!, previewWidth, context),
+    [entry, update, current, changed.length, marked, saved, previewWidth, context],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
