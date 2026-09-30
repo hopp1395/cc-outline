@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, isViewShown, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
-import { isLastView, nextValue, SETTING_ROWS } from "../src/tui/SettingsView.js";
+import { isLastView, nextValue, SETTING_ROWS, settingLines } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
 
@@ -120,6 +120,36 @@ describe("settings view", () => {
     expect(nextValue(autoOpen, "never")).toBe("remember");
     const marquee = SETTING_ROWS.find((r) => r.key === "marquee")!;
     expect(nextValue(marquee, true)).toBe(false);
+  });
+
+  const plain = (lines: string[]) => lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
+  const details = (key: string, terminal?: "wt" | "tmux") => {
+    const row = SETTING_ROWS.find((r) => r.key === key)!;
+    return plain(settingLines(row, DEFAULT_SETTINGS[row.key], 2000, { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app"), terminal }));
+  };
+
+  it("writes every setting's details in each terminal, without empty notes", () => {
+    for (const terminal of ["wt", "tmux", undefined] as const)
+      for (const row of SETTING_ROWS) {
+        const text = details(row.key, terminal);
+        expect(text, row.key).not.toMatch(/undefined|\[object|\n\n\n/);
+        for (const [value] of row.values) expect(text, row.key).toContain(`${typeof value === "boolean" ? (value ? "on" : "off") : ""}`);
+      }
+  });
+
+  it("gives the ranges' first day as an example, counted from today", () => {
+    const text = details("sessionsRange");
+    expect(text).toContain("only today, since Wed 30 Sep 00:00");
+    expect(text).toContain("today and the 6 days before, since Thu 24 Sep 00:00");
+    expect(text).toContain("today and the 29 days before, since Tue 1 Sep 00:00");
+  });
+
+  it("names this project and the terminal found", () => {
+    expect(details("allProjects")).toContain("only this one, my-app");
+    expect(details("placement", "wt")).toContain("Alt+Tab");
+    expect(details("placement", "tmux")).toContain("tmux window");
+    expect(details("placement", "tmux")).not.toContain("Windows Terminal cannot");
+    expect(details("mouse", "wt")).toContain("select text with Shift+drag.");
   });
 });
 
