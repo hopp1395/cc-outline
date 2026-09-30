@@ -101,6 +101,7 @@ The viewer (`src/tui/useViewerControl.ts`) only reacts to changes that happen af
 ## Gotchas
 
 - The viewer inherits the environment of the Claude Code it was opened from, including `CLAUDE_CODE_CHILD_SESSION=1`. A Claude Code started from the viewer with that marker thinks it is a child session and saves no transcript, so `resumeInNewTab` strips the session-bound variables (`independentEnv` in `src/open.ts`).
+- React and Ink are not bundled, so React picks its build from `NODE_ENV` when `watch.ts` is loaded. The development build records every render as a `performance.measure` that Node keeps, ~0.25 MB/s while a spinner runs (a viewer died after 6 h at 4 GB). `cli.ts` therefore imports the viewer with `NODE_ENV=production` (`importProduction`) and restores it afterwards, so claude and npm started from the viewer do not inherit it. Tests and the demo still run the development build.
 - `CLAUDE_CONFIG_DIR` may be set to an empty string. Use `||`, not `??`, when falling back to `~/.claude`.
 - chokidar does not notice files created later if their directory does not exist yet; `watchFile` creates the directory first. On Windows it uses polling. `FileTail` also stats the file every second so it catches a transcript that does not exist yet.
 - On this Windows machine, the Bash tool mangles backslashes in heredocs and inline scripts (`\\`, `\u001b`, `\n`). Write files containing escape sequences with the Write/Edit tools.
