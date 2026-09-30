@@ -1,6 +1,7 @@
 import stringWidth from "string-width";
 
-const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "").replace(/\u001b\]8;[^\u0007\u001b]*(\u0007|\u001b\\)/g, "");
+/** `s` without colours and OSC 8 links. */
+export const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "").replace(/\u001b\]8;[^\u0007\u001b]*(\u0007|\u001b\\)/g, "");
 
 /** A web address in plain text; trailing punctuation that usually ends a sentence is not part of it. */
 const URL_PATTERN = /https?:\/\/[^\s<>"'`()[\]{}]+[^\s<>"'`()[\]{}.,;:!?]/g;

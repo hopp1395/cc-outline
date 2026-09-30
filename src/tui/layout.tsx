@@ -13,7 +13,7 @@ import {
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
-import { isViewShown, type ListOrder } from "../settings.js";
+import { isViewShown, type ListOrder, type Settings } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
@@ -334,27 +334,53 @@ export function barBackground(color: string | undefined, focused: boolean): stri
 /** Background of the list selection while the focus is elsewhere, like an inactive editor list. */
 const INACTIVE_SELECTION = "#3a3d41";
 
+/** The top bar's tabs, in order, with their number key. */
+const TABS: { key: string; label: string; mode: Mode }[] = [
+  { key: "1", label: "Chat", mode: "chat" },
+  { key: "2", label: "Changes", mode: "git" },
+  { key: "3", label: "Plan", mode: "plan" },
+  { key: "4", label: "Sessions", mode: "sessions" },
+  { key: "5", label: "Monitor", mode: "monitor" },
+  { key: "6", label: "Settings", mode: "settings" },
+];
+const TABS_LEAD = "cco ";
+const tabText = (tab: (typeof TABS)[number]) => ` ${tab.key} ${tab.label} `;
+
+/** The tabs shown while `mode` is open: a hidden view shows its tab only while it is open (opened by a /cco:… command). */
+function shownTabs(settings: Settings, mode: Mode) {
+  return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
+}
+
+/** The view whose tab is at column `x` of the top bar, or undefined. */
+export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefined {
+  let start = TABS_LEAD.length;
+  for (const tab of shownTabs(settings, mode)) {
+    const end = start + tabText(tab).length;
+    if (x >= start && x < end) return tab.mode;
+    start = end;
+  }
+  return undefined;
+}
+
 function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const settings = useSettings();
-  // A hidden view shows its tab only while it is open (opened by a /cco:… command).
-  const tab = (key: string, label: string, m: Mode) =>
-    m !== mode && !isViewShown(settings, m) ? null : m === mode ? (
-      <Text inverse bold>{` ${key} ${label} `}</Text>
-    ) : (
-      <Text dimColor={!focused}>{` ${key} ${label} `}</Text>
-    );
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. */}
       <Text bold color={focused ? "whiteBright" : "cyan"}>
-        cco{" "}
+        {TABS_LEAD}
       </Text>
-      {tab("1", "Chat", "chat")}
-      {tab("2", "Changes", "git")}
-      {tab("3", "Plan", "plan")}
-      {tab("4", "Sessions", "sessions")}
-      {tab("5", "Monitor", "monitor")}
-      {tab("6", "Settings", "settings")}
+      {shownTabs(settings, mode).map((tab) =>
+        tab.mode === mode ? (
+          <Text key={tab.mode} inverse bold>
+            {tabText(tab)}
+          </Text>
+        ) : (
+          <Text key={tab.mode} dimColor={!focused}>
+            {tabText(tab)}
+          </Text>
+        ),
+      )}
     </Text>
   );
 }
@@ -734,7 +760,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
   const label = (key: string, full: boolean) => (group ? key : periodLabel(key, full ? "always" : "other"));
   useMouse((e) => {
     const at = inArea(area, e.x, e.y);
-    if (!at || !onPick || items.length === 0) return;
+    if (!at || !onPick || items.length === 0 || (e.kind !== "click" && e.kind !== "wheel")) return;
     if (e.kind === "wheel") return onPick(Math.max(0, Math.min(items.length - 1, selected + e.delta)));
     // The ▲/▼ rows jump to the far end, like Home and End.
     if (from > 0 && at.row === 0) return onPick(0);
