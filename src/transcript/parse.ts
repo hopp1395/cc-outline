@@ -975,7 +975,7 @@ export function turnMarkdown(turn: Turn, opts: { tools: ToolLevel; thinking: boo
     } else if (b.kind === "thinking" && opts.thinking) {
       parts.push(b.text.split("\n").map((l) => `> ${l}`).join("\n"));
     } else if (b.kind === "tool") {
-      // Questions and answers are part of the conversation: shown at every level.
+      // Questions and answers are part of the conversation: with tools off they still show, framed.
       const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd);
       const on = md && b.outcome?.page !== undefined && b.outcome.page !== page ? pageLine(b.outcome.page) : undefined;
       if (on) page = b.outcome!.page;
