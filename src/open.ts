@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
 import { resolvePlacement } from "./sessionViews.js";
 import { claudeFile, readActive, readJson, type ActiveSession } from "./transcript/locate.js";
+import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer } from "./viewer.js";
 
@@ -109,6 +110,8 @@ export interface OpenOptions {
   select?: string;
   /** The viewer reopens after an update to this version, and says so. */
   updatedTo?: string;
+  /** The command was typed while Claude was working and ran only at the end of the turn (`openedFromQueue`). */
+  queued?: boolean;
 }
 
 /**
@@ -122,12 +125,15 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
     return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
   }
   const terminal = detectTerminal();
-  const chosen = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid));
+  const chosen = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid)?.session_id);
   // wt finds the window of the calling tab through WT_SESSION. A Claude Code without it (restarted
   // itself, or a session run by the Claude Code daemon) has no tab to dock to: wt would open a new
   // window anyway, hidden by windowsHide. Open the viewer in a window of its own instead.
   const tabless = terminal === "wt" && !process.env.WT_SESSION && chosen !== "window";
-  const placement = tabless ? "window" : chosen;
+  // split-pane splits the tab active now, which after a wait may be another one (the user moved on).
+  // wt cannot name the calling tab, so a queued command opens the window of this process instead.
+  const away = terminal === "wt" && !tabless && opts.queued === true && chosen !== "window";
+  const placement = tabless || away ? "window" : chosen;
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
   const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, "--view", view, "--placement", placement];
@@ -144,10 +150,12 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
     const cmd = viewer.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
     // -d leaves the current pane active; -b puts the new pane before (left of) it.
     const keep = opts.keepFocus ? ["-d"] : [];
+    // Claude Code's own pane, not the one active now (a queued command runs only at the end of the turn).
+    const pane = process.env.TMUX_PANE;
     const args =
       placement === "window"
-        ? ["new-window", ...keep, "-n", "cco", "-c", cwd, cmd]
-        : ["split-window", "-h", ...(placement === "left" ? ["-b"] : []), ...keep, "-c", cwd, cmd];
+        ? ["new-window", ...keep, ...(pane ? ["-a", "-t", pane] : []), "-n", "cco", "-c", cwd, cmd]
+        : ["split-window", "-h", ...(placement === "left" ? ["-b"] : []), ...keep, ...(pane ? ["-t", pane] : []), "-c", cwd, cmd];
     spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
     return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a tmux window.` : `Opened cco ${VIEW_NAMES[view]} in a tmux pane${where}.`;
   }
@@ -165,15 +173,21 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
     // windowsHide asks Windows to start hidden, which Windows Terminal applies to a new window: only for panes.
     spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
     if (tabless) return `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window: this Claude Code has no terminal tab to dock to.`;
+    if (away) return `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window: Claude was busy, and the pane would have opened in whichever tab is active now. Press p in it to dock it.`;
     return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window.` : `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal pane${where}.`;
   }
   return `No supported terminal detected (Windows Terminal or tmux). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
 }
 
 /** The session the Claude Code process `claudePid` (else the project) is in, from the hook's state files. */
-function sessionOfProcess(cwd: string, claudePid: number | undefined): string | undefined {
+function sessionOfProcess(cwd: string, claudePid: number | undefined): ActiveSession | undefined {
   const own = claudePid ? readJson<ActiveSession>(claudeFile(cwd, claudePid)) : undefined;
-  return (own ?? readActive(cwd))?.session_id;
+  return own ?? readActive(cwd);
+}
+
+/** Whether `cco open` runs from a command that waited in Claude Code's queue for the turn to end (`ranFromQueue`). */
+export function openedFromQueue(cwd: string, claudePid: number | undefined): boolean {
+  return ranFromQueue(sessionOfProcess(cwd, claudePid)?.transcript_path);
 }
 
 /**
