@@ -90,6 +90,15 @@ export function spinnerMarks(lines: string[]): { line: number; col: number }[] {
   return marks;
 }
 
+/**
+ * The last line of the running turn's answer. With tool calls hidden, it counts them, so the user sees that Claude gets on.
+ */
+export function workingLine(turn: Turn, tools: ToolLevel): string {
+  const calls = tools === "off" ? turn.blocks.filter((b) => b.kind === "tool").length : 0;
+  const count = calls > 0 ? ` · ${calls} tool call${calls === 1 ? "" : "s"}` : "";
+  return dim(`${AGENT_RUNNING_MARK} Claude is working…${count}`);
+}
+
 /** The subagents a turn started, or for a notification the one it reports on. */
 export function turnAgents(turn: Turn | undefined, all: AgentRun[]): AgentRun[] {
   if (!turn) return [];
@@ -398,7 +407,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const answer = useMemo(() => {
     if (!current) return { header: [], lines: [] };
     const body = answerLines(current, { tools: showTools, thinking: showThinking, agents: showAgents }, previewWidth, wrap);
-    const status = isRunning(current) ? dim("⠿ Claude is working…") : interruptLine(current);
+    const status = isRunning(current) ? workingLine(current, showTools) : interruptLine(current);
     const lines = body.length ? body : status ? [] : [dim("(no text output yet)")];
     return {
       header: current.continuation
