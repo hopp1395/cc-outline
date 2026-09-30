@@ -116,6 +116,9 @@ function sessionTitle(s: SessionSummary): string {
   return s.title ?? (s.prompts.find((p) => !isCommand(p.text)) ?? s.prompts[0])?.text ?? s.id;
 }
 
+/** Whether `sessionTitle` falls back to a prompt, since the session has no /rename title. */
+const titleIsPrompt = (s: SessionSummary) => s.title === undefined && s.prompts.length > 0;
+
 /** Shell command that continues the session in Claude Code. */
 export function resumeCommand(s: SessionSummary): string {
   return `claude --resume ${s.id}`;
@@ -647,6 +650,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
               const marked = favorites.isMarked(s.id);
               const state = stateOf(s);
               const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
+              // A /rename title is bright, a first prompt standing in for it dim and quoted.
+              // The quotes go around the cut text, so the closing one is never cut off.
+              const quoted = titleIsPrompt(s);
               return (
                 <>
                   {marked && <Star />}
@@ -654,15 +660,25 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
                   {badge && <Text color="green">{badge}</Text>}
                   {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
-                  <EntryText
-                    text={sessionTitle(s)}
-                    width={Math.max(
-                      4,
-                      listWidth - (separators ? 7 : 13) - (marked ? 2 : 0) - badge.length - (all ? Math.min(12, projectName(s).length) + 1 : 0),
-                    )}
-                    selected={isSelected}
-                    active={active && confirmation === undefined}
-                  />
+                  {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
+                  <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
+                    {quoted && "„"}
+                    <EntryText
+                      text={sessionTitle(s)}
+                      width={Math.max(
+                        4,
+                        listWidth -
+                          (separators ? 7 : 13) -
+                          (marked ? 2 : 0) -
+                          badge.length -
+                          (all ? Math.min(12, projectName(s).length) + 1 : 0) -
+                          (quoted ? 2 : 0),
+                      )}
+                      selected={isSelected}
+                      active={active && confirmation === undefined}
+                    />
+                    {quoted && "“"}
+                  </Text>
                 </>
               );
             }}
