@@ -6,6 +6,7 @@ import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings } from "../settings.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
+import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { nextMarked } from "../favorites.js";
 import { haystack } from "../filter.js";
@@ -195,7 +196,7 @@ export const SETTING_ROWS: Row[] = [
     key: "mouse",
     group: "General",
     label: "mouse",
-    description: "Whether the viewer takes the mouse: a click on a web address opens it in the browser, a click in a list selects the entry, and the wheel scrolls the preview (or moves through the list). While it is on, the terminal leaves clicks to the viewer: select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier).",
+    description: "Whether the viewer takes the mouse: a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what Enter does, and the wheel scrolls the preview (or moves through the list). While it is on, the terminal leaves clicks to the viewer: select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier).",
     values: ON_OFF("clicks and wheel go to the viewer", "the terminal keeps the mouse (Ctrl+click opens links)"),
   },
   {
@@ -457,6 +458,7 @@ export function settingsEntries(update: Update): Entry[] {
 export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, select: asked }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
+  const [isDoubleClick] = useState(() => doubleClicks());
   const settings = useSettings();
   const update = useUpdateInfo();
   const copy = useClipboard();
@@ -617,6 +619,21 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const commandsToCopy = update.run?.status === "failed" ? remainingCommands(update.run.steps) : UPDATE_STEPS.map((s) => s.command);
   const onUpdate = release?.kind === "update";
 
+  /** Enter (or a double click) on the selected entry: a reset or the update asks first, a setting takes its next value. */
+  const activate = () => {
+    if (filter.none) return;
+    if (reset) {
+      if (reset.id === "settings") return canReset && askResetSettings();
+      return saved.length > 0 && askResetData();
+    }
+    if (onUpdate) {
+      if (state.kind === "restart") return update.restart();
+      return canUpdate && askUpdate();
+    }
+    // The last view besides Settings stays: hiding it would leave only this one.
+    if (row && !isLastView(settings, row.key)) set({ [row.key]: nextValue(row, current!) });
+  };
+
   useInput(
     (input, key) => {
       // Ctrl+R reloads (App), which r must not take as "back to the default".
@@ -628,22 +645,10 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         return target !== undefined && select(target);
       }
       if (filter.none && (key.return || input === "r" || input === "c")) return;
-      if (reset && key.return) {
-        if (reset.id === "settings") return canReset && askResetSettings();
-        return saved.length > 0 && askResetData();
-      }
-      if (onUpdate && key.return) {
-        if (state.kind === "restart") return update.restart();
-        return canUpdate && askUpdate();
-      }
+      if (key.return && (reset || onUpdate || row)) return activate();
       if (onUpdate && input === "c") {
         void copy(commandsToCopy.join("\n")).then(() => setCopied(true));
         return;
-      }
-      if (row && key.return) {
-        // The last view besides Settings stays: hiding it would leave only this one.
-        if (isLastView(settings, row.key)) return;
-        return set({ [row.key]: nextValue(row, current!) });
       }
       if (input === "r" && row) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
@@ -698,6 +703,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         list={
           <List
             onPick={select}
+            // A double click does what Enter does.
+            onClick={(i) => isDoubleClick(i) && i === index && !updating && activate()}
             items={listEntries}
             shown={filter.shown}
             filter={filter.banner}

@@ -21,6 +21,7 @@ import {
   type Measurements,
 } from "../monitor/responses.js";
 import { dayLabel } from "./days.js";
+import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { nextMarked } from "../favorites.js";
 import { haystack, type FilterText } from "../filter.js";
@@ -265,6 +266,7 @@ type Entry = ReturnType<typeof daysWithData>[number] | LoadMore;
 export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
+  const [isDoubleClick] = useState(() => doubleClicks());
   const range = useListRange("monitorRange");
   const { data, progress, complete } = useMeasurements(visible, range.since);
   const more = showsLoadMore(range, complete);
@@ -407,7 +409,8 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       list={
         <List
           onPick={select}
-          onClick={(i) => isLoadMore(entries[i]) && loadMore()}
+          // Load more takes a single click; on a day, a double click does what Enter does.
+          onClick={(i) => (isLoadMore(entries[i]) ? loadMore() : isDoubleClick(i) && i === current && setTable((t) => !t))}
           items={entries}
           shown={filter.shown}
           filter={filter.banner}
