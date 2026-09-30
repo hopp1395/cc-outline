@@ -16,9 +16,9 @@ import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog } from "./InfoDialog.js";
 import { MonitorView } from "./MonitorView.js";
-import { MouseContext, useMouseReporting } from "./mouse.js";
+import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
-import { SessionColorContext, useLayout, type Mode } from "./layout.js";
+import { SessionColorContext, tabAt, useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
@@ -229,6 +229,14 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
       else if (input === "q") quit();
+      return;
+    }
+    // A click on a tab of the top bar switches to its view.
+    if (input.startsWith("[<")) {
+      if (!mouse) return;
+      const click = parseMouse(input).find((e) => e.kind === "click" && e.y === 0);
+      const view = click && tabAt(click.x, readSettings(), mode);
+      if (view && view !== mode) setMode(view);
       return;
     }
     if (input === "q" || (key.escape && !detailOpen[mode])) quit();

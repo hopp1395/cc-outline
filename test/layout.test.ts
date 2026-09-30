@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SETTINGS } from "../src/settings.js";
 import {
   fitFooter,
   flipOrder,
@@ -11,6 +12,7 @@ import {
   MARQUEE_MAX_SCROLL,
   marqueeOffset,
   sliceColumns,
+  tabAt,
   truncate,
   wrapPath,
   type FooterItem,
@@ -186,5 +188,23 @@ describe("scrollPosition", () => {
 
   it("says all when the content fits", () => {
     expect(scrollPosition(0, 0, 30, 40)).toBe("all");
+  });
+});
+
+describe("tabAt", () => {
+  it("finds the tab under a column of the top bar", () => {
+    // "cco  1 Chat  2 Changes  3 Plan …"
+    expect(tabAt(0, DEFAULT_SETTINGS, "chat")).toBeUndefined();
+    expect(tabAt(4, DEFAULT_SETTINGS, "chat")).toBe("chat");
+    expect(tabAt(11, DEFAULT_SETTINGS, "chat")).toBe("chat");
+    expect(tabAt(12, DEFAULT_SETTINGS, "chat")).toBe("git");
+    expect(tabAt(24, DEFAULT_SETTINGS, "chat")).toBe("plan");
+    expect(tabAt(200, DEFAULT_SETTINGS, "chat")).toBeUndefined();
+  });
+
+  it("skips hidden views, unless it is the open one", () => {
+    const settings = { ...DEFAULT_SETTINGS, viewGit: false };
+    expect(tabAt(12, settings, "chat")).toBe("plan");
+    expect(tabAt(12, settings, "git")).toBe("git");
   });
 });
