@@ -4,6 +4,7 @@ import type { Placement } from "./settings.js";
 import { App } from "./tui/App.js";
 import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
+import type { ViewerAction } from "./viewer.js";
 
 export interface WatchOptions {
   cwd: string;
@@ -16,6 +17,8 @@ export interface WatchOptions {
   select?: string;
   /** Reopened after an update to this version. */
   updatedTo?: string;
+  /** Started by /cco:update: check for an update at once and offer it. */
+  action?: ViewerAction;
 }
 
 /**

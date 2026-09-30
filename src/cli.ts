@@ -6,7 +6,7 @@ import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
-import { isAlive, registerViewer, unregisterViewer } from "./viewer.js";
+import { isAlive, registerViewer, unregisterViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
 
 const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
 
@@ -58,7 +58,9 @@ program
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   // After an update the viewer reopens and says so once.
   .addOption(new Option("--updated-to <version>").hideHelp())
-  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string }) => {
+  // /cco:update opening a new viewer: it checks and asks at once.
+  .addOption(new Option("--action <action>").choices(["update"]).hideHelp())
+  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction }) => {
     const claudePid = validPid(opts.claudePid);
     // The App records the view it actually starts in.
     registerViewer(opts.cwd, opts.view ?? "chat", claudePid);
@@ -74,6 +76,7 @@ program
       placement: opts.placement,
       select: opts.select,
       updatedTo: opts.updatedTo,
+      action: opts.action,
     });
     process.exit(0);
   });
@@ -87,20 +90,23 @@ program
   .command("open")
   .description("open the viewer in a split pane of the current terminal")
   .option("--cwd <dir>", "project directory", process.cwd())
-  .addOption(new Option("--view <view>", "view to start with").choices(VIEWS).default("chat"))
+  // Without it, a running viewer keeps its view (--action restart); a new one opens in the chat, or with --action in the session's last view.
+  .addOption(new Option("--view <view>", "view to start with (default: chat)").choices(VIEWS))
   .addOption(new Option("--placement <placement>", "where to open it (default: the session's placement, else the setting)").choices(PLACEMENT_VALUES))
   .addOption(pidOption("--claude-pid <pid>", "the Claude Code process the viewer belongs to (default: CLAUDE_PID)"))
   // Moving with p: the running viewer quits, and the new one opens once it is gone.
   .addOption(pidOption("--after-pid <pid>", "open once this viewer process has exited"))
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   .addOption(new Option("--updated-to <version>").hideHelp())
-  .action(async (opts: { cwd: string; view: Mode; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string }) => {
+  .addOption(new Option("--action <action>", "restart the running viewer (else open one), or check for an update and offer it").choices(VIEWER_ACTIONS))
+  .action(async (opts: { cwd: string; view?: Mode; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction }) => {
     const afterPid = validPid(opts.afterPid);
     if (afterPid) await waitForExit(afterPid);
     const claudePid = validPid(opts.claudePid) ?? claudePidFromEnv();
     // Moving with p is not a command of Claude Code's.
     const queued = afterPid === undefined && openedFromQueue(opts.cwd, claudePid);
-    console.log(openPane(opts.cwd, opts.view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued }));
+    const view = opts.view ?? (opts.action ? undefined : "chat");
+    console.log(openPane(opts.cwd, view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued, action: opts.action }));
   });
 
 // For the plugin's launcher, which starts this file without npm's shim.
