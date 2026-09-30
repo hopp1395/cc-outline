@@ -8,7 +8,6 @@ import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
-import { nextMarked } from "../favorites.js";
 import { haystack } from "../filter.js";
 import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, rule, Screen, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
@@ -175,6 +174,14 @@ export const SETTING_ROWS: Row[] = [
     description:
       "Whether Chat, Plan, Sessions and the trash show a line with the date (── Mon 28 Sep 2026 ──) above each day's entries, unless all of them are from today; the entries then show only their time. The Monitor's days get a line per year (── 2025 ──) once they reach into another year. Off, Sessions and the trash show the date in each row again.",
     values: ON_OFF("a line per day", "no lines"),
+  },
+  {
+    key: "pinnedGroup",
+    group: "General",
+    label: "pinned group",
+    description:
+      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (Space) at the top, under ── ★ Pinned ── and above ── Pinned end ──, in the order of the list. They then show only there, not in their place below; ↑↓, Home/End and Shift+↑/↓ follow the rows on screen. A filter applies to them too. Sessions and the Monitor pin only what their range has read.",
+    values: ON_OFF("marked entries at the top", "marked entries in their place"),
   },
   {
     key: "rememberPositions",
@@ -499,6 +506,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     select: (i) => select(i),
     layout,
     onTyping,
+    marked: (e) => favorites.isMarked(keyOf(e)),
   });
 
   const updating = update.run?.status === "running";
@@ -639,9 +647,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       // Ctrl+R reloads (App), which r must not take as "back to the default".
       if (isReloadKey(input, key) || filter.handleKey(input, key)) return;
       const mark = markKeys(input, key);
-      if (mark === "toggle") return !filter.none && favorites.toggle(entryKey);
+      if (mark === "toggle") {
+        if (filter.none) return;
+        if (favorites.isMarked(entryKey)) filter.unmarking(index);
+        return favorites.toggle(entryKey);
+      }
       if (mark) {
-        const target = nextMarked(filter.markIds(entries), favorites.marks, index, mark);
+        const target = filter.nextMark(mark);
         return target !== undefined && select(target);
       }
       if (filter.none && (key.return || input === "r" || input === "c")) return;
@@ -707,6 +719,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             onClick={(i) => isDoubleClick(i) && i === index && !updating && activate()}
             items={listEntries}
             shown={filter.shown}
+            pinned={filter.pinned}
             filter={filter.banner}
             selected={index}
             height={bodyHeight}

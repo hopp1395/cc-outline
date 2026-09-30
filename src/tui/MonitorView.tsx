@@ -23,7 +23,6 @@ import {
 import { dayLabel } from "./days.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
-import { nextMarked } from "../favorites.js";
 import { haystack, type FilterText } from "../filter.js";
 import {
   bold,
@@ -300,7 +299,8 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
     select: (i) => select(i),
     layout,
     onTyping,
-    pinned: isLoadMore,
+    keep: isLoadMore,
+    marked: (d) => !isLoadMore(d) && favorites.isMarked(d.day),
   });
   const picked = filter.none ? undefined : entries[current];
   const onLoadMore = isLoadMore(picked);
@@ -379,14 +379,13 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
       // Checked first: Shift+↑/↓ jump between marked days.
       const mark = markKeys(input, key);
-      if (mark === "toggle") return selected && favorites.toggle(selected.day);
+      if (mark === "toggle") {
+        if (!selected) return;
+        if (favorites.isMarked(selected.day)) filter.unmarking(current);
+        return favorites.toggle(selected.day);
+      }
       if (mark) {
-        const target = nextMarked(
-          filter.markIds(entries.map((d) => (isLoadMore(d) ? "" : d.day))),
-          favorites.marks,
-          current,
-          mark,
-        );
+        const target = filter.nextMark(mark);
         return target !== undefined && select(target);
       }
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
@@ -413,6 +412,7 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
           onClick={(i) => (isLoadMore(entries[i]) ? loadMore() : isDoubleClick(i) && i === current && setTable((t) => !t))}
           items={entries}
           shown={filter.shown}
+          pinned={filter.pinned}
           filter={filter.banner}
           selected={current}
           height={bodyHeight}

@@ -57,6 +57,8 @@ export interface Settings {
   marquee: boolean;
   /** Lists ordered by time get a line with the date above each day's entries. */
   dateSeparators: boolean;
+  /** Every list shows its marked entries first, in a group of their own (── ★ Pinned ──). */
+  pinnedGroup: boolean;
   /** Selection and scroll positions are stored per project and restored after a restart. */
   rememberPositions: boolean;
   /** Each session reopens in the view it was shown in last. */
@@ -101,6 +103,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmQuit: true,
   marquee: true,
   dateSeparators: true,
+  pinnedGroup: false,
   rememberPositions: true,
   rememberView: true,
   mouse: true,

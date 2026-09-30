@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { nextMarked } from "../favorites.js";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
@@ -36,7 +35,6 @@ import {
   previewHeader,
   Screen,
   EntryText,
-  orderedDir,
   orderedNav,
   Star,
   truncate,
@@ -436,7 +434,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     layout,
     enabled: !trashOpen,
     onTyping,
-    pinned: isLoadMore,
+    keep: isLoadMore,
+    marked: (e) => !isLoadMore(e) && favorites.isMarked(e.id),
   });
   const picked = filter.none ? undefined : list[index];
   const onLoadMore = isLoadMore(picked);
@@ -619,14 +618,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       } else {
         // Checked first: Shift+↑/↓ jump between marked sessions.
         const mark = markKeys(input, key);
-        if (mark === "toggle") return session && favorites.toggle(session.id);
+        if (mark === "toggle") {
+          if (!session) return;
+          if (favorites.isMarked(session.id)) filter.unmarking(index);
+          return favorites.toggle(session.id);
+        }
         if (mark) {
-          const target = nextMarked(
-            filter.markIds(list.map(entryId)),
-            favorites.marks,
-            index,
-            orderedDir(reversed, mark),
-          );
+          const target = filter.nextMark(mark);
           return target !== undefined && select(target);
         }
         if ((input === "d" || key.delete) && session) return askDelete(session);
@@ -734,7 +732,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             }}
             items={list}
             shown={filter.shown}
-          filter={filter.banner}
+            pinned={filter.pinned}
+            filter={filter.banner}
             selected={index}
             height={bodyHeight}
             empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
