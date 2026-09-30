@@ -6,7 +6,7 @@ import { resolvePlacement } from "./sessionViews.js";
 import { claudeFile, readActive, readJson, type ActiveSession } from "./transcript/locate.js";
 import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
-import { requestView, runningViewer } from "./viewer.js";
+import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
 
 const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor" };
 
@@ -112,17 +112,25 @@ export interface OpenOptions {
   updatedTo?: string;
   /** The command was typed while Claude was working and ran only at the end of the turn (`openedFromQueue`). */
   queued?: boolean;
+  /** /cco:restart reopens a running viewer (a new one just opens), /cco:update checks for an update and offers it. */
+  action?: ViewerAction;
 }
+
+/** What `cco open` says it asked a running viewer to do. */
+const ACTION_DONE: Record<ViewerAction, string> = {
+  restart: "cco is open; it restarts in the same place and view with the version installed now.",
+  update: "cco is open; it checks for an update and asks in the settings view whether to install it.",
+};
 
 /**
  * Opens the viewer next to the current terminal pane (Windows Terminal or
  * tmux): docked right or left, or in a window of its own.
  */
-export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): string {
-  const { claudePid } = opts;
+export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions = {}): string {
+  const { claudePid, action } = opts;
   if (!opts.replace && runningViewer(cwd, claudePid) !== undefined) {
-    requestView(cwd, view, claudePid, opts.select);
-    return `cco is already open; switched it to the ${VIEW_NAMES[view]} view.`;
+    requestView(cwd, view, claudePid, opts.select, action);
+    return action ? ACTION_DONE[action] : `cco is already open; switched it to the ${VIEW_NAMES[view ?? "chat"]} view.`;
   }
   const terminal = detectTerminal();
   const chosen = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid)?.session_id);
@@ -136,16 +144,20 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
   const placement = tabless || away ? "window" : chosen;
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
-  const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, "--view", view, "--placement", placement];
+  // Without a view (/cco:restart with no viewer running), the viewer starts in the session's last one.
+  const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, ...(view ? ["--view", view] : []), "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");
   if (unfocused) viewer.push("--unfocused");
   if (opts.select) viewer.push("--select", opts.select);
   if (opts.updatedTo) viewer.push("--updated-to", opts.updatedTo);
+  // A restart has nothing to restart in a new viewer; an update check is run by it.
+  if (action === "update") viewer.push("--action", action);
   // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
   if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
   const where = PLACE_NAMES[placement];
+  const label = view ? ` ${VIEW_NAMES[view]}` : "";
   if (terminal === "tmux") {
     const cmd = viewer.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
     // -d leaves the current pane active; -b puts the new pane before (left of) it.
@@ -157,7 +169,7 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
         ? ["new-window", ...keep, ...(pane ? ["-a", "-t", pane] : []), "-n", "cco", "-c", cwd, cmd]
         : ["split-window", "-h", ...(placement === "left" ? ["-b"] : []), ...keep, ...(pane ? ["-t", pane] : []), "-c", cwd, cmd];
     spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
-    return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a tmux window.` : `Opened cco ${VIEW_NAMES[view]} in a tmux pane${where}.`;
+    return placement === "window" ? `Opened cco${label} in a tmux window.` : `Opened cco${label} in a tmux pane${where}.`;
   }
   if (terminal === "wt") {
     let args: string[];
@@ -172,9 +184,9 @@ export function openPane(cwd: string, view: Mode, opts: OpenOptions = {}): strin
     }
     // windowsHide asks Windows to start hidden, which Windows Terminal applies to a new window: only for panes.
     spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
-    if (tabless) return `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window: this Claude Code has no terminal tab to dock to.`;
-    if (away) return `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window: Claude was busy, and the pane would have opened in whichever tab is active now. Press p in it to dock it.`;
-    return placement === "window" ? `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal window.` : `Opened cco ${VIEW_NAMES[view]} in a Windows Terminal pane${where}.`;
+    if (tabless) return `Opened cco${label} in a Windows Terminal window: this Claude Code has no terminal tab to dock to.`;
+    if (away) return `Opened cco${label} in a Windows Terminal window: Claude was busy, and the pane would have opened in whichever tab is active now. Press p in it to dock it.`;
+    return placement === "window" ? `Opened cco${label} in a Windows Terminal window.` : `Opened cco${label} in a Windows Terminal pane${where}.`;
   }
   return `No supported terminal detected (Windows Terminal or tmux). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
 }

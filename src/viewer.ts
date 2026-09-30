@@ -8,10 +8,16 @@ export interface ViewerInfo {
   view?: Mode;
 }
 
+/** What a running viewer is asked to do besides showing a view: reopen itself (/cco:restart), or check for an update and offer it (/cco:update). */
+export const VIEWER_ACTIONS = ["restart", "update"] as const;
+export type ViewerAction = (typeof VIEWER_ACTIONS)[number];
+
 export interface ControlRequest {
-  view: Mode;
+  /** None: stay in the view shown (/cco:restart). */
+  view?: Mode;
   /** An entry to select in the view (`releases` in Settings). */
   select?: string;
+  action?: ViewerAction;
   /** Epoch ms; a viewer ignores requests older than its own start. */
   at: number;
 }
@@ -63,8 +69,8 @@ export function anyRunningViewer(cwd: string): boolean {
   });
 }
 
-export function requestView(cwd: string, view: Mode, claudePid?: number, select?: string): void {
-  writeJson(controlFile(cwd, claudePid), { view, select, at: Date.now() } satisfies ControlRequest);
+export function requestView(cwd: string, view: Mode | undefined, claudePid?: number, select?: string, action?: ViewerAction): void {
+  writeJson(controlFile(cwd, claudePid), { view, select, action, at: Date.now() } satisfies ControlRequest);
 }
 
 export function readControl(cwd: string, claudePid?: number): ControlRequest | undefined {
