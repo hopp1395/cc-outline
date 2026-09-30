@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { useEffect, useMemo, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, reloadSettings, settingsFile, updateSettings, type Settings, type UpdateMode } from "../settings.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { doubleClicks } from "./openKey.js";
@@ -17,7 +17,7 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
 import { renderMarkdown } from "../render/markdown.js";
-import { compareVersions, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
+import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
 import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
 import { useUpdateInfo, type Update } from "./useUpdate.js";
@@ -33,18 +33,26 @@ interface Props {
   cwd: string;
   /** Deletes the project's saved data and reloads the views (App). */
   onResetData?: () => void;
-  /** An entry to select, asked for from outside (`releases`: /cco:releases; `update`: a click on the top bar). */
-  select?: { key: string; at: number };
+  /** Reopens the viewer where it is (Reset: restart); none for a viewer started with --session, which does not move. */
+  onRestart?: () => void;
+  /** An entry to select, asked for from outside (`releases`: /cco:releases; `update`: a click on the top bar), with `ask` also the update's confirmation (setting update: auto). */
+  select?: { key: string; at: number; ask?: boolean };
 }
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
 interface ResetAction {
-  id: "settings" | "data";
+  id: "settings" | "data" | "restart";
   label: string;
   description: string;
 }
 
 export const RESET_ACTIONS: ResetAction[] = [
+  {
+    id: "restart",
+    label: "restart the viewer",
+    description:
+      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (npm install -g, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts.",
+  },
   {
     id: "settings",
     label: "all settings to default",
@@ -75,6 +83,12 @@ const ON_OFF = (on: string, off: string): Row["values"] => [
   [true, on],
   [false, off],
 ];
+
+const UPDATE_MEANINGS: Record<UpdateMode, string> = {
+  on: "ask npm and GitHub when the viewer starts",
+  off: "no network requests",
+  auto: "ask when the viewer starts and offer a newer version at once",
+};
 
 const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], string> = {
   remember: "reopen it if it was open when Claude Code last exited in the project",
@@ -215,12 +229,12 @@ export const SETTING_ROWS: Row[] = [
     values: FILTER_IN_VALUES.map((v) => [v, FILTER_IN_MEANINGS[v]]),
   },
   {
-    key: "updateCheck",
+    key: "updateMode",
     group: "General",
-    label: "update check",
+    label: "update",
     description:
-      "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries below the settings show the notes of each version and run the update.",
-    values: ON_OFF("ask npm and GitHub when the viewer starts", "no network requests"),
+      "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries at the end of the list show the notes of each version and run the update. With auto, the viewer also opens the update here as soon as the check finds one and asks whether to install it.",
+    values: UPDATE_VALUES.map((v) => [v, UPDATE_MEANINGS[v]]),
     notes: ["F5 in Settings checks once either way.", "The answer is kept in ~/.claude/cco/releases.json, so the notes also show offline."],
   },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
@@ -451,18 +465,24 @@ function releaseLines(release: Release, width: number): string[] {
 function releasesNote(update: Update, width: number): string[] {
   const text = update.checking
     ? "Asking npm and GitHub…"
-    : !update.enabled && update.checkedAt === undefined
-      ? "The update check is off (General: update check), so cco has not asked GitHub for the release notes. F5 checks once."
+    : update.mode === "off" && update.checkedAt === undefined
+      ? "The update check is off (General: update), so cco has not asked GitHub for the release notes. F5 checks once."
       : "npm and GitHub could not be reached. F5 tries again.";
   return wrapAnsi(text, Math.max(10, width), { hard: true }).split("\n");
 }
 
-/** The list: the settings, the releases, then the reset actions. */
-export function settingsEntries(update: Update): Entry[] {
-  return [...SETTING_ROWS, ...releaseEntries(update), ...RESET_ACTIONS];
+/** What a restart runs: the version on disk, which differs from the running one after an update. */
+function restartDetail(root: string): string {
+  const installed = root ? installedVersion(root) : undefined;
+  return installed && installed !== VERSION ? `v${installed} (running v${VERSION})` : `v${installed ?? VERSION}`;
 }
 
-export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, select: asked }: Props) {
+/** The list: the settings, the reset actions, then the releases (the last group, since it grows). */
+export function settingsEntries(update: Update): Entry[] {
+  return [...SETTING_ROWS, ...RESET_ACTIONS, ...releaseEntries(update)];
+}
+
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -514,7 +534,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   useEffect(() => onModal?.(confirmation !== undefined || updating), [confirmation, updating]);
   useEffect(() => positions.select(entryKey), [entryKey]);
   useEffect(() => {
-    if (asked) setSelectedKey(entries[resolveKey(asked.key, listEntries)]);
+    if (!asked) return;
+    setSelectedKey(entries[resolveKey(asked.key, listEntries)]);
+    if (asked.ask && canUpdate) askUpdate();
   }, [asked?.at]);
   useEffect(() => {
     if (!copied) return;
@@ -545,7 +567,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       const details = [[day(r.date), cmp === 0 ? "installed" : cmp > 0 ? "new" : undefined, asOf].filter(Boolean).join(" · ")];
       return previewHeader(entryLabel(e), previewWidth, { marker: "◆ ", style: bold, details: r.url ? [...details, r.url] : details });
     }
-    if (e.kind === "releases") return previewHeader("Releases", previewWidth, { marker: "◆ ", style: bold, details: [update.enabled ? "update check on" : "update check off"] });
+    if (e.kind === "releases") return previewHeader("Releases", previewWidth, { marker: "◆ ", style: bold, details: [`update ${update.mode}`] });
     const detail = update.install === "dev" ? `development install · v${VERSION}` : `installed v${VERSION}`;
     const title = entryLabel(e);
     return previewHeader(title[0].toUpperCase() + title.slice(1), previewWidth, {
@@ -562,7 +584,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           ? previewHeader(`Reset: ${reset.label}`, previewWidth, {
               marker: "↺ ",
               style: bold,
-              details: [reset.id === "settings" ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}` : `${saved.length} of 4 files saved`],
+              details: [
+                reset.id === "settings"
+                  ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}`
+                  : reset.id === "data"
+                    ? `${saved.length} of 4 files saved`
+                    : restartDetail(update.root),
+              ],
             })
           : release
             ? releaseHeader(release)
@@ -614,6 +642,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       danger: true,
       onConfirm: () => onResetData?.(),
     });
+  const askRestart = () =>
+    setConfirmation({
+      title: "Restart the viewer?",
+      lines: [`It opens again here, in this view, with ${restartDetail(update.root)}.`, "Claude Code keeps running; restart it for changes to the plugin."],
+      onConfirm: () => onRestart?.(),
+    });
   const { state } = update;
   const canUpdate = state.kind === "update" && !updating && update.run?.status !== "done";
   const askUpdate = () =>
@@ -632,6 +666,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if (filter.none) return;
     if (reset) {
       if (reset.id === "settings") return canReset && askResetSettings();
+      if (reset.id === "restart") return onRestart !== undefined && askRestart();
       return saved.length > 0 && askResetData();
     }
     if (onUpdate) {

@@ -123,6 +123,29 @@ export function saveReleases(cache: ReleaseCache): void {
   writeJson(releasesFile(), cache);
 }
 
+/** The newest version a viewer ran so far, for the notes of what came since. */
+export function seenVersionFile(): string {
+  return join(claudeDir(), "cco", "version.json");
+}
+
+/**
+ * Records `running` as seen if it is newer than the version seen before, and
+ * returns that one: the viewer then shows the notes of every version after it
+ * (also the skipped ones). Undefined on the first run and for older viewers.
+ */
+export function takeSeenVersion(running: string): string | undefined {
+  const seen = readJson<{ version?: unknown }>(seenVersionFile())?.version;
+  const before = typeof seen === "string" ? seen : undefined;
+  if (before && compareVersions(running, before) <= 0) return undefined;
+  writeJson(seenVersionFile(), { version: running });
+  return before;
+}
+
+/** The releases after `from` up to `to`, newest first. */
+export function releasesBetween(releases: Release[], from: string, to: string): Release[] {
+  return releases.filter((r) => compareVersions(r.version, from) > 0 && compareVersions(r.version, to) <= 0);
+}
+
 /** The folder of the running package: this module lies in `dist/` (or `src/`) below it. */
 export function packageRoot(): string {
   return dirname(dirname(fileURLToPath(import.meta.url)));

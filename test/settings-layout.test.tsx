@@ -51,7 +51,7 @@ describe("Settings list", () => {
   it("puts each group under a separator, in order", async () => {
     const lines = await listLines(30);
     const groups = lines.filter((l) => l.startsWith("── ")).map((l) => l.split(" ")[1]);
-    expect(groups).toEqual(["Start", "General", "Chat", "Changes", "Plan", "Sessions", "Monitor", "Releases", "Reset"]);
+    expect(groups).toEqual(["Start", "General", "Chat", "Changes", "Plan", "Sessions", "Monitor", "Reset", "Releases"]);
   });
 
   it("shows every setting's label in full with its value at the right end", async () => {

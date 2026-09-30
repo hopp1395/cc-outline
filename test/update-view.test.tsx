@@ -47,7 +47,10 @@ function fakeUpdate(overrides: Partial<Update> = {}): Update {
     checkedAt: Date.now(),
     stale: false,
     checking: false,
-    enabled: true,
+    mode: "on",
+    offer: false,
+    whatsNew: [],
+    closeWhatsNew: () => {},
     install: "npm",
     root: "/usr/lib/node_modules/cc-outline",
     state: { kind: "update", target: "9.9.9" },
@@ -97,6 +100,21 @@ describe("releases in the settings", () => {
     view.unmount();
   });
 
+  it("asks at once when it is asked to (update: auto)", async () => {
+    let started = 0;
+    const view = renderView(
+      <UpdateContext.Provider value={fakeUpdate({ mode: "auto", start: () => started++ })}>
+        <SettingsView cwd={cwd} layout={layout} active select={{ key: "update", at: 1, ask: true }} />
+      </UpdateContext.Provider>,
+    );
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
+    // The dialog shows before its key handler is attached (slow CI runners): let the effects run first.
+    await tick();
+    view.press("\r");
+    await expect.poll(() => started, { timeout: 2000 }).toBe(1);
+    view.unmount();
+  });
+
   it("shows the steps of a failed update and the commands left", async () => {
     const [cli, marketplace, plugin] = [
       { label: "CLI", command: "npm install -g cc-outline@latest" },
@@ -138,12 +156,12 @@ describe("releases in the settings", () => {
 
   it("lists a note while no releases are known", async () => {
     const view = renderView(
-      <UpdateContext.Provider value={fakeUpdate({ releases: [], latest: undefined, state: { kind: "none" }, enabled: false, checkedAt: undefined })}>
+      <UpdateContext.Provider value={fakeUpdate({ releases: [], latest: undefined, state: { kind: "none" }, mode: "off", checkedAt: undefined })}>
         <SettingsView cwd={cwd} layout={layout} active select={{ key: "releases", at: 1 }} />
       </UpdateContext.Provider>,
     );
     await expect.poll(view.frame, { timeout: 2000 }).toContain("The update check is off");
-    expect(SETTING_ROWS.some((r) => r.key === "updateCheck")).toBe(true);
+    expect(SETTING_ROWS.some((r) => r.key === "updateMode")).toBe(true);
     view.unmount();
   });
 });
