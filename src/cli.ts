@@ -6,7 +6,7 @@ import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
-import { isAlive, registerViewer, unregisterViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
+import { isAlive, registerViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
 
 const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
 
@@ -65,7 +65,8 @@ program
     // The App records the view it actually starts in.
     registerViewer(opts.cwd, opts.view ?? "chat", claudePid);
     // Also covers exits that bypass Ink, e.g. the pane being closed.
-    process.on("exit", () => unregisterViewer(opts.cwd, claudePid));
+    // Pairing (Sessions) moves the registration, so the current one is removed.
+    process.on("exit", unregisterCurrentViewer);
     const { runViewer } = await importProduction(() => import("./watch.js"));
     await runViewer({
       cwd: opts.cwd,
