@@ -70,20 +70,22 @@ export function openInDefaultApp(file: string, platform: NodeJS.Platform = proce
 }
 
 /**
- * Continues a session with `claude --resume` in a new tab (Windows Terminal)
- * or window (tmux), in the folder it ran in. The shell stays open after
+ * Continues a session with `claude --resume` in a new window (Windows
+ * Terminal, tmux), in the folder it ran in. The shell stays open after
  * Claude Code exits. Returns what happened, for the help line.
  * The new Claude Code must not inherit the variables of the Claude Code this
  * viewer was opened from (see `independentEnv`).
  */
-export function resumeInNewTab(sessionId: string, dir: string, title: string): string {
+export function resumeInNewWindow(sessionId: string, dir: string, title: string): string {
   const terminal = detectTerminal();
   if (terminal === "wt") {
-    // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the tab open afterwards.
-    const args = ["-w", "0", "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
-    // Windows Terminal starts the tab with the environment of the wt call.
-    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: true, env: independentEnv() }).unref();
-    return "started in a new Windows Terminal tab";
+    // -w new: without it, wt may add a tab to an open window (its windowingBehavior setting).
+    // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the window open afterwards.
+    const args = ["-w", "new", "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
+    // Windows Terminal starts the tab with the environment of the wt call. No windowsHide: wt would apply
+    // the hidden start to the new window, which then never shows.
+    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
+    return "started in a new Windows Terminal window";
   }
   if (terminal === "tmux") {
     const shell = process.env.SHELL || "sh";

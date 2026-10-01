@@ -17,7 +17,7 @@ import {
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
-import { resumeInNewTab } from "../open.js";
+import { resumeInNewWindow } from "../open.js";
 import { switchToSession } from "../switchSession.js";
 import { runningViewer, type PairTarget } from "../viewer.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
@@ -568,14 +568,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const dir = s.cwd ?? cwd;
     if (!existsSync(dir)) return notify(`folder not found: ${tilde(dir)}`);
     setConfirmation({
-      title: "Continue this session in a new tab?",
+      title: "Continue this session in a new window?",
       lines: [
         truncate(sessionTitle(s), 56),
         `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
         truncate(`in ${tilde(dir)}`, 56),
       ],
       onConfirm: () => {
-        notify(resumeInNewTab(s.id, dir, truncate(sessionTitle(s), 30)));
+        notify(resumeInNewWindow(s.id, dir, truncate(sessionTitle(s), 30)));
         // Show it as running as soon as Claude Code registers it.
         setTimeout(refresh, 3000);
       },
