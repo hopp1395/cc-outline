@@ -132,7 +132,7 @@ describe("sessions per Claude Code process", () => {
     expect(readRestore(cwd)).toEqual({ open: true, view: "sessions" });
   });
 
-  it("does not open a viewer for a second session while one runs in the project", () => {
+  it("opens a viewer for a second process while another process's viewer runs in the project", () => {
     const opened: string[] = [];
     registerViewer(cwd, "chat", mine);
     handleHook(
@@ -144,6 +144,30 @@ describe("sessions per Claude Code process", () => {
       { hook_event_name: "SessionStart", session_id: "b", transcript_path: "/t/b.jsonl", cwd, source: "resume" },
       ((_c: string, view: string) => (opened.push(view), "")) as never,
       other,
+    );
+    expect(opened).toEqual(["chat"]);
+  });
+
+  it("does not open a second viewer for a process that has one", () => {
+    updateSettings({ autoOpen: "always" });
+    const opened: string[] = [];
+    registerViewer(cwd, "chat", mine);
+    handleHook(
+      { hook_event_name: "SessionStart", session_id: "b", transcript_path: "/t/b.jsonl", cwd, source: "resume" },
+      ((_c: string, view: string) => (opened.push(view), "")) as never,
+      mine,
+    );
+    expect(opened).toEqual([]);
+  });
+
+  it("without the process known, does not open a viewer while one runs in the project", () => {
+    updateSettings({ autoOpen: "always" });
+    const opened: string[] = [];
+    registerViewer(cwd, "chat", mine);
+    handleHook(
+      { hook_event_name: "SessionStart", session_id: "b", transcript_path: "/t/b.jsonl", cwd, source: "resume" },
+      ((_c: string, view: string) => (opened.push(view), "")) as never,
+      undefined,
     );
     expect(opened).toEqual([]);
   });
