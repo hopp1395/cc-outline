@@ -401,6 +401,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
   const [selectedId, setSelectedId] = useState<string | undefined>(positions.selected);
+  const storedId = useRef(positions.selected);
+  const restoredShown = useRef(false);
   // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
   useEffect(() => {
     if (selectedId !== LOAD_MORE_ID) positions.select(selectedId);
@@ -431,6 +433,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const index = found >= 0 ? found : trashOpen ? 0 : list.length - 1;
   // Only the sessions are filtered, not the trash; their filter stays while the trash is open.
   const sessionFound = sessionList.findIndex((s) => entryId(s) === selectedId);
+  // The session selected last time, once a scan has found it: the list centres it.
+  if (!restoredShown.current && sessionFound >= 0 && selectedId === storedId.current) restoredShown.current = true;
   const filter = useListFilter({
     items: sessionList,
     text: (e) => (isLoadMore(e) ? { list: "", details: "" } : sessionText(e)),
@@ -765,6 +769,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             pinned={filter.pinned}
             filter={filter.banner}
             selected={index}
+            centre={trashOpen ? "trash" : restoredShown.current}
             height={bodyHeight}
             empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
             itemKey={entryId}

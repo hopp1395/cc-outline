@@ -672,6 +672,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         <List
             reversed={reversed}
             onPick={select}
+            centre={restoredFor.current}
           // A double click does what Enter does.
           onClick={(i) => isDoubleClick(i) && i === selected && current && togglePrompt(!promptOpen)}
           items={turns}

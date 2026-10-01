@@ -584,6 +584,8 @@ interface ListProps<T> {
   filter?: { query: string; count: string };
   /** The Pinned group (`ListFilter.pinned`): the rows in screen order, which replaces `shown` and `reversed`. */
   pinned?: PinnedRows;
+  /** A value whose change centres the selection once, e.g. when a view restored the selection stored last time. */
+  centre?: unknown;
 }
 
 /** Where a part of the Screen (list or preview) sits on the terminal, for mapping mouse positions to it. */
@@ -603,6 +605,8 @@ export function inArea(area: Area, x: number, y: number): { col: number; row: nu
 }
 
 export interface ListWindow {
+  /** The first item of the window, counting the ▲ row's place: what the next window starts from. */
+  start: number;
   /** Items shown as entries: indices from..to (exclusive). */
   from: number;
   to: number;
@@ -612,18 +616,56 @@ export interface ListWindow {
 }
 
 /**
- * Which of `count` items fit in `height` rows with the selection roughly centred.
- * When items are cut off, the first or last row becomes a "more" indicator.
+ * The rows a list keeps between the selection and its top or bottom edge:
+ * it scrolls once the selection reaches its upper or lower third. Below six
+ * rows only the ▲/▼ row, and with fewer than three not even that.
  */
-export function listWindow(count: number, selected: number, height: number): ListWindow {
-  if (count <= height) return { from: 0, to: count, above: 0, below: 0 };
-  const start = Math.max(0, Math.min(selected - Math.floor(height / 2), count - height));
+export function scrollMargin(height: number): number {
+  return height < 3 ? 0 : Math.max(1, Math.ceil(height / 3) - 1);
+}
+
+/**
+ * Which of `count` items fit in `height` rows. The window stays at `previous`
+ * (its last `start`) and moves only as far as needed to keep `margin` rows
+ * around the selection; without `previous` the selection is centred. When
+ * items are cut off, the first or last row becomes a "more" indicator.
+ */
+export function listWindow(count: number, selected: number, height: number, previous?: number, margin = scrollMargin(height)): ListWindow {
+  if (count <= height) return { start: 0, from: 0, to: count, above: 0, below: 0 };
+  const wanted =
+    previous === undefined
+      ? selected - Math.floor(height / 2)
+      : Math.min(Math.max(previous, selected - (height - 1 - margin)), selected - margin);
+  const start = Math.max(0, Math.min(wanted, count - height));
   // With fewer than three rows there is no room for indicators around the selection.
   const top = start > 0 && height >= 3;
   const bottom = start + height < count && height >= 3;
   const from = start + (top ? 1 : 0);
   const to = start + height - (bottom ? 1 : 0);
-  return { from, to, above: from, below: count - to };
+  return { start, from, to, above: from, below: count - to };
+}
+
+/** What a list keeps of its last window: where it started, the selected entry (key) and its row. */
+export interface WindowState {
+  start: number;
+  key?: string;
+  row: number;
+  /** The entry picked with a click, while it stays selected. */
+  clicked?: string;
+  centre?: unknown;
+}
+
+/**
+ * The window after `prev`, with the entry `key` selected in `row`. A new list
+ * (or a new `centre`) centres it; an entry that only moved because entries
+ * came or went around it keeps its place on screen; one picked with a click
+ * stays under the pointer, also in the margin.
+ */
+export function nextWindow(prev: WindowState | undefined, count: number, row: number, height: number, key?: string, centre?: unknown): ListWindow {
+  if (!prev || !Object.is(prev.centre, centre)) return listWindow(count, row, height);
+  const same = key !== undefined && key === prev.key;
+  const margin = key !== undefined && key === prev.clicked ? scrollMargin(Math.min(height, 3)) : undefined;
+  return listWindow(count, row, height, same ? prev.start + row - prev.row : prev.start, margin);
 }
 
 /** "▲ 7 more Home": how many entries of a list are hidden and the key that jumps to the far end. */
@@ -636,9 +678,9 @@ export function MoreRow({ arrow, count, jumpKey, group }: { arrow: string; count
   );
 }
 
-/** Selectable list that keeps the selection roughly centred. */
 /**
- * A list of entries with one selected. With `reversed`, it shows `items`
+ * A list of entries with one selected, scrolled once the selection reaches
+ * its upper or lower third (`nextWindow`). With `reversed`, it shows `items`
  * bottom-up: `selected` and `onPick` stay indexes into `items`, so a view
  * keeps its data in its natural order and only the display is mirrored.
  */
@@ -795,12 +837,17 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops }: ListProps<T> & RowsProps) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, centre }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, heads);
-  const selectedRow = rows.findIndex((r) => "item" in r && r.item === selected);
-  const { from, to } = listWindow(rows.length, Math.max(0, selectedRow), height);
+  const selectedRow = Math.max(0, rows.findIndex((r) => "item" in r && r.item === selected));
+  const key = items[selected] === undefined ? undefined : itemKey(items[selected], selected);
+  // The window is kept from render to render, but only while the list is longer than its rows.
+  const kept = useRef<WindowState | undefined>(undefined);
+  const { start, from, to } = nextWindow(kept.current, rows.length, selectedRow, height, key, centre);
+  const clicked = key !== undefined && key === kept.current?.clicked ? key : undefined;
+  kept.current = rows.length > height ? { start, key, row: selectedRow, clicked, centre } : undefined;
   const itemsIn = (part: ListRow[]) => part.filter((r) => "item" in r).length;
   const above = itemsIn(rows.slice(0, from));
   const below = itemsIn(rows.slice(to));
@@ -817,7 +864,10 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
     if (index >= to) return to < rows.length && at.row === height - 1 ? onPick(items.length - 1) : undefined;
     // A separator picks the first entry of its group.
     const row = rows[index];
-    onPick("item" in row ? row.item : row.before);
+    const picked = "item" in row ? row.item : row.before;
+    // The picked entry stays under the pointer, also in the margin.
+    if (e.kind === "click" && kept.current) kept.current.clicked = itemKey(items[picked], picked);
+    onPick(picked);
     if ("item" in row && e.kind === "click") onClick?.(row.item);
   });
   if (items.length === 0) return <Text dimColor>{empty}</Text>;
