@@ -1,7 +1,7 @@
 import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ListRange, type Settings, type UpdateMode } from "../settings.js";
@@ -21,6 +21,7 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
 import { renderMarkdown } from "../render/markdown.js";
+import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repairSteps, reportLines, runRepairs, type DoctorGroup, type Finding, type RepairResult } from "../doctor.js";
 import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
 import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
@@ -45,7 +46,7 @@ interface Props {
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
 interface ResetAction {
-  id: "settings" | "data" | "restart";
+  id: "doctor" | "settings" | "data" | "restart";
   label: string;
   description: string;
 }
@@ -56,6 +57,12 @@ export const RESET_ACTIONS: ResetAction[] = [
     label: "restart the viewer",
     description:
       "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (npm install -g, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts.",
+  },
+  {
+    id: "doctor",
+    label: "doctor: check and repair",
+    description:
+      "Checks what cco needs: the installation (npm, the plugin and its version, the path the plugin starts cco by), cco's files in ~/.claude/cco (of processes that have ended, unfinished writes, files that are no valid JSON, the trash), the settings, the terminal and whether the plugin's hooks run. Enter asks, then checks; nothing is changed by that. The report shows below, and Enter then offers to repair what it can; some findings name a command to run yourself. cco doctor in a shell does the same (--fix repairs), /cco:doctor shows the report in Claude Code.",
   },
   {
     id: "settings",
@@ -420,6 +427,73 @@ function resetLines(action: ResetAction, changed: string[], marked: number, save
   return lines;
 }
 
+/** Wraps report lines, keeping each line's indentation for its continuation. */
+function wrapIndented(lines: string[], width: number): string[] {
+  return lines.flatMap((line) => {
+    const indent = /^ */.exec(line)![0];
+    return wrapAnsi(line.slice(indent.length), Math.max(10, width - indent.length), { hard: true })
+      .split("\n")
+      .map((l) => indent + l);
+  });
+}
+
+/** A repair started in the doctor's entry: each step, and whether all are done. */
+export interface DoctorRun {
+  results: RepairResult[];
+  status: "running" | "done" | "failed";
+}
+
+/** The result of a check started with Enter: the findings, and when. */
+export interface DoctorCheck {
+  findings: Finding[];
+  at: number;
+}
+
+/** A check under way: the findings of the groups done, and the group being checked. */
+export interface DoctorChecking {
+  findings: Finding[];
+  current: DoctorGroup;
+}
+
+/** The pause before each group's check, so the progress can be followed. */
+const CHECK_STEP_MS = 300;
+
+/** The groups of a check under way: done with their worst result, the current one, the ones to come. */
+function checkingLines(checking: DoctorChecking): string[] {
+  const at = DOCTOR_GROUPS.indexOf(checking.current);
+  return DOCTOR_GROUPS.map((group, i) => {
+    if (i === at) return `  ${YELLOW("●")} Checking ${group}…`;
+    if (i > at) return `  ${dim(`○ ${group}`)}`;
+    const own = checking.findings.filter((f) => f.group === group);
+    const mark = own.some((f) => f.severity === "error") ? RED("✗") : own.some((f) => f.severity === "warn") ? YELLOW("!") : GREEN("✓");
+    return `  ${mark} ${group}`;
+  });
+}
+
+/** The doctor's details: what it does, the repair while it runs, the check's progress, then the report of the last check. */
+function doctorLines(action: ResetAction, check: DoctorCheck | undefined, checking: DoctorChecking | undefined, run: DoctorRun | undefined, width: number): string[] {
+  const wrap = (text: string, indent = "") =>
+    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
+      .split("\n")
+      .map((l) => indent + l);
+  const lines = [...wrap(action.description)];
+  if (run) {
+    lines.push("", bold("Repair"));
+    for (const r of run.results) {
+      const mark = r.status === "done" ? GREEN("✓") : r.status === "failed" ? RED("✗") : r.status === "running" ? YELLOW("●") : dim("○");
+      lines.push(...wrap(`${mark} ${r.step.command ?? r.step.label}`, "  "));
+      if (r.status === "running" || r.status === "failed") for (const l of outputTail(r.output, 12)) lines.push(...wrap(dim(l), "      "));
+    }
+    if (run.status === "running") lines.push("", dim("Repairing…"));
+  }
+  if (checking) return [...lines, "", bold("Checking"), ...checkingLines(checking)];
+  if (!check) return [...lines, "", dim("Not checked yet. Enter asks, then checks.")];
+  lines.push(...wrapIndented(reportLines(check.findings, true), width), "");
+  const repairable = countFindings(check.findings).repairable;
+  lines.push(dim(repairable > 0 ? `Enter asks, then repairs ${repairable} of them. F5 checks again.` : "Nothing to repair. Enter or F5 checks again."));
+  return lines;
+}
+
 export function settingLines(row: Row, current: string | boolean, width: number, context: TextContext): string[] {
   const wrap = (text: string, indent = "") =>
     wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
@@ -564,6 +638,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const [copied, setCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const positions = usePositions(cwd, "settings");
+  // The doctor checks only when asked to (Enter, a double click), again after a repair and on F5 once it has checked.
+  const [doctorCheck, setDoctorCheck] = useState<DoctorCheck>();
+  const [doctorChecking, setDoctorChecking] = useState<DoctorChecking>();
+  // A newer check (F5 during one) makes the older one stop.
+  const checkRun = useRef(0);
+  const [doctorRun, setDoctorRun] = useState<DoctorRun>();
   const listEntries = settingsEntries(update);
   const entries = listEntries.map(keyOf);
   // Kept by key: the releases arrive after the start and move the entries below them.
@@ -579,6 +659,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   // F5: settings.json is read again, so changes by other viewers show in every view, and npm and GitHub are asked again.
   useOnReload(({ done }) => {
     reloadSettings();
+    if (doctorCheck) void runCheck();
     void update.recheck().then(done);
   });
   const marked = entries.filter((e) => favorites.isMarked(e)).length;
@@ -602,8 +683,10 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   });
 
   const updating = update.run?.status === "running";
-  // While the update runs, the app keeps q, p and the other views away from it.
-  useEffect(() => onModal?.(confirmation !== undefined || updating), [confirmation, updating]);
+  // A check or a repair of the doctor under way.
+  const doctorBusy = doctorRun?.status === "running" || doctorChecking !== undefined;
+  // While the update, a check or a repair runs, the app keeps q, p and the other views away from it.
+  useEffect(() => onModal?.(confirmation !== undefined || updating || doctorBusy), [confirmation, updating, doctorBusy]);
   useEffect(() => positions.select(entryKey), [entryKey]);
   useEffect(() => {
     if (!asked) return;
@@ -619,6 +702,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
   const canReset = changed.length > 0 || marked > 0;
   const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
+  const findings = doctorCheck?.findings ?? [];
+  const repairs = repairsOf(findings);
   const newer = newerReleases(update);
   const asOf = update.stale && update.checkedAt ? `as of ${day(new Date(update.checkedAt).toISOString())}` : undefined;
 
@@ -653,15 +738,21 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     () =>
       fitHeader(
         reset
-          ? previewHeader(`Reset: ${reset.label}`, previewWidth, {
-              marker: "↺ ",
+          ? previewHeader(reset.id === "doctor" ? "Doctor" : `Reset: ${reset.label}`, previewWidth, {
+              marker: reset.id === "doctor" ? "✚ " : "↺ ",
               style: bold,
               details: [
-                reset.id === "settings"
-                  ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}`
-                  : reset.id === "data"
-                    ? `${saved.length} of 4 files saved`
-                    : restartDetail(update.root),
+                reset.id === "doctor"
+                  ? doctorChecking
+                    ? "checking…"
+                    : doctorCheck
+                      ? `${countText(findings)} · checked ${new Date(doctorCheck.at).toTimeString().slice(0, 5)}`
+                      : "not checked yet"
+                  : reset.id === "settings"
+                    ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}`
+                    : reset.id === "data"
+                      ? `${saved.length} of 4 files saved`
+                      : restartDetail(update.root),
               ],
             })
           : release
@@ -673,12 +764,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               }),
         bodyHeight,
       ),
-    [entry, update, current, changed.length, marked, saved.length, previewWidth, bodyHeight],
+    [entry, update, current, changed.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, bodyHeight],
   );
   const lines = useMemo(
     () =>
       reset
-        ? resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
+        ? reset.id === "doctor"
+          ? doctorLines(reset, doctorCheck, doctorChecking, doctorRun, previewWidth)
+          : resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
         : release
           ? release.kind === "update"
             ? updateLines(update, previewWidth)
@@ -686,7 +779,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               ? releaseLines(release.release, previewWidth)
               : releasesNote(update, previewWidth)
           : settingLines(row!, current!, previewWidth, context),
-    [entry, update, current, changed.length, marked, saved, previewWidth, context],
+    [entry, update, current, changed.length, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
@@ -714,6 +807,40 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       danger: true,
       onConfirm: () => onResetData?.(),
     });
+  /** Checks group by group, each after a short pause that shows which one is being checked. */
+  async function runCheck() {
+    const run = ++checkRun.current;
+    const findings: Finding[] = [];
+    for (const group of DOCTOR_GROUPS) {
+      setDoctorChecking({ findings: [...findings], current: group });
+      await new Promise((resolve) => setTimeout(resolve, CHECK_STEP_MS));
+      if (run !== checkRun.current) return;
+      findings.push(...diagnoseGroup(group, { cwd }));
+    }
+    setDoctorChecking(undefined);
+    setDoctorCheck({ findings, at: Date.now() });
+  }
+  const askCheck = () =>
+    setConfirmation({
+      title: "Run the doctor?",
+      lines: [
+        "Checks the installation, cco's files in ~/.claude/cco, the settings, the terminal and the hooks.",
+        "Nothing is changed: repairs are offered with the report.",
+      ],
+      onConfirm: () => void runCheck(),
+    });
+  const askRepair = () =>
+    setConfirmation({
+      title: `Repair ${plural(countFindings(findings).repairable, "finding")}?`,
+      lines: repairs.map((r) => `· ${r.label}`),
+      onConfirm: () => {
+        setDoctorRun({ results: [], status: "running" });
+        void runRepairs(repairSteps(repairs), (results) => setDoctorRun({ results, status: "running" })).then((ok) => {
+          setDoctorRun((run) => run && { ...run, status: ok ? "done" : "failed" });
+          void runCheck();
+        });
+      },
+    });
   const askRestart = () =>
     setConfirmation({
       title: "Restart the viewer?",
@@ -739,6 +866,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if (reset) {
       if (reset.id === "settings") return canReset && askResetSettings();
       if (reset.id === "restart") return onRestart !== undefined && askRestart();
+      // Checked with problems to repair: Enter offers the repair; else it checks (again).
+      if (reset.id === "doctor") return !doctorBusy && (repairs.length > 0 ? askRepair() : askCheck());
       return saved.length > 0 && askResetData();
     }
     if (onUpdate) {
@@ -782,7 +911,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       const value = settings[e.key];
       return { value: shortValueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
     }
-    if ("id" in e) return { value: "↺", label: e.label };
+    if ("id" in e) return { value: e.id === "doctor" ? "✚" : "↺", label: e.label };
     if (e.kind === "release") {
       const cmp = compareVersions(e.release.version, VERSION);
       return { value: cmp === 0 ? "installed" : cmp > 0 ? "new" : "", color: cmp === 0 ? "green" : "yellow", label: entryLabel(e) };
@@ -792,7 +921,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   };
 
   const entryFooter = reset
-    ? [{ text: "↵ reset", priority: 4 }]
+    ? reset.id === "doctor"
+      ? repairs.length > 0
+        ? [
+            { text: "↵ repair", priority: 4 },
+            { text: "F5 check", priority: 3 },
+          ]
+        : [{ text: "↵ check", priority: 4 }]
+      : [{ text: "↵ reset", priority: 4 }]
     : onUpdate
       ? [
           ...(canUpdate ? [{ text: "↵ update", priority: 4 }] : state.kind === "restart" ? [{ text: "↵ restart", priority: 4 }] : []),
@@ -823,7 +959,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           <List
             onPick={select}
             // A double click does what Enter does.
-            onClick={(i) => isDoubleClick(i) && i === index && !updating && activate()}
+            onClick={(i) => isDoubleClick(i) && i === index && !updating && !doctorBusy && activate()}
             items={listEntries}
             shown={filter.shown}
             pinned={filter.pinned}

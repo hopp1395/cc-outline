@@ -213,7 +213,7 @@ export type RunCommand = (command: string, onOutput: (text: string) => void) => 
  * shims, which Node starts only that way. The command is fixed text, and
  * without the variables of the Claude Code session the viewer came from.
  */
-const runCommand: RunCommand = (command, onOutput) =>
+export const runCommand: RunCommand = (command, onOutput) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, { shell: true, env: independentEnv(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (d) => onOutput(String(d)));
