@@ -110,6 +110,17 @@ program
     console.log(openPane(opts.cwd, view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued, action: opts.action }));
   });
 
+program
+  .command("doctor")
+  .description("check the installation, state files, settings, terminal and hooks; --fix repairs what it can")
+  .option("--cwd <dir>", "project whose hooks are checked", process.cwd())
+  .option("--fix", "repair without asking, then check again")
+  .action(async (opts: { cwd: string; fix?: boolean }) => {
+    // Loaded here only: the hook must start fast.
+    const { runDoctor } = await import("./doctor.js");
+    process.exitCode = await runDoctor({ cwd: opts.cwd, fix: opts.fix });
+  });
+
 // For the plugin's launcher, which starts this file without npm's shim.
 recordCli();
 await program.parseAsync();

@@ -69,7 +69,7 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings`, `/cco:monitor`, `/cco:releases`, `/cco:update` and `/cco:restart` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings`, `/cco:monitor`, `/cco:releases`, `/cco:update`, `/cco:restart` and `/cco:doctor` commands. The npm package is its own plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
@@ -85,6 +85,8 @@ npm install -g cc-outline
 claude plugin marketplace update cc-outline
 claude plugin update cco@cc-outline
 ```
+
+**When something does not work** (the viewer does not open on start, `/cco:…` takes seconds, a pane opens as a window), run `cco doctor`, see [Usage](#usage).
 
 To uninstall, run `claude plugin uninstall cco@cc-outline`, `claude plugin marketplace remove cc-outline` and `npm rm -g cc-outline`, then delete `~/.claude/cco/`.
 
@@ -111,6 +113,14 @@ To load the plugin for a single session without installing it, run `claude --plu
 
   A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ pair`), see [Sessions](#sessions-view).
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
+- **`cco doctor`** checks what cco needs and prints a report, one line per check (`✓` fine, `!` worth a look, `✗` error), with what to do below each problem:
+  - *Installation:* npm install or checkout, the path the plugin starts cco by (`~/.claude/cco/cli.json`), whether the plugin `cco@cc-outline` is installed and enabled, and whether its version matches the CLI.
+  - *State files* in `~/.claude/cco/` of all projects: those of Claude Code processes and viewers that have ended, unfinished writes (`*.tmp`), debug logs, files that are no valid JSON, records of sessions that ended over a day ago, the restore state of projects without transcripts, and trash folders without a readable manifest. Marks, positions and views are never touched.
+  - *Settings:* values of the wrong type or unknown, unknown keys and old formats in `settings.json`.
+  - *Environment:* Node version, Claude Code's folder (`CLAUDE_CONFIG_DIR`), and the terminal (Windows Terminal, also without `WT_SESSION`, or tmux).
+  - *Hooks:* while a Claude Code runs in the project (`--cwd`, default: the current folder), whether the plugin's hooks recorded its last prompt.
+
+  It exits with 1 if an error is found. `--fix` repairs without asking what it can: deletes or renames (`.corrupt`) the state files above, records the CLI's path, rewrites `settings.json` with the values that apply, and for an npm install updates an older plugin (`claude plugin marketplace update`, `claude plugin update`; restart Claude Code afterwards). Then it checks again. **`/cco:doctor`** shows the report in Claude Code, and *doctor* in the Settings view's Reset group checks and repairs, each after asking.
 
 All views share one layout:
 - **Top bar:** the view tabs, a status summary and, on the right if there is room, the version of cc-outline. Options that are on are not repeated there; the help line highlights them.
@@ -368,8 +378,9 @@ Keys:
   - When a newer version is out, the first entry is *update to v…*: its details show the notes of every newer release. `Enter` asks, then runs `npm install -g cc-outline@latest`, `claude plugin marketplace update cc-outline` and `claude plugin update cco@cc-outline`, showing each step and its output. When all succeed, the viewer opens again in the same place and view with the new version, and says once that Claude Code needs a restart for the plugin. A dialog then shows the notes of every version since the one you ran before, skipped versions included (`↑↓`/`PgUp`/`PgDn` scroll, `Enter` or `Esc` closes); it also comes after an update by hand, once per new version. If a step fails, the update stops there and shows its output; `c` copies the commands still to run.
   - Another viewer that is still on the old version offers *restart with v…* instead, which only reopens it.
   - A cco run from a checkout (`npm link`) or through npx is not updated: the entry only says that a new version is out.
-- **Reset**, below the settings (above Releases), has three entries; `Enter` shows what would change and asks first:
+- **Reset**, below the settings (above Releases), has four entries; `Enter` shows what would change and asks first:
   - *restart the viewer* closes the viewer and opens it again in the same place and view, with the version of cco installed now (after `npm install -g` by hand, or a rebuild of a linked checkout). `/cco:restart` does the same from Claude Code. The plugin's hooks and commands change only when Claude Code restarts.
+  - *doctor: check and repair* runs `cco doctor` (see [Usage](#usage)): `Enter` or a double click asks, then checks one area after the other (`Checking Installation…`, `Checking State files…`, the areas done with their mark) and shows the report; nothing is checked before. If it found something to repair, `Enter` lists the repairs and asks, then runs them one by one with their output, and checks again. `F5` checks again once it has checked; without anything to repair, `Enter` does.
   - *all settings to default*, the same as `R`, which also removes the marks `★` of the settings.
   - *saved data of this project* deletes what cco remembers for the project: the marks `★` of every list, the selected entries and scroll positions, the view and placement of each session, and whether the viewer was open at the last exit. The settings stay, and transcripts, sessions and git are not touched. The views reload empty.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
