@@ -78,7 +78,7 @@ const KEYS: Record<Mode, [string, string][]> = {
   sessions: [
     ...LIST_KEYS("session"),
     ["s", "newest / oldest first"],
-    ["↵", "start in a new tab"],
+    ["↵", "start in a new window"],
     ["c", "copy resume command"],
     ["d Del", "move to trash"],
     ["u", "undo / restore"],
