@@ -4,7 +4,7 @@ import { compileFilter, filterIndices, lineOf, nearestShown, stepShown, type Fil
 import type { FilterIn } from "../settings.js";
 import { FilterDialog } from "./FilterDialog.js";
 import { orderedNav, type FooterItem, type Layout } from "./layout.js";
-import { afterUnpin, nextMarkedIn, pinnedRows, screenOrder, stepOrder, type PinnedRows } from "../pinned.js";
+import { afterUnpin, nextMarkedIn, nextPinnedRow, pinnedRows, screenOrder, stepRow, type PinnedRows } from "../pinned.js";
 import { useOnReload } from "./reload.js";
 import { useSetting } from "./useSetting.js";
 
@@ -22,10 +22,10 @@ export interface ListFilter {
   /** The last shown entry, -1 when none is: what "the newest" means while a filter is on. */
   last: number;
   /** The Pinned group (setting `pinnedGroup`), passed to `List`; undefined while off or nothing shown is marked. */
-  pinned: PinnedRows | undefined;
-  /** Shift+↑/↓: the next marked entry shown, down (1) or up (-1) the screen. */
+  pinned: (PinnedRows & { choose: (row: number) => void }) | undefined;
+  /** Shift+↑/↓: the next marked entry shown, down (1) or up (-1) the screen; with the Pinned group only its rows. */
   nextMark: (dir: 1 | -1) => number | undefined;
-  /** Before `index` is unmarked: a pinned entry hands the selection to the next pinned one. */
+  /** Before `index` is unmarked: a selected pinned copy hands the selection to the next pinned one. */
   unmarking: (index: number) => void;
   /** Ctrl+F: opens the dialog, or drops the filter in effect. True when the key was taken. */
   handleKey: (input: string, key: Key) => boolean;
@@ -94,7 +94,17 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   const isMarked = (i: number) => marked?.(items[i]) ?? false;
   // The entries top to bottom, and with the Pinned group the marked ones first.
   const screen = screenOrder(items.length, shown, reversed);
-  const pinned = pinnedGroup && enabled && marked ? pinnedRows(screen, isMarked) : undefined;
+  // The entry whose pinned copy is selected, not its row in the list below; the views select by entry.
+  const [groupCopy, setGroupCopy] = useState<number>();
+  const rows = pinnedGroup && enabled && marked ? pinnedRows(screen, isMarked, selected, groupCopy === selected) : undefined;
+  const choose = (row: number) => setGroupCopy(rows && row < rows.count ? rows.order[row] : undefined);
+  const pinned = rows && { ...rows, choose };
+  /** Selects a row of the group's list: the entry, and which of its rows. */
+  const selectRow = (row: number | undefined) => {
+    if (!rows || row === undefined) return;
+    choose(row);
+    select(rows.order[row]);
+  };
 
   useEffect(() => {
     onTyping?.(open);
@@ -115,13 +125,10 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
 
   const last = shown ? (shown.at(-1) ?? -1) : items.length - 1;
   // With the Pinned group, ↑↓ and first/last follow the rows on screen.
-  const pinnedNav = pinned && {
-    select: (delta: number) => {
-      const next = stepOrder(pinned.order, selected, delta);
-      if (next !== undefined) select(next);
-    },
-    first: () => select(pinned.order[0]),
-    last: () => select(pinned.order.at(-1)!),
+  const pinnedNav = rows && {
+    select: (delta: number) => selectRow(stepRow(rows.order.length, rows.row, delta)),
+    first: () => selectRow(0),
+    last: () => selectRow(rows.order.length - 1),
   };
   const nav = pinnedNav ?? orderedNav(reversed, {
     select: (delta: number) => {
@@ -154,10 +161,19 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
     nav,
     last,
     pinned,
-    nextMark: (dir) => nextMarkedIn(pinned?.order ?? screen, selected, dir, isMarked),
+    nextMark: (dir) => {
+      if (!rows) return nextMarkedIn(screen, selected, dir, isMarked);
+      const row = nextPinnedRow(rows, dir);
+      if (row === undefined) return undefined;
+      choose(row);
+      return rows.order[row];
+    },
     unmarking: (index) => {
-      const next = afterUnpin(pinned, index);
-      if (next !== undefined) select(next);
+      if (!rows || rows.order[rows.row] !== index) return;
+      const next = afterUnpin(rows);
+      // The only one: the selection stays with the entry, in its place below.
+      if (next === undefined) return setGroupCopy(undefined);
+      selectRow(next);
     },
     handleKey,
     count: (total) => (shown ? `${matched}/${total}` : String(total)),

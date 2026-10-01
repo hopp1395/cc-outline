@@ -43,8 +43,9 @@ export function separatorText(key: string, width: number): string {
   return ruleText(periodLabel(key, "always"), width);
 }
 
-/** "── Chat ─────": a separator with `label` across `width` columns. */
+/** "── Chat ─────": a separator with `label` across `width` columns; a plain line without one. */
 export function ruleText(label: string, width: number): string {
+  if (!label) return "─".repeat(Math.max(0, width));
   const head = `── ${label} `;
   return head + "─".repeat(Math.max(0, width - head.length));
 }

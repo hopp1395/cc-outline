@@ -16,6 +16,8 @@ import type { Transcript } from "../src/tui/useTranscript.js";
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
 const HOME = "\u001b[H";
 const DOWN = "\u001b[B";
+const UP = "\u001b[A";
+const END = "\u001b[F";
 const SHIFT_UP = "\u001b[1;2A";
 
 let saved: string | undefined;
@@ -54,29 +56,53 @@ const turn = (id: string, prompt: string): Turn => ({ id, prompt, blocks: [{ kin
 const transcript: Transcript = { turns: [turn("a", "first"), turn("b", "second"), turn("c", "third")], plans: [], agents: [], version: 1 };
 
 describe("the Pinned group", () => {
-  it("shows the marked turns first, navigates by the rows on screen and hands the selection on when unmarking", async () => {
+  it("shows the marked turns once more on top, navigates by the rows on screen and hands the selection on when unmarking", async () => {
     toggleFavorite(cwd, "turns", "a");
     toggleFavorite(cwd, "turns", "c");
     const view = renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript} layout={layout} active liveSession />);
-    // Following: the newest turn, in the group.
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
-    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ first", "★ third", "── Pinned end", "second"]);
-    view.press(DOWN);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer b");
+    const shows = (answer: string) => expect.poll(view.frame, { timeout: 2000 }).toContain(answer);
+    // Following: the newest turn, in its place in the list. The list below the group has no stars.
+    await shows("Answer c");
+    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ first", "★ third", "first", "second", "third"]);
+    view.press(UP);
+    await shows("Answer b");
+    // Shift+↑ from the list: the group's last row; ↑↓ then step through the copies too.
     view.press(SHIFT_UP);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
-    view.press(HOME);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer a");
+    await shows("Answer c");
+    view.press(UP);
+    await shows("Answer a");
     view.press(DOWN);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
-    // The last pinned row unmarked: the one above takes the selection.
+    await shows("Answer c");
+    view.press(DOWN);
+    await shows("Answer a");
+    view.press(DOWN);
+    await shows("Answer b");
+    // Marked in the list: the selection stays there.
     view.press(" ");
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer a");
-    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ first", "── Pinned end", "second", "third"]);
-    // The only one: the selection stays with it, back in its place.
+    await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ first", "★ second", "★ third", "first", "second", "third"]);
+    view.press(DOWN);
+    await shows("Answer c");
+    view.press(UP);
+    await shows("Answer b");
+    // A pinned copy unmarked: the pinned row below takes the selection.
+    view.press(HOME);
+    await shows("Answer a");
+    view.press(" ");
+    await shows("Answer b");
+    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ second", "★ third", "first", "second", "third"]);
+    // Unmarked in the list: the selection stays in its place.
+    view.press(END);
+    await shows("Answer c");
+    view.press(" ");
+    await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ second", "first", "second", "third"]);
+    expect(view.frame()).toContain("Answer c");
+    // The only one: the selection stays with it, in its place in the list.
+    view.press(SHIFT_UP);
+    await shows("Answer b");
     view.press(" ");
     await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["first", "second", "third"]);
-    expect(view.frame()).toContain("Answer a");
+    view.press(UP);
+    await shows("Answer a");
     view.unmount();
   });
 
