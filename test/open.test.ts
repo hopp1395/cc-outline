@@ -15,7 +15,7 @@ vi.mock("node:child_process", () => ({
   },
 }));
 
-const { independentEnv, moveViewer, openInDefaultApp, openPane, resumeInNewTab } = await import("../src/open.js");
+const { independentEnv, moveViewer, openInDefaultApp, openPane, resumeInNewWindow } = await import("../src/open.js");
 
 const saved = { ...process.env };
 beforeEach(() => {
@@ -29,16 +29,18 @@ afterEach(() => {
   process.env = { ...saved };
 });
 
-describe("resumeInNewTab", () => {
-  it("opens a Windows Terminal tab in the session's folder", () => {
+describe("resumeInNewWindow", () => {
+  it("opens a Windows Terminal window in the session's folder", () => {
     process.env.WT_SESSION = "x";
-    expect(resumeInNewTab("abc", "W:\\repo", "orders")).toMatch(/Windows Terminal tab/);
+    expect(resumeInNewWindow("abc", "W:\\repo", "orders")).toMatch(/Windows Terminal window/);
     expect(spawned.map(({ cmd, args }) => ({ cmd, args }))).toEqual([
       {
         cmd: "wt",
-        args: ["-w", "0", "new-tab", "--title", "orders", "-d", "W:\\repo", "cmd", "/k", "claude", "--resume", "abc"],
+        args: ["-w", "new", "new-tab", "--title", "orders", "-d", "W:\\repo", "cmd", "/k", "claude", "--resume", "abc"],
       },
     ]);
+    // A hidden start would keep the new window hidden.
+    expect(spawned[0].windowsHide).toBe(false);
   });
 
   it("does not pass on the variables of the Claude Code the viewer was opened from", () => {
@@ -46,7 +48,7 @@ describe("resumeInNewTab", () => {
     process.env.CLAUDE_CODE_CHILD_SESSION = "1";
     process.env.CLAUDE_PID = "123";
     process.env.CLAUDE_CONFIG_DIR = "/cfg";
-    resumeInNewTab("abc", "W:\\repo", "orders");
+    resumeInNewWindow("abc", "W:\\repo", "orders");
     const env = spawned[0].env!;
     expect(env.CLAUDE_CODE_CHILD_SESSION).toBeUndefined();
     expect(env.CLAUDE_PID).toBeUndefined();
@@ -58,14 +60,14 @@ describe("resumeInNewTab", () => {
   it("opens a tmux window that clears them and keeps a shell afterwards", () => {
     process.env.TMUX = "/tmp/tmux";
     process.env.SHELL = "/bin/zsh";
-    expect(resumeInNewTab("abc", "/repo", "orders")).toMatch(/tmux window/);
+    expect(resumeInNewWindow("abc", "/repo", "orders")).toMatch(/tmux window/);
     const [cmd] = spawned[0].args.slice(-1);
     expect(spawned[0].args.slice(0, -1)).toEqual(["new-window", "-n", "orders", "-c", "/repo"]);
     expect(cmd).toMatch(/^unset .*CLAUDE_CODE_CHILD_SESSION.*; claude --resume 'abc'; exec \/bin\/zsh$/);
   });
 
   it("names the command when no supported terminal is found", () => {
-    expect(resumeInNewTab("abc", "/repo", "orders")).toBe("no Windows Terminal or tmux: run claude --resume abc in /repo");
+    expect(resumeInNewWindow("abc", "/repo", "orders")).toBe("no Windows Terminal or tmux: run claude --resume abc in /repo");
     expect(spawned).toEqual([]);
   });
 });
