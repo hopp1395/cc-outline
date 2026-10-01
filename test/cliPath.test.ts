@@ -42,7 +42,7 @@ describe("plugin", () => {
     for (const name of readdirSync(join(plugin, "commands"))) {
       const text = readFileSync(join(plugin, "commands", name), "utf8");
       expect(text, name).toMatch(/^allowed-tools: Bash\(node:\*\)$/m);
-      expect(text, name).toMatch(/^!`node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/cco\.mjs" open --(view|action) /m);
+      expect(text, name).toMatch(/^!`node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/cco\.mjs" (open --(view|action) |doctor`)/m);
     }
   });
 });
