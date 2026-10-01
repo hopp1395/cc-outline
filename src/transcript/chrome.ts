@@ -1,15 +1,27 @@
-import { escapeMd, fence, type ToolLevel, type ToolOutcome } from "./tools.js";
+import { escapeMd, fence, type BrowserStep, type ResultImage, type ToolLevel, type ToolOutcome } from "./tools.js";
 
 /**
- * Claude in Chrome (`mcp__claude-in-chrome__*`): one line per browser action,
- * verb first, without tab ids, and the page it ran on from the result's
- * "Tab Context". Its results are text blocks: the action's result, screenshots
- * as images, the tab context and sometimes a <system-reminder>.
+ * Browser tools: Claude in Chrome (`mcp__claude-in-chrome__*`) and the
+ * desktop app's Browser pane (`mcp__Claude_Browser__*`, from a cloud session
+ * `mcp__remote-devices__Claude_Browser__*`), which share most actions. One
+ * line per browser action, verb first, without tab ids, and the page it ran on
+ * from the result's "Tab Context". Results are text blocks: the action's
+ * result, screenshots as images (the Browser pane also saves them and names
+ * the file in an `[Image: source: …]` text), the tab context and sometimes a
+ * <system-reminder>.
  */
 
-const PREFIX = "mcp__claude-in-chrome__";
+const CHROME = "mcp__claude-in-chrome__";
+const PREFIXES = [CHROME, "mcp__Claude_Browser__", "mcp__remote-devices__Claude_Browser__"];
 
-export const isChromeTool = (name: string) => name.startsWith(PREFIX);
+const prefixOf = (name: string) => PREFIXES.find((p) => name.startsWith(p));
+export const isBrowserTool = (name: string) => prefixOf(name) !== undefined;
+/** The action of a browser tool: its name without the prefix. */
+export const browserAction = (name: string) => name.slice(prefixOf(name)?.length ?? 0);
+/** What the frame of browser actions is called. */
+export const browserTitle = (name: string) => (name.startsWith(CHROME) ? "Claude in Chrome" : "Browser");
+/** Actions whose page is shown after them: they lead there. */
+export const navigates = (name: string) => /^(navigate|preview_start)$/.test(browserAction(name));
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : {});
@@ -22,10 +34,9 @@ function code(s: string, max = 80): string {
   return `\`${one.length > max ? one.slice(0, max - 1) + "…" : one}\``;
 }
 
-const firstLine = (s: string, max = 80) => {
-  const line = s.trim().split("\n")[0]?.trim() ?? "";
-  return escapeMd(line.length > max ? line.slice(0, max - 1) + "…" : line);
-};
+const cut = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+
+const firstLine = (s: string, max = 80) => escapeMd(cut(s.trim().split("\n")[0]?.trim() ?? "", max));
 
 const point = (v: unknown) => (Array.isArray(v) && v.length === 2 ? `(${v[0]}, ${v[1]})` : undefined);
 
@@ -51,9 +62,13 @@ function actionHead(tool: string, input: unknown): { symbol: string; verb: strin
       const url = str(i.url) ?? "";
       return url === "back" || url === "forward" ? { symbol: "↗", verb: url } : { symbol: "↗", verb: "navigate", arg: code(shortUrl(url), 72) };
     }
+    case "preview_start":
+      return { symbol: "↗", verb: "open browser", arg: str(i.url) ? code(shortUrl(str(i.url)!), 72) : undefined };
     case "computer": {
       const action = str(i.action) ?? "";
-      const target = str(i.ref) ? code(str(i.ref)!) : point(i.coordinate);
+      // The Browser pane's calls say what a click is for; better than a ref or a point.
+      const purpose = str(i.action_summary) ? escapeMd(cut(str(i.action_summary)!, 80)) : undefined;
+      const target = purpose ?? (str(i.ref) ? code(str(i.ref)!) : point(i.coordinate));
       if (CLICKS[action]) return { symbol: "⊙", verb: CLICKS[action], arg: target };
       switch (action) {
         case "screenshot":
@@ -61,7 +76,7 @@ function actionHead(tool: string, input: unknown): { symbol: string; verb: strin
         case "zoom":
           return { symbol: "▣", verb: "zoom", arg: Array.isArray(i.region) ? `(${i.region.join(", ")})` : undefined };
         case "left_click_drag":
-          return { symbol: "⊙", verb: "drag", arg: [point(i.start_coordinate), point(i.coordinate)].filter(Boolean).join(" → ") || undefined };
+          return { symbol: "⊙", verb: "drag", arg: purpose ?? ([point(i.start_coordinate), point(i.coordinate)].filter(Boolean).join(" → ") || undefined) };
         case "hover":
           return { symbol: "⊙", verb: "hover", arg: target };
         case "type":
@@ -98,6 +113,8 @@ function actionHead(tool: string, input: unknown): { symbol: string; verb: strin
       return { symbol: "▭", verb: "new browser tab" };
     case "tabs_close_mcp":
       return { symbol: "▭", verb: "close browser tab" };
+    case "tabs_select":
+      return { symbol: "▭", verb: "select browser tab" };
     case "resize_window":
       return { symbol: "⤢", verb: "resize browser", arg: num(i.width) && num(i.height) ? `${num(i.width)}×${num(i.height)}` : undefined };
     case "list_connected_browsers":
@@ -113,22 +130,32 @@ function actionHead(tool: string, input: unknown): { symbol: string; verb: strin
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** The matches a find listed: "- ref_1: link …" (Chrome) or "- link "…" [ref_21] …" (Browser pane). */
+const findMatches = (text: string) =>
+  text
+    .split("\n")
+    .filter((l) => l.startsWith("- "))
+    .map((l) => l.slice(2).trim());
+
 /** What the result of an action says briefly, after its line; undefined when the line says it all (clicks, keys). */
 function actionSummary(tool: string, input: unknown, text: string, context = ""): string | undefined {
   const action = str(obj(input).action);
   if (tool === "computer") {
-    if (action === "screenshot") return /\((\d+)x(\d+)/.exec(text)?.slice(1).join("×");
-    if (action === "zoom") return /(\d+)x(\d+) pixels/.exec(text)?.slice(1).join("×");
+    // "Successfully captured screenshot (1568x698, jpeg)", "Screenshot size: 800x600", "1024x768 pixels".
+    if (action === "screenshot" || action === "zoom") return /(\d+)x(\d+)/.exec(text)?.slice(1).join("×") ?? (action === "zoom" ? firstLine(text, 60) || undefined : undefined);
     return undefined;
   }
   switch (tool) {
     case "navigate":
+    case "preview_start":
     case "tabs_create_mcp":
+    case "tabs_select":
     case "resize_window":
       return undefined;
     case "find": {
-      const n = /Found (\d+) matching/.exec(text)?.[1];
-      return n ? `→ ${plural(Number(n), "element")}` : firstLine(text, 60);
+      const n = /Found (\d+) match/.exec(text)?.[1];
+      if (n) return `→ ${plural(Number(n), "element")}`;
+      return /^No match/.test(text.trim()) ? "→ none" : firstLine(text, 60);
     }
     case "tabs_context_mcp": {
       const tabs = (context.match(/• tabId/g) ?? []).length;
@@ -143,6 +170,10 @@ function actionSummary(tool: string, input: unknown, text: string, context = "")
       }
       return firstLine(text, 60);
     }
+    case "read_network_requests": {
+      const requests = text.split("\n").filter((l) => /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\S/.test(l)).length;
+      return requests ? plural(requests, "request") : firstLine(text, 60);
+    }
     case "javascript_tool":
       // Results are often JSON over several lines: one line of it.
       return text.trim() ? code(text, 60) : undefined;
@@ -154,50 +185,112 @@ function actionSummary(tool: string, input: unknown, text: string, context = "")
   }
 }
 
+/** Lines of what an action found, shown below it in the browser frame. */
+const BRIEF_LINES = 5;
+const BRIEF_WIDTH = 100;
+
+/** A few plain lines of an action's result worth reading without opening anything: matches, a script's value, console messages. */
+function actionBrief(tool: string, text: string): string[] | undefined {
+  let lines: string[];
+  switch (tool) {
+    case "find":
+      lines = findMatches(text);
+      break;
+    case "javascript_tool":
+      lines = text.trim().split("\n");
+      // A value of one line is already in the action's line.
+      if (lines.length === 1) return undefined;
+      break;
+    case "read_console_messages":
+      lines = /^No console/i.test(text.trim()) ? [] : text.trim().split("\n");
+      break;
+    default:
+      return undefined;
+  }
+  lines = lines.map((l) => l.trimEnd()).filter((l) => l.trim());
+  if (lines.length === 0) return undefined;
+  const shown = lines.slice(0, BRIEF_LINES).map((l) => cut(l, BRIEF_WIDTH));
+  return lines.length > BRIEF_LINES ? [...shown, `… ${lines.length - BRIEF_LINES} more`] : shown;
+}
+
 /** Markdown of one action's line. */
 function actionLine(tool: string, input: unknown, summary?: string): string {
   const { symbol, verb, arg } = actionHead(tool, input);
   return `**${escapeMd(symbol)} ${escapeMd(verb)}**${arg ? ` ${arg}` : ""}${summary ? ` · ${summary}` : ""}`;
 }
 
-/** The title of the tab an action ran on, from the result's "Tab Context". */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The title of the tab an action ran on, from the result's "Tab Context". Chrome's tab ids are numbers, the Browser pane's names ("seed", "tab-1"). */
 export function tabPage(context: string): string | undefined {
-  const id = /Executed on tabId: (\d+)/.exec(context)?.[1];
+  const id = /Executed on tabId: ([\w-]+)/.exec(context)?.[1];
   if (!id) return undefined;
-  const tab = new RegExp(`• tabId ${id}: "(.*)" \\("(.*)"\\)\\s*$`, "m").exec(context);
+  const tab = new RegExp(`• tabId ${escapeRegExp(id)}: "(.*)" \\("(.*)"\\)\\s*$`, "m").exec(context);
   if (!tab) return undefined;
   return tab[1].trim() || shortUrl(tab[2]);
 }
 
-/** The text blocks of a result, without system reminders; the tab context apart. */
-function resultParts(content: unknown): { texts: string[]; context?: string } {
-  const blocks = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((b) => (obj(b).type === "text" ? (str(obj(b).text) ?? "") : "")) : [];
+/** "[Image: source: C:\…\tool-results\mcp-Claude_Browser-blob-….jpg]": where the Browser pane saved the image before it. */
+const IMAGE_SOURCE = /^\[Image: source: (.+)\]$/;
+/** "(captured at origin https://…)", which the Browser pane adds to its results. */
+const ORIGIN = /\n*\(captured at origin [^)]*\)\s*$/;
+/** A batch result's text starts with its action: "[navigate] …", "[computer:screenshot] …". */
+const STEP = /^\[[\w:]+\]/;
+
+/**
+ * The parts of a result: its text blocks without system reminders, the tab
+ * context apart (the last one, after the last action), and its images, each
+ * with the batch action it follows.
+ */
+function resultParts(content: unknown, batch: boolean): { texts: string[]; context?: string; images: ResultImage[] } {
+  const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content.map(obj) : [];
   const texts: string[] = [];
+  const images: ResultImage[] = [];
   let context: string | undefined;
-  for (const raw of blocks) {
-    const t = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "");
-    const at = t.indexOf("Tab Context:");
-    if (at >= 0) {
-      context = t.slice(at);
-      if (t.slice(0, at).trim()) texts.push(t.slice(0, at).trim());
-    } else if (t.trim()) texts.push(t.trim());
+  let step = -1;
+  for (const block of blocks) {
+    if (block.type === "image") {
+      images.push(batch && step >= 0 ? { step } : {});
+      continue;
+    }
+    if (block.type !== "text") continue;
+    const raw = (str(block.text) ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "");
+    const source = IMAGE_SOURCE.exec(raw.trim())?.[1];
+    if (source) {
+      const last = images.at(-1);
+      if (last && !last.path) last.path = source;
+      continue;
+    }
+    const at = raw.indexOf("Tab Context:");
+    const own = (at >= 0 ? raw.slice(0, at) : raw).replace(ORIGIN, "").trim();
+    if (at >= 0) context = raw.slice(at);
+    if (!own) continue;
+    if (batch && STEP.test(own)) step++;
+    texts.push(own);
   }
-  return { texts, context };
+  return { texts, context, images };
 }
 
-/** The outcome of a successful Claude in Chrome call (errors take the general path). */
+/** The outcome of a successful browser call (errors take the general path). */
 export function chromeOutcome(name: string, input: unknown, content: unknown): ToolOutcome {
-  const tool = name.slice(PREFIX.length);
-  const { texts, context } = resultParts(content);
+  const tool = browserAction(name);
+  const batch = tool === "browser_batch";
+  const { texts, context, images } = resultParts(content, batch);
   const page = context ? tabPage(context) : undefined;
-  const text = texts.join("\n");
-  if (tool === "browser_batch") {
+  const extra = { ...(page ? { page } : {}), ...(images.length ? { images } : {}) };
+  if (batch) {
     const actions = Array.isArray(obj(input).actions) ? (obj(input).actions as unknown[]) : [];
     // One "[name] result" or "[computer:action] result" text per action, in order.
-    const results = texts.filter((t) => /^\[[\w:]+\]/.test(t)).map((t) => t.replace(/^\[[\w:]+\]\s*/, ""));
-    const steps = actions.map((a, i) => actionLine(str(obj(a).name) ?? "", obj(a).input, results[i] !== undefined ? actionSummary(str(obj(a).name) ?? "", obj(a).input, results[i]) : undefined));
-    return { status: "ok", steps, ...(page ? { page } : {}) };
+    const results = texts.filter((t) => STEP.test(t)).map((t) => t.replace(STEP, "").trim());
+    const steps = actions.map((a, i): BrowserStep => {
+      const name = str(obj(a).name) ?? "";
+      const result = results[i];
+      const brief = result !== undefined ? actionBrief(name, result) : undefined;
+      return { line: actionLine(name, obj(a).input, result !== undefined ? actionSummary(name, obj(a).input, result) : undefined), ...(brief ? { brief } : {}) };
+    });
+    return { status: "ok", steps, ...extra };
   }
+  const text = texts.join("\n");
   const detail =
     tool === "javascript_tool"
       ? [fence(str(obj(input).text) ?? "", "js"), ...(text ? [fence(tailLines(text))] : [])].join("\n\n")
@@ -206,18 +299,95 @@ export function chromeOutcome(name: string, input: unknown, content: unknown): T
           ? fence(tailLines(text))
           : undefined
         : undefined;
-  return { status: "ok", summary: actionSummary(tool, input, text, context), ...(detail ? { detail } : {}), ...(page ? { page } : {}) };
+  const brief = actionBrief(tool, text);
+  return { status: "ok", summary: actionSummary(tool, input, text, context), ...(detail ? { detail } : {}), ...(brief ? { brief } : {}), ...extra };
+}
+
+/** "actions[2] (computer:screenshot) failed: Permission denied … (2 completed, 2 remaining)". */
+const BATCH_FAILED = /^actions\[(\d+)\] \([\w:]+\) failed: (.*?)(?:\s*\(\d+ completed, \d+ remaining\))?$/m;
+
+/**
+ * The outcome of a browser_batch that stopped at an error: the actions that
+ * ran with their results, the failed one with its error and the rest marked
+ * as not run. Its text is the "[name] result" lines, then the failure.
+ */
+export function batchFailure(input: unknown, text: string): ToolOutcome {
+  const actions = Array.isArray(obj(input).actions) ? (obj(input).actions as unknown[]) : [];
+  const failed = BATCH_FAILED.exec(text);
+  const at = failed ? Number(failed[1]) : -1;
+  const error = escapeMd(cut((failed?.[2] ?? text.trim().split("\n").at(-1) ?? "").trim(), 100));
+  const results = text.split("\n").filter((l) => STEP.test(l)).map((l) => l.replace(STEP, "").trim());
+  const steps = actions.map((a, i): BrowserStep => {
+    const name = str(obj(a).name) ?? "";
+    const summary = i === at ? `✗ ${error}` : at >= 0 && i > at ? "not run" : results[i] !== undefined ? actionSummary(name, obj(a).input, results[i]) : undefined;
+    return { line: actionLine(name, obj(a).input, summary) };
+  });
+  // Without the failure line the error goes below the actions.
+  if (at < 0) steps.push({ line: `**✗** ${error}` });
+  return { status: "error", summary: at >= 0 ? `✗ action ${at + 1} of ${actions.length} failed` : `✗ ${error}`, steps };
 }
 
 const tailLines = (text: string, n = 10) => text.trim().split("\n").slice(0, n).join("\n") + (text.trim().split("\n").length > n ? "\n…" : "");
 
-/** A Claude in Chrome call at `level` (not "off"): its line, a batch's actions below it, and details in full. */
-export function chromeMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel): string {
-  const tool = name.slice(PREFIX.length);
+/** Symbol and verb of the action an image of a browser call came from ("▣ screenshot", a batch's "↕ scroll"). */
+export function imageAction(name: string, input: unknown, image: ResultImage | undefined): string {
+  let tool = browserAction(name);
+  let args = input;
+  if (tool === "browser_batch" && image?.step !== undefined) {
+    const action = obj((obj(input).actions as unknown[] | undefined)?.[image.step]);
+    tool = str(action.name) ?? tool;
+    args = action.input;
+  }
+  const { symbol, verb } = actionHead(tool, args);
+  return `${symbol} ${verb}`;
+}
+
+/** The mark of screenshot `n` of a turn after its action; a click on it (or `O`) opens it. */
+export const shotMark = (n: number) => `\u001b[36m[▣ ${n}]\u001b[39m`;
+/** Finds the screenshot marks in a rendered line, without colours: the number and the columns. */
+export const SHOT_MARK = /\[▣ (\d+)\]/g;
+
+/** `line` with the marks of the screenshots numbered `shots`. */
+const withShots = (line: string, shots: number[] = []) => (shots.length ? `${line} ${shots.map(shotMark).join(" ")}` : line);
+
+/** The screenshot numbers of a call's images that belong to batch action `step` (all of them for other calls). */
+function shotsOf(outcome: ToolOutcome | undefined, shots: number[], step?: number): number[] {
+  return (outcome?.images ?? []).flatMap((image, i) => (step === undefined || image.step === step ? [shots[i]] : [])).filter((n) => n !== undefined);
+}
+
+/**
+ * A browser call at `level` (not "off"): its line, a batch's actions below it,
+ * and details in full. `shots` numbers its images among the turn's screenshots.
+ */
+export function chromeMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, shots: number[] = []): string {
+  const tool = browserAction(name);
   const line = actionLine(tool, input, outcome?.summary);
   if (tool === "browser_batch") {
-    const steps = outcome?.steps ?? (Array.isArray(obj(input).actions) ? (obj(input).actions as unknown[]).map((a) => actionLine(str(obj(a).name) ?? "", obj(a).input)) : []);
-    return [line, ...steps.map((s) => `- ${s}`)].join("\n");
+    const steps = outcome?.steps ?? batchSteps(input);
+    return [line, ...steps.map((s, i) => `- ${withShots(s.line, shotsOf(outcome, shots, i))}`)].join("\n");
   }
-  return level === "full" && outcome?.detail ? `${line}\n\n${outcome.detail}` : line;
+  const marked = withShots(line, shots);
+  return level === "full" && outcome?.detail ? `${marked}\n\n${outcome.detail}` : marked;
+}
+
+/** A batch's actions from its input, before or without a result. */
+const batchSteps = (input: unknown): BrowserStep[] =>
+  (Array.isArray(obj(input).actions) ? (obj(input).actions as unknown[]) : []).map((a) => ({ line: actionLine(str(obj(a).name) ?? "", obj(a).input) }));
+
+const faint = (s: string) => `\u001b[2m${s}\u001b[22m`;
+
+/** A list item of the browser frame: the line, then what it found, dimmed and indented below it. */
+function frameItem(line: string, brief: string[] | undefined, shots: number[]): string {
+  const below = (brief ?? []).map((l) => `  \n  ${faint(escapeMd(l))}`).join("");
+  return `- ${withShots(line, shots)}${below}`;
+}
+
+/**
+ * A browser call as items of the frame the chat shows with tools off: one
+ * per action (a batch's actions each), each with what it found below it.
+ */
+export function browserItems(name: string, input: unknown, outcome: ToolOutcome | undefined, shots: number[] = []): string[] {
+  const tool = browserAction(name);
+  if (tool === "browser_batch") return (outcome?.steps ?? batchSteps(input)).map((s, i) => frameItem(s.line, s.brief, shotsOf(outcome, shots, i)));
+  return [frameItem(actionLine(tool, input, outcome?.summary), outcome?.status === "ok" ? outcome.brief : undefined, shots)];
 }

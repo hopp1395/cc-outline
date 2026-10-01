@@ -5,7 +5,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown, stripBoxes } from "../render/markdown.js";
 import { haystack } from "../filter.js";
-import { turnImageFiles } from "../images.js";
+import { screenshotFile, turnImageFiles } from "../images.js";
 import { openInDefaultApp } from "../open.js";
 import {
   AGENT_RUNNING_MARK,
@@ -14,7 +14,9 @@ import {
   agentStatusLine,
   agentTitle,
   turnMarkdown,
+  turnScreenshots,
   type AgentRun,
+  type Screenshot,
   type Attachment,
   type CompactInfo,
   type Continuation,
@@ -46,6 +48,7 @@ import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
+import { ScreenshotDialog } from "./ScreenshotDialog.js";
 import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
@@ -67,6 +70,8 @@ interface Props {
   liveSession?: boolean;
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;
+  /** The screenshot dialog opened or closed: App ignores its keys meanwhile. */
+  onModal?: (open: boolean) => void;
 }
 
 /** t steps through the tool levels: off → compact → full → off. */
@@ -197,9 +202,11 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
   };
   // A report or message from another agent comes first; Claude's reaction to it follows.
   if (turn.notification?.kind && turn.notification.result) add(peerLines(turn.notification, width, wrap));
+  // Screenshots are numbered across the whole turn, not per run.
+  const shots = turnScreenshots(turn);
   let run: Turn["blocks"] = [];
   const flush = () => {
-    const md = run.length ? turnMarkdown({ ...turn, blocks: run }, opts) : "";
+    const md = run.length ? turnMarkdown({ ...turn, blocks: run }, { ...opts, shots }) : "";
     if (md) add(renderMarkdown(md, width, wrap));
     run = [];
   };
@@ -351,7 +358,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight } = layout;
@@ -578,6 +585,23 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     for (const file of files) openInDefaultApp(file);
     notify(`opened ${plural(files.length, "image")}`);
   };
+  // The screenshots of the turn's browser actions, numbered as the answer marks them ([▣ 3]).
+  const shots = useMemo(() => (current ? turnScreenshots(current) : []), [current, version]);
+  const [shotsOpen, setShotsOpen] = useState(false);
+  useEffect(() => onModal?.(shotsOpen), [shotsOpen]);
+  /** Opens screenshot `shot` of the current turn in the system's image viewer. */
+  const openShot = (shot: Screenshot | undefined) => {
+    if (!shot || !current) return;
+    let file: string | undefined;
+    try {
+      file = screenshotFile(current.transcript ?? path, shot);
+    } catch (err) {
+      return notify(`could not read the screenshot: ${(err as Error).message}`);
+    }
+    if (!file) return notify(`screenshot ${shot.n} is no longer available`);
+    openInDefaultApp(file);
+    notify(`opened screenshot ${shot.n}`);
+  };
   /** Mouse wheel over the answer: like Ctrl+↑/↓, scrolling up leaves the live end and scrolling back down rejoins it. */
   const wheel = (delta: number) => {
     if (!detailOpen && selected === last) {
@@ -638,18 +662,20 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         return notify(follow ? "follow off" : "follow on");
       }
       if (input === "s") return setOrder(flipOrder);
-      if (input === "o" && current) return openImages(current);
+      // o opens the prompt's images, or else the turn's last screenshot; O lists the screenshots.
+      if (input === "o" && current) return imageCount > 0 ? openImages(current) : shots.length ? openShot(shots.at(-1)) : undefined;
+      if (input === "O") return shots.length ? setShotsOpen(true) : notify("no screenshots in this turn");
       if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
-        const md = stripBoxes(turnMarkdown(current, { tools: "off", thinking: false }));
+        const md = stripBoxes(turnMarkdown(current, { tools: "off", thinking: false, browser: false }));
         copy(md).then(
           () => notify("copied Markdown to clipboard"),
           (err: Error) => notify(`copy failed: ${err.message}`),
         );
       }
     },
-    { isActive: active && !filter.open },
+    { isActive: active && !filter.open && !shotsOpen },
   );
 
   const session = path ? basename(path, ".jsonl").slice(0, 8) : "none";
@@ -737,6 +763,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           <Preview
             onWheel={wheel}
             onLink={(url) => notify(`opened ${url}`)}
+            // The marks number the screenshots of the answer; a subagent's page and the prompt have their own.
+            onShot={detailOpen ? undefined : (n) => openShot(shots[n - 1])}
             header={header}
             lines={lines}
             scroll={scroll.scroll}
@@ -773,12 +801,14 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
           ...(imageCount > 0 ? [{ text: `o ${plural(imageCount, "image")}`, priority: 3 }] : []),
+          ...(shots.length > 0 ? [{ text: `${imageCount > 0 ? "O" : "o/O"} ${plural(shots.length, "screenshot")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
           { text: "1-6/tab view", priority: 1 },
         ])
       }
     />
     {filter.dialog}
+    {shotsOpen && active && <ScreenshotDialog layout={layout} shots={shots} onOpen={openShot} onClose={() => setShotsOpen(false)} />}
     </>
   );
 }

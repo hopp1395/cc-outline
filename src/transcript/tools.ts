@@ -1,6 +1,6 @@
 import { isAbsolute, relative } from "node:path";
 import { BOX_END, BOX_RULE, BOX_START } from "../render/markdown.js";
-import { chromeMarkdown, chromeOutcome, isChromeTool } from "./chrome.js";
+import { batchFailure, browserAction, chromeMarkdown, chromeOutcome, isBrowserTool } from "./chrome.js";
 
 /** How much of Claude's tool calls the chat shows: nothing, a line each, or with command and output. */
 export const TOOL_LEVELS = ["off", "compact", "full"] as const;
@@ -22,10 +22,28 @@ export interface ToolOutcome {
   notes?: Record<string, string>;
   /** ExitPlanMode: the user's words when they rejected the plan. */
   feedback?: string;
-  /** Claude in Chrome: the title of the tab the action ran on. */
+  /** Browser tools: the title of the tab the action ran on. */
   page?: string;
-  /** Claude in Chrome's browser_batch: one line of Markdown per action. */
-  steps?: string[];
+  /** A browser_batch: one line of Markdown per action, with its short result. */
+  steps?: BrowserStep[];
+  /** Browser tools: a few plain lines of what the action found (matches, a script's value, console messages), shown in the browser frame. */
+  brief?: string[];
+  /** Browser tools: the images of the result (screenshots), in order. */
+  images?: ResultImage[];
+}
+
+/** One action of a browser_batch. */
+export interface BrowserStep {
+  line: string;
+  brief?: string[];
+}
+
+/** An image in a tool result; the image data stays in the transcript. */
+export interface ResultImage {
+  /** The action of a browser_batch it belongs to. */
+  step?: number;
+  /** A copy Claude Code saved next to the transcript (the desktop app's browser does), if it said where. */
+  path?: string;
 }
 
 /** Lines of Bash/PowerShell output kept for the full view: the end, where results and errors are. */
@@ -118,10 +136,12 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
       const feedback = /the user said:\s*([\s\S]*)$/i.exec(text)?.[1]?.trim();
       return { status: "denied", summary: "⊘ denied", ...(feedback ? { feedback, detail: `> ${escapeMd(feedback)}` } : {}) };
     }
+    // A batch that stopped: the actions that ran, then the one that failed.
+    if (isBrowserTool(name) && browserAction(name) === "browser_batch") return batchFailure(input, text);
     const first = lines(text.replace(/<\/?tool_use_error>/g, "").trim())[0] ?? "";
     return { status: "error", summary: `✗ ${escapeMd(first.slice(0, 100))}`, detail: text.trim() ? tail(text.replace(/<\/?tool_use_error>/g, "").trim()) : undefined };
   }
-  if (isChromeTool(name)) return chromeOutcome(name, input, content);
+  if (isBrowserTool(name)) return chromeOutcome(name, input, content);
   const r = obj(result);
   const i = obj(input);
   switch (name) {
@@ -281,9 +301,11 @@ function questionTexts(input: unknown): string[] {
 
 /**
  * A tool call as the chat shows it at `level`. "off" shows only questions,
- * framed; with the other levels they are a tool call like the rest.
+ * framed (browser calls are framed by `turnMarkdown`); with the other levels
+ * they are a tool call like the rest. `shots` numbers a browser call's
+ * screenshots among the turn's.
  */
-export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string): string {
+export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string, shots?: number[]): string {
   if (level === "off") return name === "AskUserQuestion" ? questionMarkdown(input, outcome) : "";
   if (name === "ExitPlanMode") {
     const decision =
@@ -296,7 +318,7 @@ export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome 
             : "failed";
     return `**▤ Plan presented** → ${decision} *(3 Plan view)*`;
   }
-  if (isChromeTool(name)) return chromeMarkdown(name, input, outcome, level);
+  if (isBrowserTool(name)) return chromeMarkdown(name, input, outcome, level, shots);
   const status = outcome?.summary ? ` · ${outcome.summary}` : "";
   const line = `**⚙ ${escapeMd(mcpName(name))}** ${toolTitle(name, input, cwd)}${status}`;
   if (level === "compact") return line;
