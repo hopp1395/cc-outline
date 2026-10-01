@@ -684,8 +684,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           empty={filter.empty ?? "Waiting for prompts…"}
           itemKey={(t, i) => t.id + i}
           time={(t) => t.timestamp}
-          render={(t, isSelected) => {
-            const marked = favorites.isMarked(t.id);
+          render={(t, isSelected, stars) => {
+            const marked = stars && favorites.isMarked(t.id);
             // Claude works on it, or subagents it started still run.
             const running = isRunning(t) || agentsRunning(t);
             const agentCount = t.notification ? 0 : agentsOf(t).length;

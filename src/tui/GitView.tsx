@@ -409,8 +409,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
           height={bodyHeight}
           empty={filter.empty ?? (root === undefined ? "Loading…" : "No changes")}
           itemKey={(f) => f.path}
-          render={(f, isSelected) => {
-            const marked = favorites.isMarked(f.path);
+          render={(f, isSelected, stars) => {
+            const marked = stars && favorites.isMarked(f.path);
             const counts = f.added !== undefined ? ` +${f.added} -${f.removed}` : "";
             const nameWidth = Math.max(4, listWidth - 2 - counts.length - (marked ? 2 : 0));
             return (
