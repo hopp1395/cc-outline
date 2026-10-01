@@ -344,6 +344,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
         <List
             reversed={reversed}
             onPick={select}
+            centre={restored.current}
           // A double click does what Enter does.
           onClick={(i) => isDoubleClick(i) && i === index && plan && previous && toggleDiff(!showDiff)}
           items={plans}
