@@ -50,7 +50,7 @@ Working with Claude Code in the terminal has four blind spots. cc-outline fills 
 - **No context switch.** No editor, no second terminal, no `git diff`. One key (`1`–`6`) switches views, `alt+←` returns to Claude Code.
 - **Better answers stay useful.** Tables, code and step-by-step plans are readable, and you can copy an answer's Markdown with `c` for a ticket, a PR description or documentation.
 - **Long sessions stay navigable.** Prompts are listed with their time, prompts sent while Claude was busy are marked, and marked turns survive restarts, `--continue` and `/resume`.
-- **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a new tab next to the current one.
+- **Pick up older work.** Find yesterday's session in the Sessions view by its plans and changed files, and continue it in a terminal window of its own.
 - **Everything stays where you left it.** Every list keeps its selected entry and each entry's scroll position, also across restarts.
 - **Nothing to manage.** The plugin opens the pane with `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`, follows the active session, closes it with the session and opens it again on every start (with *auto open* set to `remember`: only if it was open).
 - **Set up once, in one place.** The Settings view (`6` or `/cco:settings`) lists every option with its default: whether the viewer opens by itself, whether quitting asks first, whether long entries scroll and positions are remembered, and the display options of the other views. A change applies at once in all views and all projects.
@@ -290,7 +290,7 @@ Below it:
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. The first read fills the list as it goes (`reading 42/97` in the top bar); with many projects it takes a few seconds. After that only files that changed are read again, and of those only the part that was appended. Only what the overview shows is kept in memory, not the answers.
 
-**Starting.** `Enter` asks for a confirmation (`Enter` yes, `Esc` no) and then continues the selected session in a new tab of Windows Terminal (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session is not started a second time. For a session already running in another Claude Code, `Enter` (`↵ switch`) asks whether to switch to the tab it runs in and brings that tab to the front instead: in tmux its pane, in Windows Terminal the tab titled with the session's name (it takes a second or two; with two tabs of the same name, nothing is switched). A background session without a tab is named with its `claude attach <id>` command. In other terminals the help line names the command to run instead.
+**Starting.** `Enter` asks for a confirmation (`Enter` yes, `Esc` no) and then continues the selected session in a new Windows Terminal window (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session is not started a second time. For a session already running in another Claude Code, `Enter` (`↵ switch`) asks whether to switch to the tab it runs in and brings that tab to the front instead: in tmux its pane, in Windows Terminal the tab titled with the session's name (it takes a second or two; with two tabs of the same name, nothing is switched). A background session without a tab is named with its `claude attach <id>` command. In other terminals the help line names the command to run instead.
 
 **Pairing.** A viewer started by hand (`cco watch`, not by a `/cco:…` command or on start) belongs to no Claude Code. `Enter` on a session running in a Claude Code that has no viewer yet (`↵ pair`) pairs it with that Claude Code after a confirmation: the viewer stays where it is, switches to that session's project and shows its chat, follows it like a viewer opened with `/cco:chat` (also after `/clear` and `/resume`), and closes when that Claude Code ends. Its `/cco:…` commands then use this viewer instead of opening another one. A viewer that belongs to a Claude Code already switches to the tab as described above.
 
@@ -402,7 +402,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+↑` / `Ctrl+↓` | scroll by line | scroll by line | scroll by line | scroll by line |
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
-| `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | start the session in a new tab, switch to the tab it runs in, or pair a viewer started by hand with it |
+| `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | start the session in a new window, switch to the tab it runs in, or pair a viewer started by hand with it |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | tool calls off / compact / full; thinking | – | – | – |
@@ -466,7 +466,7 @@ A session with a colour set with `/color` in Claude Code (red, orange, yellow, g
   - `always` (default): the viewer opens on every start, in every project, even in one it never ran in; in the chat, or in the view it showed last in the project.
   - `never`: it only opens through a `/cco:…` command.
 
-  It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
+  It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened for a Claude Code that already has one. Each Claude Code gets its own, also a session started from the Sessions view in its new window.
 - **Without hooks**, the viewer uses the project's most recently modified transcript that contains messages.
 - **Drawing.** The viewer writes only the lines that changed, each in place and all in one write, so the pane does not flicker when the machine is busy. Should a terminal show garbled lines, start the viewer with `CCO_FRAME_BUFFER=0` to let it redraw the whole screen every time instead.
 

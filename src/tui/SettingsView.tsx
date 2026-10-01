@@ -219,7 +219,7 @@ export const SETTING_ROWS: Row[] = [
     group: "Start",
     label: "auto open",
     description:
-      "Whether the viewer opens by itself when Claude Code starts (also with --resume and --continue). The focus stays in Claude Code, and no second viewer opens while one runs in the project. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
+      "Whether the viewer opens by itself when Claude Code starts (also with --resume and --continue). The focus stays in Claude Code, and a Claude Code that already has a viewer gets no second one. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
     values: AUTO_OPEN_VALUES.map((v) => [v, AUTO_OPEN_MEANINGS[v]]),
     notes: [
       (c) =>
