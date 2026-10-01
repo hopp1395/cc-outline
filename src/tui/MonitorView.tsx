@@ -408,6 +408,7 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       list={
         <List
           onPick={select}
+          centre={restored.current}
           // Load more takes a single click; on a day, a double click does what Enter does.
           onClick={(i) => (isLoadMore(entries[i]) ? loadMore() : isDoubleClick(i) && i === current && setTable((t) => !t))}
           items={entries}
