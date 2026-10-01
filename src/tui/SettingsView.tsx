@@ -338,7 +338,7 @@ export const SETTING_ROWS: Row[] = [
     group: "Chat",
     label: "tool calls",
     description:
-      "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame; otherwise they are a tool call like the others.",
+      "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame, and what Claude did in the browser (Claude in Chrome, the desktop app's Browser pane) in a cyan one, with numbered screenshots that a click or o / O opens; otherwise they are tool calls like the others.",
     values: [
       ["off", "hide them; Claude's text reads as one answer"],
       ["compact", "a line each, with the result, e.g. ⚙ Read src/app.ts · 120 lines, ⚙ Edit src/app.ts · +4 −2, ⚙ Bash Run the tests · ✓ · 38 lines"],

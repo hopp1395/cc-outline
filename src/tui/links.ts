@@ -1,4 +1,5 @@
 import stringWidth from "string-width";
+import { SHOT_MARK } from "../transcript/chrome.js";
 
 /** `s` without colours and OSC 8 links. */
 export const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "").replace(/\u001b\]8;[^\u0007\u001b]*(\u0007|\u001b\\)/g, "");
@@ -66,6 +67,16 @@ export function linkAt(lines: string[], index: number, col: number, width: numbe
     if (last && last.end >= stringWidth(prev.trimEnd())) return last.url + continuation(i + 1);
     // Keep going back only through lines that are themselves pieces of a URL.
     if (URL_REST.exec(prev.trimStart())?.[0] !== prev.trim()) return undefined;
+  }
+  return undefined;
+}
+
+/** The number of the screenshot mark `[▣ n]` at column `col` of a rendered line, or undefined. */
+export function shotAt(line: string, col: number): number | undefined {
+  const plain = stripAnsi(line);
+  for (const m of plain.matchAll(SHOT_MARK)) {
+    const start = stringWidth(plain.slice(0, m.index));
+    if (col >= start && col < start + stringWidth(m[0])) return Number(m[1]);
   }
   return undefined;
 }
