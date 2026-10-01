@@ -83,13 +83,16 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
     const { autoOpen, rememberView } = settings;
     // "remember": only if it was open at exit; "always": also in projects it never ran in, with the chat.
     const wanted = autoOpen === "always" || (autoOpen === "remember" && restore?.open === true);
-    // Only when no viewer runs in the project, e.g. not for a session started from the Sessions view next to one.
+    // Only when this process has no viewer yet. A session started from the Sessions view runs in a window of
+    // its own and gets its own viewer there, next to the one in the project's other window. Without the
+    // process known, only when none runs in the project (openPane would reuse it).
     // The session's own last view (after --resume) wins over the project's.
     // A view hidden in the settings is not reopened; the first shown one opens instead.
     const view = shownView(settings, (rememberView ? readSessionView(cwd, input.session_id) : undefined) ?? restore?.view ?? "chat");
     // The placement chosen for this session with p, else the setting.
     const placement = resolvePlacement(cwd, input.session_id);
-    if (wanted && !anyRunningViewer(cwd)) open(cwd, view, { keepFocus: true, claudePid, placement });
+    const running = claudePid ? runningViewer(cwd, claudePid) !== undefined : anyRunningViewer(cwd);
+    if (wanted && !running) open(cwd, view, { keepFocus: true, claudePid, placement });
   }
 }
 

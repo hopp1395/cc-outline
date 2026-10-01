@@ -466,7 +466,7 @@ A session with a colour set with `/color` in Claude Code (red, orange, yellow, g
   - `always` (default): the viewer opens on every start, in every project, even in one it never ran in; in the chat, or in the view it showed last in the project.
   - `never`: it only opens through a `/cco:…` command.
 
-  It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened while one already runs in the project.
+  It opens in the view the session was shown in last (*view per session*), for a new session in the view shown last in the project. The focus stays in Claude Code, and no second viewer is opened for a Claude Code that already has one. Each Claude Code gets its own, also a session started from the Sessions view in its new window.
 - **Without hooks**, the viewer uses the project's most recently modified transcript that contains messages.
 - **Drawing.** The viewer writes only the lines that changed, each in place and all in one write, so the pane does not flicker when the machine is busy. Should a terminal show garbled lines, start the viewer with `CCO_FRAME_BUFFER=0` to let it redraw the whole screen every time instead.
 
