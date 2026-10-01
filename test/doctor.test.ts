@@ -162,9 +162,9 @@ describe("installation", () => {
 
   it("updates an older plugin of an npm install; a development install only names the commands", () => {
     installPlugin("0.0.1");
-    const npm = check().find((f) => f.text.includes("older"));
+    const npm = check().find((f) => f.text.includes(", older than"));
     expect(npm?.repair?.commands).toEqual(["claude plugin marketplace update cc-outline", "claude plugin update cco@cc-outline"]);
-    const dev = check(join(tmpdir(), "checkout")).find((f) => f.text.includes("older"));
+    const dev = check(join(tmpdir(), "checkout")).find((f) => f.text.includes(", older than"));
     expect(dev?.repair).toBeUndefined();
     expect(dev?.hint).toContain("claude plugin update");
   });
