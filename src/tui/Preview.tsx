@@ -3,7 +3,7 @@ import sliceAnsi from "slice-ansi";
 import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { openInDefaultApp } from "../open.js";
 import { AreaContext, inArea, Spinner } from "./layout.js";
-import { linkAt, stripAnsi } from "./links.js";
+import { linkAt, shotAt, stripAnsi } from "./links.js";
 import { useMouse } from "./mouse.js";
 import { highlightColumns, type Point, type Selection, selectedColumns, selectedText } from "./selection.js";
 import { useClipboard } from "./useClipboard.js";
@@ -46,6 +46,8 @@ interface Props {
   onJump?: (to: "top" | "end") => void;
   /** A link was clicked and opened; links open on release, so a drag that starts on one selects instead. */
   onLink?: (url: string) => void;
+  /** A click on a screenshot mark `[▣ n]` in the body; on release, like links. */
+  onShot?: (n: number) => void;
 }
 
 /** Height left for the scrolling lines below `header`. */
@@ -181,6 +183,7 @@ export function Preview({
   onWheel,
   onJump,
   onLink,
+  onShot,
 }: Props) {
   const bodyHeight = bodyHeightBelow(header, height);
   const { from, to, above, below } = previewWindow(lines.length, scroll, bodyHeight);
@@ -202,7 +205,7 @@ export function Preview({
     return () => clearTimeout(timer);
   }, [copied]);
   // The press the left button is held since: where a drag selects from, and the link it opens if it is let go without one.
-  const press = useRef<{ region: Region; at?: Point; url?: string; dragged: boolean }>(undefined);
+  const press = useRef<{ region: Region; at?: Point; url?: string; shot?: number; dragged: boolean }>(undefined);
   /** The cell of the lines under body row `bodyRow` and column `col`, kept within the lines shown. */
   const pointAt = (bodyRow: number, col: number): Point => {
     const index = Math.max(from, Math.min(to - 1, from + bodyRow - (above > 0 ? 1 : 0)));
@@ -247,7 +250,7 @@ export function Preview({
         } else if (!held.dragged && held.url) {
           openInDefaultApp(held.url);
           onLink?.(held.url);
-        }
+        } else if (!held.dragged && held.shot !== undefined) onShot?.(held.shot);
         return;
       }
       // A drag from where there is nothing to select (the header's rule) no longer opens a link either.
@@ -291,7 +294,7 @@ export function Preview({
     const index = from + bodyRow - (above > 0 ? 1 : 0);
     if (index < from || index >= to) return;
     const point = pointAt(bodyRow, at.col);
-    press.current = { region: "body", at: point, url: linkAt(lines, index, point.col, width), dragged: false };
+    press.current = { region: "body", at: point, url: linkAt(lines, index, point.col, width), shot: onShot ? shotAt(lines[index], point.col) : undefined, dragged: false };
   });
   const marked = (line: string, index: number, region: Region) => {
     const cols = selected?.region === region && selectedColumns(selected, index);

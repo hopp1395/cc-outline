@@ -317,6 +317,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
             onTyping={setTyping}
+            onModal={setModal}
             liveSession={!sessionId}
           />
           </MouseContext.Provider>

@@ -1,3 +1,5 @@
+import { BOX_END, BOX_START_CYAN } from "../render/markdown.js";
+import { browserItems, browserTitle, isBrowserTool, navigates } from "./chrome.js";
 import { escapeMd, fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
 
 /** A tool call; `outcome` is set once its result arrives (Claude Code writes the call only then). */
@@ -964,34 +966,115 @@ function rejectionFeedback(text: string): string | undefined {
 /** The line naming the browser page the actions below it (or the navigation above it) ran on. */
 const pageLine = (page: string) => `*on ${escapeMd(page)}*`;
 
-/** Builds the Markdown document shown for a turn. */
-export function turnMarkdown(turn: Turn, opts: { tools: ToolLevel; thinking: boolean; agents?: boolean }): string {
+/** A screenshot of a turn: numbered from 1 in the turn, the browser call whose result holds it, and its place among that result's images. */
+export interface Screenshot {
+  n: number;
+  block: ToolBlock;
+  index: number;
+}
+
+/** The images of a turn's browser calls, numbered in order. */
+export function turnScreenshots(turn: Pick<Turn, "blocks">): Screenshot[] {
+  const shots: Screenshot[] = [];
+  for (const b of turn.blocks) {
+    if (b.kind !== "tool" || !isBrowserTool(b.name)) continue;
+    (b.outcome?.images ?? []).forEach((_, index) => shots.push({ n: shots.length + 1, block: b, index }));
+  }
+  return shots;
+}
+
+/** Each browser call's screenshot numbers. */
+function shotNumbers(shots: Screenshot[]): Map<ToolBlock, number[]> {
+  const numbers = new Map<ToolBlock, number[]>();
+  for (const s of shots) numbers.set(s.block, [...(numbers.get(s.block) ?? []), s.n]);
+  return numbers;
+}
+
+/**
+ * Builds the Markdown document shown for a turn. `shots` numbers the
+ * screenshots when `turn` is a part of a turn (the chat renders the runs
+ * between recaps apart); by default they are counted in `turn`. With tools
+ * off, browser actions still show, in a frame per run of them that Claude's
+ * text does not interrupt; `browser: false` leaves them out (copying).
+ */
+export function turnMarkdown(
+  turn: Turn,
+  opts: { tools: ToolLevel; thinking: boolean; agents?: boolean; browser?: boolean; shots?: Screenshot[] },
+): string {
   const parts: string[] = [];
-  // The browser page the last Claude in Chrome action ran on: a line names it whenever it changes.
+  const numbers = shotNumbers(opts.shots ?? turnScreenshots(turn));
+  // The browser page the last browser action ran on: a line names it whenever it changes.
   let page: string | undefined;
+  /** Puts the page line before an action, or after one that leads there. */
+  const withPage = (b: ToolBlock, push: (s: string) => void, md: () => void) => {
+    const on = b.outcome?.page !== undefined && b.outcome.page !== page ? pageLine(b.outcome.page) : undefined;
+    if (on) page = b.outcome!.page;
+    const after = on && navigates(b.name);
+    if (on && !after) push(on);
+    md();
+    if (after) push(on);
+  };
+  // The open frame of browser actions (tools off): its paragraphs, the list items being collected, and its counts.
+  let frame: { title: string; parts: string[]; items: string[]; actions: number; shots: number } | undefined;
+  const closeItems = () => {
+    if (frame?.items.length) frame.parts.push(frame.items.join("\n"));
+    if (frame) frame.items = [];
+  };
+  const closeFrame = () => {
+    if (!frame) return;
+    closeItems();
+    const counts = [plural(frame.actions, "action"), ...(frame.shots ? [plural(frame.shots, "screenshot")] : [])];
+    parts.push(`${BOX_START_CYAN}${frame.title} · ${counts.join(" · ")}\n${frame.parts.join("\n\n")}\n${BOX_END}`);
+    frame = undefined;
+  };
+  /** A part outside a frame; it ends the frame before it. */
+  const push = (s: string) => {
+    closeFrame();
+    parts.push(s);
+  };
   for (const b of turn.blocks) {
     if (b.kind === "text") {
-      parts.push(b.text);
+      push(b.text);
     } else if (b.kind === "thinking" && opts.thinking) {
-      parts.push(b.text.split("\n").map((l) => `> ${l}`).join("\n"));
+      push(b.text.split("\n").map((l) => `> ${l}`).join("\n"));
+    } else if (b.kind === "tool" && opts.tools === "off" && isBrowserTool(b.name)) {
+      if (opts.browser === false) continue;
+      if (!frame) {
+        frame = { title: browserTitle(b.name), parts: [], items: [], actions: 0, shots: 0 };
+        // Each frame names the page it starts on.
+        page = undefined;
+      }
+      const open = frame;
+      const items = browserItems(b.name, b.input, b.outcome, numbers.get(b));
+      open.actions += items.length;
+      open.shots += numbers.get(b)?.length ?? 0;
+      withPage(
+        b,
+        (line) => {
+          // A page line right after another (a navigation lands before the page has its title) replaces it.
+          if (open.items.length === 0 && open.parts.length > 0 && open.parts.at(-1)!.startsWith("*on ")) open.parts.pop();
+          closeItems();
+          open.parts.push(line);
+        },
+        () => open.items.push(...items),
+      );
     } else if (b.kind === "tool") {
       // Questions and answers are part of the conversation: with tools off they still show, framed.
-      const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd);
-      const on = md && b.outcome?.page !== undefined && b.outcome.page !== page ? pageLine(b.outcome.page) : undefined;
-      if (on) page = b.outcome!.page;
-      // Where navigating leads is shown after it; the page other actions ran on before them.
-      const after = on && /__navigate$/.test(b.name);
-      if (on && !after) parts.push(on);
-      if (md) parts.push(md);
-      if (after) parts.push(on);
+      const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd, numbers.get(b));
+      if (!md) continue;
+      if (isBrowserTool(b.name)) withPage(b, push, () => push(md));
+      else push(md);
     } else if (b.kind === "agent" && opts.agents) {
-      parts.push(agentMarkdown(b.agent));
+      push(agentMarkdown(b.agent));
     } else if (b.kind === "compact") {
-      parts.push(b.text);
+      push(b.text);
     }
   }
+  closeFrame();
   return parts.join("\n\n");
 }
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Marks the start of a running agent's status in the rendered answer; the chat spins it. */
 export const AGENT_RUNNING_MARK = "⠿";
