@@ -421,12 +421,12 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
           itemKey={(d) => (isLoadMore(d) ? "load-more" : d.day)}
           time={(d) => (isLoadMore(d) ? undefined : d.day)}
           period="year"
-          render={(d, isSelected) =>
+          render={(d, isSelected, stars) =>
             isLoadMore(d) ? (
               <LoadMoreRow progress={range.requested ? progress : undefined} />
             ) : (
             <>
-              {favorites.isMarked(d.day) && <Star />}
+              {stars && favorites.isMarked(d.day) && <Star />}
               <EntryText
                 // The year separators name the year.
                 text={dayLabel(d.day, separators ? "never" : "other")}

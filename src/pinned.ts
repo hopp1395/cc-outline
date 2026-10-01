@@ -1,19 +1,24 @@
 /**
- * The Pinned group (setting `pinnedGroup`): a list's marked entries move to
- * the top of the screen, in the list's own display order, above the rest.
- * Like `reversed` and the filter it only changes what is shown: the views
- * keep selection, positions and marks on the natural index.
+ * The Pinned group (setting `pinnedGroup`): a list's marked entries show
+ * once more at the top of the screen, in the list's own display order, above
+ * the whole list. Like `reversed` and the filter it only changes what is
+ * shown: the views keep selection, positions and marks on the natural index;
+ * which of an entry's two rows is selected is the list's own state.
  */
 
-/** The rows of a list with a Pinned group: natural indexes top to bottom, the first `count` pinned. */
+/**
+ * The rows of a list with a Pinned group: natural indexes top to bottom, the
+ * first `count` the pinned copies, then every entry shown in its place.
+ */
 export interface PinnedRows {
   order: number[];
   count: number;
+  /** The selected row; -1 when the selected entry is not shown. */
+  row: number;
 }
 
-/** The label of the separator above the Pinned group, and of the one below it. */
+/** The label of the separator above the Pinned group; the list below it starts with a plain line. */
 export const PINNED_LABEL = "★ Pinned";
-export const PINNED_END_LABEL = "Pinned end";
 
 /** The entries of a list top to bottom (natural indexes): those shown, bottom-up when `reversed`. */
 export function screenOrder(count: number, shown: number[] | undefined, reversed: boolean): number[] {
@@ -21,19 +26,25 @@ export function screenOrder(count: number, shown: number[] | undefined, reversed
   return reversed ? [...natural].reverse() : natural;
 }
 
-/** The marked entries of `screen` moved to the top; undefined when none of them is marked. */
-export function pinnedRows(screen: number[], marked: (index: number) => boolean): PinnedRows | undefined {
+/**
+ * The marked entries of `screen` at the top, above all of `screen`;
+ * undefined when none of them is marked. `inGroup`: the selection is the
+ * pinned copy of `selected`, else its row in the list below.
+ */
+export function pinnedRows(screen: number[], marked: (index: number) => boolean, selected: number, inGroup: boolean): PinnedRows | undefined {
   const top = screen.filter(marked);
   if (top.length === 0) return undefined;
-  return { order: [...top, ...screen.filter((i) => !marked(i))], count: top.length };
+  const pinned = inGroup ? top.indexOf(selected) : -1;
+  const below = screen.indexOf(selected);
+  const row = pinned >= 0 ? pinned : below >= 0 ? top.length + below : -1;
+  return { order: [...top, ...screen], count: top.length, row };
 }
 
-/** `delta` rows on from `selected` in `order`, stopping at the ends; the first row when `selected` is not there. */
-export function stepOrder(order: number[], selected: number, delta: number): number | undefined {
-  if (order.length === 0) return undefined;
-  const at = order.indexOf(selected);
-  if (at < 0) return order[0];
-  return order[Math.max(0, Math.min(order.length - 1, at + delta))];
+/** `delta` rows on from `row` among `length`, stopping at the ends; the first row when none is selected. */
+export function stepRow(length: number, row: number, delta: number): number | undefined {
+  if (length === 0) return undefined;
+  if (row < 0) return 0;
+  return Math.max(0, Math.min(length - 1, row + delta));
 }
 
 /** The next marked entry on screen after `selected`, downwards (`dir` 1) or upwards (-1). */
@@ -43,14 +54,27 @@ export function nextMarkedIn(order: number[], selected: number, dir: 1 | -1, mar
 }
 
 /**
- * Where the selection goes when the pinned entry `index` is unmarked: the
- * pinned row below it, else the one above; undefined when it was the only one,
- * or is not pinned (the selection then stays with the entry).
+ * Shift+↑/↓ with the group: the next pinned row down (`dir` 1) or up (-1).
+ * Only the group's rows carry the ★, so from the list below it only goes up,
+ * to the group's last row.
  */
-export function afterUnpin(rows: PinnedRows | undefined, index: number): number | undefined {
+export function nextPinnedRow({ count, row }: PinnedRows, dir: 1 | -1): number | undefined {
+  if (row < 0) return undefined;
+  if (row >= count) return dir < 0 ? count - 1 : undefined;
+  const next = row + dir;
+  return next >= 0 && next < count ? next : undefined;
+}
+
+/**
+ * The row the selection goes to when the selected pinned copy is unmarked:
+ * the pinned row below it, else the one above; undefined when it was the only
+ * one, or the selection is not in the group (it then stays with the entry,
+ * in its place in the list).
+ */
+export function afterUnpin(rows: PinnedRows | undefined): number | undefined {
   if (!rows) return undefined;
-  const at = rows.order.indexOf(index);
-  if (at < 0 || at >= rows.count) return undefined;
-  if (at + 1 < rows.count) return rows.order[at + 1];
-  return at > 0 ? rows.order[at - 1] : undefined;
+  const { count, row } = rows;
+  if (row < 0 || row >= count) return undefined;
+  if (row + 1 < count) return row + 1;
+  return row > 0 ? row - 1 : undefined;
 }

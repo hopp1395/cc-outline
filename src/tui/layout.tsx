@@ -20,7 +20,7 @@ import { useReload } from "./reload.js";
 import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
-import { PINNED_END_LABEL, PINNED_LABEL, type PinnedRows } from "../pinned.js";
+import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
@@ -566,7 +566,8 @@ interface ListProps<T> {
   height: number;
   empty: string;
   itemKey: (item: T, index: number) => string;
-  render: (item: T, selected: boolean) => ReactNode;
+  /** `stars`: false for the list below a Pinned group, whose marked entries show their ★ only in the group. */
+  render: (item: T, selected: boolean, stars: boolean) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
   /** A click on an entry, after `onPick` selected it (the wheel only picks). */
@@ -582,8 +583,11 @@ interface ListProps<T> {
   shown?: number[];
   /** The filter in effect, shown in the top row: its text and "12 of 340". */
   filter?: { query: string; count: string };
-  /** The Pinned group (`ListFilter.pinned`): the rows in screen order, which replaces `shown` and `reversed`. */
-  pinned?: PinnedRows;
+  /**
+   * The Pinned group (`ListFilter.pinned`): the rows in screen order, which replaces `shown` and `reversed`,
+   * and the selected row; `choose` hears which row a click or the wheel picks, before `onPick`.
+   */
+  pinned?: PinnedRows & { choose?: (row: number) => void };
   /** A value whose change centres the selection once, e.g. when a view restored the selection stored last time. */
   centre?: unknown;
 }
@@ -758,11 +762,12 @@ function separatorRows<T>(props: ListProps<T>, groups: string[] | undefined): Pi
 
 /**
  * The list with a Pinned group: `pinned.order` from the top, the pinned
- * entries under "★ Pinned", the rest after "Pinned end" with its own
- * separators, as without the group.
+ * entries under "★ Pinned", then the whole list with its own separators, as
+ * without the group, after a plain line where it starts without one. An
+ * entry can show twice, so the rows are what is selected and picked.
  */
-function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned: PinnedRows; separators: boolean }) {
-  const { order, count } = pinned;
+function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned: NonNullable<ListProps<T>["pinned"]>; separators: boolean }) {
+  const { order, count, row, choose } = pinned;
   // The rest's groups are taken in natural order, like without the group.
   const rest = order.slice(count).sort((a, b) => a - b);
   const keys = groupKeys(props, rest.map((i) => props.items[i]), separators);
@@ -777,13 +782,31 @@ function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned
       return;
     }
     const key = keyOf.get(i);
-    const head = at === count ? [PINNED_END_LABEL] : [];
-    if (key !== undefined && (at === count || key !== previous)) head.push(groupLabel(props, key, true));
+    if (key !== undefined && (at === count || key !== previous)) heads.push([groupLabel(props, key, true)]);
+    else heads.push(at === count ? [""] : undefined);
     previous = key;
-    heads.push(head.length ? head : undefined);
     tops.push(key === undefined ? undefined : groupLabel(props, key, false));
   });
-  return <ListRows {...shownOnly(props, order)} heads={heads} tops={tops} />;
+  const pick = (handler: ((index: number) => void) | undefined) =>
+    handler &&
+    ((at: number) => {
+      choose?.(at);
+      handler(order[at]);
+    });
+  return (
+    <ListRows
+      {...props}
+      items={order.map((i) => props.items[i])}
+      selected={row}
+      // The pinned copies keyed apart from their rows below.
+      itemKey={(item, at) => (at < count ? "★" : "") + props.itemKey(item, order[at])}
+      onPick={pick(props.onPick)}
+      onClick={props.onClick && ((at) => props.onClick!(order[at]))}
+      heads={heads}
+      tops={tops}
+      starsUntil={count}
+    />
+  );
 }
 
 /**
@@ -819,6 +842,8 @@ export function listRows(count: number, heads: (string[] | undefined)[]): ListRo
 interface RowsProps {
   heads: (string[] | undefined)[];
   tops: (string | undefined)[] | undefined;
+  /** Items from this one on show no ★ (the list below a Pinned group). */
+  starsUntil?: number;
 }
 
 /**
@@ -837,7 +862,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, centre }: ListProps<T> & RowsProps) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, starsUntil = Infinity, centre }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, heads);
@@ -889,7 +914,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         if (!isSelected)
           return (
             <Text key={itemKey(item, index)} wrap="truncate">
-              {render(item, false)}
+              {render(item, false, index < starsUntil)}
             </Text>
           );
         // The selection spans the list's width, also past a short entry: a row of spaces in the
@@ -899,7 +924,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
           <Box key={itemKey(item, index)} width={width} height={1}>
             <Box overflow="hidden">
               <Text wrap="truncate" {...style}>
-                {render(item, true)}
+                {render(item, true, index < starsUntil)}
               </Text>
             </Box>
             <Box flexGrow={1} flexBasis={0} overflow="hidden">
