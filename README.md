@@ -10,7 +10,7 @@
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
-- **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, or goes to the trash.
+- **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, is exported (Markdown, JSON and a backup to import elsewhere), or goes to the trash.
 - **Monitor** charts how fast Claude answered over the day: output tokens per second, the wait for the first block and the number of responses, compared with the usual values at that time, plus errors such as usage limits.
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
@@ -113,6 +113,7 @@ To load the plugin for a single session without installing it, run `claude --plu
 
   A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ attach`), see [Sessions](#sessions-view).
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
+- **`cco import <zip>`** imports the session backups of an archive that the Sessions view exported (`e`), see [Sessions](#sessions-view).
 - **`cco doctor`** checks what cco needs and prints a report, one line per check (`✓` fine, `!` worth a look, `✗` error), with what to do below each problem:
   - *Installation:* npm install or checkout, the path the plugin starts cco by (`~/.claude/cco/cli.json`), whether the plugin `cco@cc-outline` is installed and enabled, and whether its version matches the CLI.
   - *State files* in `~/.claude/cco/` of all projects: those of Claude Code processes and viewers that have ended, unfinished writes (`*.tmp`), debug logs, files that are no valid JSON, records of sessions that ended over a day ago, the restore state of projects without transcripts, and trash folders without a readable manifest. Marks, positions and views are never touched.
@@ -317,6 +318,14 @@ Every dialog ends with *Copy the command* (`claude --resume <session-id>`, for a
 - In the confirmation, `Enter` means yes and `Esc` means no. While it is open, no other key does anything.
 - The trash lives in `~/.claude/cco/trash/<project-slug>/`, per project of the session. A session stays there until it is deleted for good; restoring is refused if the session exists again in the meantime.
 
+**Exporting.** `e` exports the marked sessions (`★`), or the selected one when none is marked, into one zip archive in your Downloads folder: `cco-session-export.zip`, or `cco-session-export (2).zip` and so on when that name is taken. A form asks first, filled with your last choice (the first time with the chat's tool and thinking settings): *Tool calls* `off`/`compact`/`full`, *Thinking*, *Subagents* `none`/`reports`/`whole conversations` and *Turn stats*. `↑`/`↓` pick a field, `←`/`→` (or `Space`) change it, `Enter` exports, `Esc` cancels. A running session is exported as it stands now. While the archive is written, a dialog shows the progress, then the archive's path; `Esc` closes it. Each session gets four folders in it, named `<YYYY-MM-DD-HHMM>-<first 8 characters of the id>-<format>` with the time of its last prompt:
+- `markdown`: `session.md` to read: a head (session id, project, branch, time, `claude --resume`), then per turn the prompt, its stats, Claude's answer with the tool calls at the chosen level, recaps, compaction summaries, the subagents with their reports, and at the end the plans and changed files. Pasted images and browser screenshots are in `attachments/` and shown in the document. With *whole conversations*, each subagent's conversation is a file of its own in `agents/`, linked where it ran.
+- `llm`: `session.md` as context for a language model: `## User` and `## Claude` in turn, with tool calls at most `compact`, and without stats, recaps and screenshots.
+- `json`: `session.json`, for scripts: the session, its turns with their blocks as far as the fields let them in (`compact` drops the tools' input and details), stats, plans and agents, and the same `attachments/` and `agents/`.
+- `backup`: the session's files as Claude Code keeps them, below `claude/` (relative to `~/.claude`): the transcript and those it continued from, its folder (subagents, tool results), its file history and session environment, and the pasted images in `~/.claude/uploads` it names; plus cco's marks, scroll positions, view and placement of it (`cco.json`) and a `manifest.json`. The form's fields do not apply to it.
+
+**Importing.** `I` imports the backups of such an archive, e.g. on another machine; it proposes the newest `cco-session-export*.zip` in the Downloads folder, and you can type or paste another path. `cco import <zip>` does the same from the command line. Each session goes back to the project folder it came from (the same path), with cco's marks and positions added to what the project has. A session whose transcript is there already is skipped, the others are imported; the dialog lists both. Afterwards `claude --resume <id>` continues an imported session. `CCO_EXPORT_DIR` sets another folder than Downloads for both.
+
 ## Monitor view
 
 The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a day, from the transcripts of all projects, subagents included.
@@ -429,6 +438,8 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |
 | `T` | – | – | – | show / leave the trash |
+| `e` | – | – | – | export the marked sessions, else the selected one |
+| `I` | – | – | – | import sessions from an export |
 | `a` | – | – | – | all projects ↔ this project |
 | `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |

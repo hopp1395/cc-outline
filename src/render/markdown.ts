@@ -207,6 +207,19 @@ export function stripBoxes(markdown: string): string {
     .replace(/\u00a0/g, " ");
 }
 
+/** `markdown` with each frame as a quote under its bold title, without colours: plain Markdown for files. */
+export function boxesAsQuotes(markdown: string): string {
+  const quote = (text: string) =>
+    text
+      .split("\n")
+      .map((l) => (l === BOX_RULE ? "> ---" : l ? `> ${l}` : ">"))
+      .join("\n");
+  return markdown
+    .replace(BOX, (_, _start: string, title: string, body: string) => quote([...(title.trim() ? [`**${title.trim()}**`, ""] : []), body].join("\n")))
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/ /g, " ");
+}
+
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
 
