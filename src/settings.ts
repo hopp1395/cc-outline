@@ -46,6 +46,10 @@ export type UpdateMode = (typeof UPDATE_VALUES)[number];
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
 export type Placement = (typeof PLACEMENT_VALUES)[number];
 
+/** How wide a view's list is, next to its preview: a share of the pane, within limits (`LIST_WIDTHS` in layout.tsx). */
+export const LIST_WIDTH_VALUES = ["narrow", "normal", "wide", "wider"] as const;
+export type ListWidth = (typeof LIST_WIDTH_VALUES)[number];
+
 /** Preferences kept across restarts, shared by all projects. */
 export interface Settings {
   /**
@@ -95,6 +99,13 @@ export interface Settings {
   /** How far back the Sessions and Monitor lists reach until "load more". */
   sessionsRange: ListRange;
   monitorRange: ListRange;
+  /** The width of each view's list (< and > in the view). */
+  chatListWidth: ListWidth;
+  gitListWidth: ListWidth;
+  planListWidth: ListWidth;
+  sessionsListWidth: ListWidth;
+  monitorListWidth: ListWidth;
+  settingsListWidth: ListWidth;
   /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
   viewChat: boolean;
   viewGit: boolean;
@@ -127,6 +138,12 @@ export const DEFAULT_SETTINGS: Settings = {
   planOrder: "oldest-first",
   sessionsRange: "7d",
   monitorRange: "7d",
+  chatListWidth: "normal",
+  gitListWidth: "normal",
+  planListWidth: "normal",
+  sessionsListWidth: "normal",
+  monitorListWidth: "normal",
+  settingsListWidth: "normal",
   viewChat: true,
   viewGit: true,
   viewPlan: true,
@@ -142,6 +159,22 @@ export const VIEW_SETTINGS: Record<Exclude<Mode, "settings">, keyof Settings> = 
   sessions: "viewSessions",
   monitor: "viewMonitor",
 };
+
+/** The setting of each view's list width. */
+export const LIST_WIDTH_SETTINGS: Record<Mode, "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "settingsListWidth"> = {
+  chat: "chatListWidth",
+  git: "gitListWidth",
+  plan: "planListWidth",
+  sessions: "sessionsListWidth",
+  monitor: "monitorListWidth",
+  settings: "settingsListWidth",
+};
+
+/** The list width one step narrower (`step` -1) or wider (1) than `width`, stopping at the ends. */
+export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
+  const at = LIST_WIDTH_VALUES.indexOf(width);
+  return LIST_WIDTH_VALUES[Math.max(0, Math.min(LIST_WIDTH_VALUES.length - 1, at + step))];
+}
 
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
@@ -178,6 +211,12 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   planOrder: ORDER_VALUES,
   sessionsRange: RANGE_VALUES,
   monitorRange: RANGE_VALUES,
+  chatListWidth: LIST_WIDTH_VALUES,
+  gitListWidth: LIST_WIDTH_VALUES,
+  planListWidth: LIST_WIDTH_VALUES,
+  sessionsListWidth: LIST_WIDTH_VALUES,
+  monitorListWidth: LIST_WIDTH_VALUES,
+  settingsListWidth: LIST_WIDTH_VALUES,
 };
 
 export function settingsFile(): string {
