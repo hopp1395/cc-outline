@@ -1,11 +1,9 @@
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick, until } from "./helpers/ink.js";
 import { dayKey } from "../src/monitor/responses.js";
 import { projectDir } from "../src/transcript/locate.js";
 import { dayLabel } from "../src/tui/days.js";
@@ -27,22 +25,8 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = (element: ReactElement) => renderInk(element, layout);
 
-const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  for (let i = 0; i < 100 && !check(); i++) await tick();
-}
 
 /** A transcript with one prompt and one answer at `at`, last written then. */
 function session(id: string, text: string, at: number) {
@@ -77,9 +61,9 @@ describe("list range", () => {
     expect(frame.indexOf("Work of today")).toBeLessThan(frame.indexOf("Recent work"));
     expect(frame.indexOf("Recent work")).toBeLessThan(frame.indexOf("more ↓"));
 
-    view.press("\u001b[F"); // End: the last entry, load more
+    await view.press("\u001b[F"); // End: the last entry, load more
     await until(() => view.frame().includes("loads the whole history"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Old work"));
     expect(view.frame()).not.toContain("more ↓");
     // The selection goes to the newest of the sessions read now, where load more was.
@@ -105,13 +89,13 @@ describe("list range", () => {
     session("today", "Work of today", Date.now() - 60_000);
     const view = renderView(<SessionsView cwd={cwd} layout={layout} visible active />);
     await until(() => view.frame().includes("more ↓"));
-    view.press("\u0006");
+    await view.press("\u0006");
     await tick();
     for (const c of "nothing") {
-      view.press(c);
+      await view.press(c);
       await tick();
     }
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("0 of 1"));
     expect(view.frame()).toContain("more ↓");
     view.unmount();
@@ -123,9 +107,9 @@ describe("list range", () => {
     const view = renderView(<MonitorView cwd={cwd} layout={layout} visible active />);
     await until(() => view.frame().includes("more ↓"));
     expect(view.frame()).toContain("1 responses");
-    view.press("\u001b[F");
+    await view.press("\u001b[F");
     await tick();
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("2 responses"));
     expect(view.frame()).not.toContain("more ↓");
     expect(view.frame()).toContain(`${dayLabel(dayKey(Date.now() - 60 * DAY))} · Overall`);

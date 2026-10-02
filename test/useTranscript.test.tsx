@@ -1,10 +1,9 @@
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { PassThrough } from "node:stream";
-import { Text, render } from "ink";
-import stripAnsi from "strip-ansi";
+import { Text } from "ink";
 import { describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { useTranscript } from "../src/tui/useTranscript.js";
 
 const line = (entry: object) => JSON.stringify(entry) + "\n";
@@ -19,15 +18,8 @@ function Probe({ path }: { path: string }) {
 }
 
 function renderProbe(path: string): { frame: () => string; unmount: () => void } {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 300, rows: 10 });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
-  let output = "";
-  stdout.on("data", (chunk) => {
-    const frame = stripAnsi(String(chunk));
-    if (frame.trim()) output = frame.trim();
-  });
-  const app = render(<Probe path={path} />, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => output, unmount: () => app.unmount() };
+  const app = renderInk(<Probe path={path} />, { columns: 300, rows: 10 });
+  return { frame: () => app.frame().trim(), unmount: app.unmount };
 }
 
 describe("useTranscript", () => {

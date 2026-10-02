@@ -1,11 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { updateSettings } from "../src/settings.js";
 import type { Layout } from "../src/tui/layout.js";
 import { App } from "../src/tui/App.js";
@@ -24,17 +22,7 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(<ProgressProvider layout={layout}>{element}</ProgressProvider>, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = (element: ReactElement) => renderInk(element, layout, { wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider> });
 
 describe("restart the viewer", () => {
   it("asks first while confirm quit is on", async () => {
@@ -42,10 +30,10 @@ describe("restart the viewer", () => {
     let restarts = 0;
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active select={{ key: "reset:restart", at: 1 }} onRestart={() => restarts++} />);
     await expect.poll(view.frame).toContain("restart the viewer");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame).toContain("Restart the viewer?");
     expect(restarts).toBe(0);
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(() => restarts).toBe(1);
     view.unmount();
   });
@@ -55,7 +43,7 @@ describe("restart the viewer", () => {
     let restarts = 0;
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active select={{ key: "reset:restart", at: 1 }} onRestart={() => restarts++} />);
     await expect.poll(view.frame).toContain("restart the viewer");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(() => restarts).toBe(1);
     expect(view.frame()).not.toContain("Restart the viewer?");
     view.unmount();
@@ -69,12 +57,12 @@ describe("restart the viewer", () => {
     try {
       const view = renderView(<App cwd={mkdtempSync(join(tmpdir(), "cco-restart-app-"))} initialMode="settings" select="reset:restart" />);
       await expect.poll(view.frame).toContain("restart the viewer");
-      view.press("\r");
+      await view.press("\r");
       await expect.poll(view.frame).toContain("Restarting…");
       expect(view.frame()).toContain("cannot be cancelled");
       await expect.poll(view.frame, { timeout: 3000 }).toContain("✗ The viewer did not reopen");
       expect(view.frame()).toContain("cannot reopen itself here: close it with q");
-      view.press("\u001b");
+      await view.press("\u001b");
       await expect.poll(view.frame).not.toContain("did not reopen");
       view.unmount();
     } finally {

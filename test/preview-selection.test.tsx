@@ -1,7 +1,5 @@
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { AreaContext } from "../src/tui/layout.js";
 import { MouseContext } from "../src/tui/mouse.js";
 import { Preview } from "../src/tui/Preview.js";
@@ -26,29 +24,28 @@ beforeEach(() => {
 
 /** A preview at column 20, row 2 of the terminal, as if a list were left of it, and a way to send it mouse reports. */
 async function mount(header: string[], lines: string[]) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 60, rows: 10 });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  const out = { frame: "", raw: "" };
-  stdout.on("data", (chunk) => {
-    if (String(chunk).trim()) {
-      out.raw = String(chunk);
-      out.frame = stripAnsi(out.raw);
-    }
-  });
-  const app = render(
+  const app = renderInk(
     <MouseContext.Provider value={true}>
       <AreaContext.Provider value={{ x: 20, y: 2, width: 30, height: 6 }}>
         <Preview header={header} lines={lines} scroll={0} width={30} height={6} />
       </AreaContext.Provider>
     </MouseContext.Provider>,
-    { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false },
+    { columns: 60, rows: 10 },
   );
   await wait();
   const send = async (...inputs: string[]) => {
     for (const input of inputs) {
-      stdin.write(input);
+      await app.press(input);
       await wait();
     }
+  };
+  const out = {
+    get frame() {
+      return app.frame();
+    },
+    get raw() {
+      return app.raw();
+    },
   };
   return { out, send, app };
 }

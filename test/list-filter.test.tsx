@@ -1,11 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick } from "./helpers/ink.js";
 import { readSettings } from "../src/settings.js";
 import type { Turn } from "../src/transcript/parse.js";
 import { App } from "../src/tui/App.js";
@@ -29,30 +27,13 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return {
-    frame: () => frame,
-    press: (keys: string) => stdin.write(keys),
-    rerender: (next: ReactElement) => app.rerender(next),
-    unmount: () => app.unmount(),
-  };
-}
+const renderView = (element: ReactElement) => renderInk(element, layout);
 
 /** Waits for a render; keys written at once would reach one handler before the state it set. */
-const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 async function type(view: ReturnType<typeof renderView>, text: string) {
   for (const c of text) {
-    view.press(c);
-    await tick();
+    await view.press(c);
   }
 }
 
@@ -63,19 +44,19 @@ describe("list filter in the settings", () => {
     // Below the settings: the four reset actions and the Releases note (no releases known offline).
     const total = SETTING_ROWS.length + 5;
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Filter");
     expect(typing).toBe(true);
     await type(view, "mouse");
     await expect.poll(view.frame, { timeout: 2000 }).toMatch(new RegExp(`\\d+ of ${total}`));
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Enter keep");
     // The list's top row shows the filter, the help line no longer offers it.
     expect(view.frame()).toMatch(new RegExp(`⌕  mouse · \\d+ of ${total} · \\^F clear`));
     expect(view.frame()).not.toContain("^F filter");
     expect(typing).toBe(false);
     expect(view.frame()).toMatch(new RegExp(`\\d+/${total} entries`));
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("⌕");
     expect(view.frame()).toContain("^F filter");
     view.unmount();
@@ -84,12 +65,12 @@ describe("list filter in the settings", () => {
   it("shows a hint when nothing matches, and Esc in the dialog drops the filter", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "zzzqqq");
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("No matches");
-    expect(view.frame()).toContain("⌕  zzzqqq");
-    view.press("\u001b");
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("⌕  zzzqqq");
+    expect(view.frame()).toContain("No matches");
+    await view.press("\u001b");
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
     expect(view.frame()).not.toContain("No matches");
     view.unmount();
@@ -98,10 +79,10 @@ describe("list filter in the settings", () => {
   it("shows only the separators of groups with a match", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "wrap");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("⌕  wrap");
     const separators = view.frame().match(/── \w+/g);
     expect(separators).toEqual(["── Chat", "── Changes", "── Plan"]);
@@ -111,17 +92,17 @@ describe("list filter in the settings", () => {
   it("opens with the filter used last, selected, so typing replaces it", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "wrap");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Enter keep");
     expect(view.frame()).toContain("⌕  wrap");
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("⌕  wrap");
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("› wrap");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Enter keep");
     expect(view.frame()).toContain("⌕  wrap");
     view.unmount();
@@ -137,10 +118,10 @@ describe("list filter in the chat", () => {
     const chat = (t: Transcript) => <ChatView cwd={cwd} path="s.jsonl" transcript={t} layout={layout} active liveSession />;
     const view = renderView(chat(transcript(turns, 1)));
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "fix");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("2/3 turns");
     expect(view.frame()).not.toContain("add tests");
     // A new turn that does not match stays hidden, and the selection stays.
@@ -159,7 +140,7 @@ describe("list filter in the chat", () => {
     const turns = [turn("a", "fix the parser"), turn("b", "add tests"), turn("c", "write docs")];
     const view = renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript(turns, 1)} layout={layout} active liveSession />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "te?t");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer b");
@@ -172,17 +153,15 @@ describe("list filter in the app", () => {
     const project = mkdtempSync(join(tmpdir(), "cco-filter-app-"));
     const view = renderView(<App cwd={project} sessionId="none" initialMode="settings" />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "q1i");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("› q1i");
     // Still the settings, no info dialog, not quit.
     expect(view.frame()).not.toContain("Keys");
-    view.press("\u001b");
+    await view.press("\u001b");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("› q1i");
-    // The app takes keys again once the dialog's effects have run.
-    await tick();
-    view.press("i");
+    await view.press("i");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("filter the list");
     view.unmount();
   });
@@ -196,17 +175,17 @@ describe("where the filter looks", () => {
     ];
     const view = renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript(turns, 1)} layout={layout} active liveSession />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer b");
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
     await type(view, "parser");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("0 of 2");
     expect(view.frame()).toContain("[x] in the list");
     expect(view.frame()).toContain("[ ] in the details");
-    view.press(CTRL_D);
+    await view.press(CTRL_D);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("1 of 2");
     expect(view.frame()).toContain("[x] in the details");
     expect(readSettings().filterIn).toBe("both");
-    view.press(CTRL_L);
+    await view.press(CTRL_L);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("[ ] in the list");
     expect(readSettings().filterIn).toBe("details");
     view.unmount();
