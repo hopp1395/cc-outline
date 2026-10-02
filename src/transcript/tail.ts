@@ -1,6 +1,7 @@
 import { closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { watch, type FSWatcher } from "chokidar";
+import { TIMING } from "../timing.js";
 
 /**
  * Follows a growing file and reports newly appended text. Reads from the last
@@ -31,7 +32,7 @@ export class FileTail {
     this.watcher.on("add", () => this.read());
     this.watcher.on("change", () => this.read());
     // Watchers can miss a file that does not exist yet; a cheap stat catches its creation.
-    this.timer = setInterval(() => this.read(), 1000);
+    this.timer = setInterval(() => this.read(), TIMING.tailStat);
   }
 
   async stop(): Promise<void> {

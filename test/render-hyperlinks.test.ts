@@ -1,9 +1,15 @@
 import stringWidth from "string-width";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { renderMarkdown } from "../src/render/markdown.js";
+import { terminalFeatures } from "../src/render/terminal.js";
 
-// Read when the renderer is loaded, so set before the import.
-process.env.FORCE_HYPERLINK = "1";
-const { renderMarkdown } = await import("../src/render/markdown.js");
+const real = { ...terminalFeatures };
+beforeAll(() => {
+  terminalFeatures.hyperlinks = true;
+});
+afterAll(() => {
+  Object.assign(terminalFeatures, real);
+});
 
 const strip = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
 

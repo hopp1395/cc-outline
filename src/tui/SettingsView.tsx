@@ -27,6 +27,7 @@ import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, typ
 import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
 import { useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
+import { TIMING } from "../timing.js";
 
 interface Props {
   layout: Layout;
@@ -458,9 +459,6 @@ export interface DoctorChecking {
   current: DoctorGroup;
 }
 
-/** The pause before each group's check, so the progress can be followed. */
-const CHECK_STEP_MS = 300;
-
 /** The check's progress dialog: the group being checked. */
 export function checkProgress(checking: DoctorChecking): Progress {
   const at = DOCTOR_GROUPS.indexOf(checking.current);
@@ -859,7 +857,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     const findings: Finding[] = [];
     for (const group of DOCTOR_GROUPS) {
       setDoctorChecking({ current: group });
-      await new Promise((resolve) => setTimeout(resolve, CHECK_STEP_MS));
+      await new Promise((resolve) => setTimeout(resolve, TIMING.checkStep));
       if (run !== checkRun.current) return;
       findings.push(...diagnoseGroup(group, { cwd }));
     }

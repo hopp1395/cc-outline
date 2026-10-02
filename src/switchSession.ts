@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { proc } from "./proc.js";
 import { detectTerminal } from "./open.js";
 import type { Placement } from "./settings.js";
 import type { RunningSession } from "./transcript/trash.js";
@@ -93,7 +93,7 @@ const TYPER_TIMEOUT_MS = 30_000;
  */
 export function prepareConsoleInput(claudePid: number, platform: NodeJS.Platform = process.platform): ConsoleTyper | undefined {
   if (platform !== "win32") return undefined;
-  const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(CONSOLE_INPUT_SCRIPT)], {
+  const child = proc.spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(CONSOLE_INPUT_SCRIPT)], {
     windowsHide: true,
     env: { ...process.env, CCO_CLAUDE_PID: String(claudePid) },
     stdio: ["pipe", "pipe", "ignore"],
@@ -188,7 +188,7 @@ if (Send (Keys ([string][char]13) 13 0)) { [Console]::Out.Write('ok') } else { [
  */
 export function focusClaudePane(placement: Placement | undefined): boolean {
   if (detectTerminal() !== "wt" || !process.env.WT_SESSION || (placement !== "right" && placement !== "left")) return false;
-  spawn("wt", ["-w", "0", "move-focus", placement === "right" ? "left" : "right"], { stdio: "ignore", detached: true, windowsHide: true }).unref();
+  proc.spawn("wt", ["-w", "0", "move-focus", placement === "right" ? "left" : "right"], { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
 }
 
@@ -227,7 +227,7 @@ export async function paneOf(
 /** stdout of the command, or undefined if it failed. */
 function run(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string | undefined> {
   return new Promise((resolve) => {
-    execFile(command, args, { windowsHide: true, timeout: 10_000, env: env && { ...process.env, ...env } }, (err, stdout) =>
+    proc.execFile(command, args, { windowsHide: true, timeout: 10_000, env: env && { ...process.env, ...env } }, (err, stdout) =>
       resolve(err ? undefined : String(stdout)),
     );
   });
