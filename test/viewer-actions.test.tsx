@@ -1,10 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { updateSettings } from "../src/settings.js";
 import { App } from "../src/tui/App.js";
 
@@ -26,21 +24,9 @@ afterEach(() => {
 describe("/cco:update", () => {
   it("checks for an update at once, even with the update check off, and shows Settings", async () => {
     updateSettings({ updateMode: "off" });
-    const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 160, rows: 24 });
-    const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-    let frame = "";
-    stdout.on("data", (chunk) => {
-      const text = stripAnsi(String(chunk));
-      if (text.trim()) frame = text;
-    });
     const project = mkdtempSync(join(tmpdir(), "cco-actions-app-"));
-    const app = render(<App cwd={project} sessionId="none" initialMode="chat" action="update" />, {
-      stdout: stdout as never,
-      stdin: stdin as never,
-      debug: true,
-      patchConsole: false,
-    });
-    await expect.poll(() => frame, { timeout: 2000 }).toContain("auto open");
+    const app = renderInk(<App cwd={project} sessionId="none" initialMode="chat" action="update" />, { columns: 160, rows: 24 });
+    await expect.poll(app.frame, { timeout: 2000 }).toContain("auto open");
     await expect.poll(() => asked.some((u) => u.includes("registry.npmjs.org")), { timeout: 2000 }).toBe(true);
     app.unmount();
   });

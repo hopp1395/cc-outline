@@ -1,10 +1,10 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { Text, render } from "ink";
+import { Text } from "ink";
 import stripAnsi from "strip-ansi";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { updateSettings } from "../src/settings.js";
 import { dayLabel, dayOf, entryGroups, linesByDay, separatorsAt, separatorText } from "../src/tui/days.js";
 import { AreaContext, List, listRows } from "../src/tui/layout.js";
@@ -103,14 +103,7 @@ async function listOutput(
   items: { id: string; ts?: string }[],
   opts: { selected: number; height: number; reversed?: boolean; period?: "day" | "year"; shown?: number[]; pinned?: { order: number[]; count: number; row: number } },
 ) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 30, rows: opts.height });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
-  let output = "";
-  stdout.on("data", (chunk) => {
-    const frame = stripAnsi(String(chunk));
-    if (frame) output = frame;
-  });
-  const app = render(
+  const app = renderInk(
     <AreaContext.Provider value={{ x: 0, y: 0, width: 20, height: opts.height }}>
       <List
         items={items}
@@ -127,11 +120,12 @@ async function listOutput(
         render={(i, _selected, stars) => <Text>{stars ? "" : "·"}{i.id}</Text>}
       />
     </AreaContext.Provider>,
-    { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false, interactive: true },
+    { columns: 30, rows: opts.height },
+    { interactive: true },
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
   app.unmount();
-  return output.split("\n").map((l) => l.trimEnd());
+  return app.frame().split("\n").map((l) => l.trimEnd());
 }
 
 describe("List with times", () => {

@@ -1,11 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick } from "./helpers/ink.js";
 import { versionLabels, type Layout } from "../src/tui/layout.js";
 import { repairProgress, SETTING_ROWS, SettingsView, updateProgress } from "../src/tui/SettingsView.js";
 import { UpdateContext, type Update, type UpdateRun } from "../src/tui/useUpdate.js";
@@ -25,19 +23,7 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(<ProgressProvider layout={layout}>{element}</ProgressProvider>, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), rerender: (e: ReactElement) => app.rerender(<ProgressProvider layout={layout}>{e}</ProgressProvider>), unmount: () => app.unmount() };
-}
-
-const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
+const renderView = (element: ReactElement) => renderInk(element, layout, { wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider> });
 
 function fakeUpdate(overrides: Partial<Update> = {}): Update {
   return {
@@ -78,9 +64,9 @@ describe("releases in the settings", () => {
     expect(view.frame()).toContain("npm install -g cc-outline@latest");
     expect(view.frame()).toContain("Brand new thing");
     expect(view.frame()).toContain("installed");
-    view.press("\u001b[B");
+    await view.press("\u001b[B");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("2026-09-28 · new");
-    view.press("\u001b[B");
+    await view.press("\u001b[B");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("What is installed");
     view.unmount();
   });
@@ -93,10 +79,10 @@ describe("releases in the settings", () => {
       </UpdateContext.Provider>,
     );
     await expect.poll(view.frame, { timeout: 2000 }).toContain("↵ update");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
     expect(started).toBe(0);
-    view.press("\r");
+    await view.press("\r");
     await tick();
     expect(started).toBe(1);
     view.unmount();
@@ -112,7 +98,7 @@ describe("releases in the settings", () => {
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
     // The dialog shows before its key handler is attached (slow CI runners): let the effects run first.
     await tick();
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(() => started, { timeout: 2000 }).toBe(1);
     view.unmount();
   });
@@ -155,9 +141,9 @@ describe("releases in the settings", () => {
     );
     const view = renderView(element());
     await expect.poll(view.frame, { timeout: 2000 }).toContain("↵ update");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
-    view.press("\r");
+    await view.press("\r");
     await tick();
     view.rerender(element());
     await expect.poll(view.frame, { timeout: 2000 }).toContain("cannot be cancelled");
@@ -175,7 +161,7 @@ describe("releases in the settings", () => {
     view.rerender(element());
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Updating – marketplace (2/3)…");
     // Esc does not close it while it runs.
-    view.press("\u001b");
+    await view.press("\u001b");
     await tick();
     expect(view.frame()).toContain("Updating – marketplace (2/3)…");
     run = { ...run, status: "done" };
@@ -196,9 +182,9 @@ describe("releases in the settings", () => {
     );
     const view = renderView(element());
     await expect.poll(view.frame, { timeout: 2000 }).toContain("↵ update");
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
-    view.press("\r");
+    await view.press("\r");
     await tick();
     run = {
       target: "9.9.9",
@@ -213,9 +199,7 @@ describe("releases in the settings", () => {
     await expect.poll(view.frame, { timeout: 2000 }).toContain("The update stopped at marketplace (2/3)");
     expect(view.frame()).toContain("Esc close");
     expect(view.frame()).toContain("c copy commands");
-    // The dialog takes keys once its effects have run.
-    await tick();
-    view.press("\u001b");
+    await view.press("\u001b");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Esc close");
     await expect.poll(() => modal, { timeout: 2000 }).toBe(false);
     // The details behind it still show what failed.

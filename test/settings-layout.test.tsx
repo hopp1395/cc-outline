@@ -1,10 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import type { Layout } from "../src/tui/layout.js";
 import { SETTING_ROWS, SettingsView, shortValueName } from "../src/tui/SettingsView.js";
 import { DEFAULT_SETTINGS } from "../src/settings.js";
@@ -25,23 +23,12 @@ async function listLines(listWidth: number): Promise<string[]> {
   const rows = 60;
   const columns = listWidth + 60;
   const layout: Layout = { columns, rows, listWidth, previewWidth: columns - listWidth - 3, bodyHeight: rows - 4 };
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(<SettingsView cwd={cwd} layout={layout} active={false} />, {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  await expect.poll(() => frame, { timeout: 2000 }).toContain("── Reset");
+  const app = renderInk(<SettingsView cwd={cwd} layout={layout} active={false} />, layout);
+  await expect.poll(app.frame, { timeout: 2000 }).toContain("── Reset");
   app.unmount();
   // Below the top bar, up to the footer; the preview starts two columns after the list.
-  return frame
+  return app
+    .frame()
     .split("\n")
     .slice(1, rows - 3)
     .map((l) => l.slice(0, listWidth).trimEnd());

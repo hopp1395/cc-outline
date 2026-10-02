@@ -1,11 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { toggleFavorite } from "../src/favorites.js";
 import { updateSettings } from "../src/settings.js";
 import type { Turn } from "../src/transcript/parse.js";
@@ -32,17 +30,7 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = (element: ReactElement) => renderInk(element, layout);
 
 /** The list column's rows below the top bar, top to bottom, without their times and the separators' rules. */
 const listLines = (frame: string) =>
@@ -64,44 +52,44 @@ describe("the Pinned group", () => {
     // Following: the newest turn, in its place in the list. The list below the group has no stars.
     await shows("Answer c");
     expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ first", "★ third", "first", "second", "third"]);
-    view.press(UP);
+    await view.press(UP);
     await shows("Answer b");
     // Shift+↑ from the list: the group's last row; ↑↓ then step through the copies too.
-    view.press(SHIFT_UP);
+    await view.press(SHIFT_UP);
     await shows("Answer c");
-    view.press(UP);
+    await view.press(UP);
     await shows("Answer a");
-    view.press(DOWN);
+    await view.press(DOWN);
     await shows("Answer c");
-    view.press(DOWN);
+    await view.press(DOWN);
     await shows("Answer a");
-    view.press(DOWN);
+    await view.press(DOWN);
     await shows("Answer b");
     // Marked in the list: the selection stays there.
-    view.press(" ");
+    await view.press(" ");
     await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ first", "★ second", "★ third", "first", "second", "third"]);
-    view.press(DOWN);
+    await view.press(DOWN);
     await shows("Answer c");
-    view.press(UP);
+    await view.press(UP);
     await shows("Answer b");
     // A pinned copy unmarked: the pinned row below takes the selection.
-    view.press(HOME);
+    await view.press(HOME);
     await shows("Answer a");
-    view.press(" ");
+    await view.press(" ");
     await shows("Answer b");
     expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ second", "★ third", "first", "second", "third"]);
     // Unmarked in the list: the selection stays in its place.
-    view.press(END);
+    await view.press(END);
     await shows("Answer c");
-    view.press(" ");
+    await view.press(" ");
     await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ second", "first", "second", "third"]);
     expect(view.frame()).toContain("Answer c");
     // The only one: the selection stays with it, in its place in the list.
-    view.press(SHIFT_UP);
+    await view.press(SHIFT_UP);
     await shows("Answer b");
-    view.press(" ");
+    await view.press(" ");
     await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["first", "second", "third"]);
-    view.press(UP);
+    await view.press(UP);
     await shows("Answer a");
     view.unmount();
   });
