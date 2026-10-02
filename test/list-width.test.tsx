@@ -61,7 +61,7 @@ describe("< and > in a view", () => {
     const view = renderInk(<App cwd={mkdtempSync(join(tmpdir(), "cco-list-width-app-"))} initialMode="settings" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
-    await expect.poll(view.frame).toContain("settings.json");
+    await expect.poll(view.frame).toContain("auto open");
     await view.press(">");
     await expect.poll(view.frame).toContain("width: wide");
     expect(readSettings().settingsListWidth).toBe("wide");
