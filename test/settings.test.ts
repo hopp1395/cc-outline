@@ -54,6 +54,16 @@ describe("settings", () => {
     expect(readSettings().updateMode).toBe("auto");
   });
 
+  it("takes over the former pinned group as pinned favorites", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ pinnedGroup: true }));
+    expect(readSettings().pinnedFavorites).toBe(true);
+    writeFileSync(settingsFile(), JSON.stringify({ pinnedGroup: true, pinnedFavorites: false }));
+    expect(readSettings().pinnedFavorites).toBe(false);
+    writeFileSync(settingsFile(), JSON.stringify({}));
+    expect(readSettings()).toMatchObject({ pinnedFavorites: false, pinnedSessions: true });
+  });
+
   it("accepts only known list orders", () => {
     mkdirSync(dirname(settingsFile()), { recursive: true });
     writeFileSync(settingsFile(), JSON.stringify({ chatOrder: "newest-first", planOrder: "sideways" }));

@@ -24,7 +24,7 @@ beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-pinned-"));
   cwd = mkdtempSync(join(tmpdir(), "cco-pinned-project-"));
-  updateSettings({ pinnedGroup: true });
+  updateSettings({ pinnedFavorites: true });
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
@@ -95,7 +95,7 @@ describe("the Pinned group", () => {
   });
 
   it("is off by default", async () => {
-    updateSettings({ pinnedGroup: false });
+    updateSettings({ pinnedFavorites: false });
     toggleFavorite(cwd, "turns", "b");
     const view = renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript} layout={layout} active liveSession />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");

@@ -440,6 +440,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const copy = useClipboard();
   const [all, setAll] = useSetting("allProjects");
   const [separators] = useSetting("dateSeparators");
+  const [pinnedSessions] = useSetting("pinnedSessions");
   const range = useListRange("sessionsRange");
   const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since);
   const running = useRunning(visible);
@@ -520,6 +521,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     onTyping,
     keep: isLoadMore,
     marked: (e) => !isLoadMore(e) && favorites.isMarked(e.id),
+    pin: pinnedSessions ? (e) => !isLoadMore(e) && (e.id === activeId || running.has(e.id)) : undefined,
   });
   const picked = filter.none ? undefined : list[index];
   const onLoadMore = isLoadMore(picked);
