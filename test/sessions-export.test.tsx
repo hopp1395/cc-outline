@@ -11,6 +11,7 @@ import { toggleFavorite } from "../src/favorites.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
+import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 
 const layout: Layout = { columns: 120, rows: 30, listWidth: 40, previewWidth: 77, bodyHeight: 26 };
 const cwd = join(tmpdir(), "cco-sessions-export-project");
@@ -39,7 +40,7 @@ function renderView() {
     const text = String(chunk);
     if (stripAnsi(text).trim()) frames.push(text);
   });
-  const app = render(<SessionsView cwd={cwd} layout={layout} visible active />, {
+  const app = render(<ProgressProvider layout={layout}><SessionsView cwd={cwd} layout={layout} visible active /></ProgressProvider>, {
     stdout: stdout as never,
     stdin: stdin as never,
     debug: true,
@@ -79,14 +80,15 @@ describe("export in the Sessions view", () => {
     view.press("\u001b[D");
     await tick();
     view.press("\r");
-    await until(() => view.frame().includes("Export done"));
-    expect(view.frame()).toContain("exported 1 session");
+    await until(() => view.frame().includes("✓ Exported"));
+    expect(view.frame()).toContain("Export 1 session");
+    expect(view.frame()).toContain("Exported 1 session");
     expect(view.frame()).toContain("cco-session-export.zip");
     expect(readExportOptions().stats).toBe(false);
     const file = join(out, "cco-session-export.zip");
     expect(folders(file).map((f) => f.replace(/^\d{4}-\d\d-\d\d-\d{4}-/, ""))).toEqual(["bbbbbbbb-markdown", "bbbbbbbb-llm", "bbbbbbbb-json", "bbbbbbbb-backup"]);
     view.press("\u001b");
-    await until(() => !view.frame().includes("Export done"));
+    await until(() => !view.frame().includes("✓ Exported"));
     view.unmount();
   });
 
@@ -101,19 +103,19 @@ describe("export in the Sessions view", () => {
     view.press("e");
     await until(() => view.frame().includes("2 marked sessions"));
     view.press("\r");
-    await until(() => view.frame().includes("Export done"));
+    await until(() => view.frame().includes("✓ Exported"));
     const file = join(out, "cco-session-export.zip");
     expect(folders(file).filter((f) => f.endsWith("-backup")).map((f) => f.slice(16, 24))).toEqual(["aaaaaaaa", "bbbbbbbb"]);
     view.press("\u001b");
-    await until(() => !view.frame().includes("Export done"));
+    await until(() => !view.frame().includes("✓ Exported"));
 
     rmSync(join(projectDir(cwd), "aaaaaaaa-1.jsonl"));
     view.press("I");
     await until(() => view.frame().includes("Import sessions"));
     expect(view.frame()).toContain("cco-session-export.zip");
     view.press("\r");
-    await until(() => view.frame().includes("Import done"));
-    expect(view.frame()).toContain("imported 1 session · skipped 1 (already there)");
+    await until(() => view.frame().includes("✓ Imported"));
+    expect(view.frame()).toContain("Imported 1 session · skipped 1 (already there)");
     view.unmount();
     expect(claudeDir()).toBeTruthy();
   });
