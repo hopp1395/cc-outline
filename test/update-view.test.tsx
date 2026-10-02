@@ -213,6 +213,8 @@ describe("releases in the settings", () => {
     await expect.poll(view.frame, { timeout: 2000 }).toContain("The update stopped at marketplace (2/3)");
     expect(view.frame()).toContain("Esc close");
     expect(view.frame()).toContain("c copy commands");
+    // The dialog takes keys once its effects have run.
+    await tick();
     view.press("\u001b");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Esc close");
     await expect.poll(() => modal, { timeout: 2000 }).toBe(false);

@@ -1,26 +1,30 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { independentEnv, moveViewer, openInDefaultApp, openPane, resumeForPairing, resumeInNewWindow } from "../src/open.js";
+import { proc } from "../src/proc.js";
 import { saveSessionPlacement } from "../src/sessionViews.js";
 import { updateSettings } from "../src/settings.js";
 import { claudeFile, writeJson } from "../src/transcript/locate.js";
 import { readControl, registerViewer, unregisterViewer } from "../src/viewer.js";
 
 const spawned: { cmd: string; args: string[]; env?: NodeJS.ProcessEnv; windowsHide?: boolean }[] = [];
-vi.mock("node:child_process", () => ({
-  spawn: (cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv; windowsHide?: boolean }) => {
+const real = { ...proc };
+beforeAll(() => {
+  proc.spawn = ((cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv; windowsHide?: boolean }) => {
     spawned.push({ cmd, args, env: opts?.env, windowsHide: opts?.windowsHide });
     return { unref: () => {} };
-  },
+  }) as never;
   // tmux new-window -P prints the new pane's id.
-  execFile: (cmd: string, args: string[], _opts: unknown, done: (err: Error | null, stdout: string) => void) => {
+  proc.execFile = ((cmd: string, args: string[], _opts: unknown, done: (err: Error | null, stdout: string) => void) => {
     spawned.push({ cmd, args });
     done(null, "%7\n");
-  },
-}));
-
-const { independentEnv, moveViewer, openInDefaultApp, openPane, resumeForPairing, resumeInNewWindow } = await import("../src/open.js");
+  }) as never;
+});
+afterAll(() => {
+  Object.assign(proc, real);
+});
 
 const saved = { ...process.env };
 beforeEach(() => {

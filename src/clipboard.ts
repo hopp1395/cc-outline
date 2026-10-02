@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { proc } from "./proc.js";
 
 /**
  * How text reaches the clipboard:
@@ -51,7 +51,7 @@ export function nativeCommands(text: string, platform: NodeJS.Platform = process
 
 function run({ cmd, args, input }: Command): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+    const child = proc.spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
     child.on("error", reject);
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited with ${code}`))));
     child.stdin.on("error", () => {}); // reported by "close" or "error"

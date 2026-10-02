@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { render } from "ink";
 import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { TIMING } from "../src/timing.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
@@ -89,7 +90,7 @@ describe("session activity", () => {
     await until(() => view.frame().includes("running elsewhere · working · claude --resume s1"));
     expect(view.frame()).toContain("running elsewhere · working · claude --resume s1");
     // Bright and dim in turn.
-    await tick(1100);
+    await tick(3 * TIMING.blink);
     const seen = view.frames.map(marker).filter(Boolean);
     expect(seen.some((m) => m.includes("\u001b[2m"))).toBe(true);
     expect(seen.some((m) => !m.includes("\u001b[2m"))).toBe(true);
