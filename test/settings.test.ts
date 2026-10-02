@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, isViewShown, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
-import { isLastView, nextValue, SETTING_ROWS, settingLines } from "../src/tui/SettingsView.js";
+import { codeMarks, isLastView, nextValue, plainMarks, RESET_ACTIONS, SETTING_ROWS, settingLines, textOf } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
 
@@ -145,6 +145,25 @@ describe("settings view", () => {
         expect(text, row.key).not.toMatch(/undefined|\[object|\n\n\n/);
         for (const [value] of row.values) expect(text, row.key).toContain(`${typeof value === "boolean" ? (value ? "on" : "off") : ""}`);
       }
+  });
+
+  it("marks keys, commands and paths in pairs of backticks and shows none of them", () => {
+    const context = { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app") };
+    for (const terminal of ["wt", "tmux", undefined] as const)
+      for (const row of SETTING_ROWS) {
+        const texts = [row.description, ...row.values.map(([, meaning]) => meaning), ...(row.notes ?? []), row.viewKey ?? ""].map((t) => textOf(t, { ...context, terminal }));
+        for (const text of texts) expect(text.split("`").length % 2, `${row.key}: ${text}`).toBe(1);
+        expect(details(row.key, terminal), row.key).not.toContain("`");
+      }
+    for (const action of RESET_ACTIONS) expect(action.description.split("`").length % 2, action.id).toBe(1);
+  });
+
+  it("shows the marked parts like inline code in the chat, also within dimmed notes", () => {
+    expect(codeMarks("press `q` to quit")).toBe("press \u001b[33mq\u001b[39m to quit");
+    expect(plainMarks("press `q` to quit")).toBe("press q to quit");
+    const row = SETTING_ROWS.find((r) => r.key === "updateMode")!;
+    const lines = settingLines(row, "auto", 2000, { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app") });
+    expect(lines.join("\n")).toContain("\u001b[33mF5\u001b[39m in Settings");
   });
 
   it("gives the ranges' first day as an example, counted from today", () => {
