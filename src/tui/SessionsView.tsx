@@ -17,10 +17,13 @@ import {
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
-import { resumeInNewWindow } from "../open.js";
-import { switchToSession } from "../switchSession.js";
-import { runningViewer, type PairTarget } from "../viewer.js";
+import { detectTerminal, resumeForPairing, resumeInNewWindow } from "../open.js";
+import type { Placement } from "../settings.js";
+import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
+import { cancelPairing, requestPairing, runningViewer, type PairTarget } from "../viewer.js";
+import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
+import { enterLabel, sessionOptions, type SessionAction, type SessionSituation } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
@@ -69,16 +72,33 @@ interface Props {
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;
   /**
-   * Pairs the viewer with a running Claude Code process; only for a viewer started without one
-   * (cco watch by hand). False if a viewer runs for that process already.
+   * Attaches the viewer to a running Claude Code process, leaving the one it belongs to, if any.
+   * False if a viewer runs for that process already.
    */
   onPair?: (target: PairTarget) => boolean;
+  /**
+   * The Claude Code process the viewer belongs to: Enter on its session offers to detach, on a session
+   * that runs nowhere to continue it there. `empty`: its session has no prompt yet. `placement`: where
+   * the viewer runs.
+   */
+  paired?: { claudePid: number; empty: boolean; placement?: Placement };
+  /**
+   * The viewer started a Claude Code for a session and it runs now: the viewer attaches to it and moves
+   * next to it, `where` it runs (`resumeForPairing`).
+   */
+  onPairStarted?: (target: PairTarget, where: string) => void;
+  /** Detaches the viewer from its Claude Code; it then follows the project's newest session. */
+  onDetach?: () => void;
 }
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
 const REFRESH_MS = 3000;
 /** How often Claude Code's status of the running sessions is read (~/.claude/sessions/<pid>.json). */
 const ACTIVITY_MS = 1000;
+/** How long a viewer waits for the Claude Code it started to show up, before it stays unpaired. */
+export const PAIR_TIMEOUT_MS = 30_000;
+/** How often it looks (~/.claude/sessions/<pid>.json). */
+const PAIR_POLL_MS = 500;
 /** Half a blink of a working session's marker. */
 const BLINK_MS = 500;
 
@@ -372,7 +392,18 @@ type Entry = SessionSummary | LoadMore;
 const LOAD_MORE_ID = "load-more";
 const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : e.id);
 
-export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair }: Props) {
+/** The wait for a started Claude Code to pair with. */
+interface Pairing {
+  sessionId: string;
+  cwd: string;
+  transcript: string;
+  /** Where it runs: a Windows Terminal window name or a tmux pane id; not yet known while it is being started. */
+  where?: string;
+  /** Epoch ms. */
+  started: number;
+}
+
+export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -397,6 +428,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The session moved to the trash last, for u (undo) in the list.
   const [lastTrashed, setLastTrashed] = useState<SessionSummary>();
   const [confirmation, setConfirmation] = useState<Confirmation>();
+  // Enter on a session that runs nowhere: where to continue it; then, for pairing, the wait for its Claude Code.
+  const [choice, setChoice] = useState<Choice<SessionAction>>();
+  const [pairing, setPairing] = useState<Pairing>();
+  const [, setPairTick] = useState(0);
+  const dialogOpen = confirmation !== undefined || choice !== undefined;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -480,7 +516,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(session?.id, lines.length, viewport);
 
-  useEffect(() => onModal?.(confirmation !== undefined), [confirmation]);
+  useEffect(() => onModal?.(dialogOpen), [dialogOpen]);
   useEffect(() => onTrashOpen?.(trashOpen), [trashOpen]);
 
   const select = (next: number) => {
@@ -519,68 +555,162 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (trashOpen) setTrash(listTrash(trashScope));
   });
 
-  /** The Claude Code process this viewer can pair with for `s`: it runs the session, and no viewer runs for it. */
-  const pairTarget = (s: SessionSummary): PairTarget | undefined => {
-    const claude = onPair ? running.get(s.id) : undefined;
+  /**
+   * Where `s` stands for Enter: the viewer's own session (paired viewers only), running in a Claude Code
+   * (the one it runs in, `claude`), or nowhere; and what keeps an action from being chosen.
+   */
+  const situationOf = (s: SessionSummary) => {
     const dir = s.cwd ?? cwd;
-    if (!claude || runningViewer(dir, claude.pid)) return undefined;
-    return { cwd: dir, claudePid: claude.pid, sessionId: s.id, transcript: s.path };
+    const claude = running.get(s.id);
+    const own = paired && [...running.values()].find((r) => r.pid === paired.claudePid);
+    const state: SessionSituation["state"] = paired && s.id === activeId ? "current" : claude ? "active" : "inactive";
+    const situation: SessionSituation = {
+      paired: paired && { empty: paired.empty, activity: own ? own.activity : undefined, method: resumeHereMethod() },
+      state,
+      attachBlocked: !onPair ? "this viewer cannot attach" : claude && runningViewer(dir, claude.pid) ? "it has a viewer of its own" : undefined,
+      // /resume finds only the sessions of the project folder its Claude Code runs in, this viewer's.
+      otherFolder: projectSlug(dir) === projectSlug(cwd) ? undefined : truncate(basename(dir), 20),
+      folderMissing: state === "inactive" && !existsSync(dir),
+      terminal: detectTerminal() !== undefined,
+      // A session the Claude Code daemon runs is attached to, not resumed.
+      command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
+    };
+    return { situation, claude, dir };
   };
 
-  /**
-   * Enter: after a confirmation, pairs this viewer with the Claude Code the session runs in (a viewer
-   * started without one, when that has none), continues the session in a new terminal tab, or, when it
-   * already runs in another Claude Code, switches to the tab it runs in.
-   */
+  const CHOICE_TITLES: Record<SessionSituation["state"], string> = {
+    current: "This viewer's session",
+    active: "This session runs in a Claude Code",
+    inactive: "Continue this session where?",
+  };
+
+  /** Enter: asks what to do with the session (`sessionOptions`), with the usual choice selected. */
   const start = (s: SessionSummary) => {
-    const target = pairTarget(s);
-    if (target) {
-      return setConfirmation({
-        title: "Pair the viewer with this session?",
-        lines: [
-          truncate(sessionTitle(s), 56),
-          truncate(`running in ${tilde(target.cwd)}`, 56),
-          "The viewer stays here and follows it in the chat;",
-          "it closes when that Claude Code ends.",
-        ],
-        onConfirm: () => {
-          if (!onPair?.(target)) notify("another viewer paired with it first");
-        },
-      });
-    }
-    const state = stateOf(s);
-    if (state === "active") return notify("this is the active session");
-    const other = runningSessions().get(s.id);
-    if (other) {
-      return setConfirmation({
-        title: "Switch to the tab this session runs in?",
-        lines: [
-          truncate(sessionTitle(s), 56),
-          `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
-          "It already runs in another Claude Code.",
-        ],
-        onConfirm: () => {
-          notify("looking for its tab…");
-          void switchToSession(other, s.title ? [s.title] : []).then(notify);
-        },
-      });
-    }
-    const dir = s.cwd ?? cwd;
-    if (!existsSync(dir)) return notify(`folder not found: ${tilde(dir)}`);
-    setConfirmation({
-      title: "Continue this session in a new window?",
-      lines: [
-        truncate(sessionTitle(s), 56),
-        `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
-        truncate(`in ${tilde(dir)}`, 56),
-      ],
-      onConfirm: () => {
-        notify(resumeInNewWindow(s.id, dir, truncate(sessionTitle(s), 30)));
-        // Show it as running as soon as Claude Code registers it.
-        setTimeout(refresh, 3000);
+    const { situation, claude, dir } = situationOf(s);
+    const lines = [
+      truncate(sessionTitle(s), 56),
+      `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
+      truncate(`in ${tilde(dir)}`, 56),
+    ];
+    const { options, initial } = sessionOptions(situation);
+    // On Windows, PowerShell takes a second or more to start: it does so while the dialog is open.
+    const here = options.find((o) => o.id === "here");
+    if (paired && here && !here.disabled && resumeHereMethod() === "keys" && detectTerminal() !== "tmux") typer.current = prepareConsoleInput(paired.claudePid);
+    setChoice({
+      title: CHOICE_TITLES[situation.state],
+      lines,
+      options,
+      initial,
+      onChoose: (id) => {
+        const prepared = takeTyper();
+        if (id !== "here") prepared?.cancel();
+        // Attaching to a new window waits in the dialog.
+        if (id !== "window-attach") setChoice(undefined);
+        act(id, s, dir, claude, situation.command, prepared);
       },
     });
   };
+
+  const act = (id: SessionAction, s: SessionSummary, dir: string, claude: RunningSession | undefined, command: string, prepared?: ConsoleTyper) => {
+    switch (id) {
+      case "stay":
+        return;
+      case "detach":
+        return onDetach?.();
+      case "switch":
+        if (!claude) return;
+        notify("looking for its tab…");
+        return void switchToSession(claude, s.title ? [s.title] : []).then(notify);
+      case "attach":
+        if (!claude) return;
+        if (!onPair?.({ cwd: dir, claudePid: claude.pid, sessionId: s.id, transcript: s.path })) notify("another viewer attached to it first");
+        return;
+      case "here":
+        return void (paired && continueHere(s.id, paired, prepared));
+      case "window":
+        notify(resumeInNewWindow(s.id, dir, truncate(sessionTitle(s), 30)));
+        // Show it as running as soon as Claude Code registers it.
+        setTimeout(refresh, 3000);
+        return;
+      case "window-attach":
+        return void startPairing(s, dir);
+      case "copy":
+        return void copy(command).then(
+          () => notify(`copied: ${command}`),
+          (err: Error) => notify(`copy failed: ${err.message}`),
+        );
+    }
+  };
+  // The PowerShell started for "continue it here", until it is used or the dialog closes.
+  const typer = useRef<ConsoleTyper>(undefined);
+  const takeTyper = () => {
+    const prepared = typer.current;
+    typer.current = undefined;
+    return prepared;
+  };
+  const closeChoice = () => {
+    takeTyper()?.cancel();
+    setChoice(undefined);
+  };
+  useEffect(() => () => takeTyper()?.cancel(), []);
+
+  /** Continues the session in the viewer's own Claude Code: types /resume into it, else copies it to paste there. */
+  const continueHere = async (id: string, claude: NonNullable<Props["paired"]>, prepared?: ConsoleTyper) => {
+    let failed: string | undefined;
+    if (resumeHereMethod() === "keys") {
+      notify("typing /resume in Claude Code…");
+      const result = await resumeInClaude(claude.claudePid, id, prepared);
+      if (result.typed) return notify(result.message);
+      failed = result.message;
+    }
+    const command = resumeSlashCommand(id);
+    await copy(command).then(
+      () => notify(`${failed ? `${failed}; ` : ""}copied ${command}: paste it in Claude Code${focusClaudePane(claude.placement) ? "" : "'s prompt"} (Ctrl+V) and press Enter`),
+      (err: Error) => notify(`copy failed: ${err.message}`),
+    );
+  };
+
+  /** Starts the session in a new window, where Claude Code's hook leaves opening a viewer to this one, then waits for it. */
+  const startPairing = async (s: SessionSummary, dir: string) => {
+    requestPairing(dir, s.id, Date.now() + 2 * PAIR_TIMEOUT_MS);
+    // Waiting from now on, so a second Enter starts nothing more.
+    const started = { sessionId: s.id, cwd: dir, transcript: s.path, started: Date.now() };
+    setPairing(started);
+    const { message, target } = await resumeForPairing(s.id, dir, truncate(sessionTitle(s), 30));
+    if (!target) {
+      cancelPairing(dir, s.id);
+      setPairing(undefined);
+      setChoice(undefined);
+      return notify(message);
+    }
+    setPairing((p) => (p === started ? { ...started, where: target } : p));
+  };
+  const stopPairing = (message: string) => {
+    if (pairing) cancelPairing(pairing.cwd, pairing.sessionId);
+    setPairing(undefined);
+    setChoice(undefined);
+    notify(message);
+  };
+  // Waiting: pairs once the session's Claude Code registers itself, gives up after PAIR_TIMEOUT_MS.
+  useEffect(() => {
+    if (!pairing) return;
+    const timer = setInterval(() => {
+      const claude = pairing.where !== undefined ? runningSessions().get(pairing.sessionId) : undefined;
+      if (claude && pairing.where !== undefined) {
+        clearInterval(timer);
+        setPairing(undefined);
+        setChoice(undefined);
+        // The request stays for its hook, which may be still to come; it expires by itself.
+        return onPairStarted?.({ cwd: pairing.cwd, claudePid: claude.pid, sessionId: pairing.sessionId, transcript: pairing.transcript }, pairing.where);
+      }
+      if (Date.now() - pairing.started >= PAIR_TIMEOUT_MS) {
+        clearInterval(timer);
+        return stopPairing(`Claude Code did not show up within ${PAIR_TIMEOUT_MS / 1000} s; the viewer stays as it was`);
+      }
+      setPairTick((n) => n + 1);
+    }, PAIR_POLL_MS);
+    return () => clearInterval(timer);
+  }, [pairing]);
 
   const askDelete = (s: SessionSummary) => {
     const blocker = deleteBlocker(s.id, activeId, runningSessionIds());
@@ -689,7 +819,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         page: viewport - 2,
       });
     },
-    { isActive: active && confirmation === undefined && !filter.open },
+    { isActive: active && !dialogOpen && !filter.open },
   );
 
   let preview;
@@ -726,7 +856,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         ...filter.footer,
-        { text: onLoadMore ? "↵ load more" : session && pairTarget(session) ? "↵ pair" : session && stateOf(session) === "running" ? "↵ switch" : "↵ start", priority: 3 },
+        { text: onLoadMore ? "↵ load more" : session ? enterLabel(situationOf(session).situation) : "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
@@ -804,7 +934,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                           (quoted ? 2 : 0),
                       )}
                       selected={isSelected}
-                      active={active && confirmation === undefined}
+                      active={active && !dialogOpen}
                     />
                     {quoted && "“"}
                   </Text>
@@ -818,6 +948,20 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       />
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
+      )}
+      {choice && (
+        <ChoiceDialog
+          layout={layout}
+          choice={choice}
+          waiting={
+            pairing && {
+              text: `Waiting for Claude Code… ${Math.min(PAIR_TIMEOUT_MS / 1000, Math.floor((Date.now() - pairing.started) / 1000))}/${PAIR_TIMEOUT_MS / 1000} s`,
+              detail: "The viewer moves next to it once it runs.",
+              onCancel: () => stopPairing("pairing cancelled; Claude Code keeps running in its window"),
+            }
+          }
+          onClose={closeChoice}
+        />
       )}
       {filter.dialog}
     </>

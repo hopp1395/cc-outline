@@ -13,9 +13,14 @@ vi.mock("node:child_process", () => ({
     spawned.push({ cmd, args, env: opts?.env, windowsHide: opts?.windowsHide });
     return { unref: () => {} };
   },
+  // tmux new-window -P prints the new pane's id.
+  execFile: (cmd: string, args: string[], _opts: unknown, done: (err: Error | null, stdout: string) => void) => {
+    spawned.push({ cmd, args });
+    done(null, "%7\n");
+  },
 }));
 
-const { independentEnv, moveViewer, openInDefaultApp, openPane, resumeInNewWindow } = await import("../src/open.js");
+const { independentEnv, moveViewer, openInDefaultApp, openPane, resumeForPairing, resumeInNewWindow } = await import("../src/open.js");
 
 const saved = { ...process.env };
 beforeEach(() => {
@@ -69,6 +74,24 @@ describe("resumeInNewWindow", () => {
   it("names the command when no supported terminal is found", () => {
     expect(resumeInNewWindow("abc", "/repo", "orders")).toBe("no Windows Terminal or tmux: run claude --resume abc in /repo");
     expect(spawned).toEqual([]);
+  });
+});
+
+describe("resumeForPairing", () => {
+  it("starts the session in a Windows Terminal window named after it, and names that window", async () => {
+    process.env.WT_SESSION = "x";
+    expect(await resumeForPairing("abcdef1234", "W:\\repo", "orders")).toEqual({ message: "started in a new Windows Terminal window", target: "cco-resume-abcdef12" });
+    expect(spawned[0].args.slice(0, 3)).toEqual(["-w", "cco-resume-abcdef12", "new-tab"]);
+  });
+
+  it("returns the new tmux pane", async () => {
+    process.env.TMUX = "/tmp/tmux";
+    expect(await resumeForPairing("abc", "/repo", "orders")).toEqual({ message: "started in a new tmux window", target: "%7" });
+    expect(spawned[0].args.slice(0, 8)).toEqual(["new-window", "-P", "-F", "#{pane_id}", "-n", "orders", "-c", "/repo"]);
+  });
+
+  it("has no target without a supported terminal", async () => {
+    expect(await resumeForPairing("abc", "/repo", "orders")).toEqual({ message: "no Windows Terminal or tmux: run claude --resume abc in /repo" });
   });
 });
 
@@ -209,6 +232,18 @@ describe("openPane", () => {
     expect(call(1).viewer).toMatch(/--view settings .*--action update/);
   });
 
+  it("opens next to a Claude Code elsewhere: its Windows Terminal window or tmux pane", () => {
+    // Also without WT_SESSION: the named window is there to dock to.
+    process.env.WT_PROFILE_ID = "{profile}";
+    openPane(cwd, "chat", { claudePid: 42, target: "cco-resume-abc" });
+    expect(call().before).toEqual(["-w", "cco-resume-abc", "split-pane", "-V", "--title", "cco", "-d", cwd]);
+    delete process.env.WT_PROFILE_ID;
+    process.env.TMUX = "/tmp/tmux";
+    process.env.TMUX_PANE = "%3";
+    openPane(cwd, "chat", { claudePid: 42, target: "%7" });
+    expect(spawned[1].args.slice(0, 4)).toEqual(["split-window", "-h", "-t", "%7"]);
+  });
+
   it("moves the viewer through cco open, which waits for this process to exit", () => {
     expect(moveViewer(cwd, "chat", "left", 42)).toBe(false);
     process.env.WT_SESSION = "x";
@@ -216,6 +251,8 @@ describe("openPane", () => {
     const { cmd, args } = spawned[0];
     expect(cmd).toBe(process.execPath);
     expect(args.slice(1).join(" ")).toBe(`open --cwd ${cwd} --view chat --placement left --after-pid ${process.pid} --claude-pid 42`);
+    moveViewer(cwd, "chat", "right", 43, undefined, "%7");
+    expect(spawned[1].args.slice(-2)).toEqual(["--target", "%7"]);
   });
 });
 

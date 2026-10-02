@@ -13,7 +13,7 @@ import {
   writeJson,
   type ActiveSession,
 } from "./transcript/locate.js";
-import { anyRunningViewer, isAlive, readRestore, runningViewer, saveRestore } from "./viewer.js";
+import { anyRunningViewer, isAlive, readRestore, runningViewer, saveRestore, takePairing } from "./viewer.js";
 
 export interface HookInput {
   hook_event_name?: string;
@@ -92,7 +92,9 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
     // The placement chosen for this session with p, else the setting.
     const placement = resolvePlacement(cwd, input.session_id);
     const running = claudePid ? runningViewer(cwd, claudePid) !== undefined : anyRunningViewer(cwd);
-    if (wanted && !running) open(cwd, view, { keepFocus: true, claudePid, placement });
+    // A viewer started this Claude Code from its Sessions view and moves next to it once it runs.
+    const paired = takePairing(cwd, input.session_id);
+    if (wanted && !running && !paired) open(cwd, view, { keepFocus: true, claudePid, placement });
   }
 }
 

@@ -9,7 +9,7 @@ import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionVie
 import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
-import { pairViewer, setViewerView, type PairTarget, type ViewerAction } from "../viewer.js";
+import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
@@ -21,6 +21,7 @@ import { PlacementDialog } from "./PlacementDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { SessionColorContext, tabAt, useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
+import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
@@ -49,6 +50,8 @@ interface Props {
   action?: ViewerAction;
   /** Pairs the viewer with a running Claude Code process (Sessions); the viewer then shows its session. */
   onPair?: (cwd: string, claudePid: number) => void;
+  /** Detaches the viewer from its Claude Code (Sessions); it then follows the project's newest session. */
+  onDetach?: (cwd: string) => void;
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
@@ -71,7 +74,7 @@ const RELOADED_MS = 1500;
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   const layout = useLayout();
@@ -218,11 +221,25 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    * state, then remounts the views so none keeps them in memory. Their
    * unmount would save positions again, so writes pause until the new ones are up.
    */
+  /** Sessions: detaches this viewer from its Claude Code; the views remount for the project's newest session. */
+  const detach = () => {
+    if (!claudePid || !onDetach) return;
+    detachViewer(cwd, claudePid, mode);
+    onDetach(cwd);
+  };
   /** Sessions: pairs this viewer with a running Claude Code process; false if a viewer runs for it already. */
   const pairWith = (target: PairTarget) => {
     if (!onPair || !pairViewer({ cwd, claudePid }, target)) return false;
     onPair(target.cwd, target.claudePid);
     return true;
+  };
+  /**
+   * Sessions: this viewer (without a Claude Code) started one for a session, which runs now `where`
+   * (`resumeForPairing`): the viewer reopens next to it, paired, in the chat.
+   */
+  const pairWithStarted = (target: PairTarget, where: string) => {
+    writeTargetSession(target);
+    if (moveViewer(target.cwd, "chat", resolvePlacement(target.cwd, target.sessionId), target.claudePid, undefined, where)) exit();
   };
   // Reset: restart. The viewer reopens where it is, running the CLI on disk now.
   const restartViewer = () => {
@@ -364,8 +381,16 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onTrashOpen={setDetail("sessions")}
             onTyping={setTyping}
             onModal={setModal}
-            // Only a viewer without a Claude Code process pairs; one opened by /cco:… keeps its own.
-            onPair={claudePid === undefined && onPair ? pairWith : undefined}
+            // Any viewer attaches to another Claude Code, leaving its own if it has one.
+            onPair={onPair ? pairWith : undefined}
+            onPairStarted={onPair ? pairWithStarted : undefined}
+            onDetach={claudePid !== undefined && !sessionId && onDetach ? detach : undefined}
+            // A viewer of its Claude Code's live session can continue another session there (/resume).
+            paired={
+              claudePid !== undefined && !sessionId
+                ? { claudePid, empty: isEmptySession(transcript.turns), placement: placement ?? resolvePlacement(cwd, sessionOf(path)) }
+                : undefined
+            }
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
