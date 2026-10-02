@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TranscriptParser } from "../src/transcript/parse.js";
 import { formatCount, shortModel } from "../src/transcript/turnStats.js";
-import { promptHeader, turnStatsLines } from "../src/tui/ChatView.js";
+import { promptHeader, turnDetailLines, turnStatsLines } from "../src/tui/ChatView.js";
 
 const strip = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
 const line = (o: object) => JSON.stringify(o) + "\n";
@@ -50,7 +50,9 @@ describe("turn stats", () => {
     );
     const s = p.turns[0].stats!;
     expect(s.tools).toBe(4);
+    expect(s.toolNames).toEqual({ Write: 1, Edit: 2, Read: 1 });
     expect(s.files).toEqual({ "/r/a.ts": "new", "/r/b.ts": "changed" });
+    expect(s.lines).toEqual({ "/r/a.ts": { added: 5, removed: 1 }, "/r/b.ts": { added: 0, removed: 1 } });
     expect([s.added, s.removed]).toEqual([5, 2]);
     expect(s.durationMs).toBe(134_000);
   });
@@ -85,6 +87,50 @@ describe("turn stats", () => {
     const p = new TranscriptParser();
     p.push(prompt("p1", "go") + assistant("m1", [{ type: "text", text: "x" }], { output: 3_200, cacheRead: 84_000 }));
     expect(strip(turnStatsLines(p.turns[0], [], 18)[0])).toBe("5 s · ↓ 3.2k");
+  });
+
+  it("lists the details in full: time, tokens per model, tools per name, agents and files with their lines", () => {
+    const p = new TranscriptParser();
+    p.push(
+      prompt("p1", "go") +
+        assistant("m1", [tool("t1", "Edit", { file_path: "/r/src/b.ts" }), tool("t2", "Write", { file_path: "/r/a.ts", content: "x\ny\n" })], { output: 3_000, cacheRead: 84_000 }) +
+        result("t1", { filePath: "/r/src/b.ts", structuredPatch: [{ lines: ["+a", "+b", "-c"] }] }) +
+        result("t2", { type: "create", filePath: "/r/a.ts" }) +
+        assistant("m2", [tool("t3", "Edit", { file_path: "/r/src/b.ts" })], { output: 200, model: "claude-haiku-4-5-20251001" }) +
+        result("t3", { filePath: "/r/src/b.ts", structuredPatch: [{ lines: ["+d"] }] }) +
+        line({ type: "system", subtype: "turn_duration", durationMs: 134_000 }),
+    );
+    const agent = { id: "a", type: "Explore", description: "find it", status: "completed" as const, tokens: 31_000, toolUses: 12, durationMs: 65_000 };
+    const lines = turnDetailLines(p.turns[0], [agent], 80, "/r").map(strip);
+    expect(lines).toEqual([
+      "$ Details",
+      "─".repeat(80),
+      expect.stringMatching(/^\d\d:\d\d – \d\d:\d\d · 2 min 14 s$/),
+      "",
+      "Tokens",
+      "  ↓ 3.2k  opus-5.5 3k · haiku-4.5 200",
+      "  ctx 10",
+      "",
+      "Tools  3",
+      "  Edit 2 · Write 1",
+      "",
+      "Agents  1 · 31k",
+      '  ◆ Explore "find it"',
+      "    ✓ completed · 1 min 05 s · 12 tool uses · 31k tokens",
+      "",
+      "Files  +1 ~1 · +5 −1",
+      "  + a.ts      +2",
+      "  ~ src/b.ts  +3 −1",
+    ]);
+  });
+
+  it("has no details for a turn without a response, and says while the turn runs", () => {
+    const p = new TranscriptParser();
+    p.push(prompt("p1", "! ls"));
+    expect(turnDetailLines(p.turns[0], [], 80, "/r")).toEqual([]);
+    const q = new TranscriptParser();
+    q.push(prompt("p1", "go") + assistant("m1", [{ type: "text", text: "…" }], { output: 5 }));
+    expect(strip(turnDetailLines(q.turns[0], [], 80, "/r", Date.parse("2026-10-02T10:01:30.000Z"))[2])).toMatch(/^\d\d:\d\d – running · 1 min 30 s$/);
   });
 
   it("shows below the prompt, above the rule", () => {

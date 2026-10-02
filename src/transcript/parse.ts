@@ -1,7 +1,7 @@
 import { BOX_END, BOX_START_CYAN } from "../render/markdown.js";
 import { browserItems, browserTitle, isBrowserTool, navigates } from "./chrome.js";
 import { escapeMd, fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
-import { addFileChange, emptyStats, usageCounts, type TurnStats } from "./turnStats.js";
+import { addFileChange, addToolCall, emptyStats, usageCounts, type TurnStats } from "./turnStats.js";
 
 /** A tool call; `outcome` is set once its result arrives (Claude Code writes the call only then). */
 export interface ToolBlock {
@@ -667,12 +667,12 @@ export class TranscriptParser {
       } else if (b.type === "thinking" && b.thinking?.trim()) {
         turn.blocks.push({ kind: "thinking", text: b.thinking });
       } else if (b.type === "tool_use" && (b.name === "Agent" || b.name === "Task")) {
-        if (stats) stats.tools++;
+        if (stats) addToolCall(stats, b.name);
         turn.blocks.push({ kind: "agent", agent: this.startAgent(b, entry.timestamp) });
       } else if (b.type === "tool_use") {
         const block: ToolBlock = { kind: "tool", id: b.id, name: b.name ?? "tool", input: b.input, cwd: entry.cwd };
         turn.blocks.push(block);
-        if (stats) stats.tools++;
+        if (stats) addToolCall(stats, block.name);
         if (b.id) {
           this.pendingTools.set(b.id, block);
           this.toolTurns.set(b.id, turn);
