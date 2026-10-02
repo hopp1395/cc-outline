@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { claudeDir, projectSlug } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
 import { SettingsView } from "../src/tui/SettingsView.js";
+import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 
 const layout: Layout = { columns: 140, rows: 40, listWidth: 40, previewWidth: 97, bodyHeight: 36 };
 const cwd = join(tmpdir(), "cco-doctor-view-project");
@@ -32,7 +33,7 @@ function renderView(element: ReactElement) {
     const text = stripAnsi(String(chunk));
     if (text.trim()) frame = text;
   });
-  const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
+  const app = render(<ProgressProvider layout={layout}>{element}</ProgressProvider>, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
   return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
 }
 

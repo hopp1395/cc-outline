@@ -6,6 +6,7 @@ import { render } from "ink";
 import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Turn } from "../src/transcript/parse.js";
+import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 
 const spawned: { cmd: string; args: string[]; typed?: string; killed?: boolean }[] = [];
 /** What a started PowerShell prints once it got its line; "ok" types, anything else fails. */
@@ -143,7 +144,7 @@ function renderView(props: Partial<Parameters<typeof SessionsView>[0]>) {
     const text = stripAnsi(String(chunk));
     if (text.trim()) frame = text;
   });
-  const app = render(<SessionsView cwd={cwd} layout={layout} visible active {...props} />, {
+  const app = render(<ProgressProvider layout={layout}><SessionsView cwd={cwd} layout={layout} visible active {...props} /></ProgressProvider>, {
     stdout: stdout as never,
     stdin: stdin as never,
     debug: true,
@@ -282,6 +283,10 @@ describe("continuing a session that runs nowhere", () => {
     await until(() => view.frame().includes("Continue this session where?"));
     view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
+    // The choice has closed; the progress dialog waits, and Esc cancels it.
+    expect(view.frame()).toContain("Attach the viewer");
+    expect(view.frame()).toContain("Esc cancel");
+    expect(view.frame()).not.toContain("Continue this session where?");
     view.press("\u001b");
     await until(() => view.frame().includes("pairing cancelled"));
     expect(existsSync(pairingFile(cwd))).toBe(false);
