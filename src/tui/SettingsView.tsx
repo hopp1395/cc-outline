@@ -4,7 +4,7 @@ import { basename } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ListRange, type ListWidth, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
@@ -14,7 +14,7 @@ import { currentStep, failureLines, outputTail, REOPEN_BY_HAND, stepText, usePro
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { haystack } from "../filter.js";
-import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, rule, Screen, Star, type Layout } from "./layout.js";
+import { bold, dim, EntryText, handleNavigation, List, LIST_WIDTHS, markFooter, markKeys, previewHeader, rule, Screen, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
 import { isReloadKey, useOnReload } from "./reload.js";
@@ -202,6 +202,24 @@ function listRange(key: keyof Settings, view: string, what: string, dated: strin
   };
 }
 
+/** A view's row for the width of its list, next to the preview; `suits` says what a wider list is good for there. */
+function listWidthRow(key: keyof Settings, group: string, label: string, view: string, suits: string): Row {
+  const share = (w: ListWidth) => `${LIST_WIDTHS[w].share * 100} % of the pane, ${LIST_WIDTHS[w].min}–${LIST_WIDTHS[w].max} columns`;
+  return {
+    key,
+    group,
+    label,
+    description: `How wide the ${view} list is; the preview takes the rest of the pane. ${suits} The preview keeps at least 20 columns, so in a narrow pane the wider steps stop there.`,
+    values: [
+      ["narrow", `${share("narrow")}: more room for the preview`],
+      ["normal", share("normal")],
+      ["wide", share("wide")],
+      ["wider", `${share("wider")}: the list and the preview share the pane`],
+    ],
+    viewKey: `< and > in ${view}`,
+  };
+}
+
 /** A view's wrap setting: long lines wrap at the pane's edge or are cut and scroll sideways. */
 function wrapRow(key: keyof Settings, group: string, what: string, off: string): Row {
   return {
@@ -335,6 +353,7 @@ export const SETTING_ROWS: Row[] = [
     notes: ["F5 in Settings checks once either way.", "The answer is kept in ~/.claude/cco/releases.json, so the notes also show offline."],
   },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
+  listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
   {
     key: "showTools",
     group: "Chat",
@@ -367,11 +386,14 @@ export const SETTING_ROWS: Row[] = [
   wrapRow("chatWrap", "Chat", "in the chat", "useful for wide tables and code blocks"),
   listOrder("chatOrder", "Chat", "turns"),
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
+  listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. src/tui/SettingsView.tsx deep in a folder; a narrower one leaves the diffs more room."),
   wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),
   viewTab("viewPlan", "Plan", "3", "the plans Claude presented in plan mode"),
+  listWidthRow("planListWidth", "Plan", "list width", "Plan", "A wider list shows more of each plan's title; a narrower one leaves the plan text more room."),
   wrapRow("planWrap", "Plan", "of plans", "useful for wide tables and code blocks"),
   listOrder("planOrder", "Plan", "plans"),
   viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
+  listWidthRow("sessionsListWidth", "Sessions", "list width", "Sessions", "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room."),
   {
     key: "allProjects",
     group: "Sessions",
@@ -393,10 +415,12 @@ export const SETTING_ROWS: Row[] = [
   },
   listRange("sessionsRange", "Sessions", "sessions", "started"),
   viewTab("viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"),
+  listWidthRow("monitorListWidth", "Monitor", "list width", "Monitor", "The days need little room, so narrow leaves the charts and the response table more columns."),
   {
     ...listRange("monitorRange", "Monitor", "days", "with responses"),
     notes: ["The usual values (the median of the 30 days before a day) come from the days read, so a short range has fewer of them."],
   },
+  listWidthRow("settingsListWidth", "Settings", "list width", "Settings", "A wider list cuts fewer labels; a narrower one leaves the descriptions more room."),
 ];
 
 const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v in RANGE_NAMES ? RANGE_NAMES[v as keyof typeof RANGE_NAMES] : v);

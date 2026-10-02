@@ -13,7 +13,7 @@ import {
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
-import { isViewShown, type ListOrder, type Settings } from "../settings.js";
+import { isViewShown, LIST_WIDTH_SETTINGS, type ListOrder, type ListWidth, type Settings } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
@@ -21,6 +21,13 @@ import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
 import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
+import { centredBadge } from "./Preview.js";
+
+/** `text` followed by spaces up to `width` columns. */
+const padColumns = (text: string, width: number) => text + " ".repeat(Math.max(0, width - stringWidth(text)));
+
+/** A short message of the app for the preview's bottom row, like "copied" (the list width after < or >). */
+export const ScreenNoticeContext = createContext<string | undefined>(undefined);
 
 export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
 
@@ -32,17 +39,41 @@ export interface Layout {
   bodyHeight: number;
 }
 
-export function useLayout(): Layout {
-  const { columns, rows } = useWindowSize();
-  const listWidth = Math.min(40, Math.max(20, Math.floor(columns * 0.3)));
+/** Each list width as a share of the pane's columns, kept within `min` and `max` columns. */
+export const LIST_WIDTHS: Record<ListWidth, { share: number; min: number; max: number }> = {
+  narrow: { share: 0.2, min: 16, max: 30 },
+  normal: { share: 0.3, min: 20, max: 40 },
+  wide: { share: 0.4, min: 24, max: 60 },
+  wider: { share: 0.5, min: 30, max: 80 },
+};
+
+/** Columns the preview keeps at least: a wider list stops there, but never below the normal width. */
+const MIN_PREVIEW = 20;
+
+/** The columns of a list of `width` in a pane of `columns`. */
+export function listColumns(columns: number, width: ListWidth): number {
+  const of = (w: ListWidth) => Math.min(LIST_WIDTHS[w].max, Math.max(LIST_WIDTHS[w].min, Math.floor(columns * LIST_WIDTHS[w].share)));
+  // list + border + padding + the preview
+  return Math.min(of(width), Math.max(columns - 3 - MIN_PREVIEW, of("normal")));
+}
+
+export function layoutOf(columns: number, rows: number, width: ListWidth = "normal"): Layout {
+  const listWidth = listColumns(columns, width);
   return {
     columns,
     rows,
     listWidth,
     // list + border + padding
-    previewWidth: Math.max(20, columns - listWidth - 3),
+    previewWidth: Math.max(MIN_PREVIEW, columns - listWidth - 3),
     bodyHeight: Math.max(3, rows - 2),
   };
+}
+
+/** The layout of each view, with the list width its setting gives; without a view, the normal width (dialogs). */
+export function useLayouts(): (mode?: Mode) => Layout {
+  const { columns, rows } = useWindowSize();
+  const settings = useSettings();
+  return (mode) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal");
 }
 
 export interface Scroll {
@@ -490,6 +521,7 @@ export function versionLabels(state: ReturnType<typeof useUpdateInfo>["state"]):
 }
 
 export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
+  const notice = useContext(ScreenNoticeContext);
   const focused = useFocused();
   const background = barBackground(useContext(SessionColorContext), focused);
   const update = useUpdateInfo();
@@ -536,7 +568,8 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
           ))}
       </Box>
       <Box height={layout.bodyHeight}>
-        <Box flexDirection="column" width={layout.listWidth} height={layout.bodyHeight}>
+        {/* Not shrunk by a preview of plain text, whose width Yoga counts in full (Plan's "No plan in this session yet…"). */}
+        <Box flexDirection="column" width={layout.listWidth} height={layout.bodyHeight} flexShrink={0}>
           <AreaContext.Provider value={{ x: 0, y: 1, width: layout.listWidth, height: layout.bodyHeight }}>{list}</AreaContext.Provider>
         </Box>
         <Box
@@ -549,7 +582,17 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
           height={layout.bodyHeight}
         >
           <AreaContext.Provider value={{ x: layout.listWidth + 2, y: 1, width: layout.previewWidth, height: layout.bodyHeight }}>
-            {preview}
+            {notice ? (
+              // The notice takes the bottom row for a moment, over whatever the preview shows there (also a plain message).
+              // Ink does not clip the preview here (its own overflow replaces this clip), so the row is filled to
+              // the scroll bar's column to cover the preview's last row.
+              <Box flexDirection="column" height={layout.bodyHeight}>
+                <Box height={layout.bodyHeight - 1}>{preview}</Box>
+                <Text wrap="truncate">{padColumns(centredBadge(notice, layout.previewWidth), layout.previewWidth + 1)}</Text>
+              </Box>
+            ) : (
+              preview
+            )}
           </AreaContext.Provider>
         </Box>
       </Box>
