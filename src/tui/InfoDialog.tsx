@@ -53,7 +53,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["w", "wrap lines"],
     ["^←→", "scroll sideways"],
     ["c", "copy Markdown"],
-    ["o", "open pasted images"],
+    ["o", "list images and screenshots"],
     ["a A", "next / previous subagent"],
     ...COMMON_KEYS,
   ],

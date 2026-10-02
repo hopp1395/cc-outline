@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { turnImageFiles } from "../src/images.js";
+import { turnImageFile } from "../src/images.js";
 import { TranscriptParser } from "../src/transcript/parse.js";
 import { attachmentSummary } from "../src/tui/ChatView.js";
 
@@ -62,7 +62,7 @@ describe("attachments of a prompt", () => {
   });
 });
 
-describe("turnImageFiles", () => {
+describe("turnImageFile", () => {
   it("uses the stored copy, else writes the image from the transcript", () => {
     const dir = mkdtempSync(join(tmpdir(), "cco-images-test-"));
     const stored = join(dir, "stored.png");
@@ -76,7 +76,7 @@ describe("turnImageFiles", () => {
     );
     const p = new TranscriptParser();
     p.push(readFileSync(transcript, "utf8"));
-    const files = turnImageFiles(transcript, p.turns[0]);
+    const files = [0, 1].map((i) => turnImageFile(transcript, p.turns[0], i)!);
     expect(files[0]).toBe(stored);
     expect(files[1]).toMatch(new RegExp(`${uuid}-2\\.jpg$`));
     expect(existsSync(files[1])).toBe(true);
@@ -86,9 +86,9 @@ describe("turnImageFiles", () => {
   it("returns nothing for a turn without images or a missing transcript", () => {
     const p = new TranscriptParser();
     p.push(prompt("u1", [image()]));
-    expect(turnImageFiles(undefined, p.turns[0])).toEqual([]);
-    expect(turnImageFiles(join(tmpdir(), "missing.jsonl"), p.turns[0])).toEqual([]);
+    expect(turnImageFile(undefined, p.turns[0], 0)).toBeUndefined();
+    expect(turnImageFile(join(tmpdir(), "missing.jsonl"), p.turns[0], 0)).toBeUndefined();
     p.push(prompt("u2", "no images"));
-    expect(turnImageFiles(undefined, p.turns[1])).toEqual([]);
+    expect(turnImageFile(undefined, p.turns[1], 0)).toBeUndefined();
   });
 });
