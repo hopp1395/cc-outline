@@ -28,13 +28,20 @@ afterEach(() => {
 function renderView(element: ReactElement) {
   const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
   const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
+  const frames: string[] = [];
   stdout.on("data", (chunk) => {
     const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
+    if (text.trim()) frames.push(text);
   });
   const app = render(<ProgressProvider layout={layout}>{element}</ProgressProvider>, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
+  return {
+    frame: () => frames.at(-1) ?? "",
+    /** Whether a frame since the `from`th showed `text`: the check runs without pauses, so its steps flash by. */
+    shown: (text: string, from = 0) => frames.slice(from).some((f) => f.includes(text)),
+    count: () => frames.length,
+    press: (keys: string) => stdin.write(keys),
+    unmount: () => app.unmount(),
+  };
 }
 
 describe("doctor in the settings", () => {
@@ -43,8 +50,10 @@ describe("doctor in the settings", () => {
     mkdirSync(join(claudeDir(), "cco"), { recursive: true });
     writeFileSync(stale, "{}");
     let modal = false;
+    let wasModal = false;
     const onModal = (m: boolean) => {
       modal = m;
+      wasModal ||= m;
     };
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active select={{ key: "reset:doctor", at: 1 }} onModal={onModal} />);
     await expect.poll(view.frame).toContain("✚ Doctor");
@@ -53,13 +62,14 @@ describe("doctor in the settings", () => {
     expect(view.frame()).toContain("↵ check");
     view.press("\r");
     await expect.poll(view.frame).toContain("Run the doctor?");
+    const confirmed = view.count();
     view.press("\r");
-    // Group by group, each after a short pause, in a dialog.
-    await expect.poll(view.frame).toContain("Checking – Installation (1/5)…");
-    await expect.poll(view.frame).toContain("Checking – State files (2/5)…");
-    expect(view.frame()).toContain("cannot be cancelled");
-    expect(modal).toBe(true);
+    // Group by group (test/setup.ts drops the pauses), in a dialog.
     await expect.poll(view.frame, { timeout: 3000 }).toContain("1 state file of processes that have ended");
+    expect(view.shown("Checking – Installation (1/5)…", confirmed)).toBe(true);
+    expect(view.shown("Checking – Hooks (5/5)…", confirmed)).toBe(true);
+    expect(view.shown("cannot be cancelled", confirmed)).toBe(true);
+    expect(wasModal).toBe(true);
     expect(view.frame()).toContain("↵ repair");
     // The view takes keys again once the check's dialog has closed: let its effects run first (slow CI runners).
     await new Promise((resolve) => setTimeout(resolve, 50));
