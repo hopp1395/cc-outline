@@ -374,7 +374,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
 - **placement** is where the viewer opens for sessions that have no place of their own: docked right or left of Claude Code, or in a window. `p` in the viewer moves it and remembers the place for the session (see [Usage](#usage)).
-- **confirm quit** makes `q` and `Esc` ask before the viewer closes.
+- **confirm quit** makes `q` and `Esc` ask before the viewer closes, and *restart the viewer* in the Reset group ask before it restarts.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
 - **date separators** puts a line with the date above each day's entries in Chat, Plan, Sessions and the trash, and one per year in the Monitor; off, Sessions and the trash show the date in each row again.
 - **pinned group** moves the marked entries of every list (Chat, Changes, Plan, Sessions, Monitor, Settings) once more to the top, under `── ★ Pinned ──`, in the list's order, above the whole list; see [Lists](#usage).
@@ -394,7 +394,7 @@ Keys:
   - Another viewer that is still on the old version offers *restart with v…* instead, which only reopens it.
   - A cco run from a checkout (`npm link`) or through npx is not updated: the entry only says that a new version is out.
 - **Reset**, below the settings (above Releases), has four entries; `Enter` shows what would change and asks first:
-  - *restart the viewer* closes the viewer and opens it again in the same place and view, with the version of cco installed now (after `npm install -g` by hand, or a rebuild of a linked checkout). `/cco:restart` does the same from Claude Code. The plugin's hooks and commands change only when Claude Code restarts.
+  - *restart the viewer* closes the viewer and opens it again in the same place and view, with the version of cco installed now (after `npm install -g` by hand, or a rebuild of a linked checkout). It asks first; with *confirm quit* off it restarts after a second, with `restarting…` in the top bar. `/cco:restart` does the same from Claude Code, without asking. The plugin's hooks and commands change only when Claude Code restarts.
   - *doctor: check and repair* runs `cco doctor` (see [Usage](#usage)): `Enter` or a double click asks, then checks one area after the other (`Checking Installation…`, `Checking State files…`, the areas done with their mark) and shows the report; nothing is checked before. If it found something to repair, `Enter` lists the repairs and asks, then runs them one by one with their output, and checks again. `F5` checks again once it has checked; without anything to repair, `Enter` does.
   - *all settings to default*, the same as `R`, which also removes the marks `★` of the settings.
   - *saved data of this project* deletes what cco remembers for the project: the marks `★` of every list, the selected entries and scroll positions, the view and placement of each session, and whether the viewer was open at the last exit. The settings stay, and transcripts, sessions and git are not touched. The views reload empty.
@@ -442,7 +442,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 
 **Reloading.** `F5` (or `Ctrl+R`, for terminals that keep F5 to themselves) reads the shown view's data again from scratch and redraws the screen, in every view: the Chat and Plan views the transcript (both, since they share it), the subagent shown and the plan file; Changes git; Sessions and Monitor all transcripts; Settings `settings.json`, with changes made by other viewers. Marks are read again too. The selection, scroll positions and open details stay; a list filter is dropped. The top bar says `reloading…` until the data is there, then `reloaded`. While a dialog is open, `F5` does nothing.
 
-Quitting with `q` or `Esc` asks first, unless *confirm quit* is off in the Settings view. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
+Quitting with `q` or `Esc`, and restarting from the Settings view, asks first, unless *confirm quit* is off in the Settings view. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
 
 `t`, `h`, `w` and `a` are saved globally for all projects in `~/.claude/cco/settings.json`, like everything in the Settings view. Each view keeps its own `w` setting.
 

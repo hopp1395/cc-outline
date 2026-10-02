@@ -14,7 +14,7 @@ import { failureLines, outputTail, ProgressDialog, stepText, type Progress, type
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { haystack } from "../filter.js";
-import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, rule, Screen, Star, type Layout } from "./layout.js";
+import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, previewHeader, rule, Screen, Spinner, Star, type Layout } from "./layout.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useFavorites } from "./useFavorites.js";
 import { isReloadKey, useOnReload } from "./reload.js";
@@ -26,7 +26,7 @@ import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repa
 import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
 import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
-import { useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
+import { RESTART_DELAY_MS, useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
 
 interface Props {
   layout: Layout;
@@ -57,7 +57,7 @@ export const RESET_ACTIONS: ResetAction[] = [
     id: "restart",
     label: "restart the viewer",
     description:
-      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (npm install -g, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts.",
+      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (npm install -g, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. Asks first unless confirm quit is off.",
   },
   {
     id: "doctor",
@@ -659,6 +659,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const copy = useClipboard();
   const [copied, setCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
+  // With confirm quit off, the restart says so in the top bar for a moment instead of asking.
+  const [restarting, setRestarting] = useState(false);
   const positions = usePositions(cwd, "settings");
   // The doctor checks only when asked to (Enter, a double click), again after a repair and on F5 once it has checked.
   const [doctorCheck, setDoctorCheck] = useState<DoctorCheck>();
@@ -715,7 +717,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   // A check shows its dialog too; after a repair that failed, that one stays in front.
   const progressOpen = (updateDialog && update.run !== undefined) || repairOpen || doctorChecking !== undefined;
   // While the update, a check or a repair runs or its dialog is open, the app keeps q, p and the other views away from it.
-  const modal = confirmation !== undefined || updating || doctorBusy || progressOpen;
+  const modal = confirmation !== undefined || updating || doctorBusy || progressOpen || restarting;
   useEffect(() => {
     onModal?.(modal);
   }, [modal]);
@@ -880,6 +882,15 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       lines: [`It opens again here, in this view, with ${restartDetail(update.root)}.`, "Claude Code keeps running; restart it for changes to the plugin."],
       onConfirm: () => onRestart?.(),
     });
+  // Like q: with confirm quit off, no question. If the viewer cannot reopen, it stays and the badge goes.
+  const restart = () => {
+    if (settings.confirmQuit) return askRestart();
+    setRestarting(true);
+    setTimeout(() => {
+      onRestart?.();
+      setRestarting(false);
+    }, RESTART_DELAY_MS);
+  };
   const { state } = update;
   const canUpdate = state.kind === "update" && !updating && update.run?.status !== "done";
   const askUpdate = () =>
@@ -908,7 +919,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if (filter.none) return;
     if (reset) {
       if (reset.id === "settings") return canReset && askResetSettings();
-      if (reset.id === "restart") return onRestart !== undefined && askRestart();
+      if (reset.id === "restart") return onRestart !== undefined && !restarting && restart();
       // Checked with problems to repair: Enter offers the repair; else it checks (again).
       if (reset.id === "doctor") return !doctorBusy && (repairs.length > 0 ? askRepair() : askCheck());
       return saved.length > 0 && askResetData();
@@ -942,7 +953,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined && !progressOpen && !filter.open },
+    { isActive: active && confirmation === undefined && !progressOpen && !restarting && !filter.open },
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
@@ -987,6 +998,11 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         mode="settings"
         status={
           <Text dimColor={!focused}>
+            {restarting && (
+              <Text>
+                <Spinner active /> restarting… ·{" "}
+              </Text>
+            )}
             {/* The filter's count first: the path can be long. */}
             {filter.shown && `${filter.count(listEntries.length)} entries · `}
             {copied && <Text color="green">copied · </Text>}
