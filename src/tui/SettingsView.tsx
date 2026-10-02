@@ -247,8 +247,8 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "confirm quit",
     description:
-      "Whether q and Esc ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it. The viewer still closes by itself when the session ends; /cco:chat opens it again.",
-    values: ON_OFF("ask first: Quit cco? Enter yes, Esc no", "close at the first q or Esc"),
+      "Whether q and Esc ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether restart the viewer (Reset, below) asks before it restarts. The viewer still closes by itself when the session ends; /cco:chat opens it again. /cco:restart never asks.",
+    values: ON_OFF("ask first: Quit cco? or Restart the viewer? Enter yes, Esc no", "close at the first q or Esc; restart the viewer restarts after a second, restarting… in the top bar"),
   },
   {
     key: "marquee",
