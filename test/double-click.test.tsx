@@ -70,7 +70,7 @@ describe("double click", () => {
     expect(view.frame()).not.toContain("Continue this session");
     await view.click(10, 2);
     await until(() => view.frame().includes("Continue this session"));
-    expect(view.frame()).toContain("Continue this session in a new window?");
+    expect(view.frame()).toContain("Continue this session where?");
     view.unmount();
   });
 

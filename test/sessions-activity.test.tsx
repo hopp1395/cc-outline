@@ -104,11 +104,11 @@ describe("session activity", () => {
     await until(() => view.frame().includes("↵ switch"));
     expect(view.frame()).toContain("↵ switch");
     view.press("\r");
-    await until(() => view.frame().includes("Switch to the tab this session runs in?"));
-    expect(view.frame()).toContain("It already runs in another Claude Code.");
+    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    expect(view.frame()).toMatch(/› +Switch to its tab/);
     view.press("\u001b");
-    await until(() => !view.frame().includes("Switch to the tab"));
-    expect(view.frame()).not.toContain("Switch to the tab");
+    await until(() => !view.frame().includes("This session runs in a Claude Code"));
+    expect(view.frame()).not.toContain("This session runs in a Claude Code");
     view.unmount();
   });
 });

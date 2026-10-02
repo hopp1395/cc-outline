@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
@@ -74,27 +74,55 @@ export function openInDefaultApp(file: string, platform: NodeJS.Platform = proce
  * Terminal, tmux), in the folder it ran in. The shell stays open after
  * Claude Code exits. Returns what happened, for the help line.
  * The new Claude Code must not inherit the variables of the Claude Code this
- * viewer was opened from (see `independentEnv`).
+ * viewer was opened from (see `independentEnv`). `window` names the Windows
+ * Terminal window (`resumeForPairing`); by default it is a new one.
  */
-export function resumeInNewWindow(sessionId: string, dir: string, title: string): string {
+export function resumeInNewWindow(sessionId: string, dir: string, title: string, window = "new"): string {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     // -w new: without it, wt may add a tab to an open window (its windowingBehavior setting).
     // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the window open afterwards.
-    const args = ["-w", "new", "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
+    const args = ["-w", window, "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
     // Windows Terminal starts the tab with the environment of the wt call. No windowsHide: wt would apply
     // the hidden start to the new window, which then never shows.
     spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
     return "started in a new Windows Terminal window";
   }
   if (terminal === "tmux") {
-    const shell = process.env.SHELL || "sh";
-    // tmux takes the environment from its server, which may itself have been started inside Claude Code.
-    const cmd = `unset ${SESSION_BOUND_VARS.join(" ")}; claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
-    spawn("tmux", ["new-window", "-n", title, "-c", dir, cmd], { stdio: "ignore", detached: true }).unref();
+    spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId)], { stdio: "ignore", detached: true }).unref();
     return "started in a new tmux window";
   }
   return `no Windows Terminal or tmux: run claude --resume ${sessionId} in ${dir}`;
+}
+
+/** The shell command of a tmux window that continues the session and keeps a shell afterwards. */
+function tmuxResume(sessionId: string): string {
+  const shell = process.env.SHELL || "sh";
+  // tmux takes the environment from its server, which may itself have been started inside Claude Code.
+  return `unset ${SESSION_BOUND_VARS.join(" ")}; claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
+}
+
+/** The name of the Windows Terminal window a session is continued in for pairing. */
+export const pairingWindow = (sessionId: string) => `cco-resume-${sessionId.slice(0, 8)}`;
+
+/**
+ * Like `resumeInNewWindow`, for a viewer that then moves next to the new Claude Code: also returns
+ * where it runs, for `cco open --target`. In Windows Terminal a window named after the session
+ * (`pairingWindow`), in tmux the id of the new pane (`%7`). No target without a supported terminal.
+ */
+export async function resumeForPairing(sessionId: string, dir: string, title: string): Promise<{ message: string; target?: string }> {
+  const terminal = detectTerminal();
+  if (terminal === "wt") {
+    const window = pairingWindow(sessionId);
+    return { message: resumeInNewWindow(sessionId, dir, title, window), target: window };
+  }
+  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title) };
+  const pane = await new Promise<string | undefined>((resolve) =>
+    execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId)], { timeout: 10_000 }, (err, stdout) =>
+      resolve(err ? undefined : String(stdout).trim() || undefined),
+    ),
+  );
+  return pane ? { message: "started in a new tmux window", target: pane } : { message: "the tmux window could not be opened" };
 }
 
 const PLACE_NAMES: Record<Placement, string> = { right: "", left: " on the left", window: " in a window of its own" };
@@ -116,6 +144,11 @@ export interface OpenOptions {
   queued?: boolean;
   /** /cco:restart reopens a running viewer (a new one just opens), /cco:update checks for an update and offers it. */
   action?: ViewerAction;
+  /**
+   * Where Claude Code runs, instead of the calling tab: a Windows Terminal window name or a tmux pane id
+   * (`resumeForPairing`). A viewer that paired with a Claude Code it started moves next to it.
+   */
+  target?: string;
 }
 
 /** What `cco open` says it asked a running viewer to do. */
@@ -139,7 +172,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   // wt finds the window of the calling tab through WT_SESSION. A Claude Code without it (restarted
   // itself, or a session run by the Claude Code daemon) has no tab to dock to: wt would open a new
   // window anyway, hidden by windowsHide. Open the viewer in a window of its own instead.
-  const tabless = terminal === "wt" && !process.env.WT_SESSION && chosen !== "window";
+  const tabless = terminal === "wt" && !process.env.WT_SESSION && !opts.target && chosen !== "window";
   // split-pane splits the tab active now, which after a wait may be another one (the user moved on).
   // wt cannot name the calling tab, so a queued command opens the window of this process instead.
   const away = terminal === "wt" && !tabless && opts.queued === true && chosen !== "window";
@@ -165,7 +198,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
     // -d leaves the current pane active; -b puts the new pane before (left of) it.
     const keep = opts.keepFocus ? ["-d"] : [];
     // Claude Code's own pane, not the one active now (a queued command runs only at the end of the turn).
-    const pane = process.env.TMUX_PANE;
+    const pane = opts.target ?? process.env.TMUX_PANE;
     const args =
       placement === "window"
         ? ["new-window", ...keep, ...(pane ? ["-a", "-t", pane] : []), "-n", "cco", "-c", cwd, cmd]
@@ -180,7 +213,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
       args = ["-w", claudePid ? `cco-${claudePid}` : "cco", "new-tab", "--title", "cco", "-d", cwd, ...viewer];
     } else {
       // split-pane only opens to the right; swap-pane moves the new (active) pane to the left.
-      args = ["-w", "0", "split-pane", "-V", "--title", "cco", "-d", cwd, ...viewer];
+      args = ["-w", opts.target ?? "0", "split-pane", "-V", "--title", "cco", "-d", cwd, ...viewer];
       if (placement === "left") args.push(";", "swap-pane", "left");
       if (opts.keepFocus) args.push(";", "move-focus", placement === "left" ? "right" : "left");
     }
@@ -208,13 +241,15 @@ export function openedFromQueue(cwd: string, claudePid: number | undefined): boo
  * Moves the running viewer (this process) to `placement`: starts `cco open`
  * detached, which waits until this process has exited and then opens the
  * viewer there. The caller quits right after. False without a supported terminal.
- * After an update (`updatedTo`), the CLI started is the new one.
+ * After an update (`updatedTo`), the CLI started is the new one. `target` names where the
+ * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`).
  */
-export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string): boolean {
+export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string): boolean {
   if (!detectTerminal()) return false;
   const args = [CLI, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
   if (claudePid) args.push("--claude-pid", String(claudePid));
   if (updatedTo) args.push("--updated-to", updatedTo);
+  if (target) args.push("--target", target);
   spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
 }
