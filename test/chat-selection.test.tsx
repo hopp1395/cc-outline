@@ -1,10 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { savePositions } from "../src/positions.js";
 import type { Turn } from "../src/transcript/parse.js";
 import { ChatView } from "../src/tui/ChatView.js";
@@ -25,26 +23,9 @@ afterEach(() => {
 });
 
 function renderChat(active = false) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 120, rows: 20 });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
   const view = (path: string, t: Transcript) => <ChatView cwd={cwd} path={path} transcript={t} layout={layout} active={active} liveSession />;
-  const app = render(view("new.jsonl", transcript([turn("r", "Answer resume")], 1)), {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  return {
-    frame: () => frame,
-    show: (path: string, t: Transcript) => app.rerender(view(path, t)),
-    press: (keys: string) => stdin.write(keys),
-    unmount: () => app.unmount(),
-  };
+  const app = renderInk(view("new.jsonl", transcript([turn("r", "Answer resume")], 1)), { columns: 120, rows: 20 });
+  return { ...app, show: (path: string, t: Transcript) => app.rerender(view(path, t)) };
 }
 
 const cwd = join(tmpdir(), "cco-chat-project");
@@ -74,13 +55,13 @@ describe("ChatView selection", () => {
     const chat = renderChat(true);
     chat.show("resumed.jsonl", resumed);
     await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer three");
-    chat.press("\u001b[D");
-    chat.press("\u001b[A");
+    await chat.press("\u001b[D");
+    await chat.press("\u001b[A");
     await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer two");
-    chat.press("\u001b[A");
+    await chat.press("\u001b[A");
     await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer one");
-    chat.press("\u001b[C");
-    chat.press("\u001b[B");
+    await chat.press("\u001b[C");
+    await chat.press("\u001b[B");
     await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer two");
     chat.unmount();
   });

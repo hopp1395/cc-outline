@@ -2,10 +2,8 @@ import chalk from "chalk";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick, until } from "./helpers/ink.js";
 import { TIMING } from "../src/timing.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
@@ -38,28 +36,8 @@ afterEach(() => {
   chalk.level = level;
 });
 
-function renderView() {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  const frames: string[] = [];
-  stdout.on("data", (chunk) => {
-    const text = String(chunk);
-    if (stripAnsi(text).trim()) frames.push(text);
-  });
-  const app = render(<SessionsView cwd={cwd} layout={layout} visible active />, {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  const raw = () => frames.at(-1) ?? "";
-  return { frames, raw, frame: () => stripAnsi(raw()), press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = () => renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
 
-const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  for (let i = 0; i < 100 && !check(); i++) await tick();
-}
 
 function session(id: string, text: string) {
   const ts = new Date(Date.now() - 60_000).toISOString();
@@ -113,10 +91,10 @@ describe("session activity", () => {
     const view = renderView();
     await until(() => view.frame().includes("↵ switch"));
     expect(view.frame()).toContain("↵ switch");
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("This session runs in a Claude Code"));
     expect(view.frame()).toMatch(/› +Switch to its tab/);
-    view.press("\u001b");
+    await view.press("\u001b");
     await until(() => !view.frame().includes("This session runs in a Claude Code"));
     expect(view.frame()).not.toContain("This session runs in a Claude Code");
     view.unmount();

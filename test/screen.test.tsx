@@ -1,27 +1,18 @@
-import { PassThrough } from "node:stream";
-import { Text, render } from "ink";
-import stripAnsi from "strip-ansi";
+import { Text } from "ink";
 import { describe, expect, it } from "vitest";
+import { renderInk } from "./helpers/ink.js";
 import { Screen, type Layout } from "../src/tui/layout.js";
 import { VERSION } from "../src/version.js";
 
 async function topBar(columns: number, status: string): Promise<string> {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns, rows: 10 });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {} });
-  // With debug, every write is a whole frame; the version appears in the one after the first layout.
-  let output = "";
-  stdout.on("data", (chunk) => {
-    const frame = stripAnsi(String(chunk));
-    if (frame) output = frame;
-  });
   const layout: Layout = { columns, rows: 10, listWidth: 20, previewWidth: columns - 23, bodyHeight: 8 };
-  const app = render(
-    <Screen layout={layout} mode="chat" status={<Text>{status}</Text>} list={null} preview={null} footer="" />,
-    { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false, interactive: true },
-  );
+  const app = renderInk(<Screen layout={layout} mode="chat" status={<Text>{status}</Text>} list={null} preview={null} footer="" />, layout, {
+    interactive: true,
+  });
+  // The version appears in the frame after the first layout.
   await new Promise((resolve) => setTimeout(resolve, 50));
   app.unmount();
-  return output.split("\n")[0]!;
+  return app.frame().split("\n")[0]!;
 }
 
 describe("Screen top bar", () => {

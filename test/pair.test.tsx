@@ -1,10 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, until } from "./helpers/ink.js";
 import { claudeDir, claudeFile, projectDir, readJson, viewerFile, writeJson, type ActiveSession } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
@@ -75,27 +73,8 @@ describe("detachViewer", () => {
   });
 });
 
-function renderView(onPair?: (t: PairTarget) => boolean) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(<SessionsView cwd={cwd} layout={layout} visible active onPair={onPair} />, {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = (onPair?: (t: PairTarget) => boolean) => renderInk(<SessionsView cwd={cwd} layout={layout} visible active onPair={onPair} />, layout);
 
-const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  for (let i = 0; i < 100 && !check(); i++) await tick();
-}
 
 /** A session of the project, run by this process as its Claude Code. */
 function runningSession(id: string) {
@@ -109,22 +88,15 @@ describe("pairing the viewer", () => {
   it("follows the paired session in the chat and moves its registration there", async () => {
     runningSession("s1");
     registerViewer(cwd, "sessions");
-    const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 160, rows: 24 });
-    const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-    let frame = "";
-    stdout.on("data", (chunk) => {
-      const text = stripAnsi(String(chunk));
-      if (text.trim()) frame = text;
-    });
-    const app = render(<Viewer cwd={cwd} initialMode="sessions" />, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-    await until(() => frame.includes("↵ attach"));
-    stdin.write("\r");
-    await until(() => frame.includes("This session runs in a Claude Code"));
-    stdin.write("\r");
-    await until(() => runningViewer(cwd, process.pid) !== undefined && frame.includes("f follow"));
+    const app = renderInk(<Viewer cwd={cwd} initialMode="sessions" />, { columns: 160, rows: 24 });
+    await until(() => app.frame().includes("↵ attach"));
+    await app.press("\r");
+    await until(() => app.frame().includes("This session runs in a Claude Code"));
+    await app.press("\r");
+    await until(() => runningViewer(cwd, process.pid) !== undefined && app.frame().includes("f follow"));
     expect(existsSync(viewerFile(cwd))).toBe(false);
     expect(runningViewer(cwd, process.pid)?.pid).toBe(process.pid);
-    expect(frame).toContain("Some work");
+    expect(app.frame()).toContain("Some work");
     app.unmount();
     unregisterCurrentViewer();
   });
@@ -137,10 +109,10 @@ describe("pairing in the Sessions view", () => {
     const view = renderView((t) => (paired.push(t), true));
     await until(() => view.frame().includes("↵ attach"));
     expect(view.frame()).toContain("↵ attach");
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("This session runs in a Claude Code"));
     expect(view.frame()).toContain("it stays here and follows that Claude Code");
-    view.press("\r");
+    await view.press("\r");
     await until(() => paired.length > 0);
     expect(paired).toEqual([{ cwd, claudePid: process.pid, sessionId: "s1", transcript: join(projectDir(cwd), "s1.jsonl") }]);
     view.unmount();
