@@ -61,8 +61,8 @@ export interface Settings {
   marquee: boolean;
   /** Lists ordered by time get a line with the date above each day's entries. */
   dateSeparators: boolean;
-  /** Every list shows its marked entries first, in a group of their own (── ★ Pinned ──). */
-  pinnedGroup: boolean;
+  /** Every list shows its marked entries first, in a group of their own (── ★ Pinned ──); formerly pinnedGroup. */
+  pinnedFavorites: boolean;
   /** Selection and scroll positions are stored per project and restored after a restart. */
   rememberPositions: boolean;
   /** Each session reopens in the view it was shown in last. */
@@ -87,6 +87,8 @@ export interface Settings {
   planWrap: boolean;
   /** Sessions: show the sessions of all projects, not only this one (a). */
   allProjects: boolean;
+  /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
+  pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
   chatOrder: ListOrder;
   planOrder: ListOrder;
@@ -107,7 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmQuit: true,
   marquee: true,
   dateSeparators: true,
-  pinnedGroup: false,
+  pinnedFavorites: false,
   rememberPositions: true,
   rememberView: true,
   mouse: true,
@@ -120,6 +122,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wrap: true,
   planWrap: true,
   allProjects: true,
+  pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
   sessionsRange: "7d",
@@ -189,6 +192,9 @@ export function readSettings(): Settings {
   // updateMode was the on/off setting updateCheck before it got auto; since every change stored all settings, only off was chosen.
   const legacy = (stored as { updateCheck?: unknown }).updateCheck;
   if (stored.updateMode === undefined && legacy === false) stored.updateMode = "off";
+  // pinnedFavorites was pinnedGroup before the active sessions could be pinned too.
+  const group = (stored as { pinnedGroup?: unknown }).pinnedGroup;
+  if (stored.pinnedFavorites === undefined && typeof group === "boolean") stored.pinnedFavorites = group;
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];

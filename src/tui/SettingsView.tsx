@@ -274,11 +274,11 @@ export const SETTING_ROWS: Row[] = [
     ),
   },
   {
-    key: "pinnedGroup",
+    key: "pinnedFavorites",
     group: "General",
-    label: "pinned group",
+    label: "pinned favorites",
     description:
-      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (Space) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place without the ★. ↑↓ and Home/End follow the rows on screen, through both copies; Shift+↑/↓ only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
+      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (Space) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place without the ★. ↑↓ and Home/End follow the rows on screen, through both copies; Shift+↑/↓ only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
     values: ON_OFF(
       "marked entries once more at the top, under ── ★ Pinned ── with ★, and in their place below without it",
       "marked entries only in their place, with ★; Shift+↑/↓ jumps between them",
@@ -379,6 +379,17 @@ export const SETTING_ROWS: Row[] = [
     description: "Whether the Sessions view lists the sessions of all projects or only of this one. All projects helps to find a session started in another folder; the trash follows the same choice.",
     values: ON_OFF("all projects with sessions in ~/.claude/projects", (c) => `only this one, ${basename(c.cwd) || c.cwd}`),
     viewKey: "a in Sessions",
+  },
+  {
+    key: "pinnedSessions",
+    group: "Sessions",
+    label: "pinned sessions",
+    description:
+      "Whether the Sessions view shows the active session (●) and those running in another Claude Code (▶) in the Pinned group at the top, marked or not, so they stay at hand however far down the list their last prompt puts them. This works with pinned favorites off too: the group then holds only them; with it on, they mix with the marked sessions in the order of the list. A session that ends leaves the group. A filter applies to them too.",
+    values: ON_OFF(
+      "the active and running sessions once more at the top, under ── ★ Pinned ──, with ● or ▶",
+      "they show only in their place in the list, with ● or ▶",
+    ),
   },
   listRange("sessionsRange", "Sessions", "sessions", "started"),
   viewTab("viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"),

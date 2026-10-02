@@ -276,7 +276,10 @@ function trashOrphans(): string[] {
 
 // ---------------------------------------------------------------- Settings
 
-const LEGACY_SETTINGS: Record<string, string> = { updateCheck: "the former on/off of update" };
+const LEGACY_SETTINGS: Record<string, string> = {
+  updateCheck: "the former on/off of update",
+  pinnedGroup: "the former name of pinned favorites",
+};
 
 function settingsCheck(): Finding[] {
   const group = "Settings";
