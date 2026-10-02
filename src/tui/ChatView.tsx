@@ -24,6 +24,7 @@ import {
   type Turn,
 } from "../transcript/parse.js";
 import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
+import { formatCount, shortModel } from "../transcript/turnStats.js";
 import { displayPath } from "../transcript/sessions.js";
 import {
   bold,
@@ -241,7 +242,7 @@ export const PROMPT_PREVIEW_CHARS = 1000;
  * Sticky prompt above the answer: at most PROMPT_PREVIEW_CHARS characters and
  * half the preview height. When cut, the rule points to the full prompt.
  */
-export function promptHeader(prompt: string, width: number, height: number, attachments: Attachment[] = []): string[] {
+export function promptHeader(prompt: string, width: number, height: number, attachments: Attachment[] = [], stats: string[] = []): string[] {
   const shortened = prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : prompt;
   // A slash command's name in colour, like in the list; it interrupts the dim of the rest.
   const name = commandName(shortened);
@@ -249,16 +250,71 @@ export function promptHeader(prompt: string, width: number, height: number, atta
   const full = previewHeader(excerpt, width, { marker: cyan("❯ "), style: dim });
   // One row less for the prompt when the attachments line follows it.
   const summary = attachmentSummary(attachments);
-  const fitted = fitHeader(full, summary ? height - 2 : height);
+  // The stats always show; the prompt is cut first.
+  const fitted = fitHeader(full, height - (summary ? 2 : 0) - statsRows(stats).length * 2);
   const cut = shortened !== prompt || fitted.length < full.length;
   return [
     ...fitted.slice(0, -1),
     ...(summary ? ["  " + dim(truncate(summary, width - 2))] : []),
+    ...statsRows(stats),
     rule(width, cut || summary ? "↵ full prompt" : undefined),
   ];
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
+
+/** The stats lines below a header, the first marked with `$` like the prompt with `❯`. */
+function statsRows(stats: string[]): string[] {
+  return stats.map((l, i) => (i === 0 ? cyan("$ ") : "  ") + l);
+}
+
+/** The parts that fit into `width` columns, joined by dim dots; the later ones are left out first. */
+function fitParts(parts: string[], width: number): string {
+  let line = "";
+  for (const part of parts) {
+    const next = line ? line + dim(" · ") + part : part;
+    if (line && stringWidth(next) > width) break;
+    line = next;
+  }
+  return line;
+}
+
+/**
+ * The stats of a turn below its prompt: duration, output tokens, context,
+ * models, tool calls and its subagents; then the files it created or changed
+ * and their lines. `now` is set while the turn runs: its duration counts up.
+ * None for a turn without a response from Claude.
+ */
+export function turnStatsLines(turn: Turn, agents: AgentRun[], width: number, now?: number): string[] {
+  const s = turn.stats;
+  if (!s) return [];
+  const start = turn.timestamp ? Date.parse(turn.timestamp) : NaN;
+  const end = now ?? (s.end ? Date.parse(s.end) : NaN);
+  const ms = now === undefined && s.durationMs !== undefined ? s.durationMs : end - start;
+  const models = Object.entries(s.models).sort((a, b) => b[1] - a[1]);
+  const shown = models.some(([, n]) => n > 0) ? models.filter(([, n]) => n > 0) : models;
+  const agentTokens = agents.reduce((sum, a) => sum + (a.tokens ?? 0), 0);
+  const parts = [
+    ...(Number.isFinite(ms) && ms >= 0 ? [dim(formatMs(ms))] : []),
+    ...(turn.interrupted ? [red("⊘ interrupted")] : []),
+    ...(s.output > 0 ? [dim(`↓ ${formatCount(s.output)}`)] : []),
+    ...(s.context > 0 ? [dim(`ctx ${formatCount(s.context)}`)] : []),
+    ...(shown.length ? [dim(shown.map(([m]) => shortModel(m)).join(" + "))] : []),
+    ...(s.tools > 0 ? [dim(plural(s.tools, "tool"))] : []),
+    ...(agents.length > 0 && !turn.notification ? [dim(`+ ◆${agents.length}${agentTokens > 0 ? ` ${formatCount(agentTokens)}` : ""}`)] : []),
+  ];
+  const files = Object.values(s.files);
+  const created = files.filter((f) => f === "new").length;
+  const changed = files.length - created;
+  const fileParts = files.length
+    ? [
+        dim("files ") + [...(created ? [green(`+${created}`)] : []), ...(changed ? [yellow(`~${changed}`)] : [])].join(" "),
+        dim("lines ") + green(`+${s.added}`) + " " + red(`−${s.removed}`),
+      ]
+    : [];
+  return [fitParts(parts, width), ...(fileParts.length ? [fitParts(fileParts, width)] : [])].filter((l) => l);
+}
 
 /** `o` opens at most this many images of a turn at once. */
 const MAX_OPENED_IMAGES = 10;
@@ -314,8 +370,8 @@ export function continuationDetails(c: Continuation): string[] {
 }
 
 /** Header of a continuation entry: what happened, then its details; Claude's answers after it follow below. */
-export function continuationHeader(title: string, c: Continuation, width: number): string[] {
-  return previewHeader(title, width, { marker: blue("⤷ "), style: bold, details: continuationDetails(c) });
+export function continuationHeader(title: string, c: Continuation, width: number, stats: string[] = []): string[] {
+  return [...previewHeader(title, width, { marker: blue("⤷ "), style: bold, details: continuationDetails(c) }).slice(0, -1), ...statsRows(stats), rule(width)];
 }
 
 /** The complete prompt, shown instead of the answer after Enter. */
@@ -412,20 +468,31 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const agent = agentIndex !== undefined ? currentAgents[agentIndex] : undefined;
   const subagent = useSubagent(agent?.transcript ?? path, agent);
 
-  const answer = useMemo(() => {
-    if (!current) return { header: [], lines: [] };
+  // While the turn runs, its duration counts up every second.
+  const running = isRunning(current);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  const stats = current ? turnStatsLines(current, currentAgents, previewWidth - 2, running ? now : undefined) : [];
+  const statsKey = stats.join("\n");
+  const answerHeader = useMemo(() => {
+    if (!current) return [];
+    if (current.continuation) return continuationHeader(current.prompt, current.continuation, previewWidth, stats);
+    if (current.compacted) return [...previewHeader(current.prompt, previewWidth, { marker: blue("⟳ "), style: bold }).slice(0, -1), ...statsRows(stats), rule(previewWidth)];
+    return promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments, stats);
+  }, [current, version, previewWidth, bodyHeight, statsKey]);
+  const answerBody = useMemo(() => {
+    if (!current) return [];
     const body = answerLines(current, { tools: showTools, thinking: showThinking, agents: showAgents }, previewWidth, wrap);
     const status = isRunning(current) ? workingLine(current, showTools) : interruptLine(current);
     const lines = body.length ? body : status ? [] : [dim("(no text output yet)")];
-    return {
-      header: current.continuation
-        ? continuationHeader(current.prompt, current.continuation, previewWidth)
-        : current.compacted
-          ? previewHeader(current.prompt, previewWidth, { marker: blue("⟳ "), style: bold })
-          : promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments),
-      lines: status ? [...lines, ...(lines.length ? [""] : []), status] : lines,
-    };
-  }, [current, version, previewWidth, bodyHeight, showTools, showThinking, showAgents, wrap, liveSession]);
+    return status ? [...lines, ...(lines.length ? [""] : []), status] : lines;
+  }, [current, version, previewWidth, showTools, showThinking, showAgents, wrap, liveSession]);
+  const answer = useMemo(() => ({ header: answerHeader, lines: answerBody }), [answerHeader, answerBody]);
   const prompt = useMemo(
     () => (current && promptOpen ? fullPrompt(current, previewWidth, cwd) : undefined),
     [current, version, promptOpen, previewWidth, cwd],
