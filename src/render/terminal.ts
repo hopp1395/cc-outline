@@ -91,7 +91,8 @@ function supportsHyperlinks(env = process.env): boolean {
   return env.TERM === "alacritty";
 }
 
-const hyperlinks = supportsHyperlinks();
+/** What the terminal can show, read at each render, so tests can turn hyperlinks on or off. */
+export const terminalFeatures = { hyperlinks: supportsHyperlinks() };
 
 const OSC8_LINK = /\u001b\]8;;([^\u0007]*)\u0007([\s\S]*?)\u001b\]8;;\u0007/g;
 
@@ -175,7 +176,7 @@ export function terminalRenderer(width: number): MarkedExtension {
       },
       link({ href, tokens }: Tokens.Link) {
         const text = this.parser.parseInline(tokens);
-        if (hyperlinks) return STYLE.link(`\u001b]8;;${href.replace(/\+/g, "%20")}\u0007${STYLE.href(text || href)}\u001b]8;;\u0007`);
+        if (terminalFeatures.hyperlinks) return STYLE.link(`\u001b]8;;${href.replace(/\+/g, "%20")}\u0007${STYLE.href(text || href)}\u001b]8;;\u0007`);
         const hasText = text && text !== href;
         return STYLE.link((hasText ? `${text} (` : "") + STYLE.href(href) + (hasText ? ")" : ""));
       },

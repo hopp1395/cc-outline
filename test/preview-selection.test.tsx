@@ -1,18 +1,22 @@
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import stripAnsi from "strip-ansi";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { AreaContext } from "../src/tui/layout.js";
+import { MouseContext } from "../src/tui/mouse.js";
+import { Preview } from "../src/tui/Preview.js";
+import { clipboard } from "../src/tui/useClipboard.js";
 
 const copied: string[] = [];
-vi.mock("../src/clipboard.js", () => ({
-  copyToClipboard: async (text: string) => {
+const real = { ...clipboard };
+beforeAll(() => {
+  clipboard.copy = async (text: string) => {
     copied.push(text);
-  },
-}));
-
-const { AreaContext } = await import("../src/tui/layout.js");
-const { MouseContext } = await import("../src/tui/mouse.js");
-const { Preview } = await import("../src/tui/Preview.js");
+  };
+});
+afterAll(() => {
+  Object.assign(clipboard, real);
+});
 
 const wait = () => new Promise((r) => setTimeout(r, 50));
 

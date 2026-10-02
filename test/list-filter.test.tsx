@@ -180,6 +180,8 @@ describe("list filter in the app", () => {
     expect(view.frame()).not.toContain("Keys");
     view.press("\u001b");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("› q1i");
+    // The app takes keys again once the dialog's effects have run.
+    await tick();
     view.press("i");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("filter the list");
     view.unmount();

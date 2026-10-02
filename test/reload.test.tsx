@@ -7,6 +7,7 @@ import type { ReactElement } from "react";
 import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readSettings, settingsFile } from "../src/settings.js";
+import { TIMING } from "../src/timing.js";
 import { App } from "../src/tui/App.js";
 import { isF5, isReloadKey, useReloadKey } from "../src/tui/reload.js";
 import { transcriptForSession } from "../src/transcript/locate.js";
@@ -101,7 +102,7 @@ describe("useTranscript reload", () => {
     await expect.poll(view.frame, { timeout: 2000 }).toContain("fix it=Done.#-");
     // Same size, other text: the tail sees nothing new.
     writeFileSync(path, prompt("a", "fix it") + answer("r", "Fine."));
-    await new Promise((resolve) => setTimeout(resolve, 1300));
+    await new Promise((resolve) => setTimeout(resolve, 3 * TIMING.tailStat));
     expect(view.frame()).toContain("fix it=Done.");
     view.rerender(<Probe reload={1} />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("fix it=Fine.#1");
