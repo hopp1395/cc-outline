@@ -1,5 +1,5 @@
 import type { Key } from "ink";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { compileFilter, filterIndices, lineOf, nearestShown, stepShown, type FilterText, type LineState } from "../filter.js";
 import type { FilterIn } from "../settings.js";
 import { FilterDialog } from "./FilterDialog.js";
@@ -21,11 +21,11 @@ export interface ListFilter {
   nav: { select: (delta: number) => void; first: () => void; last: () => void };
   /** The last shown entry, -1 when none is: what "the newest" means while a filter is on. */
   last: number;
-  /** The Pinned group (setting `pinnedGroup`), passed to `List`; undefined while off or nothing shown is marked. */
+  /** The Pinned group (settings `pinnedFavorites`, `pinnedSessions`), passed to `List`; undefined while off or nothing shown is pinned. */
   pinned: (PinnedRows & { choose: (row: number) => void }) | undefined;
-  /** Shift+↑/↓: the next marked entry shown, down (1) or up (-1) the screen; with the Pinned group only its rows. */
+  /** Shift+↑/↓: the next marked entry shown, down (1) or up (-1) the screen; with the Pinned group its rows. */
   nextMark: (dir: 1 | -1) => number | undefined;
-  /** Before `index` is unmarked: a selected pinned copy hands the selection to the next pinned one. */
+  /** Before `index` is unmarked: a selected pinned copy that leaves the group hands the selection to the next pinned one. */
   unmarking: (index: number) => void;
   /** Ctrl+F: opens the dialog, or drops the filter in effect. True when the key was taken. */
   handleKey: (input: string, key: Key) => boolean;
@@ -60,6 +60,8 @@ interface Options<T> {
   keep?: (item: T) => boolean;
   /** Marked entries: Shift+↑/↓ jump to them, and the Pinned group shows them first. */
   marked?: (item: T) => boolean;
+  /** Entries the Pinned group shows whatever the marks and `pinnedFavorites` say (Sessions: the active and running ones). */
+  pin?: (item: T) => boolean;
 }
 
 /**
@@ -68,7 +70,7 @@ interface Options<T> {
  * natural index, and gets the indexes to show. Kept while the viewer runs,
  * until the view is reloaded.
  */
-export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, keep, marked }: Options<T>): ListFilter {
+export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, keep, marked, pin }: Options<T>): ListFilter {
   const [applied, setApplied] = useState("");
   // The text the dialog starts with: the filter used last.
   const [recent, setRecent] = useState("");
@@ -90,13 +92,17 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   // The entries that count: all but the kept ones.
   const matched = shown && (keep ? shown.filter((i) => !keep(items[i])).length : shown.length);
   const counted = keep ? items.filter((item) => !keep(item)).length : items.length;
-  const [pinnedGroup] = useSetting("pinnedGroup");
+  const [pinnedFavorites] = useSetting("pinnedFavorites");
   const isMarked = (i: number) => marked?.(items[i]) ?? false;
-  // The entries top to bottom, and with the Pinned group the marked ones first.
+  const isPinned = (i: number) => (pinnedFavorites && isMarked(i)) || (pin?.(items[i]) ?? false);
+  // The entries top to bottom, and with the Pinned group the pinned ones first.
   const screen = screenOrder(items.length, shown, reversed);
   // The entry whose pinned copy is selected, not its row in the list below; the views select by entry.
   const [groupCopy, setGroupCopy] = useState<number>();
-  const rows = pinnedGroup && enabled && marked ? pinnedRows(screen, isMarked, selected, groupCopy === selected) : undefined;
+  const rows = enabled ? pinnedRows(screen, isPinned, selected, groupCopy === selected) : undefined;
+  const group = rows ? rows.order.slice(0, rows.count) : [];
+  // The group as last rendered: where the selection goes when its copy leaves the group.
+  const lastGroup = useRef<number[]>([]);
   const choose = (row: number) => setGroupCopy(rows && row < rows.count ? rows.order[row] : undefined);
   const pinned = rows && { ...rows, choose };
   /** Selects a row of the group's list: the entry, and which of its rows. */
@@ -114,6 +120,18 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   useOnReload(() => {
     setApplied("");
     setLine(undefined);
+  });
+
+  // A selected pinned copy whose entry left the group without being unmarked (a session that
+  // ended) hands the selection on like unmarking does; a hidden entry is left to the effect below.
+  useEffect(() => {
+    const before = lastGroup.current;
+    lastGroup.current = group;
+    if (groupCopy !== selected || group.includes(selected) || !screen.includes(selected)) return;
+    const next = afterLeaving(before, group, selected);
+    if (next === undefined) return setGroupCopy(undefined);
+    setGroupCopy(next);
+    select(next);
   });
 
   // A hidden entry is not left selected: the nearest shown one before it takes over.
@@ -169,7 +187,7 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
       return rows.order[row];
     },
     unmarking: (index) => {
-      if (!rows || rows.order[rows.row] !== index) return;
+      if (!rows || rows.order[rows.row] !== index || pin?.(items[index])) return;
       const next = afterUnpin(rows);
       // The only one: the selection stays with the entry, in its place below.
       if (next === undefined) return setGroupCopy(undefined);
@@ -204,6 +222,17 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
         />
       ) : null,
   };
+}
+
+/**
+ * The entry the selection goes to when `entry` left the group: the next one of
+ * the group before that is still in it, else the one above; undefined when none is.
+ */
+export function afterLeaving(before: number[], after: number[], entry: number): number | undefined {
+  const at = before.indexOf(entry);
+  if (at < 0) return undefined;
+  const stays = (i: number) => after.includes(i);
+  return before.slice(at + 1).find(stays) ?? before.slice(0, at).reverse().find(stays);
 }
 
 /** The part of an entry's texts the filter looks at. */

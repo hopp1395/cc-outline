@@ -123,19 +123,20 @@ describe("state files", () => {
 
 describe("settings", () => {
   it("names each invalid, unknown and old key, and rewrites the file once", async () => {
-    write(settingsFile(), { mouse: "yes", placement: "top", updateCheck: false, showTools: true, wrap: false, colour: 1 });
+    write(settingsFile(), { mouse: "yes", placement: "top", updateCheck: false, pinnedGroup: true, showTools: true, wrap: false, colour: 1 });
     const findings = inGroup(check(), "Settings");
     expect(findings.map((f) => f.text)).toEqual([
       'mouse: "yes" is not valid; the default true applies',
       'placement: "top" is not valid; the default "right" applies',
       "updateCheck is the former on/off of update, an old format",
+      "pinnedGroup is the former name of pinned favorites, an old format",
       'showTools: true is an old format; "compact" applies',
       "unknown setting colour",
     ]);
     expect(repairsOf(findings)).toHaveLength(1);
     await repairAll(findings);
     const stored = JSON.parse(readFileSync(settingsFile(), "utf8"));
-    expect(stored).toMatchObject({ mouse: true, placement: "right", updateMode: "off", showTools: "compact", wrap: false });
+    expect(stored).toMatchObject({ mouse: true, placement: "right", updateMode: "off", pinnedFavorites: true, showTools: "compact", wrap: false });
     expect(stored.colour).toBeUndefined();
     expect(inGroup(check(), "Settings")).toEqual([expect.objectContaining({ severity: "ok" })]);
   });

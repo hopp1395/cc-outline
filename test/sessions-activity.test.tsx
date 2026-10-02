@@ -53,11 +53,14 @@ function running(id: string, status: string) {
   writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: id, status }));
 }
 
-/** The list's marker of a running session, with the colour codes before it (the first `▶` of the row). */
+/**
+ * The list's marker of a running session, with the colour codes before it (the first `▶` of the selected
+ * row, which sets its styles anew; the Pinned group's copy above it is not selected).
+ */
 const marker = (frame: string) =>
   frame
     .split("\n")
-    .find((l) => l.includes("Some work"))
+    .find((l) => l.includes("„Some work“") && l.includes("\u001b[7m"))
     ?.match(/(?:\u001b\[[0-9;]*m)+▶/)?.[0] ?? "";
 
 describe("session activity", () => {
