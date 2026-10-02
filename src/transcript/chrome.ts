@@ -342,13 +342,17 @@ export function imageAction(name: string, input: unknown, image: ResultImage | u
   return `${symbol} ${verb}`;
 }
 
-/** The mark of screenshot `n` of a turn after its action; a click on it (or `O`) opens it. */
+/** The mark of screenshot `n` of a turn after its action; a click on it opens it, `o` lists them. */
 export const shotMark = (n: number) => `\u001b[36m[▣ ${n}]\u001b[39m`;
 /** Finds the screenshot marks in a rendered line, without colours: the number and the columns. */
 export const SHOT_MARK = /\[▣ (\d+)\]/g;
 
-/** `line` with the marks of the screenshots numbered `shots`. */
-const withShots = (line: string, shots: number[] = []) => (shots.length ? `${line} ${shots.map(shotMark).join(" ")}` : line);
+/** The key that lists a turn's images, dimmed after the marks on screen (not when copying or exporting). */
+export const SHOT_HINT = "\u001b[2m(o)\u001b[22m";
+
+/** `line` with the marks of the screenshots numbered `shots`, and with `hint` the key that lists them. */
+const withShots = (line: string, shots: number[] = [], hint = false) =>
+  shots.length ? `${line} ${shots.map(shotMark).join(" ")}${hint ? ` ${SHOT_HINT}` : ""}` : line;
 
 /** The screenshot numbers of a call's images that belong to batch action `step` (all of them for other calls). */
 function shotsOf(outcome: ToolOutcome | undefined, shots: number[], step?: number): number[] {
@@ -359,14 +363,14 @@ function shotsOf(outcome: ToolOutcome | undefined, shots: number[], step?: numbe
  * A browser call at `level` (not "off"): its line, a batch's actions below it,
  * and details in full. `shots` numbers its images among the turn's screenshots.
  */
-export function chromeMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, shots: number[] = []): string {
+export function chromeMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, shots: number[] = [], hint = false): string {
   const tool = browserAction(name);
   const line = actionLine(tool, input, outcome?.summary);
   if (tool === "browser_batch") {
     const steps = outcome?.steps ?? batchSteps(input);
-    return [line, ...steps.map((s, i) => `- ${withShots(s.line, shotsOf(outcome, shots, i))}`)].join("\n");
+    return [line, ...steps.map((s, i) => `- ${withShots(s.line, shotsOf(outcome, shots, i), hint)}`)].join("\n");
   }
-  const marked = withShots(line, shots);
+  const marked = withShots(line, shots, hint);
   return level === "full" && outcome?.detail ? `${marked}\n\n${outcome.detail}` : marked;
 }
 
@@ -377,17 +381,17 @@ const batchSteps = (input: unknown): BrowserStep[] =>
 const faint = (s: string) => `\u001b[2m${s}\u001b[22m`;
 
 /** A list item of the browser frame: the line, then what it found, dimmed and indented below it. */
-function frameItem(line: string, brief: string[] | undefined, shots: number[]): string {
+function frameItem(line: string, brief: string[] | undefined, shots: number[], hint: boolean): string {
   const below = (brief ?? []).map((l) => `  \n  ${faint(escapeMd(l))}`).join("");
-  return `- ${withShots(line, shots)}${below}`;
+  return `- ${withShots(line, shots, hint)}${below}`;
 }
 
 /**
  * A browser call as items of the frame the chat shows with tools off: one
  * per action (a batch's actions each), each with what it found below it.
  */
-export function browserItems(name: string, input: unknown, outcome: ToolOutcome | undefined, shots: number[] = []): string[] {
+export function browserItems(name: string, input: unknown, outcome: ToolOutcome | undefined, shots: number[] = [], hint = false): string[] {
   const tool = browserAction(name);
-  if (tool === "browser_batch") return (outcome?.steps ?? batchSteps(input)).map((s, i) => frameItem(s.line, s.brief, shotsOf(outcome, shots, i)));
-  return [frameItem(actionLine(tool, input, outcome?.summary), outcome?.status === "ok" ? outcome.brief : undefined, shots)];
+  if (tool === "browser_batch") return (outcome?.steps ?? batchSteps(input)).map((s, i) => frameItem(s.line, s.brief, shotsOf(outcome, shots, i), hint));
+  return [frameItem(actionLine(tool, input, outcome?.summary), outcome?.status === "ok" ? outcome.brief : undefined, shots, hint)];
 }

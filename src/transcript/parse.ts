@@ -1047,10 +1047,11 @@ function shotNumbers(shots: Screenshot[]): Map<ToolBlock, number[]> {
  * between recaps apart); by default they are counted in `turn`. With tools
  * off, browser actions still show, in a frame per run of them that Claude's
  * text does not interrupt; `browser: false` leaves them out (copying).
+ * `shotHint` writes the key that lists the screenshots after their marks (on screen).
  */
 export function turnMarkdown(
   turn: Turn,
-  opts: { tools: ToolLevel; thinking: boolean; agents?: boolean; browser?: boolean; shots?: Screenshot[] },
+  opts: { tools: ToolLevel; thinking: boolean; agents?: boolean; browser?: boolean; shots?: Screenshot[]; shotHint?: boolean },
 ): string {
   const parts: string[] = [];
   const numbers = shotNumbers(opts.shots ?? turnScreenshots(turn));
@@ -1096,7 +1097,7 @@ export function turnMarkdown(
         page = undefined;
       }
       const open = frame;
-      const items = browserItems(b.name, b.input, b.outcome, numbers.get(b));
+      const items = browserItems(b.name, b.input, b.outcome, numbers.get(b), opts.shotHint);
       open.actions += items.length;
       open.shots += numbers.get(b)?.length ?? 0;
       withPage(
@@ -1111,7 +1112,7 @@ export function turnMarkdown(
       );
     } else if (b.kind === "tool") {
       // Questions and answers are part of the conversation: with tools off they still show, framed.
-      const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd, numbers.get(b));
+      const md = toolMarkdown(b.name, b.input, b.outcome, opts.tools, b.cwd, numbers.get(b), opts.shotHint);
       if (!md) continue;
       if (isBrowserTool(b.name)) withPage(b, push, () => push(md));
       else push(md);
