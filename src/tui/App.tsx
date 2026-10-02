@@ -6,7 +6,7 @@ import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { isViewShown, nextShownView, readSettings, shownView, type Placement } from "../settings.js";
+import { isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, stepListWidth, updateSettings, type Placement } from "../settings.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
@@ -20,8 +20,9 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { SessionColorContext, tabAt, useLayout, type Mode } from "./layout.js";
+import { ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
+import { COPIED_MS } from "./Preview.js";
 import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
@@ -77,7 +78,9 @@ const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
-  const layout = useLayout();
+  // Each view's list has its own width (< and >); the dialogs take the normal one.
+  const layoutOf = useLayouts();
+  const layout = layoutOf();
   const { stdout } = useStdout();
   // F5 reloads the shown view: how often each was reloaded, and the one reloading now.
   const [reloads, setReloads] = useState(NO_RELOADS);
@@ -299,6 +302,20 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     done: () => finishReload(m),
   });
 
+  // < and > make the shown view's list narrower or wider, stopping at the ends; the preview says how wide for a moment.
+  const [notice, setNotice] = useState<{ text: string }>();
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(undefined), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const stepWidth = (step: 1 | -1) => {
+    const key = LIST_WIDTH_SETTINGS[mode];
+    const width = stepListWidth(readSettings()[key], step);
+    updateSettings({ [key]: width });
+    setNotice({ text: `width: ${width}` });
+  };
+
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
   const choosePlacement = (choice: Placement) => {
     const id = sessionOf(path);
@@ -324,6 +341,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     }
     if (input === "q" || (key.escape && !detailOpen[mode])) quit();
     else if (input === "i") setInfoOpen(true);
+    else if (input === "<" || input === ">") stepWidth(input === "<" ? -1 : 1);
     // Only a viewer that follows the live session moves; one started with --session stays.
     else if (input === "p" && !sessionId) setPlacementOpen(true);
     // Tab and Shift+Tab step through the shown views, wrapping around.
@@ -338,6 +356,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <UpdateContext.Provider value={update}>
     <ProgressHostProvider host={progress.host}>
     <SessionColorContext.Provider value={transcript.color}>
+    <ScreenNoticeContext.Provider value={notice?.text}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
@@ -347,7 +366,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             cwd={cwd}
             path={path}
             transcript={transcript}
-            layout={layout}
+            layout={layoutOf("chat")}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
             onTyping={setTyping}
@@ -362,7 +381,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <MouseContext.Provider value={mouseFor("git")}>
           <GitView
             cwd={cwd}
-            layout={layout}
+            layout={layoutOf("git")}
             active={mode === "git" && !blocked}
             onFileOpen={setDetail("git")}
             onTyping={setTyping}
@@ -378,7 +397,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             plans={transcript.plans}
             planMode={transcript.planMode}
             hasSession={path !== undefined}
-            layout={layout}
+            layout={layoutOf("plan")}
             active={mode === "plan" && !blocked}
             onDiffOpen={setDetail("plan")}
             onTyping={setTyping}
@@ -392,7 +411,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <SessionsView
             cwd={cwd}
             activePath={path}
-            layout={layout}
+            layout={layoutOf("sessions")}
             visible={mode === "sessions"}
             active={mode === "sessions" && !blocked}
             onTrashOpen={setDetail("sessions")}
@@ -417,7 +436,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <MouseContext.Provider value={mouseFor("settings")}>
           <SettingsView
             cwd={cwd}
-            layout={layout}
+            layout={layoutOf("settings")}
             active={mode === "settings" && !blocked}
             onModal={setModal}
             onTyping={setTyping}
@@ -431,7 +450,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         <Box display={mode === "monitor" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("monitor")}>
           <MouseContext.Provider value={mouseFor("monitor")}>
-          <MonitorView cwd={cwd} layout={layout} visible={mode === "monitor"} active={mode === "monitor" && !blocked} onTyping={setTyping} />
+          <MonitorView cwd={cwd} layout={layoutOf("monitor")} visible={mode === "monitor"} active={mode === "monitor" && !blocked} onTyping={setTyping} />
           </MouseContext.Provider>
           </ReloadContext.Provider>
         </Box>
@@ -460,6 +479,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         )}
         {progress.dialog}
       </Box>
+    </ScreenNoticeContext.Provider>
     </SessionColorContext.Provider>
     </ProgressHostProvider>
     </UpdateContext.Provider>
