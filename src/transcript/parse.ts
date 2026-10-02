@@ -1,6 +1,7 @@
 import { BOX_END, BOX_START_CYAN } from "../render/markdown.js";
 import { browserItems, browserTitle, isBrowserTool, navigates } from "./chrome.js";
 import { escapeMd, fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
+import { addFileChange, emptyStats, usageCounts, type TurnStats } from "./turnStats.js";
 
 /** A tool call; `outcome` is set once its result arrives (Claude Code writes the call only then). */
 export interface ToolBlock {
@@ -99,6 +100,8 @@ export interface Turn {
   compacted?: boolean;
   /** Not a prompt but the place where the session went on under another id; `prompt` names it. */
   continuation?: Continuation;
+  /** Tokens, models, tool calls and files of Claude's responses; none before the first one. */
+  stats?: TurnStats;
 }
 
 /**
@@ -212,7 +215,9 @@ interface Entry {
   aiTitle?: string;
   /** `agent-color` entry (set with /color): red, blue, green, yellow, purple, orange, pink or cyan. */
   agentColor?: string;
-  message?: { id?: string; content?: string | ContentBlock[]; stop_reason?: string | null };
+  message?: { id?: string; model?: string; usage?: Parameters<typeof usageCounts>[0]; content?: string | ContentBlock[]; stop_reason?: string | null };
+  /** `turn_duration` entry. */
+  durationMs?: unknown;
   /** Claude Code's structured copy of a tool result; for Agent calls with agentId, status and totals. */
   toolUseResult?: unknown;
   attachment?: {
@@ -486,6 +491,10 @@ export class TranscriptParser {
   private buffer = "";
   /** Tool calls waiting for their result, by tool call id. */
   private pendingTools = new Map<string, ToolBlock>();
+  /** The turn of each pending tool call, whose stats count the files it writes. */
+  private toolTurns = new Map<string, Turn>();
+  /** The response counted last: its lines repeat its usage, which counts once. */
+  private response?: { id: string; turn: Turn; output: number; model?: string };
   /** The last entry was a prompt (or one of its attachments): attachments that follow belong to it. */
   private takesAttachments = false;
   /** Uuids of the entries read, with `dedupe`: a continued session's transcript starts with copies of the last ones. */
@@ -614,7 +623,12 @@ export class TranscriptParser {
     }
     if (entry.type === "system" && entry.subtype === "informational" && entry.content?.startsWith("Backgrounding")) this.backgrounded = true;
     if (entry.type === "system" && entry.subtype === "away_summary") return this.addRecap(entry.content);
-    if (entry.type === "system") return this.finish(entry.subtype === "turn_duration" || entry.subtype === "local_command");
+    if (entry.type === "system" && entry.subtype === "turn_duration") {
+      const stats = this.turns.at(-1)?.stats;
+      if (stats && num(entry.durationMs) !== undefined) stats.durationMs = num(entry.durationMs);
+      return this.finish(true) || stats !== undefined;
+    }
+    if (entry.type === "system") return this.finish(entry.subtype === "local_command");
     if (entry.type === "user" && entry.isCompactSummary) return this.addCompactSummary(entry);
     if (entry.type === "user") {
       if (this.trackInterrupt(entry)) return true;
@@ -645,17 +659,24 @@ export class TranscriptParser {
     const done = stop === "end_turn" || stop === "stop_sequence";
     let changed = done !== (turn.done ?? false);
     turn.done = done;
+    const stats = this.trackUsage(turn, entry);
+    if (stats) changed = true;
     for (const b of content) {
       if (b.type === "text" && b.text?.trim()) {
         turn.blocks.push({ kind: "text", text: b.text });
       } else if (b.type === "thinking" && b.thinking?.trim()) {
         turn.blocks.push({ kind: "thinking", text: b.thinking });
       } else if (b.type === "tool_use" && (b.name === "Agent" || b.name === "Task")) {
+        if (stats) stats.tools++;
         turn.blocks.push({ kind: "agent", agent: this.startAgent(b, entry.timestamp) });
       } else if (b.type === "tool_use") {
         const block: ToolBlock = { kind: "tool", id: b.id, name: b.name ?? "tool", input: b.input, cwd: entry.cwd };
         turn.blocks.push(block);
-        if (b.id) this.pendingTools.set(b.id, block);
+        if (stats) stats.tools++;
+        if (b.id) {
+          this.pendingTools.set(b.id, block);
+          this.toolTurns.set(b.id, turn);
+        }
         const plan = (b.input as { plan?: unknown } | undefined)?.plan;
         if (b.name === "ExitPlanMode" && typeof plan === "string" && plan.trim()) {
           this.plans.push({
@@ -672,6 +693,30 @@ export class TranscriptParser {
       changed = true;
     }
     return changed;
+  }
+
+  /**
+   * Counts a response's usage in its turn's stats, once per message id (each
+   * of its lines repeats it; a later line replaces what an earlier one said).
+   * Claude Code's own `<synthetic>` messages are no API calls and count not.
+   */
+  private trackUsage(turn: Turn, entry: Entry): TurnStats | undefined {
+    const message = entry.message;
+    if (message?.model === "<synthetic>") return turn.stats;
+    const stats = (turn.stats ??= emptyStats());
+    stats.end = entry.timestamp ?? stats.end;
+    if (!message?.usage) return stats;
+    const { output, context } = usageCounts(message.usage);
+    const previous = this.response;
+    if (previous && message.id && previous.id === message.id && previous.turn === turn) {
+      stats.output -= previous.output;
+      if (previous.model) stats.models[previous.model] -= previous.output;
+    }
+    stats.output += output;
+    if (message.model) stats.models[message.model] = (stats.models[message.model] ?? 0) + output;
+    stats.context = context;
+    this.response = message.id ? { id: message.id, turn, output, model: message.model } : undefined;
+    return stats;
   }
 
   /** A subagent started by an Agent (formerly Task) tool call. */
@@ -707,6 +752,12 @@ export class TranscriptParser {
       if (!block) continue;
       this.pendingTools.delete(b.tool_use_id);
       block.outcome = toolOutcome(block.name, block.input, entry.toolUseResult, b.content, b.is_error, block.cwd);
+      const stats = this.toolTurns.get(b.tool_use_id)?.stats;
+      this.toolTurns.delete(b.tool_use_id);
+      if (stats) {
+        if (!b.is_error) addFileChange(stats, block.name, block.input, entry.toolUseResult);
+        stats.end = entry.timestamp ?? stats.end;
+      }
       changed = true;
     }
     return changed;
