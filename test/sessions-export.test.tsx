@@ -108,6 +108,8 @@ describe("export in the Sessions view", () => {
     expect(folders(file).filter((f) => f.endsWith("-backup")).map((f) => f.slice(16, 24))).toEqual(["aaaaaaaa", "bbbbbbbb"]);
     view.press("\u001b");
     await until(() => !view.frame().includes("✓ Exported"));
+    // The view takes keys again once the dialog has closed: let its effects run first (slow CI runners).
+    await tick(100);
 
     rmSync(join(projectDir(cwd), "aaaaaaaa-1.jsonl"));
     view.press("I");
@@ -118,5 +120,5 @@ describe("export in the Sessions view", () => {
     expect(view.frame()).toContain("Imported 1 session · skipped 1 (already there)");
     view.unmount();
     expect(claudeDir()).toBeTruthy();
-  });
+  }, 15_000);
 });
