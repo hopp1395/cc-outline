@@ -13,8 +13,12 @@ export interface TurnStats {
   models: Record<string, number>;
   /** Tool calls of the main thread, Agent calls included. */
   tools: number;
+  /** The same per tool name, e.g. `{ Read: 9, Edit: 6 }`. */
+  toolNames: Record<string, number>;
   /** Per file the turn wrote to: created (`new`) or changed; a file created and then edited stays `new`. */
   files: Record<string, "new" | "changed">;
+  /** Per file the lines added and removed; `added` and `removed` are their sums. */
+  lines: Record<string, { added: number; removed: number }>;
   added: number;
   removed: number;
   /** From the `turn_duration` entry; missing for interrupted turns and older transcripts. */
@@ -23,7 +27,13 @@ export interface TurnStats {
   end?: string;
 }
 
-export const emptyStats = (): TurnStats => ({ output: 0, context: 0, models: {}, tools: 0, files: {}, added: 0, removed: 0 });
+export const emptyStats = (): TurnStats => ({ output: 0, context: 0, models: {}, tools: 0, toolNames: {}, files: {}, lines: {}, added: 0, removed: 0 });
+
+/** Counts a tool call of the main thread under its name. */
+export function addToolCall(stats: TurnStats, name: string): void {
+  stats.tools++;
+  stats.toolNames[name] = (stats.toolNames[name] ?? 0) + 1;
+}
 
 interface Usage {
   input_tokens?: unknown;
@@ -71,14 +81,19 @@ export function addFileChange(stats: TurnStats, name: string, input: unknown, re
   const path = [r.filePath, i.file_path, i.notebook_path].find((p): p is string => typeof p === "string" && p !== "");
   if (!path) return;
   const created = name === "Write" && r.type === "create";
+  let added = 0;
+  let removed = 0;
   if (created) {
     const content = typeof i.content === "string" ? i.content : typeof r.content === "string" ? r.content : "";
-    stats.added += content ? content.replace(/\n$/, "").split("\n").length : 0;
+    added = content ? content.replace(/\n$/, "").split("\n").length : 0;
   } else {
-    const { added, removed } = patchLines(r.structuredPatch);
-    stats.added += added;
-    stats.removed += removed;
+    ({ added, removed } = patchLines(r.structuredPatch));
   }
+  stats.added += added;
+  stats.removed += removed;
+  const lines = (stats.lines[path] ??= { added: 0, removed: 0 });
+  lines.added += added;
+  lines.removed += removed;
   if (created || stats.files[path] === undefined) stats.files[path] = created ? "new" : "changed";
 }
 
