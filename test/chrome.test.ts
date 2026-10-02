@@ -206,6 +206,14 @@ describe("browser actions with tools off", () => {
     expect(turnMarkdown(turn(), { tools: "off", thinking: false, browser: false })).toBe("Found it.");
   });
 
+  it("names the key that lists the screenshots after their marks only when asked (on screen)", () => {
+    const hint = `${ESC}[2m(o)${ESC}[22m`;
+    for (const tools of ["off", "compact", "full"] as const) {
+      expect(turnMarkdown(turn(), { tools, thinking: false, shotHint: true })).toContain(`[▣ 2]${ESC}[39m ${hint}`);
+      expect(turnMarkdown(turn(), { tools, thinking: false })).not.toContain("(o)");
+    }
+  });
+
   it("finds a screenshot mark under the pointer", () => {
     const rendered = "│   * ↕ scroll down 3 \u001b[36m[▣ 12]\u001b[39m";
     const at = stripAnsi(rendered).indexOf("[");

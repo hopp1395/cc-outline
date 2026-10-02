@@ -5,7 +5,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown, stripBoxes } from "../render/markdown.js";
 import { haystack } from "../filter.js";
-import { screenshotFile, turnImageFiles } from "../images.js";
+import { screenshotFile, turnImageFile } from "../images.js";
 import { openInDefaultApp } from "../open.js";
 import {
   AGENT_RUNNING_MARK,
@@ -49,7 +49,7 @@ import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
-import { ScreenshotDialog } from "./ScreenshotDialog.js";
+import { ImagesDialog, turnImages, type TurnImage } from "./ImagesDialog.js";
 import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
@@ -207,7 +207,7 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
   const shots = turnScreenshots(turn);
   let run: Turn["blocks"] = [];
   const flush = () => {
-    const md = run.length ? turnMarkdown({ ...turn, blocks: run }, { ...opts, shots }) : "";
+    const md = run.length ? turnMarkdown({ ...turn, blocks: run }, { ...opts, shots, shotHint: true }) : "";
     if (md) add(renderMarkdown(md, width, wrap));
     run = [];
   };
@@ -397,9 +397,6 @@ export function turnDetailLines(turn: Turn, agents: AgentRun[], width: number, c
     ...lines.flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
   ];
 }
-
-/** `o` opens at most this many images of a turn at once. */
-const MAX_OPENED_IMAGES = 10;
 
 /** One line naming what came with the prompt: "📎 2 images · @src/Order.cs · 12 lines selected in Foo.cs". */
 export function attachmentSummary(attachments: Attachment[]): string | undefined {
@@ -728,23 +725,24 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     setTimeout(() => setFlash(undefined), 2000);
   };
   const imageCount = (current?.attachments ?? []).filter((a) => a.kind === "image").length;
-  /** Opens the images pasted into `turn`'s prompt in the system's image viewer. */
-  const openImages = (turn: Turn) => {
-    if (imageCount === 0) return;
-    let files: string[];
+  /** Opens image `index` (from 0) pasted into `turn`'s prompt in the system's image viewer. */
+  const openPasted = (turn: Turn, index: number) => {
+    let file: string | undefined;
     try {
-      files = turnImageFiles(turn.transcript ?? path, turn).slice(0, MAX_OPENED_IMAGES);
+      file = turnImageFile(turn.transcript ?? path, turn, index);
     } catch (err) {
-      return notify(`could not read the images: ${(err as Error).message}`);
+      return notify(`could not read the image: ${(err as Error).message}`);
     }
-    if (files.length === 0) return notify("the images are no longer available");
-    for (const file of files) openInDefaultApp(file);
-    notify(`opened ${plural(files.length, "image")}`);
+    if (!file) return notify(`image ${index + 1} is no longer available`);
+    openInDefaultApp(file);
+    notify(`opened image ${index + 1}`);
   };
   // The screenshots of the turn's browser actions, numbered as the answer marks them ([▣ 3]).
   const shots = useMemo(() => (current ? turnScreenshots(current) : []), [current, version]);
-  const [shotsOpen, setShotsOpen] = useState(false);
-  useEffect(() => onModal?.(shotsOpen), [shotsOpen]);
+  const images = useMemo(() => turnImages(imageCount, shots), [imageCount, shots]);
+  const [imagesOpen, setImagesOpen] = useState(false);
+  useEffect(() => onModal?.(imagesOpen), [imagesOpen]);
+  const openImage = (image: TurnImage) => (image.kind === "pasted" ? current && openPasted(current, image.index) : openShot(image.shot));
   /** Opens screenshot `shot` of the current turn in the system's image viewer. */
   const openShot = (shot: Screenshot | undefined) => {
     if (!shot || !current) return;
@@ -818,9 +816,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         return notify(follow ? "follow off" : "follow on");
       }
       if (input === "s") return setOrder(flipOrder);
-      // o opens the prompt's images, or else the turn's last screenshot; O lists the screenshots.
-      if (input === "o" && current) return imageCount > 0 ? openImages(current) : shots.length ? openShot(shots.at(-1)) : undefined;
-      if (input === "O") return shots.length ? setShotsOpen(true) : notify("no screenshots in this turn");
+      // o lists the prompt's pasted images and the turn's screenshots to open one.
+      if (input === "o") return images.length ? setImagesOpen(true) : notify("no images in this turn");
       if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
@@ -831,7 +828,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         );
       }
     },
-    { isActive: active && !filter.open && !shotsOpen },
+    { isActive: active && !filter.open && !imagesOpen },
   );
 
   const session = path ? basename(path, ".jsonl").slice(0, 8) : "none";
@@ -956,15 +953,14 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
-          ...(imageCount > 0 ? [{ text: `o ${plural(imageCount, "image")}`, priority: 3 }] : []),
-          ...(shots.length > 0 ? [{ text: `${imageCount > 0 ? "O" : "o/O"} ${plural(shots.length, "screenshot")}`, priority: 3 }] : []),
+          ...(images.length > 0 ? [{ text: `o ${plural(images.length, "image")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
           { text: "1-6/tab view", priority: 1 },
         ])
       }
     />
     {filter.dialog}
-    {shotsOpen && active && <ScreenshotDialog layout={layout} shots={shots} onOpen={openShot} onClose={() => setShotsOpen(false)} />}
+    {imagesOpen && active && <ImagesDialog layout={layout} images={images} onOpen={openImage} onClose={() => setImagesOpen(false)} />}
     </>
   );
 }

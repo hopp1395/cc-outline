@@ -303,9 +303,9 @@ function questionTexts(input: unknown): string[] {
  * A tool call as the chat shows it at `level`. "off" shows only questions,
  * framed (browser calls are framed by `turnMarkdown`); with the other levels
  * they are a tool call like the rest. `shots` numbers a browser call's
- * screenshots among the turn's.
+ * screenshots among the turn's; `hint` adds the key that lists them.
  */
-export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string, shots?: number[]): string {
+export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string, shots?: number[], hint = false): string {
   if (level === "off") return name === "AskUserQuestion" ? questionMarkdown(input, outcome) : "";
   if (name === "ExitPlanMode") {
     const decision =
@@ -318,7 +318,7 @@ export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome 
             : "failed";
     return `**▤ Plan presented** → ${decision} *(3 Plan view)*`;
   }
-  if (isBrowserTool(name)) return chromeMarkdown(name, input, outcome, level, shots);
+  if (isBrowserTool(name)) return chromeMarkdown(name, input, outcome, level, shots, hint);
   const status = outcome?.summary ? ` · ${outcome.summary}` : "";
   const line = `**⚙ ${escapeMd(mcpName(name))}** ${toolTitle(name, input, cwd)}${status}`;
   if (level === "compact") return line;

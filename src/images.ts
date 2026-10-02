@@ -38,30 +38,24 @@ function entryImages(transcript: string, uuid: string): ImageBlock[] {
 }
 
 /**
- * Files showing the images pasted into `turn`'s prompt: the copies Claude Code
- * keeps under `~/.claude/uploads` where they still exist, otherwise the image
- * data from the transcript written to a temporary file. Images that are
- * neither are left out.
+ * The file showing image `index` (from 0) pasted into `turn`'s prompt: the
+ * copy Claude Code keeps under `~/.claude/uploads` if it still exists,
+ * otherwise the image data from the transcript written to a temporary file;
+ * undefined if it is neither.
  */
-export function turnImageFiles(transcript: string | undefined, turn: Turn): string[] {
-  const images = (turn.attachments ?? []).filter((a) => a.kind === "image");
-  if (images.length === 0) return [];
-  let blocks: ImageBlock[] | undefined;
-  const files: string[] = [];
-  images.forEach((image, i) => {
-    if (image.path && existsSync(image.path)) return void files.push(image.path);
-    if (!transcript) return;
-    blocks ??= entryImages(transcript, turn.id);
-    const source = blocks[i]?.source;
-    if (source?.type !== "base64" || !source.data) return;
-    const file = join(imageDir(), `${turn.id}-${i + 1}.${EXTENSIONS[source.media_type ?? ""] ?? "png"}`);
-    if (!existsSync(file)) {
-      mkdirSync(imageDir(), { recursive: true });
-      writeFileSync(file, Buffer.from(source.data, "base64"));
-    }
-    files.push(file);
-  });
-  return files;
+export function turnImageFile(transcript: string | undefined, turn: Turn, index: number): string | undefined {
+  const image = (turn.attachments ?? []).filter((a) => a.kind === "image")[index];
+  if (!image) return undefined;
+  if (image.path && existsSync(image.path)) return image.path;
+  if (!transcript) return undefined;
+  const source = entryImages(transcript, turn.id)[index]?.source;
+  if (source?.type !== "base64" || !source.data) return undefined;
+  const file = join(imageDir(), `${turn.id}-${index + 1}.${EXTENSIONS[source.media_type ?? ""] ?? "png"}`);
+  if (!existsSync(file)) {
+    mkdirSync(imageDir(), { recursive: true });
+    writeFileSync(file, Buffer.from(source.data, "base64"));
+  }
+  return file;
 }
 
 /** The image blocks of the tool result for the call `toolUseId`. */
