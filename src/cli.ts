@@ -129,6 +129,24 @@ program
     process.exitCode = await runDoctor({ cwd: opts.cwd, fix: opts.fix });
   });
 
+program
+  .command("import")
+  .description("import the session backups of a cco-session-export zip archive (Sessions view: e exports)")
+  .argument("<zip>", "the archive")
+  .action(async (zip: string) => {
+    // Loaded here only: the hook must start fast.
+    const { importArchive, importSummary } = await import("./export/archive.js");
+    try {
+      const result = importArchive(zip);
+      for (const s of result.imported) console.log(`imported  ${s.id}  ${s.title}`);
+      for (const s of result.skipped) console.log(`skipped   ${s.id}  ${s.title} (${s.reason})`);
+      console.log(importSummary(result));
+    } catch (err) {
+      console.error(`cco: ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+
 // For the plugin's launcher, which starts this file without npm's shim.
 recordCli();
 await program.parseAsync();
