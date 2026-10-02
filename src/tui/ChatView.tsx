@@ -289,9 +289,7 @@ function fitParts(parts: string[], width: number): string {
 export function turnStatsLines(turn: Turn, agents: AgentRun[], width: number, now?: number): string[] {
   const s = turn.stats;
   if (!s) return [];
-  const start = turn.timestamp ? Date.parse(turn.timestamp) : NaN;
-  const end = now ?? (s.end ? Date.parse(s.end) : NaN);
-  const ms = now === undefined && s.durationMs !== undefined ? s.durationMs : end - start;
+  const ms = turnDuration(turn, now);
   const models = Object.entries(s.models).sort((a, b) => b[1] - a[1]);
   const shown = models.some(([, n]) => n > 0) ? models.filter(([, n]) => n > 0) : models;
   const agentTokens = agents.reduce((sum, a) => sum + (a.tokens ?? 0), 0);
@@ -314,6 +312,90 @@ export function turnStatsLines(turn: Turn, agents: AgentRun[], width: number, no
       ]
     : [];
   return [fitParts(parts, width), ...(fileParts.length ? [fitParts(fileParts, width)] : [])].filter((l) => l);
+}
+
+/** How long the turn took, or has been running for (`now`); NaN when unknown. */
+function turnDuration(turn: Turn, now?: number): number {
+  const s = turn.stats;
+  const start = turn.timestamp ? Date.parse(turn.timestamp) : NaN;
+  const end = now ?? (s?.end ? Date.parse(s.end) : NaN);
+  return now === undefined && s?.durationMs !== undefined ? s.durationMs : end - start;
+}
+
+const dot = dim(" · ");
+
+/**
+ * The stats of a turn in full, below the full prompt: when it ran, the tokens
+ * per model, the tool calls per name, each subagent and each file with its
+ * lines. Empty groups are left out; none at all for a turn without stats.
+ */
+export function turnDetailLines(turn: Turn, agents: AgentRun[], width: number, cwd: string, now?: number): string[] {
+  const s = turn.stats;
+  if (!s) return [];
+  const group = (title: string, summary = "") => ["", bold(title) + (summary ? "  " + summary : "")];
+
+  const ms = turnDuration(turn, now);
+  const span = turn.timestamp ? `${time(turn.timestamp)} – ${now !== undefined ? "running" : s.end ? time(s.end) : "?"}` : "";
+  const when = [
+    ...(span ? [span] : []),
+    ...(Number.isFinite(ms) && ms >= 0 ? [formatMs(ms)] : []),
+    ...(turn.interrupted ? [red("⊘ interrupted")] : []),
+  ];
+
+  const models = Object.entries(s.models)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const tokens = [
+    ...(s.output > 0 ? [`↓ ${formatCount(s.output)}` + (models.length ? "  " + dim(models.map(([m, n]) => `${shortModel(m)} ${formatCount(n)}`).join(" · ")) : "")] : []),
+    ...(s.context > 0 ? [`ctx ${formatCount(s.context)}`] : []),
+  ];
+
+  const tools = Object.entries(s.toolNames).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  const shownAgents = turn.notification ? [] : agents;
+  const agentTokens = shownAgents.reduce((sum, a) => sum + (a.tokens ?? 0), 0);
+
+  const files = Object.entries(s.files)
+    .map(([path, kind]) => ({ path: displayPath(path, cwd), kind, lines: s.lines[path] }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const created = files.filter((f) => f.kind === "new").length;
+  const changed = files.length - created;
+  const counts = (added: number, removed: number) => [...(added ? [green(`+${added}`)] : []), ...(removed ? [red(`−${removed}`)] : [])].join(" ");
+  // The counts line up after the paths while they fit beside the longest one.
+  const pathWidth = Math.max(0, ...files.map((f) => stringWidth(f.path)));
+  const countsWidth = Math.max(0, ...files.map((f) => stringWidth(stripAnsi(f.lines ? counts(f.lines.added, f.lines.removed) : ""))));
+  const aligned = 4 + pathWidth + 2 + countsWidth <= width;
+
+  const lines = [
+    ...(when.length ? [when.join(dot)] : []),
+    ...(tokens.length ? [...group("Tokens"), ...tokens.map((l) => "  " + l)] : []),
+    ...(tools.length ? [...group("Tools", dim(String(s.tools))), "  " + tools.map(([name, n]) => `${name} ${dim(String(n))}`).join(dot)] : []),
+    ...(shownAgents.length
+      ? [
+          ...group("Agents", dim([String(shownAgents.length), ...(agentTokens > 0 ? [formatCount(agentTokens)] : [])].join(" · "))),
+          ...shownAgents.flatMap((a) => [`  ◆ ${a.type ?? "agent"} ${dim(`"${a.description}"`)}`, "    " + dim(agentStatusLine(a))]),
+        ]
+      : []),
+    ...(files.length
+      ? [
+          ...group(
+            "Files",
+            [...(created ? [green(`+${created}`)] : []), ...(changed ? [yellow(`~${changed}`)] : [])].join(" ") + dot + green(`+${s.added}`) + " " + red(`−${s.removed}`),
+          ),
+          ...files.map((f) => {
+            const mark = f.kind === "new" ? green("+") : yellow("~");
+            const n = f.lines ? counts(f.lines.added, f.lines.removed) : "";
+            const gap = aligned ? " ".repeat(pathWidth - stringWidth(f.path) + 2) : "  ";
+            return `  ${mark} ${f.path}${n ? gap + n : ""}`;
+          }),
+        ]
+      : []),
+  ];
+  return [
+    cyan("$ ") + bold("Details"),
+    rule(width),
+    ...lines.flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
+  ];
 }
 
 /** `o` opens at most this many images of a turn at once. */
@@ -493,9 +575,16 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     return status ? [...lines, ...(lines.length ? [""] : []), status] : lines;
   }, [current, version, previewWidth, showTools, showThinking, showAgents, wrap, liveSession]);
   const answer = useMemo(() => ({ header: answerHeader, lines: answerBody }), [answerHeader, answerBody]);
-  const prompt = useMemo(
+  const promptPage = useMemo(
     () => (current && promptOpen ? fullPrompt(current, previewWidth, cwd) : undefined),
     [current, version, promptOpen, previewWidth, cwd],
+  );
+  // The details below it count up while the turn runs; the prompt above stays as rendered.
+  const details = current && promptOpen ? turnDetailLines(current, currentAgents, previewWidth, cwd, running ? now : undefined) : [];
+  const detailsKey = details.join("\n");
+  const prompt = useMemo(
+    () => promptPage && (details.length ? { header: promptPage.header, lines: [...promptPage.lines, "", ...details] } : promptPage),
+    [promptPage, detailsKey],
   );
   const agentPage = useMemo(
     () =>
