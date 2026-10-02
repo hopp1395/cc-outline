@@ -18,6 +18,11 @@ import {
   type TrashEntry,
 } from "../transcript/trash.js";
 import { detectTerminal, resumeForPairing, resumeInNewWindow } from "../open.js";
+import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions } from "../export/archive.js";
+import type { ExportOptions } from "../export/session.js";
+import { ExportDialog } from "./ExportDialog.js";
+import { ImportDialog } from "./ImportDialog.js";
+import { ProgressDialog, type Progress } from "./ProgressDialog.js";
 import type { Placement } from "../settings.js";
 import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
 import { cancelPairing, requestPairing, runningViewer, type PairTarget } from "../viewer.js";
@@ -432,7 +437,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [choice, setChoice] = useState<Choice<SessionAction>>();
   const [pairing, setPairing] = useState<Pairing>();
   const [, setPairTick] = useState(0);
-  const dialogOpen = confirmation !== undefined || choice !== undefined;
+  // e: the sessions to export, while the form is open; I: the import dialog; then the run of either.
+  const [exporting, setExporting] = useState<{ sessions: SessionSummary[]; opts: ExportOptions; lines: string[] }>();
+  // The archive the import dialog proposes ("" for none), while it is open.
+  const [importFrom, setImportFrom] = useState<string>();
+  const [run, setRun] = useState<Progress>();
+  const dialogOpen = confirmation !== undefined || choice !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -764,6 +774,63 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     });
   };
 
+  /** e: the marked sessions, else the selected one, with the form for the options. */
+  const askExport = () => {
+    const marked = (sessions ?? []).filter((s) => favorites.isMarked(s.id));
+    const targets = marked.length ? marked : session ? [session] : [];
+    if (targets.length) setExporting({ sessions: targets, opts: readExportOptions(), lines: exportLines(targets) });
+  };
+  const exportLines = (targets: SessionSummary[]) => {
+    const file = freeName(downloadsDir(), EXPORT_NAME);
+    const dir = tilde(dirname(file));
+    const one = targets.length === 1 ? targets[0] : undefined;
+    return [
+      ...(one
+        ? [truncate(sessionTitle(one), 56), `${span(one.start, one.end)} · ${plural(one.prompts.length, "prompt")} · ${plural(one.files.length, "file")}`]
+        : [`${plural(targets.length, "marked session")}`]),
+      `to ${basename(file)}`,
+      // The end of the folder's path names it best.
+      dir.length > 53 ? `in …${dir.slice(-52)}` : `in ${dir}`,
+    ];
+  };
+  const runExport = (targets: SessionSummary[], opts: ExportOptions) => {
+    saveExportOptions(opts);
+    setExporting(undefined);
+    const title = `Exporting ${plural(targets.length, "session")}`;
+    setRun({ title, status: "running", text: "starting…" });
+    exportSessions(targets, opts, {
+      viewerCwd: cwd,
+      onProgress: (p) => setRun({ title, status: "running", text: `${p.sessions > 1 ? `session ${p.session}/${p.sessions} · ` : ""}${p.step}…` }),
+    }).then(
+      (result) =>
+        setRun({
+          title: "Export done",
+          status: "done",
+          text: `exported ${plural(result.sessions, "session")}`,
+          lines: [basename(result.file), `in ${tilde(dirname(result.file))}`],
+        }),
+      (err: Error) => setRun({ title: "Export failed", status: "failed", text: "nothing was written", lines: [err.message] }),
+    );
+  };
+  const runImport = (file: string) => {
+    setImportFrom(undefined);
+    setRun({ title: "Importing", status: "running", text: tilde(file) });
+    // A moment for the dialog to show; the import itself runs at once.
+    setTimeout(() => {
+      try {
+        const result = importArchive(file);
+        const lines = [
+          ...result.imported.map((s) => `  ✓ ${s.title}`),
+          ...result.skipped.map((s) => `  – ${s.title}: ${s.reason}`),
+        ].slice(0, 8);
+        setRun({ title: "Import done", status: "done", text: importSummary(result), lines });
+        refresh();
+      } catch (err) {
+        setRun({ title: "Import failed", status: "failed", text: "nothing was imported", lines: [(err as Error).message] });
+      }
+    }, 50);
+  };
+
   useInput(
     (input, key) => {
       if (filter.handleKey(input, key)) return;
@@ -792,6 +859,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           return target !== undefined && select(target);
         }
         if ((input === "d" || key.delete) && session) return askDelete(session);
+        if (input === "e") return askExport();
+        if (input === "I") return setImportFrom(newestExport() ?? "");
         if (input === "u") {
           if (!lastTrashed) return notify("nothing to undo");
           const s = lastTrashed;
@@ -859,6 +928,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: onLoadMore ? "↵ load more" : session ? enterLabel(situationOf(session).situation) : "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
+        { text: markedCount > 0 ? "e export ★" : "e export", priority: 2 },
+        { text: "I import", priority: 1 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a all", on: all, priority: 2 },
         { text: "T trash", priority: 2 },
@@ -963,6 +1034,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           onClose={closeChoice}
         />
       )}
+      {exporting && (
+        <ExportDialog
+          layout={layout}
+          lines={exporting.lines}
+          warning={exporting.sessions.some((s) => s.id === activeId || running.has(s.id)) ? "A running session is exported as it stands now." : undefined}
+          initial={exporting.opts}
+          onExport={(opts) => runExport(exporting.sessions, opts)}
+          onClose={() => setExporting(undefined)}
+        />
+      )}
+      {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
+      {run && <ProgressDialog layout={layout} progress={run} onClose={() => setRun(undefined)} />}
       {filter.dialog}
     </>
   );
