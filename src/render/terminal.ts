@@ -45,6 +45,9 @@ const STYLE = {
   href: compose(blue, underline),
 };
 
+/** The style of `inline code`, for texts outside Markdown that mark keys and commands the same way. */
+export const codeSpan = STYLE.codespan;
+
 /** Indentation of code blocks, block quotes and top-level lists. */
 const TAB = "  ";
 

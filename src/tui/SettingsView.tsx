@@ -22,6 +22,7 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
 import { renderMarkdown } from "../render/markdown.js";
+import { codeSpan } from "../render/terminal.js";
 import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repairSteps, reportLines, runRepairs, type DoctorGroup, type Finding, type RepairResult } from "../doctor.js";
 import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
 import { VERSION } from "../version.js";
@@ -58,18 +59,18 @@ export const RESET_ACTIONS: ResetAction[] = [
     id: "restart",
     label: "restart the viewer",
     description:
-      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (npm install -g, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. Asks first unless confirm quit is off.",
+      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (`npm install -g`, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. Asks first unless confirm quit is off.",
   },
   {
     id: "doctor",
     label: "doctor: check and repair",
     description:
-      "Checks what cco needs: the installation (npm, the plugin and its version, the path the plugin starts cco by), cco's files in ~/.claude/cco (of processes that have ended, unfinished writes, files that are no valid JSON, the trash), the settings, the terminal and whether the plugin's hooks run. Enter asks, then checks; nothing is changed by that. The report shows below, and Enter then offers to repair what it can; some findings name a command to run yourself. cco doctor in a shell does the same (--fix repairs), /cco:doctor shows the report in Claude Code.",
+      "Checks what cco needs: the installation (npm, the plugin and its version, the path the plugin starts cco by), cco's files in `~/.claude/cco` (of processes that have ended, unfinished writes, files that are no valid JSON, the trash), the settings, the terminal and whether the plugin's hooks run. `Enter` asks, then checks; nothing is changed by that. The report shows below, and `Enter` then offers to repair what it can; some findings name a command to run yourself. `cco doctor` in a shell does the same (`--fix` repairs), `/cco:doctor` shows the report in Claude Code.",
   },
   {
     id: "settings",
     label: "all settings to default",
-    description: "Sets every setting above back to its default and removes the marks ★ of the settings. R does the same from any setting; r resets only the selected one.",
+    description: "Sets every setting above back to its default and removes the marks ★ of the settings. `R` does the same from any setting; `r` resets only the selected one.",
   },
   {
     id: "data",
@@ -90,6 +91,18 @@ export interface TextContext {
 type Text = string | ((c: TextContext) => string);
 
 export const textOf = (text: Text, c: TextContext): string => (typeof text === "string" ? text : text(c));
+
+/** A details text with what one types marked by backticks (`q`, `/cco:chat`, `~/.claude/cco`): those parts in the chat's inline-code style, without the backticks. */
+export const codeMarks = (text: string) => text.replace(/`([^`]+)`/g, (_, code: string) => codeSpan(code));
+
+/** A details text without its backticks, as the filter searches it. */
+export const plainMarks = (text: string) => text.replaceAll("`", "");
+
+/** Wraps a details text to `width`, its backticks turned into marks (not in a command's output: `marks` false), each line after `indent`. */
+const wrapText = (text: string, width: number, indent = "", marks = true) =>
+  wrapAnsi(marks ? codeMarks(text) : text, Math.max(10, width - indent.length), { hard: true })
+    .split("\n")
+    .map((l) => indent + l);
 
 interface Row {
   key: keyof Settings;
@@ -117,14 +130,14 @@ const firstDay = (range: ListRange, now: Date) => dayLabel(dayOf(rangeStart(rang
 
 const UPDATE_MEANINGS: Record<UpdateMode, Text> = {
   on: "ask npm and GitHub when the viewer starts; a newer version shows in the top bar (v0.7.0 → 0.8.0), and you update when you like",
-  off: "no network requests; F5 here still checks once",
+  off: "no network requests; `F5` here still checks once",
   auto: "as on, and once the check finds a newer version, the viewer opens it here and asks whether to install it, once per start",
 };
 
 const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], Text> = {
-  remember: "reopen it only if it was open when Claude Code last exited in the project: closed with q in one project, it stays closed there and still opens in the others",
+  remember: "reopen it only if it was open when Claude Code last exited in the project: closed with `q` in one project, it stays closed there and still opens in the others",
   always: "open it on every start, in every project; in the chat, unless another view was open last (e.g. Changes, where you left it)",
-  never: "never open it by itself; /cco:chat, /cco:git and the other /cco:… commands still do",
+  never: "never open it by itself; `/cco:chat`, `/cco:git` and the other `/cco:…` commands still do",
 };
 
 export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], string> = {
@@ -139,9 +152,9 @@ const PLACEMENT_DETAILS: Record<(typeof PLACEMENT_VALUES)[number], Text> = {
   left: "the same, left of Claude Code",
   window: (c) =>
     c.terminal === "wt"
-      ? "a Windows Terminal window of its own, one per Claude Code; Claude Code keeps the whole tab, Alt+Tab switches"
+      ? "a Windows Terminal window of its own, one per Claude Code; Claude Code keeps the whole tab, `Alt+Tab` switches"
       : c.terminal === "tmux"
-        ? "a tmux window of its own next to Claude Code's; Claude Code keeps the whole window, your prefix and n or p (Ctrl+b n) switch"
+        ? "a tmux window of its own next to Claude Code's; Claude Code keeps the whole window, your prefix and `n` or `p` (`Ctrl+b n`) switch"
         : PLACEMENT_MEANINGS.window,
 };
 
@@ -153,9 +166,9 @@ const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
 
 /** How to select text while the viewer has the mouse, in this terminal. */
 function selectText(terminal: Terminal | undefined): string {
-  if (terminal === "wt") return "select text with Shift+drag";
-  if (terminal === "tmux") return "select text with Shift+drag, or your terminal's modifier (Option in iTerm2)";
-  return "select text with Shift+drag in Windows Terminal (in tmux, with Shift or your terminal's modifier)";
+  if (terminal === "wt") return "select text with `Shift+drag`";
+  if (terminal === "tmux") return "select text with `Shift+drag`, or your terminal's modifier (`Option` in iTerm2)";
+  return "select text with `Shift+drag` in Windows Terminal (in tmux, with `Shift` or your terminal's modifier)";
 }
 
 /** The first row of a view's group: whether the view has a tab. */
@@ -164,8 +177,8 @@ function viewTab(key: keyof Settings, name: string, number: string, what: string
     key,
     group: name,
     label: "tab",
-    description: `Whether the ${name} view (${what}) has a tab. Hide a view you do not use, and the tab bar gets shorter. Hidden, it keeps its number: ${number} does nothing, and the other views keep theirs (with Plan hidden, Sessions stays 4). A /cco:… command or --view that names it still opens it, and its tab shows while it is open. Settings (6) cannot be hidden, and at least one other view stays shown.`,
-    values: ON_OFF(`show its tab; ${number} and Tab reach it`, `hide it; ${number} and Tab skip it`),
+    description: `Whether the ${name} view (${what}) has a tab. Hide a view you do not use, and the tab bar gets shorter. Hidden, it keeps its number: \`${number}\` does nothing, and the other views keep theirs (with Plan hidden, Sessions stays \`4\`). A \`/cco:…\` command or \`--view\` that names it still opens it, and its tab shows while it is open. Settings (\`6\`) cannot be hidden, and at least one other view stays shown.`,
+    values: ON_OFF(`show its tab; \`${number}\` and \`Tab\` reach it`, `hide it; \`${number}\` and \`Tab\` skip it`),
   };
 }
 
@@ -175,12 +188,12 @@ function listOrder(key: keyof Settings, view: string, what: string): Row {
     key,
     group: view,
     label: "order",
-    description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. Oldest first reads like Claude Code, from the top down; newest first puts the latest right under the tabs, where a long list starts. The keys follow what you see: ↑/↓ go up and down the list, Home and g to the top, End and G to the bottom.`,
+    description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. Oldest first reads like Claude Code, from the top down; newest first puts the latest right under the tabs, where a long list starts. The keys follow what you see: \`↑/↓\` go up and down the list, \`Home\` and \`g\` to the top, \`End\` and \`G\` to the bottom.`,
     values: [
       ["oldest-first", `oldest at the top, newest at the bottom: new ${what} appear below`],
       ["newest-first", `newest at the top, oldest at the bottom: new ${what} appear at the top`],
     ],
-    viewKey: `s in ${view}`,
+    viewKey: `\`s\` in ${view}`,
   };
 }
 
@@ -216,7 +229,7 @@ function listWidthRow(key: keyof Settings, group: string, label: string, view: s
       ["wide", share("wide")],
       ["wider", `${share("wider")}: the list and the preview share the pane`],
     ],
-    viewKey: `< and > in ${view}`,
+    viewKey: `\`<\` and \`>\` in ${view}`,
   };
 }
 
@@ -226,9 +239,9 @@ function wrapRow(key: keyof Settings, group: string, what: string, off: string):
     key,
     group,
     label: "wrap",
-    description: `Whether long lines ${what} wrap at the edge of the pane; off, they are cut and ctrl+←/→ scrolls sideways.`,
-    values: ON_OFF("wrap at the edge; nothing is cut off", `cut at the edge, ctrl+←/→ scrolls; ${off}`),
-    viewKey: `w in ${group}`,
+    description: `Whether long lines ${what} wrap at the edge of the pane; off, they are cut and \`Ctrl+←/→\` scrolls sideways.`,
+    values: ON_OFF("wrap at the edge; nothing is cut off", `cut at the edge, \`Ctrl+←/→\` scrolls; ${off}`),
+    viewKey: `\`w\` in ${group}`,
   };
 }
 
@@ -239,7 +252,7 @@ export const SETTING_ROWS: Row[] = [
     group: "Start",
     label: "auto open",
     description:
-      "Whether the viewer opens by itself when Claude Code starts (also with --resume and --continue). The focus stays in Claude Code, and a Claude Code that already has a viewer gets no second one. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
+      "Whether the viewer opens by itself when Claude Code starts (also with `--resume` and `--continue`). The focus stays in Claude Code, and a Claude Code that already has a viewer gets no second one. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
     values: AUTO_OPEN_VALUES.map((v) => [v, AUTO_OPEN_MEANINGS[v]]),
     notes: [
       (c) =>
@@ -254,7 +267,7 @@ export const SETTING_ROWS: Row[] = [
     group: "Start",
     label: "placement",
     description:
-      "Where the viewer opens, when Claude Code starts and with /cco:… commands. right and left suit a wide screen, where both fit side by side; window keeps Claude Code at full width, for a narrow one. p in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
+      "Where the viewer opens, when Claude Code starts and with `/cco:…` commands. right and left suit a wide screen, where both fit side by side; window keeps Claude Code at full width, for a narrow one. `p` in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
     values: PLACEMENT_VALUES.map((v) => [v, PLACEMENT_DETAILS[v]]),
     notes: [
       (c) => (c.terminal === "tmux" ? "" : "A window takes the focus from Claude Code: Windows Terminal cannot hand it back to another window."),
@@ -266,8 +279,8 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "confirm quit",
     description:
-      "Whether q and Esc ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether restart the viewer (Reset, below) asks before it restarts. The viewer still closes by itself when the session ends; /cco:chat opens it again. /cco:restart never asks.",
-    values: ON_OFF("ask first: Quit cco? or Restart the viewer? Enter yes, Esc no", "close at the first q or Esc; restart the viewer restarts without asking"),
+      "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether restart the viewer (Reset, below) asks before it restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
+    values: ON_OFF("ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no", "close at the first `q` or `Esc`; restart the viewer restarts without asking"),
   },
   {
     key: "marquee",
@@ -296,10 +309,10 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "pinned favorites",
     description:
-      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (Space) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place without the ★. ↑↓ and Home/End follow the rows on screen, through both copies; Shift+↑/↓ only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
+      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (`Space`) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place without the ★. `↑↓` and `Home`/`End` follow the rows on screen, through both copies; `Shift+↑/↓` only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
     values: ON_OFF(
       "marked entries once more at the top, under ── ★ Pinned ── with ★, and in their place below without it",
-      "marked entries only in their place, with ★; Shift+↑/↓ jumps between them",
+      "marked entries only in their place, with ★; `Shift+↑/↓` jumps between them",
     ),
   },
   {
@@ -311,28 +324,28 @@ export const SETTING_ROWS: Row[] = [
       "store them per project, e.g. Changes reopens on the same file, scrolled to the same hunk",
       "start fresh after each restart: the newest turn in Chat, the first entry elsewhere, each scrolled to the top",
     ),
-    notes: [(c) => `Stored in ${tilde(positionsFile(c.cwd))}; switching off keeps the file.`, "Takes effect when the viewer starts."],
+    notes: [(c) => `Stored in \`${tilde(positionsFile(c.cwd))}\`; switching off keeps the file.`, "Takes effect when the viewer starts."],
   },
   {
     key: "rememberView",
     group: "General",
     label: "view per session",
     description:
-      "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer without --view, and when the viewer follows it after /resume. A /cco:… command still opens the view it names.",
+      "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names.",
     values: ON_OFF(
-      "reopen the session's last view, e.g. a session left in Changes comes back in Changes after claude --resume",
+      "reopen the session's last view, e.g. a session left in Changes comes back in Changes after `claude --resume`",
       "start in the chat, or the view shown last in the project",
     ),
-    notes: [(c) => `Stored per project in ${tilde(sessionViewsFile(c.cwd))}.`],
+    notes: [(c) => `Stored per project in \`${tilde(sessionViewsFile(c.cwd))}\`.`],
   },
   {
     key: "mouse",
     group: "General",
     label: "mouse",
     description: (c) =>
-      `Whether the viewer takes the mouse: a click on a tab switches to it, a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what Enter does, and the wheel scrolls the preview (or moves through the list). A drag in the preview selects lines and copies them when released. While it is on, the terminal leaves clicks to the viewer: ${selectText(c.terminal)}.`,
+      `Whether the viewer takes the mouse: a click on a tab switches to it, a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what \`Enter\` does, and the wheel scrolls the preview (or moves through the list). A drag in the preview selects lines and copies them when released. While it is on, the terminal leaves clicks to the viewer: ${selectText(c.terminal)}.`,
     values: ON_OFF("clicks and wheel go to the viewer", (c) =>
-      c.terminal === "tmux" ? "tmux and the terminal keep the mouse, as in any other pane" : "the terminal keeps the mouse: a drag selects text, Ctrl+click opens links",
+      c.terminal === "tmux" ? "tmux and the terminal keep the mouse, as in any other pane" : "the terminal keeps the mouse: a drag selects text, `Ctrl+click` opens links",
     ),
   },
   {
@@ -340,7 +353,7 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "filter in",
     description:
-      "What the list filter (Ctrl+F) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). For example, with the details, src/tui in Sessions finds the sessions that changed a file there, although no row shows it. Every word must match, in any order; * stands for any characters, ? for one. In the filter dialog, ^L and ^D switch them on and off, which changes this setting.",
+      "What the list filter (`Ctrl+F`) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). For example, with the details, `src/tui` in Sessions finds the sessions that changed a file there, although no row shows it. Every word must match, in any order; `*` stands for any characters, `?` for one. In the filter dialog, `^L` and `^D` switch them on and off, which changes this setting.",
     values: FILTER_IN_VALUES.map((v) => [v, FILTER_IN_MEANINGS[v]]),
   },
   {
@@ -350,7 +363,7 @@ export const SETTING_ROWS: Row[] = [
     description:
       "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries at the end of the list show the notes of each version and run the update. With auto, the viewer also opens the update here as soon as the check finds one and asks whether to install it. Choose on to update when it suits you, off without network access.",
     values: UPDATE_VALUES.map((v) => [v, UPDATE_MEANINGS[v]]),
-    notes: ["F5 in Settings checks once either way.", "The answer is kept in ~/.claude/cco/releases.json, so the notes also show offline."],
+    notes: ["`F5` in Settings checks once either way.", "The answer is kept in `~/.claude/cco/releases.json`, so the notes also show offline."],
   },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
@@ -359,13 +372,13 @@ export const SETTING_ROWS: Row[] = [
     group: "Chat",
     label: "tool calls",
     description:
-      "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame, and what Claude did in the browser (Claude in Chrome, the desktop app's Browser pane) in a cyan one, with numbered screenshots that a click or o / O opens; otherwise they are tool calls like the others.",
+      "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame, and what Claude did in the browser (Claude in Chrome, the desktop app's Browser pane) in a cyan one, with numbered screenshots that a click or `o` / `O` opens; otherwise they are tool calls like the others.",
     values: [
       ["off", "hide them; Claude's text reads as one answer"],
       ["compact", "a line each, with the result, e.g. ⚙ Read src/app.ts · 120 lines, ⚙ Edit src/app.ts · +4 −2, ⚙ Bash Run the tests · ✓ · 38 lines"],
       ["full", "also the command, the last 10 lines of its output, and the first 5 files a search found"],
     ],
-    viewKey: "t in Chat",
+    viewKey: "`t` in Chat",
   },
   {
     key: "showThinking",
@@ -373,20 +386,20 @@ export const SETTING_ROWS: Row[] = [
     label: "thinking",
     description: "Whether the chat shows Claude's thinking blocks: what it considered before an answer or a tool call. Useful to see why Claude took a path; the turns get much longer.",
     values: ON_OFF("show them where Claude thought, between the text", "hide them; only what Claude wrote to you"),
-    viewKey: "h in Chat",
+    viewKey: "`h` in Chat",
   },
   {
     key: "showAgents",
     group: "Chat",
     label: "agents",
     description:
-      "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. a in Chat opens what a subagent did.",
-    values: ON_OFF("show them, e.g. an Explore agent searching the code, with its status", "hide them; a still opens what they did"),
+      "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. `a` in Chat opens what a subagent did.",
+    values: ON_OFF("show them, e.g. an Explore agent searching the code, with its status", "hide them; `a` still opens what they did"),
   },
   wrapRow("chatWrap", "Chat", "in the chat", "useful for wide tables and code blocks"),
   listOrder("chatOrder", "Chat", "turns"),
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
-  listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. src/tui/SettingsView.tsx deep in a folder; a narrower one leaves the diffs more room."),
+  listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room."),
   wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),
   viewTab("viewPlan", "Plan", "3", "the plans Claude presented in plan mode"),
   listWidthRow("planListWidth", "Plan", "list width", "Plan", "A wider list shows more of each plan's title; a narrower one leaves the plan text more room."),
@@ -399,8 +412,8 @@ export const SETTING_ROWS: Row[] = [
     group: "Sessions",
     label: "all projects",
     description: "Whether the Sessions view lists the sessions of all projects or only of this one. All projects helps to find a session started in another folder; the trash follows the same choice.",
-    values: ON_OFF("all projects with sessions in ~/.claude/projects", (c) => `only this one, ${basename(c.cwd) || c.cwd}`),
-    viewKey: "a in Sessions",
+    values: ON_OFF("all projects with sessions in `~/.claude/projects`", (c) => `only this one, ${basename(c.cwd) || c.cwd}`),
+    viewKey: "`a` in Sessions",
   },
   {
     key: "pinnedSessions",
@@ -448,10 +461,7 @@ function tilde(path: string): string {
 /** Detail lines of a setting: its values (current one marked, default named), the view key and notes. */
 /** The preview of a reset action: what it does, and what it would change or delete right now. */
 function resetLines(action: ResetAction, changed: string[], marked: number, saved: { name: string; path: string }[], width: number): string[] {
-  const wrap = (text: string, indent = "") =>
-    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
-      .split("\n")
-      .map((l) => indent + l);
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(action.description), ""];
   if (action.id === "settings") {
     lines.push(bold("Changed"));
@@ -463,7 +473,7 @@ function resetLines(action: ResetAction, changed: string[], marked: number, save
     if (saved.length === 0) lines.push(dim("  nothing saved for this project"));
     for (const d of saved) lines.push(...wrap(d.name, "  "), ...wrap(dim(tilde(d.path)), "    "));
   }
-  lines.push("", dim("Enter asks before anything is changed."));
+  lines.push("", dim(codeMarks("`Enter` asks before anything is changed.")));
   return lines;
 }
 
@@ -502,33 +512,27 @@ export function checkProgress(checking: DoctorChecking): Progress {
 
 /** The doctor's details: what it does, the repair while it runs, then the report of the last check (the dialog shows a check under way). */
 function doctorLines(action: ResetAction, check: DoctorCheck | undefined, checking: DoctorChecking | undefined, run: DoctorRun | undefined, width: number): string[] {
-  const wrap = (text: string, indent = "") =>
-    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
-      .split("\n")
-      .map((l) => indent + l);
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(action.description)];
   if (run) {
     lines.push("", bold("Repair"));
     for (const r of run.results) {
       const mark = r.status === "done" ? GREEN("✓") : r.status === "failed" ? RED("✗") : r.status === "running" ? YELLOW("●") : dim("○");
       lines.push(...wrap(`${mark} ${r.step.command ?? r.step.label}`, "  "));
-      if (r.status === "running" || r.status === "failed") for (const l of outputTail(r.output, 12)) lines.push(...wrap(dim(l), "      "));
+      if (r.status === "running" || r.status === "failed") for (const l of outputTail(r.output, 12)) lines.push(...wrapText(dim(l), width, "      ", false));
     }
     if (run.status === "running") lines.push("", dim("Repairing…"));
   }
   if (checking) return lines;
-  if (!check) return [...lines, "", dim("Not checked yet. Enter asks, then checks.")];
+  if (!check) return [...lines, "", dim(codeMarks("Not checked yet. `Enter` asks, then checks."))];
   lines.push(...wrapIndented(reportLines(check.findings, true), width), "");
   const repairable = countFindings(check.findings).repairable;
-  lines.push(dim(repairable > 0 ? `Enter asks, then repairs ${repairable} of them. F5 checks again.` : "Nothing to repair. Enter or F5 checks again."));
+  lines.push(dim(codeMarks(repairable > 0 ? `\`Enter\` asks, then repairs ${repairable} of them. \`F5\` checks again.` : "Nothing to repair. `Enter` or `F5` checks again.")));
   return lines;
 }
 
 export function settingLines(row: Row, current: string | boolean, width: number, context: TextContext): string[] {
-  const wrap = (text: string, indent = "") =>
-    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
-      .split("\n")
-      .map((l) => indent + l);
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(textOf(row.description, context)), ""];
   lines.push(bold("Values"));
   for (const [value, meaning] of row.values) {
@@ -540,7 +544,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
     // Names in colour, so they stand out from their descriptions: the current one green, the others gray.
     lines.push(selected ? `\u001b[32m● ${name}\u001b[39m` : `${dim("○")} \u001b[90m${name}\u001b[39m`, ...wrap(textOf(meaning, context), "  "));
   }
-  if (row.viewKey) lines.push("", dim(`Also ${row.viewKey}.`));
+  if (row.viewKey) lines.push("", dim(codeMarks(`Also ${row.viewKey}.`)));
   for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
   return lines;
 }
@@ -631,37 +635,34 @@ export function repairProgress(run: DoctorRun, copy?: () => void, onClose?: () =
 
 /** The update entry's details: what Enter does, the steps while they run, then the notes of the newer releases. */
 function updateLines(update: Update, width: number): string[] {
-  const wrap = (text: string, indent = "") =>
-    wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
-      .split("\n")
-      .map((l) => indent + l);
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const { state, run } = update;
-  const commands = UPDATE_STEPS.map((s) => `  ${s.command}`);
+  const commands = UPDATE_STEPS.map((s) => `  ${codeSpan(s.command)}`);
   const lines: string[] = [];
   if (run) {
     for (const s of run.steps) {
       const mark = s.status === "done" ? GREEN("✓") : s.status === "failed" ? RED("✗") : s.status === "running" ? YELLOW("●") : dim("○");
-      lines.push(...wrap(`${mark} ${s.step.label}: ${s.step.command}`));
-      if (s.status === "running" || s.status === "failed") for (const l of outputTail(s.output, 12)) lines.push(...wrap(dim(l), "    "));
+      lines.push(...wrap(`${mark} ${s.step.label}: \`${s.step.command}\``));
+      if (s.status === "running" || s.status === "failed") for (const l of outputTail(s.output, 12)) lines.push(...wrapText(dim(l), width, "    ", false));
     }
     lines.push("");
     if (run.status === "failed")
-      lines.push(...wrap("The update stopped. Run the rest by hand (c copies it), then close the viewer with q and open it again:"), ...remainingCommands(run.steps).map((c) => `  ${c}`));
+      lines.push(...wrap("The update stopped. Run the rest by hand (`c` copies it), then close the viewer with `q` and open it again:"), ...remainingCommands(run.steps).map((c) => `  ${codeSpan(c)}`));
     else if (run.status === "done")
-      lines.push(...wrap(`Updated to v${run.target}. The viewer opens again with it; if it does not, close it with q and open it again. Restart Claude Code for the plugin.`));
+      lines.push(...wrap(`Updated to v${run.target}. The viewer opens again with it; if it does not, close it with \`q\` and open it again. Restart Claude Code for the plugin.`));
     else lines.push(dim("Updating…"));
   } else if (state.kind === "update") {
     lines.push(
-      ...wrap(`v${state.target} is out; this is v${VERSION}. Enter asks, then runs:`),
+      ...wrap(`v${state.target} is out; this is v${VERSION}. \`Enter\` asks, then runs:`),
       ...commands,
       "",
-      ...wrap(dim("Then the viewer opens again with the new version. The plugin (hooks, /cco:… commands) takes effect when Claude Code restarts.")),
+      ...wrap(dim("Then the viewer opens again with the new version. The plugin (hooks, `/cco:…` commands) takes effect when Claude Code restarts.")),
     );
   } else if (state.kind === "restart") {
-    lines.push(...wrap(`v${state.target} is installed; this viewer still runs v${VERSION}. Enter opens it again with the new version.`));
+    lines.push(...wrap(`v${state.target} is installed; this viewer still runs v${VERSION}. \`Enter\` opens it again with the new version.`));
   } else if (state.kind === "dev") {
     lines.push(
-      ...wrap(`v${state.target} is out; this is v${VERSION}, run from ${tilde(update.root)} (npm link or npx), which cco does not update. Update the checkout, or install the release (c copies it):`),
+      ...wrap(`v${state.target} is out; this is v${VERSION}, run from \`${tilde(update.root)}\` (\`npm link\` or \`npx\`), which cco does not update. Update the checkout, or install the release (\`c\` copies it):`),
       ...commands,
     );
   }
@@ -678,9 +679,9 @@ function releasesNote(update: Update, width: number): string[] {
   const text = update.checking
     ? "Asking npm and GitHub…"
     : update.mode === "off" && update.checkedAt === undefined
-      ? "The update check is off (General: update), so cco has not asked GitHub for the release notes. F5 checks once."
-      : "npm and GitHub could not be reached. F5 tries again.";
-  return wrapAnsi(text, Math.max(10, width), { hard: true }).split("\n");
+      ? "The update check is off (General: update), so cco has not asked GitHub for the release notes. `F5` checks once."
+      : "npm and GitHub could not be reached. `F5` tries again.";
+  return wrapText(text, width);
 }
 
 /** What a restart runs: the version on disk, which differs from the running one after an update. */
@@ -743,9 +744,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     items: listEntries,
     text: (e) =>
       "key" in e
-        ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: textOf(e.description, context) }
+        ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: plainMarks(textOf(e.description, context)) }
         : "id" in e
-          ? { list: haystack(["Reset", e.label]), details: e.description }
+          ? { list: haystack(["Reset", e.label]), details: plainMarks(e.description) }
           : e.kind === "release"
             ? { list: haystack(["Releases", e.release.tag, e.release.title]), details: e.release.body }
             : { list: haystack(["Releases", entryLabel(e)]), details: "" },
