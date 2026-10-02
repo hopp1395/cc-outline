@@ -10,6 +10,7 @@ import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
+import { failureLines, outputTail, ProgressDialog, stepText, type Progress, type ProgressStep } from "./ProgressDialog.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { haystack } from "../filter.js";
@@ -25,7 +26,7 @@ import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repa
 import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
 import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
-import { useUpdateInfo, type Update } from "./useUpdate.js";
+import { useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
 
 interface Props {
   layout: Layout;
@@ -452,28 +453,21 @@ export interface DoctorCheck {
   at: number;
 }
 
-/** A check under way: the findings of the groups done, and the group being checked. */
+/** A check under way: the group being checked. */
 export interface DoctorChecking {
-  findings: Finding[];
   current: DoctorGroup;
 }
 
 /** The pause before each group's check, so the progress can be followed. */
 const CHECK_STEP_MS = 300;
 
-/** The groups of a check under way: done with their worst result, the current one, the ones to come. */
-function checkingLines(checking: DoctorChecking): string[] {
+/** The check's progress dialog: the group being checked. */
+export function checkProgress(checking: DoctorChecking): Progress {
   const at = DOCTOR_GROUPS.indexOf(checking.current);
-  return DOCTOR_GROUPS.map((group, i) => {
-    if (i === at) return `  ${YELLOW("●")} Checking ${group}…`;
-    if (i > at) return `  ${dim(`○ ${group}`)}`;
-    const own = checking.findings.filter((f) => f.group === group);
-    const mark = own.some((f) => f.severity === "error") ? RED("✗") : own.some((f) => f.severity === "warn") ? YELLOW("!") : GREEN("✓");
-    return `  ${mark} ${group}`;
-  });
+  return { title: "Doctor", status: "running", text: `Checking – ${checking.current} (${at + 1}/${DOCTOR_GROUPS.length})…` };
 }
 
-/** The doctor's details: what it does, the repair while it runs, the check's progress, then the report of the last check. */
+/** The doctor's details: what it does, the repair while it runs, then the report of the last check (the dialog shows a check under way). */
 function doctorLines(action: ResetAction, check: DoctorCheck | undefined, checking: DoctorChecking | undefined, run: DoctorRun | undefined, width: number): string[] {
   const wrap = (text: string, indent = "") =>
     wrapAnsi(text, Math.max(10, width - indent.length), { hard: true })
@@ -489,7 +483,7 @@ function doctorLines(action: ResetAction, check: DoctorCheck | undefined, checki
     }
     if (run.status === "running") lines.push("", dim("Repairing…"));
   }
-  if (checking) return [...lines, "", bold("Checking"), ...checkingLines(checking)];
+  if (checking) return lines;
   if (!check) return [...lines, "", dim("Not checked yet. Enter asks, then checks.")];
   lines.push(...wrapIndented(reportLines(check.findings, true), width), "");
   const repairable = countFindings(check.findings).repairable;
@@ -550,18 +544,43 @@ const RED = (s: string) => `\u001b[31m${s}\u001b[39m`;
 const YELLOW = (s: string) => `\u001b[33m${s}\u001b[39m`;
 
 /** The last `n` lines a command wrote, without colours and with progress lines (\r) reduced to their last state. */
-function outputTail(text: string, n: number): string[] {
-  return text
-    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
-    .split(/\r?\n/)
-    .map((l) => l.split("\r").at(-1) ?? "")
-    .filter((l) => l.trim() !== "")
-    .slice(-n);
-}
-
 const newerReleases = (update: Update) => update.releases.filter((r) => compareVersions(r.version, VERSION) > 0);
 const day = (iso?: string) => (iso ? iso.slice(0, 10) : undefined);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** The update's progress dialog: the step running, then the restart, or where it stopped. */
+export function updateProgress(run: UpdateRun, copy: () => void): Progress {
+  const steps: ProgressStep[] = run.steps.map((s) => ({ label: s.step.label, status: s.status, output: s.output }));
+  const title = `Update cco to v${run.target}`;
+  if (run.status === "running") return { title, status: "running", text: `Updating – ${stepText(steps) ?? "starting"}…` };
+  if (run.status === "failed")
+    return {
+      title,
+      status: "failed",
+      text: `The update stopped at ${stepText(steps)}`,
+      lines: [...failureLines(steps), "Run the rest by hand, then reopen the viewer."],
+      copy,
+    };
+  if (run.reopenFailed)
+    return {
+      title,
+      status: "done",
+      text: `Updated to v${run.target}`,
+      lines: ["The viewer cannot reopen itself here: close it with q and open it again.", "Restart Claude Code for the plugin."],
+    };
+  return { title, status: "waiting", text: `Updated to v${run.target} – restarting…` };
+}
+
+/** The repair's progress dialog: the step running, or the steps that failed. */
+export function repairProgress(run: DoctorRun): Progress {
+  const steps: ProgressStep[] = run.results.map((r) => ({ label: r.step.label, status: r.status, output: r.output }));
+  const title = "Repair";
+  if (run.status === "failed") {
+    const failed = steps.filter((s) => s.status === "failed").length;
+    return { title, status: "failed", text: `${failed} of ${plural(steps.length, "repair")} failed`, lines: [...failureLines(steps), "The report shows what is left."] };
+  }
+  return { title, status: "running", text: `Repairing – ${stepText(steps) ?? "starting"}…` };
+}
 
 /** The update entry's details: what Enter does, the steps while they run, then the notes of the newer releases. */
 function updateLines(update: Update, width: number): string[] {
@@ -647,6 +666,10 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   // A newer check (F5 during one) makes the older one stop.
   const checkRun = useRef(0);
   const [doctorRun, setDoctorRun] = useState<DoctorRun>();
+  // The progress dialogs of the update and the repair: open from the confirmation until Esc after the end
+  // (a repair that worked closes its own; a successful update ends with the viewer).
+  const [updateDialog, setUpdateDialog] = useState(false);
+  const [repairDialog, setRepairDialog] = useState(false);
   const listEntries = settingsEntries(update);
   const entries = listEntries.map(keyOf);
   // Kept by key: the releases arrive after the start and move the entries below them.
@@ -688,8 +711,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const updating = update.run?.status === "running";
   // A check or a repair of the doctor under way.
   const doctorBusy = doctorRun?.status === "running" || doctorChecking !== undefined;
-  // While the update, a check or a repair runs, the app keeps q, p and the other views away from it.
-  useEffect(() => onModal?.(confirmation !== undefined || updating || doctorBusy), [confirmation, updating, doctorBusy]);
+  const repairOpen = repairDialog && doctorRun !== undefined && doctorRun.status !== "done";
+  // A check shows its dialog too; after a repair that failed, that one stays in front.
+  const progressOpen = (updateDialog && update.run !== undefined) || repairOpen || doctorChecking !== undefined;
+  // While the update, a check or a repair runs or its dialog is open, the app keeps q, p and the other views away from it.
+  const modal = confirmation !== undefined || updating || doctorBusy || progressOpen;
+  useEffect(() => {
+    onModal?.(modal);
+  }, [modal]);
   useEffect(() => positions.select(entryKey), [entryKey]);
   useEffect(() => {
     if (!asked) return;
@@ -815,7 +844,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     const run = ++checkRun.current;
     const findings: Finding[] = [];
     for (const group of DOCTOR_GROUPS) {
-      setDoctorChecking({ findings: [...findings], current: group });
+      setDoctorChecking({ current: group });
       await new Promise((resolve) => setTimeout(resolve, CHECK_STEP_MS));
       if (run !== checkRun.current) return;
       findings.push(...diagnoseGroup(group, { cwd }));
@@ -837,6 +866,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       title: `Repair ${plural(countFindings(findings).repairable, "finding")}?`,
       lines: repairs.map((r) => `· ${r.label}`),
       onConfirm: () => {
+        setRepairDialog(true);
         setDoctorRun({ results: [], status: "running" });
         void runRepairs(repairSteps(repairs), (results) => setDoctorRun({ results, status: "running" })).then((ok) => {
           setDoctorRun((run) => run && { ...run, status: ok ? "done" : "failed" });
@@ -857,11 +887,21 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     setConfirmation({
       title: `Update cco to v${state.target}?`,
       lines: [...UPDATE_STEPS.map((s) => s.command), "Then the viewer opens again with the new version."],
-      onConfirm: update.start,
+      onConfirm: () => {
+        setUpdateDialog(true);
+        update.start();
+      },
     });
   // What c copies on the update entry: the commands still to run.
   const commandsToCopy = update.run?.status === "failed" ? remainingCommands(update.run.steps) : UPDATE_STEPS.map((s) => s.command);
   const onUpdate = release?.kind === "update";
+  const copyCommands = () => void copy(commandsToCopy.join("\n")).then(() => setCopied(true));
+  const progress =
+    updateDialog && update.run
+      ? updateProgress(update.run, copyCommands)
+      : repairOpen
+        ? repairProgress(doctorRun)
+        : doctorChecking && checkProgress(doctorChecking);
 
   /** Enter (or a double click) on the selected entry: a reset or the update asks first, a setting takes its next value. */
   const activate = () => {
@@ -897,15 +937,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       }
       if (filter.none && (key.return || input === "r" || input === "c")) return;
       if (key.return && (reset || onUpdate || row)) return activate();
-      if (onUpdate && input === "c") {
-        void copy(commandsToCopy.join("\n")).then(() => setCopied(true));
-        return;
-      }
+      if (onUpdate && input === "c") return copyCommands();
       if (input === "r" && row) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined && !filter.open },
+    { isActive: active && confirmation === undefined && !progressOpen && !filter.open },
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
@@ -962,7 +999,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           <List
             onPick={select}
             // A double click does what Enter does.
-            onClick={(i) => isDoubleClick(i) && i === index && !updating && !doctorBusy && activate()}
+            onClick={(i) => isDoubleClick(i) && i === index && !modal && activate()}
             items={listEntries}
             shown={filter.shown}
             pinned={filter.pinned}
@@ -981,7 +1018,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               return (
                 <>
                   {star && <Star />}
-                  <EntryText text={label} width={labelWidth} selected={isSelected} active={active && confirmation === undefined} />
+                  <EntryText text={label} width={labelWidth} selected={isSelected} active={active && !modal} />
                   {value && <Text color={color}>{" ".repeat(pad + 1) + value}</Text>}
                 </>
               );
@@ -1013,6 +1050,16 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       />
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
+      )}
+      {progress && (
+        <ProgressDialog
+          layout={layout}
+          progress={progress}
+          onClose={() => {
+            setUpdateDialog(false);
+            setRepairDialog(false);
+          }}
+        />
       )}
       {filter.dialog}
     </>
