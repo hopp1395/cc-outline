@@ -6,7 +6,7 @@ import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
-import { isAlive, registerViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
+import { isAlive, registerViewer, runningViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
 
 const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
 
@@ -62,6 +62,12 @@ program
   .addOption(new Option("--action <action>").choices(["update"]).hideHelp())
   .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction }) => {
     const claudePid = validPid(opts.claudePid);
+    // One viewer per Claude Code: a second one would share its state files and its /cco:… requests.
+    const other = claudePid ? runningViewer(opts.cwd, claudePid) : undefined;
+    if (other && other.pid !== process.pid) {
+      console.error(`cco: a viewer (pid ${other.pid}) already runs for this Claude Code`);
+      process.exit(1);
+    }
     // The App records the view it actually starts in.
     registerViewer(opts.cwd, opts.view ?? "chat", claudePid);
     // Also covers exits that bypass Ink, e.g. the pane being closed.
@@ -100,14 +106,16 @@ program
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   .addOption(new Option("--updated-to <version>").hideHelp())
   .addOption(new Option("--action <action>", "restart the running viewer (else open one), or check for an update and offer it").choices(VIEWER_ACTIONS))
-  .action(async (opts: { cwd: string; view?: Mode; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction }) => {
+  // A viewer that paired with a Claude Code it started (Sessions) moves next to it: its wt window or tmux pane.
+  .addOption(new Option("--target <target>").hideHelp())
+  .action(async (opts: { cwd: string; view?: Mode; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string }) => {
     const afterPid = validPid(opts.afterPid);
     if (afterPid) await waitForExit(afterPid);
     const claudePid = validPid(opts.claudePid) ?? claudePidFromEnv();
     // Moving with p is not a command of Claude Code's.
     const queued = afterPid === undefined && openedFromQueue(opts.cwd, claudePid);
     const view = opts.view ?? (opts.action ? undefined : "chat");
-    console.log(openPane(opts.cwd, view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued, action: opts.action }));
+    console.log(openPane(opts.cwd, view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued, action: opts.action, target: opts.target }));
   });
 
 program

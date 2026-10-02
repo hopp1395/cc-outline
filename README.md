@@ -111,7 +111,7 @@ To load the plugin for a single session without installing it, run `claude --plu
   - `--session <id>`: show this session instead of the active one
   - `--view chat|git|plan|sessions|settings|monitor`: view to start with (default: the session's last view, see *view per session*, else `chat`)
 
-  A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ pair`), see [Sessions](#sessions-view).
+  A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ attach`), see [Sessions](#sessions-view).
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
 - **`cco doctor`** checks what cco needs and prints a report, one line per check (`✓` fine, `!` worth a look, `✗` error), with what to do below each problem:
   - *Installation:* npm install or checkout, the path the plugin starts cco by (`~/.claude/cco/cli.json`), whether the plugin `cco@cc-outline` is installed and enabled, and whether its version matches the CLI.
@@ -291,9 +291,22 @@ Below it:
 
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. The first read fills the list as it goes (`reading 42/97` in the top bar); with many projects it takes a few seconds. After that only files that changed are read again, and of those only the part that was appended. Only what the overview shows is kept in memory, not the answers.
 
-**Starting.** `Enter` asks for a confirmation (`Enter` yes, `Esc` no) and then continues the selected session in a new Windows Terminal window (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The active session is not started a second time. For a session already running in another Claude Code, `Enter` (`↵ switch`) asks whether to switch to the tab it runs in and brings that tab to the front instead: in tmux its pane, in Windows Terminal the tab titled with the session's name (it takes a second or two; with two tabs of the same name, nothing is switched). A background session without a tab is named with its `claude attach <id>` command. In other terminals the help line names the command to run instead.
+**Enter: attach, resume, detach.** `Enter` (or a double click) on a session always opens the same dialog: the actions that make sense for it, the usual one selected (`↑`/`↓` and `Enter`, or its number; `Esc` cancels), the others greyed out with the reason they cannot be chosen now. The help line names the action selected (`↵ switch`, `↵ attach`, `↵ resume here`, `↵ new window`, `↵ start + attach`, `↵ copy`). A viewer *attached* to a Claude Code is one opened by a `/cco:…` command or on start, or attached later; one started by hand (`cco watch`) is *detached* and follows the project's latest session. Only one viewer runs per Claude Code: `cco watch --claude-pid` refuses to start a second.
 
-**Pairing.** A viewer started by hand (`cco watch`, not by a `/cco:…` command or on start) belongs to no Claude Code. `Enter` on a session running in a Claude Code that has no viewer yet (`↵ pair`) pairs it with that Claude Code after a confirmation: the viewer stays where it is, switches to that session's project and shows its chat, follows it like a viewer opened with `/cco:chat` (also after `/clear` and `/resume`), and closes when that Claude Code ends. Its `/cco:…` commands then use this viewer instead of opening another one. A viewer that belongs to a Claude Code already switches to the tab as described above.
+| The session | Viewer attached | Viewer detached |
+|---|---|---|
+| the viewer's own | **Stay attached** · Detach the viewer | (as any other) |
+| runs in another Claude Code | **Switch to its tab** · Attach the viewer there | **Attach the viewer** · Switch to its tab |
+| runs nowhere | Continue it here · **Continue it in a new window** · New window and attach | **Start it and attach the viewer** · Only start it |
+
+Every dialog ends with *Copy the command* (`claude --resume <session-id>`, for a background session of the Claude Code daemon `claude attach <id>`), which is selected when nothing else can be done: without Windows Terminal or tmux there is no tab to switch to and no window to open, and a session whose folder is gone cannot be continued.
+
+- *Detach the viewer*: it stays open, now detached, and follows the project's latest session; `/cco:…` in its former Claude Code opens a new viewer. *Stay attached* is selected, so `Enter` twice changes nothing.
+- *Switch to its tab* brings the tab the session runs in to the front: in tmux its pane, in Windows Terminal the tab titled with the session's name (it takes a second or two; with two tabs of the same name, nothing is switched). A background session without a tab says to use `claude attach <id>`.
+- *Attach the viewer (there)*: the viewer stays where it is, switches to that session's project and shows its chat, follows it like a viewer opened with `/cco:chat` (also after `/clear` and `/resume`), and closes when that Claude Code ends; its `/cco:…` commands then use this viewer. An attached viewer leaves its former Claude Code without one. Not on offer when that Claude Code has a viewer of its own.
+- *Continue it here*: in the Claude Code the viewer belongs to, with `/resume <session-id>`. The command is typed in for you, after clearing whatever was typed there: in tmux into its pane, on Windows into its console (which tab or pane has the focus does not matter). Where that does not work, it is copied instead and the focus moves to Claude Code's pane next to the viewer, so `Ctrl+V` and `Enter` continue it. Selected when that Claude Code has no prompt yet (a `/clear` at the start does not count), and not on offer while Claude works or waits for an answer, or for a session of another project folder (`/resume` only finds the sessions of the folder Claude Code was started in). The viewer then follows the session as after a `/resume` typed by hand.
+- *Continue it in a new window* / *Only start it*: a new Windows Terminal window (or a new tmux window), in the folder it ran in, with `claude --resume <session-id>`. The shell stays open when Claude Code exits. The viewer stays as it is; the new Claude Code opens a viewer of its own if the *auto open* setting says so.
+- *New window and attach* / *Start it and attach the viewer*: the same, then the dialog waits for its Claude Code (`Waiting for Claude Code… 4/30 s`, `Esc` stops waiting); that Claude Code opens no viewer of its own, and once it runs, the viewer moves next to it as the *placement* setting says and shows its chat. If it does not show up within 30 seconds, the viewer stays as it was, and the started Claude Code keeps running.
 
 **Deleting.** Claude Code has no command to delete a session; cc-outline moves it to a trash of its own first.
 - `d` (or `Del`) moves the selected session to the trash, after a confirmation. It then disappears from the list and from `/resume`. `u` right afterwards undoes it.
@@ -403,7 +416,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+↑` / `Ctrl+↓` | scroll by line | scroll by line | scroll by line | scroll by line |
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
-| `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | start the session in a new window, switch to the tab it runs in, or pair a viewer started by hand with it |
+| `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | what to do with the session: switch to its tab, attach the viewer, resume it here or in a new window, detach (a dialog) |
 | `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | tool calls off / compact / full; thinking | – | – | – |
