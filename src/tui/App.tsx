@@ -18,6 +18,7 @@ import { InfoDialog } from "./InfoDialog.js";
 import { MonitorView } from "./MonitorView.js";
 import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
+import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { SessionColorContext, tabAt, useLayout, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
@@ -26,7 +27,7 @@ import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
-import { UpdateContext, useUpdate } from "./useUpdate.js";
+import { RESTART_DELAY_MS, UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
@@ -113,6 +114,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
   const [quitAsked, setQuitAsked] = useState(false);
   const [confirmQuit] = useSetting("confirmQuit");
+  // The one progress dialog of all runs the user starts (update, doctor, export, import, attaching, restart).
+  const progress = useProgressHost(layout);
   const [mouse] = useSetting("mouse");
   useMouseReporting(mouse);
   // Mouse events go to the shown view only, and to none while a dialog is open.
@@ -165,7 +168,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
-  const blocked = infoOpen || quitAsked || placementOpen || whatsNewOpen;
+  const blocked = infoOpen || quitAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
@@ -241,11 +244,25 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     writeTargetSession(target);
     if (moveViewer(target.cwd, "chat", resolvePlacement(target.cwd, target.sessionId), target.claudePid, undefined, where)) exit();
   };
-  // Reset: restart. The viewer reopens where it is, running the CLI on disk now.
+  // Reset: restart, and /cco:restart. The viewer says so for a moment, then reopens where it is, running the CLI on disk now.
+  const restarting = useRef(false);
   const restartViewer = () => {
     // A viewer of one session (--session) was not opened by cco open, which cannot reopen it.
-    if (sessionId) return;
-    if (moveViewer(cwd, mode, placement ?? resolvePlacement(cwd, sessionOf(path)), claudePid)) exit();
+    if (sessionId || restarting.current) return;
+    restarting.current = true;
+    const title = "Restart the viewer";
+    progress.host.set("restart", { title, status: "running", text: "Restarting" });
+    setTimeout(() => {
+      if (moveViewer(cwd, mode, placement ?? resolvePlacement(cwd, sessionOf(path)), claudePid)) return exit();
+      restarting.current = false;
+      progress.host.set("restart", {
+        title,
+        status: "failed",
+        text: "The viewer did not reopen",
+        lines: [REOPEN_BY_HAND],
+        onClose: () => progress.host.set("restart", undefined),
+      });
+    }, RESTART_DELAY_MS);
   };
   const resetProjectData = () => {
     suspendPositionWrites(true);
@@ -291,7 +308,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || placementOpen || whatsNewOpen) return;
+    if (modal || typing || quitAsked || placementOpen || whatsNewOpen || progress.host.open) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -320,6 +337,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   return (
     <FocusContext.Provider value={focused}>
     <UpdateContext.Provider value={update}>
+    <ProgressHostProvider host={progress.host}>
     <SessionColorContext.Provider value={transcript.color}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
@@ -441,8 +459,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onClose={() => setQuitAsked(false)}
           />
         )}
+        {progress.dialog}
       </Box>
     </SessionColorContext.Provider>
+    </ProgressHostProvider>
     </UpdateContext.Provider>
     </FocusContext.Provider>
   );
