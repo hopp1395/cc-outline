@@ -15,9 +15,14 @@ const cwd = join(tmpdir(), "cco-activity-project");
 
 let saved: string | undefined;
 let level: typeof chalk.level;
+let savedTerminal: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-activity-"));
+  // A terminal to switch tabs in, as in Windows Terminal; CI has none.
+  savedTerminal = { TMUX: process.env.TMUX, WT_SESSION: process.env.WT_SESSION };
+  delete process.env.TMUX;
+  process.env.WT_SESSION = "x";
   mkdirSync(projectDir(cwd), { recursive: true });
   // With colours, so the list's marker shows its style.
   level = chalk.level;
@@ -25,6 +30,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
+  for (const [key, value] of Object.entries(savedTerminal)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   chalk.level = level;
 });
 

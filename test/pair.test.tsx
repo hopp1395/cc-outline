@@ -16,13 +16,22 @@ const cwd = join(tmpdir(), "cco-pair-project");
 const other = join(tmpdir(), "cco-pair-other");
 
 let saved: string | undefined;
+let savedTerminal: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-pair-"));
+  // A terminal to switch tabs in, as in Windows Terminal; CI has none.
+  savedTerminal = { TMUX: process.env.TMUX, WT_SESSION: process.env.WT_SESSION };
+  delete process.env.TMUX;
+  process.env.WT_SESSION = "x";
   mkdirSync(projectDir(cwd), { recursive: true });
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
+  for (const [key, value] of Object.entries(savedTerminal)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 const target = (over: Partial<PairTarget> = {}): PairTarget => ({ cwd: other, claudePid: process.pid, sessionId: "s1", transcript: "/t/s1.jsonl", ...over });
