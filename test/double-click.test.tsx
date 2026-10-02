@@ -1,11 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick, until } from "./helpers/ink.js";
 import { DEFAULT_SETTINGS, readSettings } from "../src/settings.js";
 import { projectDir } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
@@ -28,33 +26,7 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(<MouseContext.Provider value={true}>{element}</MouseContext.Provider>, {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  /** A left click (press and release) at the one-based terminal cell. */
-  const click = async (column: number, row: number) => {
-    stdin.write(`\u001b[<0;${column};${row}M`);
-    stdin.write(`\u001b[<0;${column};${row}m`);
-    await tick();
-  };
-  return { frame: () => frame, click, unmount: () => app.unmount() };
-}
-
-const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  for (let i = 0; i < 100 && !check(); i++) await tick();
-}
+const renderView = (element: ReactElement) => renderInk(element, layout, { wrap: (e) => <MouseContext.Provider value={true}>{e}</MouseContext.Provider> });
 
 describe("double click", () => {
   it("does what Enter does on a session: asks to continue it", async () => {
@@ -67,6 +39,7 @@ describe("double click", () => {
     await until(() => view.frame().includes("Some work"));
     // The first row of the list, below the top bar.
     await view.click(10, 2);
+    await tick();
     expect(view.frame()).not.toContain("Continue this session");
     await view.click(10, 2);
     await until(() => view.frame().includes("Continue this session"));

@@ -1,10 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick, until } from "./helpers/ink.js";
 import { readExportOptions } from "../src/export/archive.js";
 import { readZip } from "../src/export/zip.js";
 import { toggleFavorite } from "../src/favorites.js";
@@ -32,27 +30,8 @@ afterEach(() => {
   }
 });
 
-function renderView() {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  const frames: string[] = [];
-  stdout.on("data", (chunk) => {
-    const text = String(chunk);
-    if (stripAnsi(text).trim()) frames.push(text);
-  });
-  const app = render(<ProgressProvider layout={layout}><SessionsView cwd={cwd} layout={layout} visible active /></ProgressProvider>, {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  return { frame: () => stripAnsi(frames.at(-1) ?? ""), press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = () => renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout, { wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider> });
 
-const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  for (let i = 0; i < 150 && !check(); i++) await tick();
-}
 
 function session(id: string, text: string, minutesAgo: number) {
   const ts = new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -70,16 +49,16 @@ describe("export in the Sessions view", () => {
     session("bbbbbbbb-2", "second question", 5);
     const view = renderView();
     await until(() => view.frame().includes("second question"));
-    view.press("e");
+    await view.press("e");
     await until(() => view.frame().includes("Tool calls"));
     expect(view.frame()).toContain("markdown · llm · json · backup");
     expect(view.frame()).toContain("cco-session-export.zip");
     // Turn stats off: ↑ wraps to the last field, ← changes it.
-    view.press("\u001b[A");
+    await view.press("\u001b[A");
     await tick();
-    view.press("\u001b[D");
+    await view.press("\u001b[D");
     await tick();
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("✓ Exported"));
     expect(view.frame()).toContain("Export 1 session");
     expect(view.frame()).toContain("Exported 1 session");
@@ -87,7 +66,7 @@ describe("export in the Sessions view", () => {
     expect(readExportOptions().stats).toBe(false);
     const file = join(out, "cco-session-export.zip");
     expect(folders(file).map((f) => f.replace(/^\d{4}-\d\d-\d\d-\d{4}-/, ""))).toEqual(["bbbbbbbb-markdown", "bbbbbbbb-llm", "bbbbbbbb-json", "bbbbbbbb-backup"]);
-    view.press("\u001b");
+    await view.press("\u001b");
     await until(() => !view.frame().includes("✓ Exported"));
     view.unmount();
   });
@@ -100,22 +79,22 @@ describe("export in the Sessions view", () => {
     toggleFavorite(cwd, "sessions", "bbbbbbbb-2");
     const view = renderView();
     await until(() => view.frame().includes("third question"));
-    view.press("e");
+    await view.press("e");
     await until(() => view.frame().includes("2 marked sessions"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("✓ Exported"));
     const file = join(out, "cco-session-export.zip");
     expect(folders(file).filter((f) => f.endsWith("-backup")).map((f) => f.slice(16, 24))).toEqual(["aaaaaaaa", "bbbbbbbb"]);
-    view.press("\u001b");
+    await view.press("\u001b");
     await until(() => !view.frame().includes("✓ Exported"));
     // The view takes keys again once the dialog has closed: let its effects run first (slow CI runners).
     await tick(100);
 
     rmSync(join(projectDir(cwd), "aaaaaaaa-1.jsonl"));
-    view.press("I");
+    await view.press("I");
     await until(() => view.frame().includes("Import sessions"));
     expect(view.frame()).toContain("cco-session-export.zip");
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("✓ Imported"));
     expect(view.frame()).toContain("Imported 1 session · skipped 1 (already there)");
     view.unmount();

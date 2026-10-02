@@ -2,10 +2,8 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
-import stripAnsi from "strip-ansi";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick, until } from "./helpers/ink.js";
 import { proc } from "../src/proc.js";
 import { prepareConsoleInput } from "../src/switchSession.js";
 import { claudeDir, pairingFile, projectDir, readJson } from "../src/transcript/locate.js";
@@ -136,29 +134,9 @@ describe("sessionOptions", () => {
   });
 });
 
-function renderView(props: Partial<Parameters<typeof SessionsView>[0]>) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: layout.columns, rows: layout.rows });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  let written = "";
-  stdout.on("data", (chunk) => {
-    written += String(chunk);
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(<ProgressProvider layout={layout}><SessionsView cwd={cwd} layout={layout} visible active {...props} /></ProgressProvider>, {
-    stdout: stdout as never,
-    stdin: stdin as never,
-    debug: true,
-    patchConsole: false,
-  });
-  return { frame: () => frame, written: () => written, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
-}
+const renderView = (props: Partial<Parameters<typeof SessionsView>[0]>) =>
+  renderInk(<SessionsView cwd={cwd} layout={layout} visible active {...props} />, layout, { wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider> });
 
-const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  for (let i = 0; i < 100 && !check(); i++) await tick();
-}
 
 /** A session of the project that runs nowhere. */
 function pastSession(id: string, dir = cwd) {
@@ -201,11 +179,11 @@ describe("continuing a session that runs nowhere", () => {
     pastSession("s1");
     const view = renderView({ paired: { claudePid: process.pid, empty: true, placement: "right" } });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
     // Started with the dialog, before anything is chosen.
     expect(spawned.filter((c) => c.cmd === "powershell.exe")).toHaveLength(1);
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("continuing it in this Claude Code"));
     expect(spawned.filter((c) => c.cmd === "powershell.exe").map((c) => c.typed)).toEqual(["/resume s1\n"]);
     view.unmount();
@@ -215,9 +193,9 @@ describe("continuing a session that runs nowhere", () => {
     pastSession("s1");
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
-    view.press("2");
+    await view.press("2");
     await until(() => spawned.some((c) => c.args.includes("--resume")));
     expect(spawned.find((c) => c.cmd === "powershell.exe")).toMatchObject({ killed: true, typed: undefined });
     view.unmount();
@@ -227,10 +205,10 @@ describe("continuing a session that runs nowhere", () => {
     pastSession("s1");
     const view = renderView({ paired: { claudePid: process.pid, empty: true, placement: "right" } });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
     expect(view.frame()).toMatch(/› +Continue it here/);
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("copied /resume s1"));
     expect(view.written()).toContain(`\u001b]52;c;${Buffer.from("/resume s1").toString("base64")}`);
     expect(spawned).toContainEqual({ cmd: "wt", args: ["-w", "0", "move-focus", "left"] });
@@ -242,16 +220,16 @@ describe("continuing a session that runs nowhere", () => {
     runs("own", "busy");
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
     expect(view.frame()).toContain("Claude is working");
     expect(view.frame()).toMatch(/› +Continue it in a new window/);
     // A disabled option is not taken, by key or digit.
-    view.press("\u001b[A");
-    view.press("1");
+    await view.press("\u001b[A");
+    await view.press("1");
     await tick(100);
     expect(spawned).toEqual([]);
-    view.press("2");
+    await view.press("2");
     await until(() => spawned.length > 0);
     expect(spawned[0]!.args).toContain("--resume");
     view.unmount();
@@ -262,10 +240,10 @@ describe("continuing a session that runs nowhere", () => {
     const started: [PairTarget, string][] = [];
     const view = renderView({ onPair: () => true, onPairStarted: (t, w) => void started.push([t, w]) });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
     expect(view.frame()).toMatch(/› +Start it and attach the viewer/);
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     expect(spawned[0]!.args.slice(0, 2)).toEqual(["-w", "cco-resume-s1"]);
     // Its hook opens no viewer of its own.
@@ -281,15 +259,15 @@ describe("continuing a session that runs nowhere", () => {
     pastSession("s1");
     const view = renderView({ onPair: () => true, onPairStarted: () => {} });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     // The choice has closed; the progress dialog waits, and Esc cancels it.
     expect(view.frame()).toContain("Attach the viewer");
     expect(view.frame()).toContain("Esc cancel");
     expect(view.frame()).not.toContain("Continue this session where?");
-    view.press("\u001b");
+    await view.press("\u001b");
     await until(() => view.frame().includes("pairing cancelled"));
     expect(existsSync(pairingFile(cwd))).toBe(false);
     view.unmount();
@@ -299,7 +277,7 @@ describe("continuing a session that runs nowhere", () => {
     pastSession("s1", join(tmpdir(), "cco-resume-elsewhere"));
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("Continue this session where?"));
     expect(view.frame()).toContain("ran in cco-resume-elsewhere, not in this folder");
     expect(view.frame()).toMatch(/› +Continue it in a new window/);
@@ -314,16 +292,16 @@ describe("Enter on a session that runs", () => {
     const detached: string[] = [];
     const view = renderView({ activePath: join(projectDir(cwd), "s1.jsonl"), paired: { claudePid: process.pid, empty: false }, onDetach: () => void detached.push("s1") });
     await until(() => view.frame().includes("↵ detach…"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("This viewer's session"));
     expect(view.frame()).toMatch(/› +Stay attached/);
     // Enter twice changes nothing.
-    view.press("\r");
+    await view.press("\r");
     await until(() => !view.frame().includes("This viewer's session"));
     expect(detached).toEqual([]);
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("This viewer's session"));
-    view.press("2");
+    await view.press("2");
     await until(() => detached.length > 0);
     expect(detached).toEqual(["s1"]);
     view.unmount();
@@ -335,10 +313,10 @@ describe("Enter on a session that runs", () => {
     const attached: PairTarget[] = [];
     const view = renderView({ paired: { claudePid: 1, empty: true }, onPair: (t) => (attached.push(t), true) });
     await until(() => view.frame().includes("↵ switch"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("This session runs in a Claude Code"));
     expect(view.frame()).toMatch(/› +Switch to its tab/);
-    view.press("2");
+    await view.press("2");
     await until(() => attached.length > 0);
     expect(attached).toEqual([{ cwd, claudePid: process.pid, sessionId: "s1", transcript: join(projectDir(cwd), "s1.jsonl") }]);
     view.unmount();
@@ -350,10 +328,10 @@ describe("Enter on a session that runs", () => {
     writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", status: "idle", kind: "bg", jobId: "job7" }));
     const view = renderView({ paired: { claudePid: 1, empty: true }, onPair: () => true });
     await until(() => view.frame().includes("↵ switch"));
-    view.press("\r");
+    await view.press("\r");
     await until(() => view.frame().includes("This session runs in a Claude Code"));
     expect(view.frame()).toContain("claude attach job7");
-    view.press("3");
+    await view.press("3");
     await until(() => view.frame().includes("copied: claude attach job7"));
     view.unmount();
   });

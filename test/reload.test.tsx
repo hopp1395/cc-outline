@@ -1,11 +1,10 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { PassThrough } from "node:stream";
-import { Text, render } from "ink";
+import { Text } from "ink";
 import type { ReactElement } from "react";
-import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renderInk, tick } from "./helpers/ink.js";
 import { readSettings, settingsFile } from "../src/settings.js";
 import { TIMING } from "../src/timing.js";
 import { App } from "../src/tui/App.js";
@@ -32,24 +31,8 @@ afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-function renderView(element: ReactElement) {
-  const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 220, rows: 24 });
-  const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {}, setEncoding: () => {}, ref: () => {}, unref: () => {} });
-  let frame = "";
-  stdout.on("data", (chunk) => {
-    const text = stripAnsi(String(chunk));
-    if (text.trim()) frame = text;
-  });
-  const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return {
-    frame: () => frame,
-    press: (keys: string) => stdin.write(keys),
-    rerender: (next: ReactElement) => app.rerender(next),
-    unmount: () => app.unmount(),
-  };
-}
+const renderView = (element: ReactElement) => renderInk(element, { columns: 220, rows: 24 });
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 describe("reload keys", () => {
   it("knows F5 as terminals send it, without modifiers", () => {
@@ -73,16 +56,16 @@ describe("reload keys", () => {
     }
     const view = renderView(<Probe active />);
     await expect.poll(view.frame).toContain("probe");
-    view.press(F5);
+    await view.press(F5);
     await tick();
-    view.press(CTRL_R);
+    await view.press(CTRL_R);
     await tick();
-    view.press("\u001b[17~");
+    await view.press("\u001b[17~");
     await tick();
     expect(count).toBe(2);
     view.rerender(<Probe active={false} />);
     await tick();
-    view.press(F5);
+    await view.press(F5);
     await tick();
     expect(count).toBe(2);
     view.unmount();
@@ -116,11 +99,11 @@ describe("reload in the app", () => {
     const view = renderView(<App cwd={project} sessionId="none" initialMode="settings" />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("settings.json");
     expect(view.frame()).not.toContain("changed");
-    view.press(CTRL_F);
+    await view.press(CTRL_F);
     await tick();
-    view.press("zzz");
+    await view.press("zzz");
     await tick();
-    view.press("\r");
+    await view.press("\r");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("0 of");
     // The dialog closed: the app takes keys again.
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("in the list");
@@ -128,7 +111,7 @@ describe("reload in the app", () => {
     mkdirSync(dirname(settingsFile()), { recursive: true });
     writeFileSync(settingsFile(), JSON.stringify({ ...readSettings(), confirmQuit: !readSettings().confirmQuit }));
     await tick();
-    view.press(F5);
+    await view.press(F5);
     await expect.poll(view.frame, { timeout: 3000, interval: 20 }).toContain("reloaded");
     expect(view.frame()).toContain("1 changed");
     expect(view.frame()).not.toContain("0 of");
@@ -143,12 +126,12 @@ describe("reload in the app", () => {
     writeFileSync(path, prompt("a", "first question") + answer("r", "Answer one.") + prompt("b", "second question") + answer("s", "Answer two."));
     const view = renderView(<App cwd={project} sessionId="s1" initialMode="chat" />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer two.");
-    view.press(UP);
+    await view.press(UP);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer one.");
     // Same size, other text: only a reload sees it.
     writeFileSync(path, prompt("a", "first question") + answer("r", "Answer 111.") + prompt("b", "second question") + answer("s", "Answer two."));
     await tick();
-    view.press(CTRL_R);
+    await view.press(CTRL_R);
     await expect.poll(view.frame, { timeout: 3000, interval: 20 }).toContain("reloaded");
     expect(view.frame()).toContain("Answer 111.");
     view.unmount();
@@ -158,9 +141,9 @@ describe("reload in the app", () => {
     const project = mkdtempSync(join(tmpdir(), "cco-reload-app-"));
     const view = renderView(<App cwd={project} sessionId="none" initialMode="settings" />);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("settings.json");
-    view.press("i");
+    await view.press("i");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("reload this view");
-    view.press(F5);
+    await view.press(F5);
     await tick();
     await tick();
     expect(view.frame()).not.toContain("reload…");
