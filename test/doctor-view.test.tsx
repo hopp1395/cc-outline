@@ -53,13 +53,15 @@ describe("doctor in the settings", () => {
     view.press("\r");
     await expect.poll(view.frame).toContain("Run the doctor?");
     view.press("\r");
-    // Group by group, each after a short pause.
-    await expect.poll(view.frame).toContain("Checking Installation…");
-    await expect.poll(view.frame).toContain("Checking State files…");
-    expect(view.frame()).toMatch(/✗ Installation/);
-    expect(view.frame()).toContain("○ Hooks");
+    // Group by group, each after a short pause, in a dialog.
+    await expect.poll(view.frame).toContain("Checking – Installation (1/5)…");
+    await expect.poll(view.frame).toContain("Checking – State files (2/5)…");
+    expect(view.frame()).toContain("cannot be cancelled");
+    expect(modal).toBe(true);
     await expect.poll(view.frame, { timeout: 3000 }).toContain("1 state file of processes that have ended");
     expect(view.frame()).toContain("↵ repair");
+    // The view takes keys again once the check's dialog has closed: let its effects run first (slow CI runners).
+    await new Promise((resolve) => setTimeout(resolve, 50));
     view.press("\r");
     await expect.poll(view.frame).toContain("Repair 2 findings?");
     expect(modal).toBe(true);
