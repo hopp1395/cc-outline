@@ -11,6 +11,7 @@ import { repairProgress, SETTING_ROWS, SettingsView, updateProgress } from "../s
 import { UpdateContext, type Update, type UpdateRun } from "../src/tui/useUpdate.js";
 import { UPDATE_STEPS } from "../src/update.js";
 import { VERSION } from "../src/version.js";
+import { progressText, ProgressProvider } from "../src/tui/ProgressDialog.js";
 
 const layout: Layout = { columns: 120, rows: 30, listWidth: 40, previewWidth: 77, bodyHeight: 26 };
 const cwd = join(tmpdir(), "cco-update-project");
@@ -32,8 +33,8 @@ function renderView(element: ReactElement) {
     const text = stripAnsi(String(chunk));
     if (text.trim()) frame = text;
   });
-  const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), rerender: (e: ReactElement) => app.rerender(e), unmount: () => app.unmount() };
+  const app = render(<ProgressProvider layout={layout}>{element}</ProgressProvider>, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
+  return { frame: () => frame, press: (keys: string) => stdin.write(keys), rerender: (e: ReactElement) => app.rerender(<ProgressProvider layout={layout}>{e}</ProgressProvider>), unmount: () => app.unmount() };
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
@@ -159,8 +160,8 @@ describe("releases in the settings", () => {
     view.press("\r");
     await tick();
     view.rerender(element());
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Updating – starting…");
-    expect(view.frame()).toContain("cannot be cancelled");
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("cannot be cancelled");
+    expect(view.frame()).toContain("Updating…");
     expect(modal).toBe(true);
     run = {
       target: "9.9.9",
@@ -179,8 +180,8 @@ describe("releases in the settings", () => {
     expect(view.frame()).toContain("Updating – marketplace (2/3)…");
     run = { ...run, status: "done" };
     view.rerender(element());
-    await expect.poll(view.frame, { timeout: 2000 }).toContain("Updated to v9.9.9 – restarting…");
-    expect(modal).toBe(true);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Restarting…");
+    expect(view.frame()).toContain("Updated to v9.9.9");
     view.unmount();
   });
 
@@ -211,7 +212,7 @@ describe("releases in the settings", () => {
     view.rerender(element());
     await expect.poll(view.frame, { timeout: 2000 }).toContain("The update stopped at marketplace (2/3)");
     expect(view.frame()).toContain("Esc close");
-    expect(modal).toBe(true);
+    expect(view.frame()).toContain("c copy commands");
     view.press("\u001b");
     await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Esc close");
     await expect.poll(() => modal, { timeout: 2000 }).toBe(false);
@@ -258,7 +259,8 @@ describe("progress dialogs", () => {
     const progress = repairProgress({ status: "failed", results: [step("a", "failed", "boom\n"),step("b", "done"), step("c", "failed", "")] });
     expect(progress.text).toBe("2 of 3 repairs failed");
     expect(progress.lines).toEqual(["a:", "  boom", "c:", "The report shows what is left."]);
-    expect(repairProgress({ status: "running", results: [step("a", "done"), step("b", "running")] }).text).toBe("Repairing – b (2/2)…");
+    expect(progressText(repairProgress({ status: "running", results: [step("a", "done"), step("b", "running")] }))).toBe("Repairing – b (2/2)…");
+    expect(progress.copy).toBeUndefined();
   });
 });
 

@@ -18,11 +18,11 @@ import {
   type TrashEntry,
 } from "../transcript/trash.js";
 import { detectTerminal, resumeForPairing, resumeInNewWindow } from "../open.js";
-import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions } from "../export/archive.js";
-import type { ExportOptions } from "../export/session.js";
+import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
+import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
 import { ExportDialog } from "./ExportDialog.js";
 import { ImportDialog } from "./ImportDialog.js";
-import { ProgressDialog, type Progress } from "./ProgressDialog.js";
+import { useProgress, useProgressOpen, type Progress } from "./ProgressDialog.js";
 import type { Placement } from "../settings.js";
 import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
 import { cancelPairing, requestPairing, runningViewer, type PairTarget } from "../viewer.js";
@@ -406,6 +406,36 @@ interface Pairing {
   where?: string;
   /** Epoch ms. */
   started: number;
+  /** It did not start or show up in time: what the dialog says until Esc. */
+  failed?: { text: string; lines: string[] };
+}
+
+/** The pairing's progress dialog: starting Claude Code, waiting for it (Esc cancels), or why it failed. */
+export function pairingProgress(pairing: Pairing, now: number, onCancel: () => void, onClose: () => void): Progress {
+  const title = "Attach the viewer";
+  if (pairing.failed) return { title, status: "failed", ...pairing.failed, onClose };
+  if (pairing.where === undefined) return { title, status: "running", text: "Starting Claude Code", onCancel };
+  const total = PAIR_TIMEOUT_MS / 1000;
+  const waited = Math.min(total, Math.floor((now - pairing.started) / 1000));
+  return { title, status: "running", text: "Waiting for Claude Code", detail: `${waited} of ${total} s · the viewer moves next to it once it runs`, onCancel };
+}
+
+/** The export's progress dialog: the step of the session being exported; the archive, or why it failed. */
+export function exportProgress(count: number, state: { progress?: ExportProgress; title?: string } | { result: ExportResult } | { error: Error }): Progress {
+  const title = `Export ${plural(count, "session")}`;
+  if ("result" in state)
+    return { title, status: "done", text: `Exported ${plural(state.result.sessions, "session")}`, lines: [basename(state.result.file), `in ${tilde(dirname(state.result.file))}`] };
+  if ("error" in state) return { title, status: "failed", text: "Nothing was written", lines: [state.error.message] };
+  const { progress: p, title: session } = state;
+  if (!p) return { title, status: "running", text: "Exporting" };
+  const steps: string[] = ["reading", ...EXPORT_FORMATS];
+  return {
+    title,
+    status: "running",
+    text: "Exporting",
+    step: { label: p.step, at: steps.indexOf(p.step) + 1, of: steps.length },
+    detail: p.sessions > 1 ? `session ${p.session} of ${p.sessions}${session ? `: ${session}` : ""}` : session,
+  };
 }
 
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach }: Props) {
@@ -442,7 +472,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The archive the import dialog proposes ("" for none), while it is open.
   const [importFrom, setImportFrom] = useState<string>();
   const [run, setRun] = useState<Progress>();
-  const dialogOpen = confirmation !== undefined || choice !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined;
+  // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
+  const progressOpen = useProgressOpen();
+  const dialogOpen =
+    confirmation !== undefined || choice !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || pairing !== undefined || progressOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -614,8 +647,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       onChoose: (id) => {
         const prepared = takeTyper();
         if (id !== "here") prepared?.cancel();
-        // Attaching to a new window waits in the dialog.
-        if (id !== "window-attach") setChoice(undefined);
+        // Attaching to a new window then waits in the progress dialog.
+        setChoice(undefined);
         act(id, s, dir, claude, situation.command, prepared);
       },
     });
@@ -684,43 +717,50 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const startPairing = async (s: SessionSummary, dir: string) => {
     requestPairing(dir, s.id, Date.now() + 2 * PAIR_TIMEOUT_MS);
     // Waiting from now on, so a second Enter starts nothing more.
-    const started = { sessionId: s.id, cwd: dir, transcript: s.path, started: Date.now() };
+    const started: Pairing = { sessionId: s.id, cwd: dir, transcript: s.path, started: Date.now() };
     setPairing(started);
     const { message, target } = await resumeForPairing(s.id, dir, truncate(sessionTitle(s), 30));
     if (!target) {
       cancelPairing(dir, s.id);
-      setPairing(undefined);
-      setChoice(undefined);
-      return notify(message);
+      return setPairing((p) => (p === started ? { ...started, failed: { text: "Claude Code did not start", lines: [message] } } : p));
     }
     setPairing((p) => (p === started ? { ...started, where: target } : p));
   };
-  const stopPairing = (message: string) => {
+  /** Esc while it waits: the request is withdrawn; the Claude Code started keeps running. */
+  const cancelWait = () => {
     if (pairing) cancelPairing(pairing.cwd, pairing.sessionId);
     setPairing(undefined);
-    setChoice(undefined);
-    notify(message);
+    notify("pairing cancelled; Claude Code keeps running in its window");
   };
   // Waiting: pairs once the session's Claude Code registers itself, gives up after PAIR_TIMEOUT_MS.
   useEffect(() => {
-    if (!pairing) return;
+    if (!pairing || pairing.failed) return;
     const timer = setInterval(() => {
       const claude = pairing.where !== undefined ? runningSessions().get(pairing.sessionId) : undefined;
       if (claude && pairing.where !== undefined) {
         clearInterval(timer);
         setPairing(undefined);
-        setChoice(undefined);
         // The request stays for its hook, which may be still to come; it expires by itself.
         return onPairStarted?.({ cwd: pairing.cwd, claudePid: claude.pid, sessionId: pairing.sessionId, transcript: pairing.transcript }, pairing.where);
       }
       if (Date.now() - pairing.started >= PAIR_TIMEOUT_MS) {
         clearInterval(timer);
-        return stopPairing(`Claude Code did not show up within ${PAIR_TIMEOUT_MS / 1000} s; the viewer stays as it was`);
+        cancelPairing(pairing.cwd, pairing.sessionId);
+        const failed = {
+          text: `Claude Code did not show up within ${PAIR_TIMEOUT_MS / 1000} s`,
+          lines: ["The viewer stays as it was; the Claude Code started keeps running in its window."],
+        };
+        return setPairing((p) => (p === pairing ? { ...pairing, failed } : p));
       }
       setPairTick((n) => n + 1);
     }, PAIR_POLL_MS);
     return () => clearInterval(timer);
   }, [pairing]);
+  useProgress(
+    pairing
+      ? pairingProgress(pairing, Date.now(), cancelWait, () => setPairing(undefined))
+      : run && { ...run, onClose: () => setRun(undefined) },
+  );
 
   const askDelete = (s: SessionSummary) => {
     const blocker = deleteBlocker(s.id, activeId, runningSessionIds());
@@ -796,25 +836,19 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const runExport = (targets: SessionSummary[], opts: ExportOptions) => {
     saveExportOptions(opts);
     setExporting(undefined);
-    const title = `Exporting ${plural(targets.length, "session")}`;
-    setRun({ title, status: "running", text: "starting…" });
+    const count = targets.length;
+    setRun(exportProgress(count, {}));
     exportSessions(targets, opts, {
       viewerCwd: cwd,
-      onProgress: (p) => setRun({ title, status: "running", text: `${p.sessions > 1 ? `session ${p.session}/${p.sessions} · ` : ""}${p.step}…` }),
+      onProgress: (p) => setRun(exportProgress(count, { progress: p, title: truncate(sessionTitle(targets[p.session - 1]!), 40) })),
     }).then(
-      (result) =>
-        setRun({
-          title: "Export done",
-          status: "done",
-          text: `exported ${plural(result.sessions, "session")}`,
-          lines: [basename(result.file), `in ${tilde(dirname(result.file))}`],
-        }),
-      (err: Error) => setRun({ title: "Export failed", status: "failed", text: "nothing was written", lines: [err.message] }),
+      (result) => setRun(exportProgress(count, { result })),
+      (error: Error) => setRun(exportProgress(count, { error })),
     );
   };
   const runImport = (file: string) => {
     setImportFrom(undefined);
-    setRun({ title: "Importing", status: "running", text: tilde(file) });
+    setRun({ title: "Import", status: "running", text: "Importing", detail: tilde(file) });
     // A moment for the dialog to show; the import itself runs at once.
     setTimeout(() => {
       try {
@@ -823,10 +857,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           ...result.imported.map((s) => `  ✓ ${s.title}`),
           ...result.skipped.map((s) => `  – ${s.title}: ${s.reason}`),
         ].slice(0, 8);
-        setRun({ title: "Import done", status: "done", text: importSummary(result), lines });
+        const summary = importSummary(result);
+        setRun({ title: "Import", status: "done", text: summary[0]!.toUpperCase() + summary.slice(1), lines });
         refresh();
       } catch (err) {
-        setRun({ title: "Import failed", status: "failed", text: "nothing was imported", lines: [(err as Error).message] });
+        setRun({ title: "Import", status: "failed", text: "Nothing was imported", lines: [(err as Error).message] });
       }
     }, 50);
   };
@@ -1021,18 +1056,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
       )}
       {choice && (
-        <ChoiceDialog
-          layout={layout}
-          choice={choice}
-          waiting={
-            pairing && {
-              text: `Waiting for Claude Code… ${Math.min(PAIR_TIMEOUT_MS / 1000, Math.floor((Date.now() - pairing.started) / 1000))}/${PAIR_TIMEOUT_MS / 1000} s`,
-              detail: "The viewer moves next to it once it runs.",
-              onCancel: () => stopPairing("pairing cancelled; Claude Code keeps running in its window"),
-            }
-          }
-          onClose={closeChoice}
-        />
+        <ChoiceDialog layout={layout} choice={choice} onClose={closeChoice} />
       )}
       {exporting && (
         <ExportDialog
@@ -1045,7 +1069,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         />
       )}
       {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
-      {run && <ProgressDialog layout={layout} progress={run} onClose={() => setRun(undefined)} />}
       {filter.dialog}
     </>
   );
