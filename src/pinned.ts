@@ -1,5 +1,5 @@
 /**
- * The Pinned group (setting `pinnedGroup`): a list's marked entries show
+ * The Pinned group (settings `pinnedFavorites`, `pinnedSessions`): a list's marked entries (and in Sessions the active and running ones) show
  * once more at the top of the screen, in the list's own display order, above
  * the whole list. Like `reversed` and the filter it only changes what is
  * shown: the views keep selection, positions and marks on the natural index;
