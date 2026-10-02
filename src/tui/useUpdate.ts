@@ -25,6 +25,8 @@ export interface UpdateRun {
   target: string;
   status: "running" | "done" | "failed";
   steps: StepResult[];
+  /** Done, but the viewer could not reopen itself (no supported terminal): it has to be closed and opened by hand. */
+  reopenFailed?: boolean;
 }
 
 export interface Update {
@@ -55,8 +57,8 @@ export interface Update {
   recheck: () => Promise<void>;
   /** Runs the update steps; the viewer reopens when they all succeed. */
   start: () => void;
-  /** Reopens the viewer with the version installed now. */
-  restart: () => void;
+  /** Reopens the viewer with the version installed now; false if it could not. */
+  restart: () => boolean;
   /** Shows the update in Settings (a click on the top bar's version). */
   open: () => void;
 }
@@ -74,7 +76,7 @@ const NO_UPDATE: Update = {
   state: { kind: "none" },
   recheck: async () => {},
   start: () => {},
-  restart: () => {},
+  restart: () => false,
   open: () => {},
 };
 
@@ -84,6 +86,9 @@ export const useUpdateInfo = () => useContext(UpdateContext);
 
 /** How long the top bar says the viewer was updated. */
 const NOTICE_MS = 15_000;
+
+/** How long the update dialog says it is done before the viewer reopens, so the success shows. */
+export const RESTART_DELAY_MS = 1000;
 
 /**
  * Reads the cached releases at once and, unless `mode` (the update setting
@@ -142,7 +147,7 @@ export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: 
 
   const restart = useCallback(() => {
     const version = installedVersion(root);
-    if (version) handlers.current.onRestart(version);
+    return version !== undefined && handlers.current.onRestart(version);
   }, [root]);
 
   const start = () => {
@@ -152,7 +157,7 @@ export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: 
     void runUpdate((steps) => setRun((r) => (r ? { ...r, steps } : r))).then((ok) => {
       setRun((r) => (r ? { ...r, status: ok ? "done" : "failed" } : r));
       setInstalled(installedVersion(root));
-      if (ok) restart();
+      if (ok) setTimeout(() => restart() || setRun((r) => r && { ...r, reopenFailed: true }), RESTART_DELAY_MS);
     });
   };
 
