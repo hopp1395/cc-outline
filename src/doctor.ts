@@ -50,7 +50,7 @@ export interface DoctorOptions {
 
 const PLUGIN = "cco@cc-outline";
 /** The files in ~/.claude/cco that belong to no project. */
-const GLOBAL_FILES = new Set(["settings.json", "favorites.json", "releases.json", "version.json", "cli.json"]);
+const GLOBAL_FILES = new Set(["settings.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json"]);
 /** A project's session marked ended this long ago is history: no viewer waits for it any more. */
 const ENDED_AGE_MS = 24 * 60 * 60 * 1000;
 /** A `.corrupt` copy is kept this long for a look, then counts as a leftover. */
