@@ -1,54 +1,56 @@
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import stripAnsi from "strip-ansi";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { proc } from "../src/proc.js";
+import { prepareConsoleInput } from "../src/switchSession.js";
+import { claudeDir, pairingFile, projectDir, readJson } from "../src/transcript/locate.js";
 import type { Turn } from "../src/transcript/parse.js";
+import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
+import { enterLabel, isEmptySession, sessionOptions } from "../src/tui/resumeChoice.js";
+import { SessionsView } from "../src/tui/SessionsView.js";
+import type { PairTarget } from "../src/viewer.js";
 
 const spawned: { cmd: string; args: string[]; typed?: string; killed?: boolean }[] = [];
 /** What a started PowerShell prints once it got its line; "ok" types, anything else fails. */
 let typerAnswer = "";
-vi.mock("node:child_process", async () => {
-  const { EventEmitter } = await import("node:events");
-  return {
-    spawn: (cmd: string, args: string[]) => {
-      const call: (typeof spawned)[number] = { cmd, args };
-      spawned.push(call);
-      const child = Object.assign(new EventEmitter(), {
-        unref: () => {},
-        stdout: new EventEmitter(),
-        kill: () => {
-          call.killed = true;
-          child.emit("exit");
+const real = { ...proc };
+beforeAll(() => {
+  proc.spawn = ((cmd: string, args: string[]) => {
+    const call: (typeof spawned)[number] = { cmd, args };
+    spawned.push(call);
+    const child = Object.assign(new EventEmitter(), {
+      unref: () => {},
+      stdout: new EventEmitter(),
+      kill: () => {
+        call.killed = true;
+        child.emit("exit");
+      },
+      stdin: {
+        end: (line?: string) => {
+          call.typed = line;
+          setTimeout(() => {
+            if (line) child.stdout.emit("data", typerAnswer);
+            child.emit("exit");
+          }, 0);
         },
-        stdin: {
-          end: (line?: string) => {
-            call.typed = line;
-            setTimeout(() => {
-              if (line) child.stdout.emit("data", typerAnswer);
-              child.emit("exit");
-            }, 0);
-          },
-        },
-      });
-      return child;
-    },
-  execFile: (cmd: string, args: string[], _opts: unknown, done: (err: Error | null, stdout: string) => void) => {
+      },
+    });
+    return child;
+  }) as never;
+  proc.execFile = ((cmd: string, args: string[], _opts: unknown, done: (err: Error | null, stdout: string) => void) => {
     spawned.push({ cmd, args });
     done(null, "");
-  },
-  };
+  }) as never;
 });
-
-const { claudeDir, pairingFile, projectDir, readJson } = await import("../src/transcript/locate.js");
-const { SessionsView } = await import("../src/tui/SessionsView.js");
-const { enterLabel, isEmptySession, sessionOptions } = await import("../src/tui/resumeChoice.js");
-const { prepareConsoleInput } = await import("../src/switchSession.js");
-type PairTarget = import("../src/viewer.js").PairTarget;
-type Layout = import("../src/tui/layout.js").Layout;
+afterAll(() => {
+  Object.assign(proc, real);
+});
 
 const layout: Layout = { columns: 120, rows: 30, listWidth: 40, previewWidth: 77, bodyHeight: 26 };
 const cwd = join(tmpdir(), "cco-resume-project");

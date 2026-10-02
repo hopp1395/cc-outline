@@ -27,10 +27,11 @@ import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
-import { RESTART_DELAY_MS, UpdateContext, useUpdate } from "./useUpdate.js";
+import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
+import { TIMING } from "../timing.js";
 
 interface Props {
   cwd: string;
@@ -69,8 +70,6 @@ function typedInClaude(turns: Turn[], since: number): number | undefined {
 
 const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefined);
 
-/** How long the status says "reloaded" after a reload finished. */
-const RELOADED_MS = 1500;
 /** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
@@ -262,7 +261,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         lines: [REOPEN_BY_HAND],
         onClose: () => progress.host.set("restart", undefined),
       });
-    }, RESTART_DELAY_MS);
+    }, TIMING.restartDelay);
   };
   const resetProjectData = () => {
     suspendPositionWrites(true);
@@ -279,7 +278,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   );
   useEffect(() => {
     if (!reloading?.done) return;
-    const timer = setTimeout(() => setReloading(undefined), RELOADED_MS);
+    const timer = setTimeout(() => setReloading(undefined), TIMING.reloaded);
     return () => clearTimeout(timer);
   }, [reloading]);
   // The transcript is read synchronously; it is loaded once it reports the reload.

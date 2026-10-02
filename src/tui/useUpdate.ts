@@ -19,6 +19,7 @@ import {
 } from "../update.js";
 import type { UpdateMode } from "../settings.js";
 import { VERSION } from "../version.js";
+import { TIMING } from "../timing.js";
 
 /** An update run from the Settings view: its steps as they go, then whether it worked. */
 export interface UpdateRun {
@@ -87,9 +88,6 @@ export const useUpdateInfo = () => useContext(UpdateContext);
 /** How long the top bar says the viewer was updated. */
 const NOTICE_MS = 15_000;
 
-/** How long the update dialog says it is done before the viewer reopens, so the success shows. */
-export const RESTART_DELAY_MS = 1000;
-
 /**
  * Reads the cached releases at once and, unless `mode` (the update setting
  * at the start) is off, asks npm and GitHub once; with auto, `offer` turns
@@ -157,7 +155,7 @@ export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: 
     void runUpdate((steps) => setRun((r) => (r ? { ...r, steps } : r))).then((ok) => {
       setRun((r) => (r ? { ...r, status: ok ? "done" : "failed" } : r));
       setInstalled(installedVersion(root));
-      if (ok) setTimeout(() => restart() || setRun((r) => r && { ...r, reopenFailed: true }), RESTART_DELAY_MS);
+      if (ok) setTimeout(() => restart() || setRun((r) => r && { ...r, reopenFailed: true }), TIMING.restartDelay);
     });
   };
 

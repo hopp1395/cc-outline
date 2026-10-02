@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { proc } from "./proc.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
@@ -64,7 +64,7 @@ export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
 export function openInDefaultApp(file: string, platform: NodeJS.Platform = process.platform): void {
   // explorer.exe hands the file to its default app, with no shell quoting involved.
   const command = platform === "win32" ? "explorer.exe" : platform === "darwin" ? "open" : "xdg-open";
-  const child = spawn(command, [file], { stdio: "ignore", detached: true, windowsHide: true });
+  const child = proc.spawn(command, [file], { stdio: "ignore", detached: true, windowsHide: true });
   child.on?.("error", () => {});
   child.unref();
 }
@@ -85,11 +85,11 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
     const args = ["-w", window, "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
     // Windows Terminal starts the tab with the environment of the wt call. No windowsHide: wt would apply
     // the hidden start to the new window, which then never shows.
-    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
+    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
     return "started in a new Windows Terminal window";
   }
   if (terminal === "tmux") {
-    spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId)], { stdio: "ignore", detached: true }).unref();
+    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId)], { stdio: "ignore", detached: true }).unref();
     return "started in a new tmux window";
   }
   return `no Windows Terminal or tmux: run claude --resume ${sessionId} in ${dir}`;
@@ -118,7 +118,7 @@ export async function resumeForPairing(sessionId: string, dir: string, title: st
   }
   if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title) };
   const pane = await new Promise<string | undefined>((resolve) =>
-    execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId)], { timeout: 10_000 }, (err, stdout) =>
+    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId)], { timeout: 10_000 }, (err, stdout) =>
       resolve(err ? undefined : String(stdout).trim() || undefined),
     ),
   );
@@ -203,7 +203,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
       placement === "window"
         ? ["new-window", ...keep, ...(pane ? ["-a", "-t", pane] : []), "-n", "cco", "-c", cwd, cmd]
         : ["split-window", "-h", ...(placement === "left" ? ["-b"] : []), ...keep, ...(pane ? ["-t", pane] : []), "-c", cwd, cmd];
-    spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
+    proc.spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
     return placement === "window" ? `Opened cco${label} in a tmux window.` : `Opened cco${label} in a tmux pane${where}.`;
   }
   if (terminal === "wt") {
@@ -218,7 +218,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
       if (opts.keepFocus) args.push(";", "move-focus", placement === "left" ? "right" : "left");
     }
     // windowsHide asks Windows to start hidden, which Windows Terminal applies to a new window: only for panes.
-    spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
+    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
     if (tabless) return `Opened cco${label} in a Windows Terminal window: this Claude Code has no terminal tab to dock to.`;
     if (away) return `Opened cco${label} in a Windows Terminal window: Claude was busy, and the pane would have opened in whichever tab is active now. Press p in it to dock it.`;
     return placement === "window" ? `Opened cco${label} in a Windows Terminal window.` : `Opened cco${label} in a Windows Terminal pane${where}.`;
@@ -250,6 +250,6 @@ export function moveViewer(cwd: string, view: Mode, placement: Placement, claude
   if (claudePid) args.push("--claude-pid", String(claudePid));
   if (updatedTo) args.push("--updated-to", updatedTo);
   if (target) args.push("--target", target);
-  spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
+  proc.spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
 }

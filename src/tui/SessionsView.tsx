@@ -60,6 +60,7 @@ import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { projectSlug } from "../transcript/locate.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
+import { TIMING } from "../timing.js";
 
 interface Props {
   cwd: string;
@@ -98,14 +99,8 @@ interface Props {
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
 const REFRESH_MS = 3000;
-/** How often Claude Code's status of the running sessions is read (~/.claude/sessions/<pid>.json). */
-const ACTIVITY_MS = 1000;
 /** How long a viewer waits for the Claude Code it started to show up, before it stays unpaired. */
 export const PAIR_TIMEOUT_MS = 30_000;
-/** How often it looks (~/.claude/sessions/<pid>.json). */
-const PAIR_POLL_MS = 500;
-/** Half a blink of a working session's marker. */
-const BLINK_MS = 500;
 
 const STATUS_ICON: Record<PlanStatus, string> = {
   draft: "\u001b[36m✎\u001b[39m",
@@ -336,7 +331,7 @@ function useRunning(visible: boolean): Map<string, RunningSession> {
       setRunning((prev) => (sameRunning(prev, next) ? prev : next));
     };
     read();
-    const timer = setInterval(read, ACTIVITY_MS);
+    const timer = setInterval(read, TIMING.activityPoll);
     return () => clearInterval(timer);
   }, [visible]);
   return running;
@@ -357,12 +352,12 @@ function SessionMarker({ symbol, activity }: { symbol: string; activity?: Sessio
       timer = setTimeout(() => {
         setTick((n) => n + 1);
         next();
-      }, BLINK_MS - (Date.now() % BLINK_MS));
+      }, TIMING.blink - (Date.now() % TIMING.blink));
     };
     next();
     return () => clearTimeout(timer);
   }, [busy]);
-  const dimmed = busy && Math.floor(Date.now() / BLINK_MS) % 2 === 1;
+  const dimmed = busy && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
   return (
     <Text color={activity === "waiting" ? "yellow" : "green"} dimColor={dimmed}>
       {symbol}
@@ -753,7 +748,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         return setPairing((p) => (p === pairing ? { ...pairing, failed } : p));
       }
       setPairTick((n) => n + 1);
-    }, PAIR_POLL_MS);
+    }, TIMING.pairPoll);
     return () => clearInterval(timer);
   }, [pairing]);
   useProgress(
