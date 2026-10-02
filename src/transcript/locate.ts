@@ -140,6 +140,14 @@ export function claudePidFromEnv(env: NodeJS.ProcessEnv = process.env): number |
   return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
+/**
+ * A viewer waiting to pair with the Claude Code it started for a session (Sessions): that Claude Code's
+ * SessionStart hook opens no viewer of its own, since this one moves next to it.
+ */
+export function pairingFile(cwd: string): string {
+  return stateFile(cwd, ".pairing");
+}
+
 /** Whether the viewer was open when Claude Code last exited in this project. */
 export function restoreFile(cwd: string): string {
   return stateFile(cwd, ".restore");

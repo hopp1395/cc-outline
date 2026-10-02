@@ -9,20 +9,29 @@ import { claudeDir, claudeFile, projectDir, readJson, viewerFile, writeJson, typ
 import type { Layout } from "../src/tui/layout.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 import { Viewer } from "../src/watch.js";
-import { pairViewer, registerViewer, runningViewer, unregisterCurrentViewer, type PairTarget } from "../src/viewer.js";
+import { detachViewer, pairViewer, registerViewer, runningViewer, unregisterCurrentViewer, type PairTarget } from "../src/viewer.js";
 
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
 const cwd = join(tmpdir(), "cco-pair-project");
 const other = join(tmpdir(), "cco-pair-other");
 
 let saved: string | undefined;
+let savedTerminal: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-pair-"));
+  // A terminal to switch tabs in, as in Windows Terminal; CI has none.
+  savedTerminal = { TMUX: process.env.TMUX, WT_SESSION: process.env.WT_SESSION };
+  delete process.env.TMUX;
+  process.env.WT_SESSION = "x";
   mkdirSync(projectDir(cwd), { recursive: true });
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
+  for (const [key, value] of Object.entries(savedTerminal)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 const target = (over: Partial<PairTarget> = {}): PairTarget => ({ cwd: other, claudePid: process.pid, sessionId: "s1", transcript: "/t/s1.jsonl", ...over });
@@ -52,6 +61,17 @@ describe("pairViewer", () => {
     expect(pairViewer({ cwd }, target())).toBe(false);
     expect(existsSync(viewerFile(cwd))).toBe(true);
     unregisterCurrentViewer();
+  });
+});
+
+describe("detachViewer", () => {
+  it("moves the registration from the Claude Code process to the project", () => {
+    registerViewer(cwd, "chat", process.pid);
+    detachViewer(cwd, process.pid, "sessions");
+    expect(existsSync(viewerFile(cwd, process.pid))).toBe(false);
+    expect(runningViewer(cwd)).toEqual({ pid: process.pid, view: "sessions" });
+    unregisterCurrentViewer();
+    expect(existsSync(viewerFile(cwd))).toBe(false);
   });
 });
 
@@ -97,9 +117,9 @@ describe("pairing the viewer", () => {
       if (text.trim()) frame = text;
     });
     const app = render(<Viewer cwd={cwd} initialMode="sessions" />, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-    await until(() => frame.includes("↵ pair"));
+    await until(() => frame.includes("↵ attach"));
     stdin.write("\r");
-    await until(() => frame.includes("Pair the viewer with this session?"));
+    await until(() => frame.includes("This session runs in a Claude Code"));
     stdin.write("\r");
     await until(() => runningViewer(cwd, process.pid) !== undefined && frame.includes("f follow"));
     expect(existsSync(viewerFile(cwd))).toBe(false);
@@ -115,11 +135,11 @@ describe("pairing in the Sessions view", () => {
     runningSession("s1");
     const paired: PairTarget[] = [];
     const view = renderView((t) => (paired.push(t), true));
-    await until(() => view.frame().includes("↵ pair"));
-    expect(view.frame()).toContain("↵ pair");
+    await until(() => view.frame().includes("↵ attach"));
+    expect(view.frame()).toContain("↵ attach");
     view.press("\r");
-    await until(() => view.frame().includes("Pair the viewer with this session?"));
-    expect(view.frame()).toContain("it closes when that Claude Code ends.");
+    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    expect(view.frame()).toContain("it stays here and follows that Claude Code");
     view.press("\r");
     await until(() => paired.length > 0);
     expect(paired).toEqual([{ cwd, claudePid: process.pid, sessionId: "s1", transcript: join(projectDir(cwd), "s1.jsonl") }]);
@@ -135,7 +155,7 @@ describe("pairing in the Sessions view", () => {
     view.unmount();
     const unpairable = renderView();
     await until(() => unpairable.frame().includes("↵ switch"));
-    expect(unpairable.frame()).not.toContain("↵ pair");
+    expect(unpairable.frame()).not.toContain("↵ attach");
     unpairable.unmount();
   });
 });

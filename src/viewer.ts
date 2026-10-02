@@ -1,6 +1,6 @@
 import { rmSync } from "node:fs";
 import type { Mode } from "./tui/layout.js";
-import { claudeFile, controlFile, projectStateFiles, readJson, restoreFile, viewerFile, writeJson, type ActiveSession } from "./transcript/locate.js";
+import { claudeFile, controlFile, pairingFile, projectStateFiles, readJson, restoreFile, viewerFile, writeJson, type ActiveSession } from "./transcript/locate.js";
 
 export interface ViewerInfo {
   pid: number;
@@ -66,12 +66,56 @@ export interface PairTarget {
  */
 export function pairViewer(from: { cwd: string; claudePid?: number }, target: PairTarget): boolean {
   if (runningViewer(target.cwd, target.claudePid)) return false;
-  const own = claudeFile(target.cwd, target.claudePid);
-  if (!readJson<ActiveSession>(own))
-    writeJson(own, { session_id: target.sessionId, transcript_path: target.transcript, cwd: target.cwd, updated: new Date().toISOString() } satisfies ActiveSession);
+  writeTargetSession(target);
   unregisterViewer(from.cwd, from.claudePid);
   registerViewer(target.cwd, "chat", target.claudePid);
   return true;
+}
+
+/**
+ * Detaches this viewer from the Claude Code process `claudePid`: its registration moves to the project's
+ * (as for `cco watch` by hand), so that process's /cco:… open a viewer of their own.
+ */
+export function detachViewer(cwd: string, claudePid: number, view: Mode): void {
+  unregisterViewer(cwd, claudePid);
+  registerViewer(cwd, view);
+}
+
+/** Writes the session file of the target's process if its hooks have not (yet): a viewer paired with it follows that file. */
+export function writeTargetSession(target: PairTarget): void {
+  const own = claudeFile(target.cwd, target.claudePid);
+  if (!readJson<ActiveSession>(own))
+    writeJson(own, { session_id: target.sessionId, transcript_path: target.transcript, cwd: target.cwd, updated: new Date().toISOString() } satisfies ActiveSession);
+}
+
+/** A viewer waits to pair with the Claude Code it started for `sessionId`, until `until` (epoch ms). */
+export interface PairingRequest {
+  sessionId: string;
+  until: number;
+}
+
+/** Records that this viewer pairs with the Claude Code it is about to start for `sessionId` in `cwd`. */
+export function requestPairing(cwd: string, sessionId: string, until: number): void {
+  writeJson(pairingFile(cwd), { sessionId, until } satisfies PairingRequest);
+}
+
+/** Withdraws the request for `sessionId` (pairing cancelled or timed out); another session's stays. */
+export function cancelPairing(cwd: string, sessionId: string): void {
+  if (readJson<PairingRequest>(pairingFile(cwd))?.sessionId === sessionId) rmSync(pairingFile(cwd), { force: true });
+}
+
+/**
+ * For the SessionStart hook: whether a viewer pairs with the session starting now, so the hook opens
+ * none. The request is used up; one that expired is removed.
+ */
+export function takePairing(cwd: string, sessionId: string, now = Date.now()): boolean {
+  const file = pairingFile(cwd);
+  const request = readJson<PairingRequest>(file);
+  if (!request) return false;
+  const expired = !(typeof request.until === "number" && request.until > now);
+  const ours = !expired && request.sessionId === sessionId;
+  if (expired || ours) rmSync(file, { force: true });
+  return ours;
 }
 
 /** Records the view the running viewer shows; ignored if another viewer took over. */

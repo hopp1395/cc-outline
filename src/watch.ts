@@ -33,6 +33,8 @@ export function Viewer(opts: WatchOptions) {
     key: `${target.cwd}#${target.claudePid ?? ""}`,
     onPair: (cwd: string, claudePid: number) =>
       setTarget({ cwd, claudePid, placement: target.placement, initialMode: "chat" }),
+    // Detached, it follows the project's newest session and stays in the Sessions view it was detached from.
+    onDetach: (cwd: string) => setTarget({ cwd, placement: target.placement, initialMode: "sessions" }),
   });
 }
 

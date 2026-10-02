@@ -21,10 +21,13 @@ import {
   anyRunningViewer,
   readControl,
   readRestore,
+  cancelPairing,
   registerViewer,
+  requestPairing,
   requestView,
   runningViewer,
   setViewerView,
+  takePairing,
   unregisterViewer,
 } from "../src/viewer.js";
 
@@ -321,6 +324,31 @@ describe("restore on restart", () => {
     unregisterViewer(cwd);
     run("SessionStart", { source: "startup" });
     expect(opened).toEqual([]);
+  });
+
+  it("opens no viewer for a session a viewer started to pair with, once", () => {
+    updateSettings({ autoOpen: "always" });
+    requestPairing(cwd, "a", Date.now() + 60_000);
+    run("SessionStart", { source: "resume" });
+    expect(opened).toEqual([]);
+    // The request is used up: the next start opens one again.
+    run("SessionStart", { source: "resume" });
+    expect(opened).toEqual(["chat keepFocus"]);
+  });
+
+  it("opens one when the pairing request is for another session or expired", () => {
+    updateSettings({ autoOpen: "always" });
+    requestPairing(cwd, "b", Date.now() + 60_000);
+    run("SessionStart", { source: "resume" });
+    unregisterViewer(cwd);
+    expect(takePairing(cwd, "b")).toBe(true);
+    requestPairing(cwd, "a", Date.now() - 1);
+    run("SessionStart", { source: "resume" });
+    expect(opened).toEqual(["chat keepFocus", "chat keepFocus"]);
+    // Cancelling withdraws only its own session's request.
+    requestPairing(cwd, "a", Date.now() + 60_000);
+    cancelPairing(cwd, "b");
+    expect(takePairing(cwd, "a")).toBe(true);
   });
 });
 
