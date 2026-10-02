@@ -11,7 +11,7 @@ import { useClipboard } from "./useClipboard.js";
 /** Lines scrolled per wheel step. */
 const WHEEL_LINES = 3;
 /** How long the "copied" badge stays. */
-const COPIED_MS = 1500;
+export const COPIED_MS = 1500;
 /** Columns `previewHeader` puts before each line: the marker, then the wrapped lines' indentation. */
 const HEADER_INDENT = 2;
 
