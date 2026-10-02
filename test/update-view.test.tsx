@@ -7,8 +7,9 @@ import type { ReactElement } from "react";
 import stripAnsi from "strip-ansi";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { versionLabels, type Layout } from "../src/tui/layout.js";
-import { SETTING_ROWS, SettingsView } from "../src/tui/SettingsView.js";
-import { UpdateContext, type Update } from "../src/tui/useUpdate.js";
+import { repairProgress, SETTING_ROWS, SettingsView, updateProgress } from "../src/tui/SettingsView.js";
+import { UpdateContext, type Update, type UpdateRun } from "../src/tui/useUpdate.js";
+import { UPDATE_STEPS } from "../src/update.js";
 import { VERSION } from "../src/version.js";
 
 const layout: Layout = { columns: 120, rows: 30, listWidth: 40, previewWidth: 77, bodyHeight: 26 };
@@ -32,7 +33,7 @@ function renderView(element: ReactElement) {
     if (text.trim()) frame = text;
   });
   const app = render(element, { stdout: stdout as never, stdin: stdin as never, debug: true, patchConsole: false });
-  return { frame: () => frame, press: (keys: string) => stdin.write(keys), unmount: () => app.unmount() };
+  return { frame: () => frame, press: (keys: string) => stdin.write(keys), rerender: (e: ReactElement) => app.rerender(e), unmount: () => app.unmount() };
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
@@ -56,7 +57,7 @@ function fakeUpdate(overrides: Partial<Update> = {}): Update {
     state: { kind: "update", target: "9.9.9" },
     recheck: async () => {},
     start: () => {},
-    restart: () => {},
+    restart: () => false,
     open: () => {},
     ...overrides,
   };
@@ -142,6 +143,83 @@ describe("releases in the settings", () => {
     view.unmount();
   });
 
+  it("shows a progress dialog from the confirmation until the restart", async () => {
+    const [cli, marketplace, plugin] = UPDATE_STEPS;
+    let run: UpdateRun | undefined;
+    let modal = false;
+    const element = () => (
+      <UpdateContext.Provider value={fakeUpdate({ run, start: () => (run = { target: "9.9.9", status: "running", steps: [] }) })}>
+        <SettingsView cwd={cwd} layout={layout} active select={{ key: "update", at: 1 }} onModal={(m) => (modal = m)} />
+      </UpdateContext.Provider>
+    );
+    const view = renderView(element());
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("↵ update");
+    view.press("\r");
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
+    view.press("\r");
+    await tick();
+    view.rerender(element());
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Updating – starting…");
+    expect(view.frame()).toContain("cannot be cancelled");
+    expect(modal).toBe(true);
+    run = {
+      target: "9.9.9",
+      status: "running",
+      steps: [
+        { step: cli!, status: "done", output: "" },
+        { step: marketplace!, status: "running", output: "" },
+        { step: plugin!, status: "pending", output: "" },
+      ],
+    };
+    view.rerender(element());
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Updating – marketplace (2/3)…");
+    // Esc does not close it while it runs.
+    view.press("\u001b");
+    await tick();
+    expect(view.frame()).toContain("Updating – marketplace (2/3)…");
+    run = { ...run, status: "done" };
+    view.rerender(element());
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Updated to v9.9.9 – restarting…");
+    expect(modal).toBe(true);
+    view.unmount();
+  });
+
+  it("keeps the dialog of a failed update open until Esc", async () => {
+    const [cli, marketplace, plugin] = UPDATE_STEPS;
+    let run: UpdateRun | undefined;
+    let modal = false;
+    const element = () => (
+      <UpdateContext.Provider value={fakeUpdate({ run, start: () => (run = { target: "9.9.9", status: "running", steps: [] }) })}>
+        <SettingsView cwd={cwd} layout={layout} active select={{ key: "update", at: 1 }} onModal={(m) => (modal = m)} />
+      </UpdateContext.Provider>
+    );
+    const view = renderView(element());
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("↵ update");
+    view.press("\r");
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Update cco to v9.9.9?");
+    view.press("\r");
+    await tick();
+    run = {
+      target: "9.9.9",
+      status: "failed",
+      steps: [
+        { step: cli!, status: "done", output: "" },
+        { step: marketplace!, status: "failed", output: "claude: command not found\n" },
+        { step: plugin!, status: "pending", output: "" },
+      ],
+    };
+    view.rerender(element());
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("The update stopped at marketplace (2/3)");
+    expect(view.frame()).toContain("Esc close");
+    expect(modal).toBe(true);
+    view.press("\u001b");
+    await expect.poll(view.frame, { timeout: 2000 }).not.toContain("Esc close");
+    await expect.poll(() => modal, { timeout: 2000 }).toBe(false);
+    // The details behind it still show what failed.
+    expect(view.frame()).toContain("The update stopped. Run the rest by hand");
+    view.unmount();
+  });
+
   it("offers no update for a checkout run through npm link", async () => {
     const view = renderView(
       <UpdateContext.Provider value={fakeUpdate({ install: "dev", root: "C:\\Workspace\\cc-outline", state: { kind: "dev", target: "9.9.9" } })}>
@@ -163,6 +241,24 @@ describe("releases in the settings", () => {
     await expect.poll(view.frame, { timeout: 2000 }).toContain("The update check is off");
     expect(SETTING_ROWS.some((r) => r.key === "updateMode")).toBe(true);
     view.unmount();
+  });
+});
+
+describe("progress dialogs", () => {
+  const step = (label: string, status: "pending" | "running" | "done" | "failed", output = "") => ({ step: { label }, status, output });
+
+  it("says that the viewer cannot reopen itself after an update", () => {
+    const run: UpdateRun = { target: "9.9.9", status: "done", steps: [], reopenFailed: true };
+    const progress = updateProgress(run, () => {});
+    expect(progress.status).toBe("done");
+    expect(progress.lines?.join(" ")).toContain("close it with q");
+  });
+
+  it("names the repairs that failed", () => {
+    const progress = repairProgress({ status: "failed", results: [step("a", "failed", "boom\n"),step("b", "done"), step("c", "failed", "")] });
+    expect(progress.text).toBe("2 of 3 repairs failed");
+    expect(progress.lines).toEqual(["a:", "  boom", "c:", "The report shows what is left."]);
+    expect(repairProgress({ status: "running", results: [step("a", "done"), step("b", "running")] }).text).toBe("Repairing – b (2/2)…");
   });
 });
 
