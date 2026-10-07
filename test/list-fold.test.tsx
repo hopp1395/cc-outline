@@ -114,7 +114,7 @@ describe("| in a view", () => {
     expect(split(view.frame())).toBe(true);
     await view.press("|");
     await expect.poll(view.frame).toContain("width: hidden");
-    expect(bodyRows(view.frame()).some((l) => l.startsWith("12:00 first question"))).toBe(false);
+    expect(bodyRows(view.frame()).some((l) => /^\d\d:\d\d first question/.test(l))).toBe(false);
     expect(view.frame()).toContain("The answer text");
     await view.press("|");
     await expect.poll(view.frame).toContain("width: normal");
@@ -134,7 +134,7 @@ describe("| in a view", () => {
     await view.press(">");
     await expect.poll(view.frame).toContain("width: full");
     expect(readSettings().chatListWidth).toBe("wider");
-    const listed = () => bodyRows(view.frame()).some((l) => l.startsWith("12:00 first question"));
+    const listed = () => bodyRows(view.frame()).some((l) => /^\d\d:\d\d first question/.test(l));
     expect(listed()).toBe(true);
     // Enter: the full prompt, with the preview over the whole pane.
     await view.press("\r");
