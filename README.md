@@ -130,10 +130,10 @@ All views share one layout:
 
 The viewer sets the terminal title to the session title, the one set with `/rename` or else the one Claude Code gave the session; until the session has one, the project folder. So its tab, and a window of its own in the taskbar, show which session it follows instead of just `cco`. Like Claude Code, the title starts with a status mark: `◐` and `◑` in turn while Claude works on the last turn, `✳` when it waits for you. A viewer opened with `--session` shows no mark. A Windows Terminal profile with `suppressApplicationTitle` keeps `cco`.
 
-Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` for the next and previous one (hidden views are skipped). All of them keep running in the background, so the chat keeps following the session while you look at the changes.
+Press `1` to `6` to switch between the views, or `Tab` and `Shift+Tab` (or `→` and `←`) for the next and previous one (hidden views are skipped; past the last comes the first again). All of them keep running in the background, so the chat keeps following the session while you look at the changes.
 
 **Lists.** All lists work the same way:
-- `↑`/`↓` select the previous or next entry, `Home`/`End` the first or last one. The preview next to the list scrolls by page with `PgUp`/`PgDn` and by line with `Ctrl+↑`/`Ctrl+↓`; `Ctrl+Home`/`Ctrl+End` go to its top and bottom. `←`/`→` do nothing.
+- `↑`/`↓` select the previous or next entry, `Home`/`End` the first or last one. The preview next to the list scrolls by page with `PgUp`/`PgDn` and by line with `Ctrl+↑`/`Ctrl+↓`; `Ctrl+Home`/`Ctrl+End` go to its top and bottom. `←`/`→` switch to the previous or next view.
 - Chat and Plan show the oldest entry at the top; `s` turns the list around and remembers it (the *order* settings). Sessions (with its trash) and Monitor always show the newest at the top. The keys follow what you see: `↑`/`↓` go up and down, `Home`/`g` to the top, `End`/`G` to the bottom; in the chat, whichever of them reaches the newest turn resumes follow mode.
 - If the text of the selected entry (prompt, file path, plan or session name) is too long for the list, it scrolls: at most 250 characters, then it starts over from the beginning. The other entries are cut with `…`. The Settings view switches this off.
 - If the list is longer than the pane, its first or last row shows how many entries are hidden above (`▲ 12 more Home`) or below (`▼ 5 more End`), together with the key that jumps there.
@@ -427,7 +427,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
 | `1` – `6` | switch view | switch view | switch view | switch view |
-| `Tab` / `Shift+Tab` | next / previous view | next / previous view | next / previous view | next / previous view |
+| `Tab` / `Shift+Tab`, `→` / `←` | next / previous view | next / previous view | next / previous view | next / previous view |
 | `↑` / `↓` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |
 | `Space` | mark the turn ★ | mark the file ★ | mark the plan ★ | mark the session ★ |
