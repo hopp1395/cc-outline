@@ -387,6 +387,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     else if (input === "p" && !sessionId) setPlacementOpen(true);
     // Tab and Shift+Tab step through the shown views, wrapping around.
     else if (key.tab) setMode(nextShownView(readSettings(), mode, key.shift ? -1 : 1));
+    // ← and → do the same; with Ctrl they scroll sideways in the views.
+    else if ((key.leftArrow || key.rightArrow) && !key.ctrl && !key.meta && !key.shift) setMode(nextShownView(readSettings(), mode, key.leftArrow ? -1 : 1));
     // A hidden view's key does nothing; its number stays reserved.
     else if (VIEW_KEYS[input] && isViewShown(readSettings(), VIEW_KEYS[input])) setMode(VIEW_KEYS[input]);
   });
