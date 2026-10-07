@@ -647,8 +647,7 @@ interface ListProps<T> {
   height: number;
   empty: string;
   itemKey: (item: T, index: number) => string;
-  /** `stars`: false for the list below a Pinned group, whose marked entries show their ★ only in the group. */
-  render: (item: T, selected: boolean, stars: boolean) => ReactNode;
+  render: (item: T, selected: boolean) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
   /** A click on an entry, after `onPick` selected it (the wheel only picks). */
@@ -885,7 +884,6 @@ function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned
       onClick={props.onClick && ((at) => props.onClick!(order[at]))}
       heads={heads}
       tops={tops}
-      starsUntil={count}
     />
   );
 }
@@ -923,8 +921,6 @@ export function listRows(count: number, heads: (string[] | undefined)[]): ListRo
 interface RowsProps {
   heads: (string[] | undefined)[];
   tops: (string | undefined)[] | undefined;
-  /** Items from this one on show no ★ (the list below a Pinned group). */
-  starsUntil?: number;
 }
 
 /**
@@ -943,7 +939,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, starsUntil = Infinity, centre }: ListProps<T> & RowsProps) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, centre }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, heads);
@@ -995,7 +991,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         if (!isSelected)
           return (
             <Text key={itemKey(item, index)} wrap="truncate">
-              {render(item, false, index < starsUntil)}
+              {render(item, false)}
             </Text>
           );
         // The selection spans the list's width, also past a short entry: a row of spaces in the
@@ -1005,7 +1001,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
           <Box key={itemKey(item, index)} width={width} height={1}>
             <Box overflow="hidden">
               <Text wrap="truncate" {...style}>
-                {render(item, true, index < starsUntil)}
+                {render(item, true)}
               </Text>
             </Box>
             <Box flexGrow={1} flexBasis={0} overflow="hidden">
