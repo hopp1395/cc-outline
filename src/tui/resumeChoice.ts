@@ -8,9 +8,10 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `attach`: pair the viewer with that Claude Code, staying where it is.
  * - `here`: continue it in the viewer's own Claude Code (`/resume`).
  * - `window`: continue it in a new window; `window-attach`: and move the viewer next to it, paired.
+ * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "rename" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -60,6 +61,8 @@ const BUSY: Partial<Record<SessionActivity, string>> = {
 };
 
 const NO_TERMINAL = "no Windows Terminal or tmux";
+/** A running Claude Code keeps its title and writes it again: only it can rename its session. */
+const RUNS = "it runs: use /rename in its Claude Code";
 
 /**
  * The options Enter offers for a session and the one selected at first: the preferred one that can be
@@ -108,9 +111,9 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
       preferred = ["window-attach", "window"];
     }
   }
-  options.push(copy);
+  options.push({ id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: s.state === "inactive" ? undefined : RUNS }, copy);
   const first = preferred.map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
-  return { options, initial: first ?? options.length - 1 };
+  return { options, initial: first ?? options.indexOf(copy) };
 }
 
 /** What the help line says Enter does: the action selected at first, or for the viewer's own session that it can detach. */
@@ -125,6 +128,7 @@ export function enterLabel(s: SessionSituation): string {
     here: "resume here",
     window: s.paired ? "new window" : "start",
     "window-attach": s.paired ? "new window + attach" : "start + attach",
+    rename: "rename",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;
