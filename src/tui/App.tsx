@@ -6,7 +6,8 @@ import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, stepListWidth, updateSettings, type Placement } from "../settings.js";
+import { isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type Placement } from "../settings.js";
+import { detailFold, shownFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
@@ -133,7 +134,26 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     settings: false,
     monitor: false,
   });
-  const setDetail = (m: Mode) => (open: boolean) => setDetailOpen((d) => ({ ...d, [m]: open }));
+  // |, < and > past the ends fold a view's list away or spread it over the pane, until the viewer quits.
+  const [folds, setFolds] = useState<Record<Mode, FoldState>>(() => ({
+    chat: UNFOLDED,
+    git: UNFOLDED,
+    plan: UNFOLDED,
+    sessions: UNFOLDED,
+    settings: UNFOLDED,
+    monitor: UNFOLDED,
+  }));
+  const setFold = (m: Mode, state: FoldState) => setFolds((f) => (f[m] === state ? f : { ...f, [m]: state }));
+  // What each view reported last, also between renders: a view may report twice before one.
+  const reported = useRef(detailOpen);
+  const setDetail = (m: Mode) => (open: boolean) => {
+    const was = reported.current[m];
+    reported.current = { ...reported.current, [m]: open };
+    // A detail opened from the full list shows over the whole pane; the trash is a list itself.
+    if (m !== "sessions") setFolds((f) => ({ ...f, [m]: detailFold(f[m], open, was) }));
+    setDetailOpen((d) => ({ ...d, [m]: open }));
+  };
+  const viewLayout = (m: Mode) => layoutOf(m, shownFold(folds[m]));
 
   // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
   const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
@@ -309,11 +329,20 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const timer = setTimeout(() => setNotice(undefined), COPIED_MS);
     return () => clearTimeout(timer);
   }, [notice]);
+  // Past narrow the list folds away, past wider it takes the pane; neither is stored.
   const stepWidth = (step: 1 | -1) => {
     const key = LIST_WIDTH_SETTINGS[mode];
-    const width = stepListWidth(readSettings()[key], step);
-    updateSettings({ [key]: width });
-    setNotice({ text: `width: ${width}` });
+    const width = readSettings()[key];
+    const next = stepFold(folds[mode], width, step);
+    setFold(mode, next.state);
+    if (next.width !== width) updateSettings({ [key]: next.width });
+    setNotice({ text: `width: ${next.shown}` });
+  };
+  // | goes to an end and back to the set width, to the other end next time.
+  const toggleWidth = () => {
+    const next = toggleFold(folds[mode]);
+    setFold(mode, next);
+    setNotice({ text: `width: ${shownFold(next) ?? readSettings()[LIST_WIDTH_SETTINGS[mode]]}` });
   };
 
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
@@ -342,6 +371,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (input === "q" || (key.escape && !detailOpen[mode])) quit();
     else if (input === "i") setInfoOpen(true);
     else if (input === "<" || input === ">") stepWidth(input === "<" ? -1 : 1);
+    else if (input === "|") toggleWidth();
     // Only a viewer that follows the live session moves; one started with --session stays.
     else if (input === "p" && !sessionId) setPlacementOpen(true);
     // Tab and Shift+Tab step through the shown views, wrapping around.
@@ -366,7 +396,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             cwd={cwd}
             path={path}
             transcript={transcript}
-            layout={layoutOf("chat")}
+            layout={viewLayout("chat")}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
             onTyping={setTyping}
@@ -381,7 +411,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <MouseContext.Provider value={mouseFor("git")}>
           <GitView
             cwd={cwd}
-            layout={layoutOf("git")}
+            layout={viewLayout("git")}
             active={mode === "git" && !blocked}
             onFileOpen={setDetail("git")}
             onTyping={setTyping}
@@ -397,7 +427,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             plans={transcript.plans}
             planMode={transcript.planMode}
             hasSession={path !== undefined}
-            layout={layoutOf("plan")}
+            layout={viewLayout("plan")}
             active={mode === "plan" && !blocked}
             onDiffOpen={setDetail("plan")}
             onTyping={setTyping}
@@ -411,7 +441,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <SessionsView
             cwd={cwd}
             activePath={path}
-            layout={layoutOf("sessions")}
+            layout={viewLayout("sessions")}
             visible={mode === "sessions"}
             active={mode === "sessions" && !blocked}
             onTrashOpen={setDetail("sessions")}
@@ -436,7 +466,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <MouseContext.Provider value={mouseFor("settings")}>
           <SettingsView
             cwd={cwd}
-            layout={layoutOf("settings")}
+            layout={viewLayout("settings")}
             active={mode === "settings" && !blocked}
             onModal={setModal}
             onTyping={setTyping}
@@ -450,7 +480,14 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         <Box display={mode === "monitor" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("monitor")}>
           <MouseContext.Provider value={mouseFor("monitor")}>
-          <MonitorView cwd={cwd} layout={layoutOf("monitor")} visible={mode === "monitor"} active={mode === "monitor" && !blocked} onTyping={setTyping} />
+          <MonitorView
+            cwd={cwd}
+            layout={viewLayout("monitor")}
+            visible={mode === "monitor"}
+            active={mode === "monitor" && !blocked}
+            onTableOpen={setDetail("monitor")}
+            onTyping={setTyping}
+          />
           </MouseContext.Provider>
           </ReloadContext.Provider>
         </Box>
