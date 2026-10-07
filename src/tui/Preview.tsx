@@ -55,12 +55,17 @@ export function bodyHeightBelow(header: string[], height: number): number {
   return Math.max(1, height - header.length);
 }
 
+/** Rows a sticky header may take of `height`, its rule included: half, at least two. */
+export function headerRows(height: number): number {
+  return Math.max(2, Math.floor(height / 2));
+}
+
 /**
  * Keeps a sticky header from crowding out the content: at most half the
  * height, always ending with its separator rule.
  */
 export function fitHeader(header: string[], height: number): string[] {
-  const max = Math.max(2, Math.floor(height / 2));
+  const max = headerRows(height);
   if (header.length <= max) return header;
   return [...header.slice(0, max - 1), header.at(-1)!];
 }

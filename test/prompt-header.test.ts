@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import type { Turn } from "../src/transcript/parse.js";
-import { answerLines, commandName, compactLines, continuationDetails, PROMPT_PREVIEW_CHARS, promptHeader } from "../src/tui/ChatView.js";
+import { answerLines, commandName, compactLines, continuationDetails, PROMPT_PREVIEW_CHARS, PROMPT_PREVIEW_LINES, promptHeader } from "../src/tui/ChatView.js";
 
 const strip = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
 
@@ -21,9 +21,29 @@ describe("promptHeader", () => {
   });
 
   it("never takes more than half the height", () => {
-    const lines = promptHeader("word ".repeat(150), 40, 12);
-    expect(lines.length).toBeLessThanOrEqual(6);
+    const lines = promptHeader("word ".repeat(150), 40, 8);
+    expect(lines.length).toBeLessThanOrEqual(4);
     expect(strip(lines.at(-1)!)).toContain("↵ full prompt");
+  });
+
+  it("shows at most PROMPT_PREVIEW_LINES rows, the last ending in …", () => {
+    const lines = promptHeader("word ".repeat(150), 40, 100).map(strip);
+    expect(lines).toHaveLength(PROMPT_PREVIEW_LINES + 1);
+    expect(lines.at(-2)).toMatch(/…$/);
+    expect(lines.at(-2)!.length).toBeLessThanOrEqual(40);
+    expect(lines.at(-1)).toMatch(/^── ↵ full prompt ─+$/);
+  });
+
+  it("leaves blank lines out without claiming the prompt was cut", () => {
+    const lines = promptHeader("first\n\n\nsecond\n  \nthird", 40, 100).map(strip);
+    expect(lines).toEqual(["❯ first", "  second", "  third", "─".repeat(40)]);
+  });
+
+  it("shows a prompt of exactly PROMPT_PREVIEW_LINES rows completely", () => {
+    const prompt = ["one", "two", "three", "four", "five"].join("\n");
+    const lines = promptHeader(prompt, 40, 100).map(strip);
+    expect(lines.slice(0, -1).join("")).not.toContain("…");
+    expect(lines.at(-1)).toBe("─".repeat(40));
   });
 });
 
