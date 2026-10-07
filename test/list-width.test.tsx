@@ -66,8 +66,13 @@ describe("< and > in a view", () => {
     await expect.poll(view.frame).toContain("width: wide");
     expect(readSettings().settingsListWidth).toBe("wide");
     await view.press(">");
-    await view.press(">");
     await expect.poll(() => readSettings().settingsListWidth).toBe("wider");
+    await expect.poll(view.frame).toContain("width: wider");
+    // Past wider the list takes the pane, which is not stored; < comes back to wider.
+    await view.press(">");
+    await expect.poll(view.frame).toContain("width: full");
+    expect(readSettings().settingsListWidth).toBe("wider");
+    await view.press("<");
     await expect.poll(view.frame).toContain("width: wider");
     await view.press("<");
     await expect.poll(() => readSettings().settingsListWidth).toBe("wide");

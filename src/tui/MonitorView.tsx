@@ -54,6 +54,8 @@ interface Props {
   /** The view takes keys. */
   active: boolean;
   cwd: string;
+  /** The response table opened or closed (Esc closes it instead of quitting). */
+  onTableOpen?: (open: boolean) => void;
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;
 }
@@ -262,7 +264,7 @@ function responseTable(data: Measurements, day: string, model: string | undefine
 /** An entry of the list: a day, or load more after the oldest. */
 type Entry = ReturnType<typeof daysWithData>[number] | LoadMore;
 
-export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
+export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -317,6 +319,7 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
   const minutes = bucketMinutes(columns);
   // ↵ shows the day's responses as a table instead of the chart.
   const [table, setTable] = useState(false);
+  useEffect(() => onTableOpen?.(table), [table]);
   const stats = useMemo(
     () =>
       data && selected
@@ -376,6 +379,7 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
       if (filter.handleKey(input, key)) return;
       if (key.return && onLoadMore) return loadMore();
       if (key.return) return setTable((t) => !t);
+      if (key.escape && table) return setTable(false);
       if (input === "v" && !table) return setValue((v) => VALUES[(VALUES.indexOf(v) + 1) % VALUES.length]);
       if (input === "m" && models.length > 0) return setModel(choices[(choices.indexOf(modelChoice) + 1) % choices.length]);
       // Checked first: Shift+↑/↓ jump between marked days.

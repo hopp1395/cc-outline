@@ -215,6 +215,14 @@ function listRange(key: keyof Settings, view: string, what: string, dated: strin
   };
 }
 
+/** What Enter opens in each view whose detail can show over the whole pane. */
+const DETAIL_OF: Record<string, string> = {
+  Chat: "`Enter` shows the full prompt and `a` a subagent's page",
+  Changes: "`Enter` shows the whole file",
+  Plan: "`Enter` shows the plan's changes",
+  Monitor: "`Enter` shows the response table",
+};
+
 /** A view's row for the width of its list, next to the preview; `suits` says what a wider list is good for there. */
 function listWidthRow(key: keyof Settings, group: string, label: string, view: string, suits: string): Row {
   const share = (w: ListWidth) => `${LIST_WIDTHS[w].share * 100} % of the pane, ${LIST_WIDTHS[w].min}–${LIST_WIDTHS[w].max} columns`;
@@ -230,6 +238,10 @@ function listWidthRow(key: keyof Settings, group: string, label: string, view: s
       ["wider", `${share("wider")}: the list and the preview share the pane`],
     ],
     viewKey: `\`<\` and \`>\` in ${view}`,
+    notes: [
+      `Past narrow, \`<\` folds the list away and the preview takes the pane; past wider, \`>\` spreads the list over the pane. \`|\` goes to one of them and back, to the other one next time. Neither is stored: the viewer starts with the width set here.`,
+      ...(DETAIL_OF[view] ? [`With the list over the pane, ${DETAIL_OF[view]} over the whole pane; \`Esc\` goes back to the list.`] : []),
+    ],
   };
 }
 

@@ -22,6 +22,7 @@ import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
 import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
 import { centredBadge } from "./Preview.js";
+import type { ListFold } from "./listFold.js";
 
 /** `text` followed by spaces up to `width` columns. */
 const padColumns = (text: string, width: number) => text + " ".repeat(Math.max(0, width - stringWidth(text)));
@@ -37,6 +38,8 @@ export interface Layout {
   listWidth: number;
   previewWidth: number;
   bodyHeight: number;
+  /** `|`, `<` and `>` past the ends: the list or the preview takes the whole pane. */
+  fold?: ListFold;
 }
 
 /** Each list width as a share of the pane's columns, kept within `min` and `max` columns. */
@@ -57,23 +60,27 @@ export function listColumns(columns: number, width: ListWidth): number {
   return Math.min(of(width), Math.max(columns - 3 - MIN_PREVIEW, of("normal")));
 }
 
-export function layoutOf(columns: number, rows: number, width: ListWidth = "normal"): Layout {
+export function layoutOf(columns: number, rows: number, width: ListWidth = "normal", fold?: ListFold): Layout {
   const listWidth = listColumns(columns, width);
+  // list + border + padding
+  const previewWidth = Math.max(MIN_PREVIEW, columns - listWidth - 3);
   return {
     columns,
     rows,
-    listWidth,
-    // list + border + padding
-    previewWidth: Math.max(MIN_PREVIEW, columns - listWidth - 3),
+    // The side out of sight keeps its width, so its lines need not be rendered again.
+    listWidth: fold === "full" ? columns : listWidth,
+    // Only the scroll bar's column beside it.
+    previewWidth: fold === "hidden" ? Math.max(MIN_PREVIEW, columns - 1) : previewWidth,
     bodyHeight: Math.max(3, rows - 2),
+    fold,
   };
 }
 
-/** The layout of each view, with the list width its setting gives; without a view, the normal width (dialogs). */
-export function useLayouts(): (mode?: Mode) => Layout {
+/** The layout of each view, with the list width its setting gives and its fold; without a view, the normal width (dialogs). */
+export function useLayouts(): (mode?: Mode, fold?: ListFold) => Layout {
   const { columns, rows } = useWindowSize();
   const settings = useSettings();
-  return (mode) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal");
+  return (mode, fold) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", fold);
 }
 
 export interface Scroll {
@@ -520,6 +527,26 @@ export function versionLabels(state: ReturnType<typeof useUpdateInfo>["state"]):
   return { full: VERSION_LABEL };
 }
 
+/** A side folded away keeps its size, far below the screen, so no click or wheel reaches it. */
+const hiddenArea = (width: number, height: number) => ({ x: 0, y: 1_000_000, width, height });
+
+/**
+ * The notice takes the bottom row for a moment, over whatever `content` shows there (also a plain message).
+ * Ink does not clip the content here (its own overflow replaces this clip), so the row is filled to `fill`
+ * columns to cover the content's last row.
+ */
+function withNotice(content: ReactNode, notice: string | undefined, width: number, height: number, fill = width): ReactNode {
+  if (!notice) return content;
+  return (
+    <Box flexDirection="column" height={height}>
+      <Box flexDirection="column" height={height - 1}>
+        {content}
+      </Box>
+      <Text wrap="truncate">{padColumns(centredBadge(notice, width), fill)}</Text>
+    </Box>
+  );
+}
+
 export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
   const notice = useContext(ScreenNoticeContext);
   const focused = useFocused();
@@ -569,30 +596,38 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
       </Box>
       <Box height={layout.bodyHeight}>
         {/* Not shrunk by a preview of plain text, whose width Yoga counts in full (Plan's "No plan in this session yet…"). */}
-        <Box flexDirection="column" width={layout.listWidth} height={layout.bodyHeight} flexShrink={0}>
-          <AreaContext.Provider value={{ x: 0, y: 1, width: layout.listWidth, height: layout.bodyHeight }}>{list}</AreaContext.Provider>
+        {/* The side folded away stays rendered, out of sight and out of the mouse's reach, so it keeps its state. */}
+        <Box
+          display={layout.fold === "hidden" ? "none" : "flex"}
+          flexDirection="column"
+          width={layout.listWidth}
+          height={layout.bodyHeight}
+          flexShrink={0}
+        >
+          <AreaContext.Provider value={layout.fold === "hidden" ? hiddenArea(layout.listWidth, layout.bodyHeight) : { x: 0, y: 1, width: layout.listWidth, height: layout.bodyHeight }}>
+            {layout.fold === "full" ? withNotice(list, notice, layout.listWidth, layout.bodyHeight) : list}
+          </AreaContext.Provider>
         </Box>
         <Box
+          display={layout.fold === "full" ? "none" : "flex"}
           borderStyle="single"
           borderTop={false}
           borderBottom={false}
           borderRight={false}
+          borderLeft={layout.fold !== "hidden"}
           borderDimColor
-          paddingLeft={1}
+          paddingLeft={layout.fold === "hidden" ? 0 : 1}
           height={layout.bodyHeight}
         >
-          <AreaContext.Provider value={{ x: layout.listWidth + 2, y: 1, width: layout.previewWidth, height: layout.bodyHeight }}>
-            {notice ? (
-              // The notice takes the bottom row for a moment, over whatever the preview shows there (also a plain message).
-              // Ink does not clip the preview here (its own overflow replaces this clip), so the row is filled to
-              // the scroll bar's column to cover the preview's last row.
-              <Box flexDirection="column" height={layout.bodyHeight}>
-                <Box height={layout.bodyHeight - 1}>{preview}</Box>
-                <Text wrap="truncate">{padColumns(centredBadge(notice, layout.previewWidth), layout.previewWidth + 1)}</Text>
-              </Box>
-            ) : (
-              preview
-            )}
+          <AreaContext.Provider
+            value={
+              layout.fold === "full"
+                ? hiddenArea(layout.previewWidth, layout.bodyHeight)
+                : { x: layout.fold === "hidden" ? 0 : layout.listWidth + 2, y: 1, width: layout.previewWidth, height: layout.bodyHeight }
+            }
+          >
+            {/* Filled to the scroll bar's column. */}
+            {layout.fold === "full" ? preview : withNotice(preview, notice, layout.previewWidth, layout.bodyHeight, layout.previewWidth + 1)}
           </AreaContext.Provider>
         </Box>
       </Box>
