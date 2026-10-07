@@ -216,6 +216,17 @@ describe("openPane", () => {
     unregisterViewer(cwd, 9);
   });
 
+  it("opens without a view in the session's last one, and leaves a running viewer's view alone (/cco:open)", () => {
+    process.env.WT_SESSION = "x";
+    openPane(cwd, undefined, { claudePid: 12 });
+    expect(spawned[0].args).not.toContain("--view");
+    registerViewer(cwd, "git", 12);
+    expect(openPane(cwd, undefined, { claudePid: 12 })).toBe("cco is already open.");
+    expect(readControl(cwd, 12)).not.toHaveProperty("view");
+    expect(spawned).toHaveLength(1);
+    unregisterViewer(cwd, 12);
+  });
+
   it("asks a running viewer to restart or to offer the update, keeping its view for a restart", () => {
     process.env.WT_SESSION = "x";
     registerViewer(cwd, "git", 11);

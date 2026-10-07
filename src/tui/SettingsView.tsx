@@ -331,7 +331,7 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "view per session",
     description:
-      "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names.",
+      "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer with `/cco:open` or without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names.",
     values: ON_OFF(
       "reopen the session's last view, e.g. a session left in Changes comes back in Changes after `claude --resume`",
       "start in the chat, or the view shown last in the project",
