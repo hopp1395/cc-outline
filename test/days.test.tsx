@@ -116,8 +116,7 @@ async function listOutput(
         period={opts.period}
         shown={opts.shown}
         pinned={opts.pinned}
-        // The rows without stars (below a Pinned group) marked with a dot.
-        render={(i, _selected, stars) => <Text>{stars ? "" : "·"}{i.id}</Text>}
+        render={(i) => <Text>{i.id}</Text>}
       />
     </AreaContext.Provider>,
     { columns: 30, rows: opts.height },
@@ -173,16 +172,16 @@ describe("List with times", () => {
     ]);
   });
 
-  it("shows the pinned entries first, then the whole list with its days, without stars", async () => {
+  it("shows the pinned entries first, then the whole list with its days", async () => {
     const lines = await listOutput(items, { selected: 3, height: 12, pinned: { order: [3, 1, 0, 1, 2, 3], count: 2, row: 0 } });
-    expect(lines.slice(0, 9)).toEqual(["── ★ Pinned ────────", "d", "b", "── Sun 27 Sep 2026 ─", "·a", "·b", "·c", "── Mon 28 Sep 2026 ─", "·d"]);
+    expect(lines.slice(0, 9)).toEqual(["── ★ Pinned ────────", "d", "b", "── Sun 27 Sep 2026 ─", "a", "b", "c", "── Mon 28 Sep 2026 ─", "d"]);
   });
 
   it("ends the Pinned group with a plain line without other separators", async () => {
     updateSettings({ dateSeparators: false });
     try {
       const lines = await listOutput(items, { selected: 0, height: 10, pinned: { order: [2, 0, 1, 2, 3], count: 1, row: 1 } });
-      expect(lines.slice(0, 7)).toEqual(["── ★ Pinned ────────", "c", "────────────────────", "·a", "·b", "·c", "·d"]);
+      expect(lines.slice(0, 7)).toEqual(["── ★ Pinned ────────", "c", "────────────────────", "a", "b", "c", "d"]);
     } finally {
       updateSettings({ dateSeparators: true });
     }

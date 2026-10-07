@@ -50,9 +50,9 @@ describe("the Pinned group", () => {
     toggleFavorite(cwd, "turns", "c");
     const view = renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript} layout={layout} active liveSession />);
     const shows = (answer: string) => expect.poll(view.frame, { timeout: 2000 }).toContain(answer);
-    // Following: the newest turn, in its place in the list. The list below the group has no stars.
+    // Following: the newest turn, in its place in the list. Both rows of a marked turn show the star.
     await shows("Answer c");
-    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ first", "★ third", "first", "second", "third"]);
+    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ first", "★ third", "★ first", "second", "★ third"]);
     await view.press(UP);
     await shows("Answer b");
     // Shift+↑ from the list: the group's last row; ↑↓ then step through the copies too.
@@ -68,7 +68,7 @@ describe("the Pinned group", () => {
     await shows("Answer b");
     // Marked in the list: the selection stays there.
     await view.press(" ");
-    await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ first", "★ second", "★ third", "first", "second", "third"]);
+    await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ first", "★ second", "★ third", "★ first", "★ second", "★ third"]);
     await view.press(DOWN);
     await shows("Answer c");
     await view.press(UP);
@@ -78,12 +78,12 @@ describe("the Pinned group", () => {
     await shows("Answer a");
     await view.press(" ");
     await shows("Answer b");
-    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ second", "★ third", "first", "second", "third"]);
+    expect(listLines(view.frame())).toEqual(["── ★ Pinned", "★ second", "★ third", "first", "★ second", "★ third"]);
     // Unmarked in the list: the selection stays in its place.
     await view.press(END);
     await shows("Answer c");
     await view.press(" ");
-    await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ second", "first", "second", "third"]);
+    await expect.poll(() => listLines(view.frame()), { timeout: 2000 }).toEqual(["── ★ Pinned", "★ second", "first", "★ second", "third"]);
     expect(view.frame()).toContain("Answer c");
     // The only one: the selection stays with it, in its place in the list.
     await view.press(SHIFT_UP);

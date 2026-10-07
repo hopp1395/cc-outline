@@ -1026,9 +1026,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
             itemKey={entryId}
             time={listedAt}
-            render={(s, isSelected, stars) => {
+            render={(s, isSelected) => {
               if (isLoadMore(s)) return <LoadMoreRow progress={range.requested ? progress : undefined} />;
-              const marked = stars && favorites.isMarked(s.id);
+              const marked = favorites.isMarked(s.id);
               const state = stateOf(s);
               const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
               // A /rename title is bright, a first prompt standing in for it dim and quoted.

@@ -357,9 +357,9 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           empty={filter.empty ?? "No plans yet"}
           itemKey={(p) => p.id}
           time={(p) => p.timestamp}
-          render={(p, isSelected, stars) => {
+          render={(p, isSelected) => {
             const status = STATUS[p.status];
-            const marked = stars && favorites.isMarked(p.id);
+            const marked = favorites.isMarked(p.id);
             return (
               <>
                 {marked && <Star />}

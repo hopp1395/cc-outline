@@ -329,9 +329,9 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "pinned favorites",
     description:
-      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (`Space`) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place without the ★. `↑↓` and `Home`/`End` follow the rows on screen, through both copies; `Shift+↑/↓` only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
+      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (`Space`) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place, with their ★ as well. `↑↓` and `Home`/`End` follow the rows on screen, through both copies; `Shift+↑/↓` only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
     values: ON_OFF(
-      "marked entries once more at the top, under ── ★ Pinned ── with ★, and in their place below without it",
+      "marked entries once more at the top, under ── ★ Pinned ──, and in their place below, both with ★",
       "marked entries only in their place, with ★; `Shift+↑/↓` jumps between them",
     ),
   },
@@ -1083,8 +1083,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             empty={filter.empty ?? "No settings"}
             itemKey={keyOf}
             group={groupOf}
-            render={(e, isSelected, stars) => {
-              const star = stars && favorites.isMarked(keyOf(e));
+            render={(e, isSelected) => {
+              const star = favorites.isMarked(keyOf(e));
               const { value, color, label } = rowParts(e);
               // The value keeps its place at the right end; a label too long for the rest is cut (or scrolls).
               const labelWidth = Math.max(4, listWidth - (star ? 2 : 0) - (value ? stringWidth(value) + 1 : 0));
