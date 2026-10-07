@@ -28,6 +28,13 @@ describe("positions", () => {
     expect(readPositions(cwd, "plan")).toMatchObject({ selected: "toolu_1", follow: false, scroll: { toolu_1: 3 } });
   });
 
+  it("keeps whether the pinned copy was selected", () => {
+    savePositions(cwd, "chat", { selected: "a", follow: false, pinned: true, scroll: {} });
+    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "a", pinned: true });
+    writeJson(positionsFile(cwd), { chat: { selected: "a", pinned: "yes", scroll: {} } });
+    expect(readPositions(cwd, "chat").pinned).toBeUndefined();
+  });
+
   it("ignores values of the wrong type", () => {
     writeJson(positionsFile(cwd), { chat: { selected: 5, follow: "no", scroll: { a: 3, b: "x", c: -1 } } });
     expect(readPositions(cwd, "chat")).toEqual({ selected: undefined, follow: undefined, scroll: { a: 3 } });

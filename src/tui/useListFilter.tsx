@@ -25,6 +25,11 @@ export interface ListFilter {
   pinned: (PinnedRows & { choose: (row: number) => void }) | undefined;
   /** Shift+↑/↓: the next marked entry shown, down (1) or up (-1) the screen; with the Pinned group its rows. */
   nextMark: (dir: 1 | -1) => number | undefined;
+  /**
+   * The selected entry's copy in the Pinned group is selected, for `usePositions`' `select`;
+   * undefined while the stored one is being restored and where the list has no group (the trash).
+   */
+  copySelected: boolean | undefined;
   /** Before `index` is unmarked: a selected pinned copy that leaves the group hands the selection to the next pinned one. */
   unmarking: (index: number) => void;
   /** Ctrl+F: opens the dialog, or drops the filter in effect. True when the key was taken. */
@@ -62,6 +67,12 @@ interface Options<T> {
   marked?: (item: T) => boolean;
   /** Entries the Pinned group shows whatever the marks and `pinnedFavorites` say (Sessions: the active and running ones). */
   pin?: (item: T) => boolean;
+  /**
+   * The entry whose copy in the Pinned group was selected when the list was left (`usePositions`' `pinned`).
+   * Once the view has selected it, its copy is selected if it is still pinned, else it stays in the list below.
+   * Any choice of the user's before that ends the wait.
+   */
+  restoreCopy?: (item: T) => boolean;
 }
 
 /**
@@ -70,7 +81,7 @@ interface Options<T> {
  * natural index, and gets the indexes to show. Kept while the viewer runs,
  * until the view is reloaded.
  */
-export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, keep, marked, pin }: Options<T>): ListFilter {
+export function useListFilter<T>({ items, text, deps = [], selected, select, reversed = false, layout, enabled = true, onTyping, keep, marked, pin, restoreCopy }: Options<T>): ListFilter {
   const [applied, setApplied] = useState("");
   // The text the dialog starts with: the filter used last.
   const [recent, setRecent] = useState("");
@@ -103,7 +114,12 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   const group = rows ? rows.order.slice(0, rows.count) : [];
   // The group as last rendered: where the selection goes when its copy leaves the group.
   const lastGroup = useRef<number[]>([]);
-  const choose = (row: number) => setGroupCopy(rows && row < rows.count ? rows.order[row] : undefined);
+  // Waiting for the view to restore the entry whose pinned copy was selected last.
+  const [restoring, setRestoring] = useState(() => restoreCopy !== undefined);
+  const choose = (row: number) => {
+    setRestoring(false);
+    setGroupCopy(rows && row < rows.count ? rows.order[row] : undefined);
+  };
   const pinned = rows && { ...rows, choose };
   /** Selects a row of the group's list: the entry, and which of its rows. */
   const selectRow = (row: number | undefined) => {
@@ -115,6 +131,13 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
   useEffect(() => {
     onTyping?.(open);
   }, [open]);
+
+  // The stored entry is selected again: its pinned copy, as when the list was left, or its row below when it is no longer pinned.
+  useEffect(() => {
+    if (!restoring || !enabled || !(selected in items) || !restoreCopy?.(items[selected])) return;
+    setRestoring(false);
+    if (isPinned(selected)) setGroupCopy(selected);
+  });
 
   // A reload of the view (F5) drops the filter.
   useOnReload(() => {
@@ -148,7 +171,7 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
     first: () => selectRow(0),
     last: () => selectRow(rows.order.length - 1),
   };
-  const nav = pinnedNav ?? orderedNav(reversed, {
+  const plainNav = orderedNav(reversed, {
     select: (delta: number) => {
       if (!shown) return select(selected + delta);
       const next = stepShown(shown, selected, delta);
@@ -162,6 +185,22 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
       if (last >= 0) select(last);
     },
   });
+  const chosen = pinnedNav ?? plainNav;
+  // A step of the user's ends the wait for the stored selection.
+  const nav = {
+    select: (delta: number) => {
+      setRestoring(false);
+      chosen.select(delta);
+    },
+    first: () => {
+      setRestoring(false);
+      chosen.first();
+    },
+    last: () => {
+      setRestoring(false);
+      chosen.last();
+    },
+  };
 
   const close = () => setLine(undefined);
   const handleKey = (input: string, key: Key) => {
@@ -179,7 +218,9 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
     nav,
     last,
     pinned,
+    copySelected: restoring || !enabled ? undefined : rows !== undefined && rows.row >= 0 && rows.row < rows.count,
     nextMark: (dir) => {
+      setRestoring(false);
       if (!rows) return nextMarkedIn(screen, selected, dir, isMarked);
       const row = nextPinnedRow(rows, dir);
       if (row === undefined) return undefined;
@@ -187,6 +228,7 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
       return rows.order[row];
     },
     unmarking: (index) => {
+      setRestoring(false);
       if (!rows || rows.order[rows.row] !== index || pin?.(items[index])) return;
       const next = afterUnpin(rows);
       // The only one: the selection stays with the entry, in its place below.

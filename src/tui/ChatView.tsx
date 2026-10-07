@@ -519,6 +519,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const favorites = useFavorites(cwd, "turns", path);
   const markedCount = turns.filter((t) => favorites.isMarked(t.id)).length;
 
+  // Each turn remembers where its answer was scrolled to, also across restarts; unvisited turns start at the top.
+  const remembered = usePositions(cwd, "chat");
   // A turn is found by its prompt; its details are what came with it and the subagents it started.
   const filter = useListFilter({
     items: turns,
@@ -533,6 +535,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     layout,
     onTyping,
     marked: (t) => favorites.isMarked(t.id),
+    restoreCopy: remembered.follow === false && remembered.pinned ? (t) => t.id === remembered.selected : undefined,
   });
   // The newest turn shown: following and End go there, also while a filter is on.
   const last = filter.last;
@@ -600,8 +603,6 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   // Running agents spin in the answer (and in an agent's page), like "Claude is working…".
   const spinners = useMemo(() => (liveSession ? spinnerMarks(lines) : []), [lines, liveSession]);
 
-  // Each turn remembers where its answer was scrolled to, also across restarts; unvisited turns start at the top.
-  const remembered = usePositions(cwd, "chat");
   // The session whose remembered selection was restored (or found to be missing); nothing is stored before.
   const restoredFor = useRef<string | undefined>(undefined);
   const justRestored = useRef(false);
@@ -708,9 +709,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     if (!current) return;
     if (live && unrestored.current) return;
     unrestored.current = undefined;
-    remembered.select(current.id, live);
+    remembered.select(current.id, live, filter.copySelected);
     if (!detailOpen) remembered.set(current.id, pos);
-  }, [current?.id, live, pos, detailOpen]);
+  }, [current?.id, live, pos, detailOpen, filter.copySelected]);
 
   const select = (index: number) => {
     if (last < 0) return;

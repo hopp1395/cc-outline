@@ -756,6 +756,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     layout,
     onTyping,
     marked: (e) => favorites.isMarked(keyOf(e)),
+    restoreCopy: positions.pinned ? (e) => keyOf(e) === positions.selected : undefined,
   });
 
   const updating = update.run?.status === "running";
@@ -767,7 +768,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   useEffect(() => {
     onModal?.(modal);
   }, [modal]);
-  useEffect(() => positions.select(entryKey), [entryKey]);
+  useEffect(() => positions.select(entryKey, undefined, filter.copySelected), [entryKey, filter.copySelected]);
   useEffect(() => {
     if (!asked) return;
     setSelectedKey(entries[resolveKey(asked.key, listEntries)]);

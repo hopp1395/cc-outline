@@ -44,10 +44,18 @@ export function usePositions(cwd: string, list: PositionList) {
     /** The entry selected when the list was left, and whether it followed the newest entry. */
     selected: current.selected,
     follow: current.follow,
-    select(id: string | undefined, follow?: boolean) {
-      if (current.selected === id && current.follow === follow) return;
+    /** Whether the selected entry's copy in the Pinned group was selected. */
+    pinned: current.pinned === true,
+    /**
+     * Stores the selection. `pinned` says whether its copy in the Pinned group is selected;
+     * undefined keeps what is stored for the same entry (while the list restores it).
+     */
+    select(id: string | undefined, follow?: boolean, pinned?: boolean) {
+      const copy = (pinned ?? (id === current.selected && current.pinned)) && follow !== true ? true : undefined;
+      if (current.selected === id && current.follow === follow && current.pinned === copy) return;
       current.selected = id;
       current.follow = follow;
+      current.pinned = copy;
       save();
     },
     /** Stored scroll position of `key` (0 when unknown). */

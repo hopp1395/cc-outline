@@ -175,13 +175,14 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     layout,
     onTyping,
     marked: (f) => favorites.isMarked(f.path),
+    restoreCopy: positions.pinned ? (f) => f.path === positions.selected : undefined,
   });
   const current = filter.none ? undefined : files[selectedIndex];
 
   // The refresh keeps the selected file, also the one restored before the list was read.
   const selectedRef = useRef(selectedPath);
   selectedRef.current = selectedPath;
-  useEffect(() => positions.select(selectedPath), [selectedPath]);
+  useEffect(() => positions.select(selectedPath, undefined, filter.copySelected), [selectedPath, filter.copySelected]);
   // The refresh running, which another one waits for instead of starting a second.
   const running = useRef<Promise<void> | undefined>(undefined);
 
