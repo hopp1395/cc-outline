@@ -42,9 +42,11 @@ describe("list width", () => {
 
   it("steps narrower and wider, stopping at the ends", () => {
     expect(stepListWidth("normal", 1)).toBe("wide");
-    expect(stepListWidth("wider", 1)).toBe("wider");
+    expect(stepListWidth("wider", 1)).toBe("full");
+    expect(stepListWidth("full", 1)).toBe("full");
     expect(stepListWidth("normal", -1)).toBe("narrow");
-    expect(stepListWidth("narrow", -1)).toBe("narrow");
+    expect(stepListWidth("narrow", -1)).toBe("hidden");
+    expect(stepListWidth("hidden", -1)).toBe("hidden");
   });
 
   it("falls back to normal for an unknown value", () => {
@@ -68,10 +70,10 @@ describe("< and > in a view", () => {
     await view.press(">");
     await expect.poll(() => readSettings().settingsListWidth).toBe("wider");
     await expect.poll(view.frame).toContain("width: wider");
-    // Past wider the list takes the pane, which is not stored; < comes back to wider.
+    // Past wider the list takes the pane, stored too; < comes back to wider.
     await view.press(">");
     await expect.poll(view.frame).toContain("width: full");
-    expect(readSettings().settingsListWidth).toBe("wider");
+    expect(readSettings().settingsListWidth).toBe("full");
     await view.press("<");
     await expect.poll(view.frame).toContain("width: wider");
     await view.press("<");

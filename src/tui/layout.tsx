@@ -13,7 +13,7 @@ import {
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
-import { isViewShown, LIST_WIDTH_SETTINGS, type ListOrder, type ListWidth, type Settings } from "../settings.js";
+import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, type ColumnWidth, type ListFold, type ListOrder, type ListWidth, type Settings } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
@@ -22,7 +22,6 @@ import { VERSION } from "../version.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
 import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
 import { centredBadge } from "./Preview.js";
-import type { ListFold } from "./listFold.js";
 
 /** `text` followed by spaces up to `width` columns. */
 const padColumns = (text: string, width: number) => text + " ".repeat(Math.max(0, width - stringWidth(text)));
@@ -43,7 +42,7 @@ export interface Layout {
 }
 
 /** Each list width as a share of the pane's columns, kept within `min` and `max` columns. */
-export const LIST_WIDTHS: Record<ListWidth, { share: number; min: number; max: number }> = {
+export const LIST_WIDTHS: Record<ColumnWidth, { share: number; min: number; max: number }> = {
   narrow: { share: 0.2, min: 16, max: 30 },
   normal: { share: 0.3, min: 20, max: 40 },
   wide: { share: 0.4, min: 24, max: 60 },
@@ -54,20 +53,24 @@ export const LIST_WIDTHS: Record<ListWidth, { share: number; min: number; max: n
 const MIN_PREVIEW = 20;
 
 /** The columns of a list of `width` in a pane of `columns`. */
-export function listColumns(columns: number, width: ListWidth): number {
-  const of = (w: ListWidth) => Math.min(LIST_WIDTHS[w].max, Math.max(LIST_WIDTHS[w].min, Math.floor(columns * LIST_WIDTHS[w].share)));
+export function listColumns(columns: number, width: ColumnWidth): number {
+  const of = (w: ColumnWidth) => Math.min(LIST_WIDTHS[w].max, Math.max(LIST_WIDTHS[w].min, Math.floor(columns * LIST_WIDTHS[w].share)));
   // list + border + padding + the preview
   return Math.min(of(width), Math.max(columns - 3 - MIN_PREVIEW, of("normal")));
 }
 
-export function layoutOf(columns: number, rows: number, width: ListWidth = "normal", fold?: ListFold): Layout {
-  const listWidth = listColumns(columns, width);
+/**
+ * The layout of a list of `width`. At `hidden` the preview takes the pane, at `full` the list does; a detail
+ * opened from the full list (`drilled`) shows like `hidden`. The side out of sight keeps the normal width.
+ */
+export function layoutOf(columns: number, rows: number, width: ListWidth = "normal", drilled = false): Layout {
+  const fold = drilled ? "hidden" : isListFold(width) ? width : undefined;
+  const listWidth = listColumns(columns, isListFold(width) ? "normal" : width);
   // list + border + padding
   const previewWidth = Math.max(MIN_PREVIEW, columns - listWidth - 3);
   return {
     columns,
     rows,
-    // The side out of sight keeps its width, so its lines need not be rendered again.
     listWidth: fold === "full" ? columns : listWidth,
     // Only the scroll bar's column beside it.
     previewWidth: fold === "hidden" ? Math.max(MIN_PREVIEW, columns - 1) : previewWidth,
@@ -76,11 +79,11 @@ export function layoutOf(columns: number, rows: number, width: ListWidth = "norm
   };
 }
 
-/** The layout of each view, with the list width its setting gives and its fold; without a view, the normal width (dialogs). */
-export function useLayouts(): (mode?: Mode, fold?: ListFold) => Layout {
+/** The layout of each view, with the list width its setting gives (and a drilled detail); without a view, the normal width (dialogs). */
+export function useLayouts(): (mode?: Mode, drilled?: boolean) => Layout {
   const { columns, rows } = useWindowSize();
   const settings = useSettings();
-  return (mode, fold) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", fold);
+  return (mode, drilled) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", drilled);
 }
 
 export interface Scroll {

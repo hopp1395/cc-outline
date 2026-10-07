@@ -366,28 +366,28 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | General: mouse | on / off | on | – |
 | General: update | on / off / auto | auto | – |
 | Chat: tab | on / off | on | – |
-| Chat: list width | narrow / normal / wide / wider | normal | `<` `>` in Chat |
+| Chat: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Chat |
 | Chat: tool calls | off / compact / full | off | `t` in Chat |
 | Chat: thinking | on / off | off | `h` in Chat |
 | Chat: agents | on / off | on | – |
 | Chat: wrap | on / off | on | `w` in Chat |
 | Chat: order | oldest first / newest first | oldest first | `s` in Chat |
 | Changes: tab | on / off | on | – |
-| Changes: list width | narrow / normal / wide / wider | normal | `<` `>` in Changes |
+| Changes: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Changes |
 | Changes: wrap | on / off | on | `w` in Changes |
 | Plan: tab | on / off | on | – |
-| Plan: list width | narrow / normal / wide / wider | normal | `<` `>` in Plan |
+| Plan: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Plan |
 | Plan: wrap | on / off | on | `w` in Plan |
 | Plan: order | oldest first / newest first | oldest first | `s` in Plan |
 | Sessions: tab | on / off | on | – |
-| Sessions: list width | narrow / normal / wide / wider | normal | `<` `>` in Sessions |
+| Sessions: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Sessions |
 | Sessions: all projects | on / off | on | `a` in Sessions |
 | Sessions: pinned sessions (active and running ones at the top) | on / off | on | – |
 | Sessions: range | today / 7 days / 30 days / 90 days / unlimited | 7 days | – |
 | Monitor: tab | on / off | on | – |
-| Monitor: list width | narrow / normal / wide / wider | normal | `<` `>` in Monitor |
+| Monitor: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Monitor |
 | Monitor: range | today / 7 days / 30 days / 90 days / unlimited | 7 days | – |
-| Settings: list width | narrow / normal / wide / wider | normal | `<` `>` in Settings |
+| Settings: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Settings |
 
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
@@ -401,7 +401,7 @@ What they do:
 - **mouse** lets the viewer take the mouse: a click on a web address in the preview opens it in the browser, a click in a list selects the entry, a double click does what `Enter` does, and the wheel scrolls the preview or, over the list, moves to the previous or next entry. While it is on, the terminal leaves clicks and drags to the viewer: a drag in the preview selects and copies its text, and `Shift`+drag selects the terminal's way (Windows Terminal). Off, the terminal keeps the mouse and opens addresses with `Ctrl`+click.
 - **view per session** brings each session back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start `cco` without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names. Off, the viewer starts in the chat, or on start in the view shown last in the project. Kept per project in `~/.claude/cco/<project-slug>.views.json`.
 - **tab** (the first entry of each view's group) hides a view you do not use: a hidden view has no tab, and its number key does nothing; the other views keep their numbers. A `/cco:…` command or `--view` that names it still opens it, with its tab shown while it is open. On start, a remembered view that is hidden is replaced by the first shown one. Settings cannot be hidden, and at least one other view stays shown.
-- **list width** (in each view's group, Settings' own included) sets how wide the list is next to the preview: `narrow` 20 % of the pane (16–30 columns), `normal` 30 % (20–40), `wide` 40 % (24–60), `wider` 50 % (30–80). The preview keeps at least 20 columns. `<` and `>` in a view make its list narrower or wider, one step at a time, and store it here; the preview says the new width for a moment. One step past `narrow` or `wider` (or `|`) folds the list away or spreads it over the pane until you step back; that is not stored (see [Folding the list](#keys)).
+- **list width** (in each view's group, Settings' own included) sets how wide the list is next to the preview: `narrow` 20 % of the pane (16–30 columns), `normal` 30 % (20–40), `wide` 40 % (24–60), `wider` 50 % (30–80). The preview keeps at least 20 columns. At the ends, `hidden` folds the list away and the preview takes the whole pane, `full` spreads the list over the whole pane without a preview. `<` and `>` in a view step one width at a time, `|` goes to an end and back (see [Folding the list](#keys)); every change is stored here, the ends too, so a view starts as you left it. The preview says the new width for a moment.
 - **update** asks npm for the latest version and GitHub for the release notes when the viewer starts (see *Releases* below). `auto` does the same and, as soon as that check finds a newer version, opens *update to v…* in Settings and asks whether to install it. Off, the viewer makes no network requests; `F5` in Settings still checks once.
 - The other **Chat**, **Changes**, **Plan**, **Sessions** and **Monitor** settings are the same as the keys in those views; switching them there changes them here, and the other way round.
 
@@ -463,7 +463,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `i` | info dialog | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit | quit |
 
-**Folding the list.** `|` folds the shown view's list away, so the preview takes the whole pane, and on the next press brings it back at its width; the press after that spreads the list over the whole pane, without a preview, and the next brings it back again, and so on. `<` and `>` reach the same two ends one step past `narrow` and `wider`, and step back out of them. Selection and scroll positions stay. Neither end is stored: each view starts at its *list width* when the viewer starts. With the list over the pane, `Enter` (and `a` in Chat) shows the detail it opens over the whole pane, the full prompt, the whole file, the plan's changes or the Monitor's table, and `Esc` goes back to the list; in Sessions and Settings, `Enter` does what it always does.
+**Folding the list.** `|` folds the shown view's list away, so the preview takes the whole pane, and on the next press brings it back at its width; the press after that spreads the list over the whole pane, without a preview, and the next brings it back again, and so on. `<` and `>` reach the same two ends one step past `narrow` and `wider`, and step back out of them. Selection and scroll positions stay. The ends are stored as the *list width* `hidden` and `full`, so a view starts folded or spread as you left it; after such a restart the width before is not known, and `|` goes from `hidden` to `narrow` and from `full` to `wider`. Which end `|` takes next is not stored: after a restart it first folds the list away. With the list over the pane, `Enter` (and `a` in Chat) shows the detail it opens over the whole pane, the full prompt, the whole file, the plan's changes or the Monitor's table, and `Esc` goes back to the list; in Sessions and Settings, `Enter` does what it always does.
 
 **Reloading.** `F5` (or `Ctrl+R`, for terminals that keep F5 to themselves) reads the shown view's data again from scratch and redraws the screen, in every view: the Chat and Plan views the transcript (both, since they share it), the subagent shown and the plan file; Changes git; Sessions and Monitor all transcripts; Settings `settings.json`, with changes made by other viewers. Marks are read again too. The selection, scroll positions and open details stay; a list filter is dropped. The top bar says `reloading…` until the data is there, then `reloaded`. While a dialog is open, `F5` does nothing.
 

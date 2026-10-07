@@ -46,9 +46,17 @@ export type UpdateMode = (typeof UPDATE_VALUES)[number];
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
 export type Placement = (typeof PLACEMENT_VALUES)[number];
 
-/** How wide a view's list is, next to its preview: a share of the pane, within limits (`LIST_WIDTHS` in layout.tsx). */
-export const LIST_WIDTH_VALUES = ["narrow", "normal", "wide", "wider"] as const;
+/**
+ * How wide a view's list is, next to its preview: a share of the pane, within limits (`LIST_WIDTHS` in
+ * layout.tsx), or one of the ends, `hidden` (the preview takes the pane) and `full` (the list does).
+ */
+export const LIST_WIDTH_VALUES = ["hidden", "narrow", "normal", "wide", "wider", "full"] as const;
 export type ListWidth = (typeof LIST_WIDTH_VALUES)[number];
+/** A width that shares the pane with the preview. */
+export type ColumnWidth = Exclude<ListWidth, ListFold>;
+/** The ends: the list folded away, or spread over the pane. */
+export type ListFold = "hidden" | "full";
+export const isListFold = (width: ListWidth): width is ListFold => width === "hidden" || width === "full";
 
 /** Preferences kept across restarts, shared by all projects. */
 export interface Settings {
@@ -170,7 +178,7 @@ export const LIST_WIDTH_SETTINGS: Record<Mode, "chatListWidth" | "gitListWidth" 
   settings: "settingsListWidth",
 };
 
-/** The list width one step narrower (`step` -1) or wider (1) than `width`, stopping at the ends. */
+/** The list width one step narrower (`step` -1) or wider (1) than `width`, stopping at `hidden` and `full`. */
 export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
   const at = LIST_WIDTH_VALUES.indexOf(width);
   return LIST_WIDTH_VALUES[Math.max(0, Math.min(LIST_WIDTH_VALUES.length - 1, at + step))];
