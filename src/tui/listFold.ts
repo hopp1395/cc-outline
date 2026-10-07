@@ -1,56 +1,55 @@
-import { LIST_WIDTH_VALUES, stepListWidth, type ListWidth } from "../settings.js";
+import { isListFold, stepListWidth, type ColumnWidth, type ListFold, type ListWidth } from "../settings.js";
 
-/** A list folded away (`hidden`: the preview takes the pane) or spread over the pane (`full`: no preview). */
-export type ListFold = "hidden" | "full";
+export type { ListFold };
 
 /**
- * A view's fold, kept while the viewer runs and never stored: `fold` as `|`, `<` and `>` left it,
- * `last` the end reached last (the next `|` from the set width goes to the other one),
- * `drilled` while a detail opened from the full list shows the preview over the whole pane.
+ * What a view keeps about its fold while the viewer runs, beside the stored width: `last`, the end
+ * reached last (the next `|` from a width goes to the other one), and `drilled` while a detail opened
+ * from the full list shows the preview over the whole pane.
  */
 export interface FoldState {
-  fold?: ListFold;
   last: ListFold;
   drilled: boolean;
 }
 
 export const UNFOLDED: FoldState = { last: "full", drilled: false };
 
-/** What the pane shows: a detail opened from the full list hides the list instead. */
-export function shownFold(state: FoldState): ListFold | undefined {
-  return state.drilled ? "hidden" : state.fold;
+/** What the pane shows for the stored `width`: a detail opened from the full list hides the list instead. */
+export function shownFold(width: ListWidth, state: FoldState): ListFold | undefined {
+  if (state.drilled) return "hidden";
+  return isListFold(width) ? width : undefined;
 }
 
-/** `|`: from either end back to the set width, from there to the end not reached last. */
-export function toggleFold(state: FoldState): FoldState {
-  const shown = shownFold(state);
-  if (shown) return { last: shown, drilled: false };
+/** The width next to an end: what `|` goes back to when the width before it is not known. */
+const besideEnd = (fold: ListFold): ColumnWidth => (fold === "hidden" ? "narrow" : "wider");
+
+/**
+ * `|`: from either end back to `before` (the width shown before it, if known, else the one next to
+ * the end), from a width to the end not reached last.
+ */
+export function toggleFold(width: ListWidth, state: FoldState, before?: ColumnWidth): { width: ListWidth; state: FoldState } {
+  const shown = shownFold(width, state);
+  if (shown) return { width: isListFold(width) ? (before ?? besideEnd(width)) : width, state: { last: shown, drilled: false } };
   const next = state.last === "hidden" ? "full" : "hidden";
-  return { fold: next, last: next, drilled: false };
+  return { width: next, state: { last: next, drilled: false } };
 }
 
 /**
- * `<` and `>` on one scale, `hidden` < narrow … wider < `full`, stopping at the ends. Leaving an end
- * sets the width next to it; `width` is the one to store, unchanged at the ends.
+ * `<` and `>` on the scale `hidden` < narrow … wider < `full`, stopping at the ends. A drilled detail
+ * counts as `hidden`. The result is the width to store and show, unchanged at an end.
  */
-export function stepFold(state: FoldState, width: ListWidth, step: 1 | -1): { state: FoldState; width: ListWidth; shown: ListFold | ListWidth } {
-  const shown = shownFold(state);
-  if (shown === "hidden" || shown === "full") {
-    if ((shown === "hidden") === (step === -1)) return { state, width, shown };
-    const next = shown === "hidden" ? LIST_WIDTH_VALUES[0] : LIST_WIDTH_VALUES[LIST_WIDTH_VALUES.length - 1];
-    return { state: { last: shown, drilled: false }, width: next, shown: next };
-  }
-  const next = stepListWidth(width, step);
-  if (next !== width) return { state, width: next, shown: next };
-  const fold = step === -1 ? "hidden" : "full";
-  return { state: { fold, last: fold, drilled: false }, width, shown: fold };
+export function stepFold(width: ListWidth, state: FoldState, step: 1 | -1): { width: ListWidth; state: FoldState } {
+  const from = shownFold(width, state) === "hidden" ? "hidden" : width;
+  const next = stepListWidth(from, step);
+  if (next === width && !state.drilled) return { width, state };
+  return { width: next, state: { last: isListFold(next) ? next : state.last, drilled: false } };
 }
 
 /**
  * A view's detail opened or closed (`was`: open before): opened from the full list, it shows over the
  * whole pane until it closes. One left open while the list went full stays out of sight.
  */
-export function detailFold(state: FoldState, open: boolean, was: boolean): FoldState {
-  const drilled = open && (state.drilled || (!was && state.fold === "full"));
+export function detailFold(width: ListWidth, state: FoldState, open: boolean, was: boolean): FoldState {
+  const drilled = open && (state.drilled || (!was && width === "full"));
   return drilled === state.drilled ? state : { ...state, drilled };
 }

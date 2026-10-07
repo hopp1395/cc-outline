@@ -6,8 +6,8 @@ import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type Placement } from "../settings.js";
-import { detailFold, shownFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
+import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
+import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
@@ -30,7 +30,7 @@ import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
 import { UpdateContext, useUpdate } from "./useUpdate.js";
-import { useSetting } from "./useSetting.js";
+import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { TIMING } from "../timing.js";
@@ -134,7 +134,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     settings: false,
     monitor: false,
   });
-  // |, < and > past the ends fold a view's list away or spread it over the pane, until the viewer quits.
+  // |, < and > past the ends fold a view's list away or spread it over the pane (stored as its width);
+  // which end | takes next and a detail shown over the pane are kept until the viewer quits.
   const [folds, setFolds] = useState<Record<Mode, FoldState>>(() => ({
     chat: UNFOLDED,
     git: UNFOLDED,
@@ -150,10 +151,17 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const was = reported.current[m];
     reported.current = { ...reported.current, [m]: open };
     // A detail opened from the full list shows over the whole pane; the trash is a list itself.
-    if (m !== "sessions") setFolds((f) => ({ ...f, [m]: detailFold(f[m], open, was) }));
+    if (m !== "sessions") setFolds((f) => ({ ...f, [m]: detailFold(readSettings()[LIST_WIDTH_SETTINGS[m]], f[m], open, was) }));
     setDetailOpen((d) => ({ ...d, [m]: open }));
   };
-  const viewLayout = (m: Mode) => layoutOf(m, shownFold(folds[m]));
+  const viewLayout = (m: Mode) => layoutOf(m, folds[m].drilled);
+  // The width each view showed before it went to an end, where | goes back to; unknown after a restart.
+  const settings = useSettings();
+  const before = useRef<Partial<Record<Mode, ColumnWidth>>>({});
+  for (const m of Object.keys(LIST_WIDTH_SETTINGS) as Mode[]) {
+    const width = settings[LIST_WIDTH_SETTINGS[m]];
+    if (!isListFold(width)) before.current[m] = width;
+  }
 
   // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
   const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
@@ -329,20 +337,23 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const timer = setTimeout(() => setNotice(undefined), COPIED_MS);
     return () => clearTimeout(timer);
   }, [notice]);
-  // Past narrow the list folds away, past wider it takes the pane; neither is stored.
+  // Past narrow the list folds away, past wider it takes the pane.
   const stepWidth = (step: 1 | -1) => {
     const key = LIST_WIDTH_SETTINGS[mode];
     const width = readSettings()[key];
-    const next = stepFold(folds[mode], width, step);
+    const next = stepFold(width, folds[mode], step);
     setFold(mode, next.state);
     if (next.width !== width) updateSettings({ [key]: next.width });
-    setNotice({ text: `width: ${next.shown}` });
+    setNotice({ text: `width: ${next.width}` });
   };
-  // | goes to an end and back to the set width, to the other end next time.
+  // | goes to an end and back to the width before, to the other end next time.
   const toggleWidth = () => {
-    const next = toggleFold(folds[mode]);
-    setFold(mode, next);
-    setNotice({ text: `width: ${shownFold(next) ?? readSettings()[LIST_WIDTH_SETTINGS[mode]]}` });
+    const key = LIST_WIDTH_SETTINGS[mode];
+    const width = readSettings()[key];
+    const next = toggleFold(width, folds[mode], before.current[mode]);
+    setFold(mode, next.state);
+    if (next.width !== width) updateSettings({ [key]: next.width });
+    setNotice({ text: `width: ${next.width}` });
   };
 
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.

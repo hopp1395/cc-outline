@@ -4,7 +4,7 @@ import { basename } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ListRange, type ListWidth, type Settings, type UpdateMode } from "../settings.js";
+import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
@@ -225,22 +225,30 @@ const DETAIL_OF: Record<string, string> = {
 
 /** A view's row for the width of its list, next to the preview; `suits` says what a wider list is good for there. */
 function listWidthRow(key: keyof Settings, group: string, label: string, view: string, suits: string): Row {
-  const share = (w: ListWidth) => `${LIST_WIDTHS[w].share * 100} % of the pane, ${LIST_WIDTHS[w].min}–${LIST_WIDTHS[w].max} columns`;
+  const share = (w: ColumnWidth) => `${LIST_WIDTHS[w].share * 100} % of the pane, ${LIST_WIDTHS[w].min}–${LIST_WIDTHS[w].max} columns`;
   return {
     key,
     group,
     label,
-    description: `How wide the ${view} list is; the preview takes the rest of the pane. ${suits} The preview keeps at least 20 columns, so in a narrow pane the wider steps stop there.`,
+    description: `How wide the ${view} list is; the preview takes the rest of the pane. ${suits} The preview keeps at least 20 columns, so in a narrow pane the wider steps stop there. At the ends one of them takes the whole pane: hidden to read the preview in full width, full to read the list's entries uncut.`,
     values: [
+      ["hidden", "the list is folded away, the preview takes the whole pane; `↑` `↓` still switch entries"],
       ["narrow", `${share("narrow")}: more room for the preview`],
       ["normal", share("normal")],
       ["wide", share("wide")],
       ["wider", `${share("wider")}: the list and the preview share the pane`],
+      [
+        "full",
+        DETAIL_OF[view]
+          ? `the list takes the whole pane, without a preview; ${DETAIL_OF[view]} over the whole pane, \`Esc\` goes back to the list`
+          : "the list takes the whole pane, without a preview",
+      ],
     ],
-    viewKey: `\`<\` and \`>\` in ${view}`,
+    viewKey: `\`<\`, \`>\` and \`|\` in ${view}`,
     notes: [
-      `Past narrow, \`<\` folds the list away and the preview takes the pane; past wider, \`>\` spreads the list over the pane. \`|\` goes to one of them and back, to the other one next time. Neither is stored: the viewer starts with the width set here.`,
-      ...(DETAIL_OF[view] ? [`With the list over the pane, ${DETAIL_OF[view]} over the whole pane; \`Esc\` goes back to the list.`] : []),
+      "`<` and `>` step one width at a time, from hidden to full. `|` goes from a width to hidden, and on the next press back to that width; the press after that goes to full, and the next back again. After a restart, the width before is not known: `|` then goes from hidden to narrow and from full to wider.",
+      "Every step is stored here, hidden and full too: the view starts as you left it.",
+      ...(view === "Settings" ? ["With hidden, this list is gone as soon as you choose it; `|` or `>` brings it back."] : []),
     ],
   };
 }
