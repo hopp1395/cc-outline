@@ -167,8 +167,8 @@ The Chat view shows the session turn by turn. A turn is one prompt plus everythi
 - Turns keep their marks across restarts and when you continue a session with `--continue` or `/resume`, which starts a new session id but keeps the turns.
 
 **Prompt (top right).** The selected prompt stays pinned above the answer while you scroll.
-- It shows at most 1000 characters and never more than half the pane height.
-- If it is cut, the separator reads `↵ full prompt`. Press `Enter` to read the whole prompt, then `Enter` or `Esc` to return to the answer.
+- It shows at most five lines (blank lines left out) and never more than half the pane height.
+- If it is cut, its last line ends in `…` and the separator reads `↵ full prompt`. Press `Enter` to read the whole prompt, then `Enter` or `Esc` to return to the answer.
 - Below it, marked with `$` like the prompt with `❯`, what the turn took: `2 min 14 s · ↓ 3.2k · ctx 84k · opus-5.5 · 12 tools · + ◆2 58k`. That is how long it ran (counting up while Claude works), the tokens Claude wrote (thinking included), how full the context was at its end, the models, the tool calls and the subagents it started with their tokens. A second line counts the files it created and changed and their lines: `files +2 ~5 · lines +184 −37`. Files deleted with a shell command are not counted, nor what subagents wrote. Turns without an answer from Claude (`!` commands, `/rename`) have no such line. Parts that do not fit the pane width are left out from the end.
 - `Enter` shows it in full below the whole prompt, under its own `$ Details` heading: when the turn ran (`14:02 – 14:09 · 6 min 41 s`), the tokens per model, the context, the tool calls per tool (`Edit 6 · Read 9`), each subagent with its type, description and status, and each file it created (`+`) or changed (`~`) with its lines. While Claude works, the duration counts up and the rest grows with the transcript.
 

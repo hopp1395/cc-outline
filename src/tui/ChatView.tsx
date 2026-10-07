@@ -45,7 +45,7 @@ import {
   truncate,
   type Layout,
 } from "./layout.js";
-import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { bodyHeightBelow, headerRows, Preview } from "./Preview.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
@@ -238,23 +238,33 @@ const commandColor = (s: string) => `\u001b[38;2;217;119;87m${s}\u001b[39m`;
 /** Longest prompt excerpt shown above the answer; Enter opens the full prompt. */
 export const PROMPT_PREVIEW_CHARS = 1000;
 
+/** Most rows of prompt text above the answer. */
+export const PROMPT_PREVIEW_LINES = 5;
+
 /**
- * Sticky prompt above the answer: at most PROMPT_PREVIEW_CHARS characters and
- * half the preview height. When cut, the rule points to the full prompt.
+ * Sticky prompt above the answer: at most PROMPT_PREVIEW_CHARS characters,
+ * PROMPT_PREVIEW_LINES rows without its blank lines and half the preview
+ * height. When cut, its last row ends in `…` and the rule points to the full prompt.
  */
 export function promptHeader(prompt: string, width: number, height: number, attachments: Attachment[] = [], stats: string[] = []): string[] {
   const shortened = prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : prompt;
-  // A slash command's name in colour, like in the list; it interrupts the dim of the rest.
-  const name = commandName(shortened);
-  const excerpt = name ? `\u001b[22m${commandColor(name)}\u001b[2m${shortened.slice(name.length)}` : shortened;
-  const full = previewHeader(excerpt, width, { marker: cyan("❯ "), style: dim });
   // One row less for the prompt when the attachments line follows it.
   const summary = attachmentSummary(attachments);
   // The stats always show; the prompt is cut first.
-  const fitted = fitHeader(full, height - (summary ? 2 : 0) - statsRows(stats).length * 2);
-  const cut = shortened !== prompt || fitted.length < full.length;
+  const rows = Math.min(PROMPT_PREVIEW_LINES, headerRows(height - (summary ? 2 : 0) - statsRows(stats).length * 2) - 1);
+  const wrapped = wrapAnsi(shortened, width - 2, { hard: true })
+    .split("\n")
+    .filter((l) => l.trim());
+  const shown = wrapped.slice(0, rows);
+  if (shown.length < wrapped.length) shown[rows - 1] = truncate(shown[rows - 1] + "…", width - 2);
+  const text = shown.join("\n");
+  // A slash command's name in colour, like in the list; it interrupts the dim of the rest.
+  const name = commandName(text);
+  const excerpt = name ? `\u001b[22m${commandColor(name)}\u001b[2m${text.slice(name.length)}` : text;
+  const header = previewHeader(excerpt, width, { marker: cyan("❯ "), style: dim });
+  const cut = shortened !== prompt || shown.length < wrapped.length;
   return [
-    ...fitted.slice(0, -1),
+    ...header.slice(0, -1),
     ...(summary ? ["  " + dim(truncate(summary, width - 2))] : []),
     ...statsRows(stats),
     rule(width, cut || summary ? "↵ full prompt" : undefined),
