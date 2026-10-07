@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk, until } from "./helpers/ink.js";
 import { toggleFavorite } from "../src/favorites.js";
+import { readPositions } from "../src/positions.js";
 import { updateSettings } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import type { Layout } from "../src/tui/layout.js";
@@ -12,6 +13,8 @@ import { afterLeaving } from "../src/tui/useListFilter.js";
 
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
 const SHIFT_UP = "\u001b[1;2A";
+const UP = "\u001b[A";
+const DOWN = "\u001b[B";
 
 let saved: string | undefined;
 let cwd: string;
@@ -114,6 +117,32 @@ describe("pinned sessions", () => {
     await until(() => previewShows(view.frame(), "oldest work"));
     expect(listLines(view.frame()).slice(0, 2)).toEqual(["★ Pinned", "★ oldest work"]);
     view.unmount();
+  });
+
+  it("restores a selected pinned session as its copy in the group", async () => {
+    updateSettings({ pinnedFavorites: true, pinnedSessions: false });
+    session("s1", "oldest work", 30);
+    session("s2", "middle work", 20);
+    session("s3", "newest work", 10);
+    toggleFavorite(cwd, "sessions", "s1");
+    toggleFavorite(cwd, "sessions", "s2");
+    const view = renderView();
+    await until(() => listLines(view.frame()).includes("★ middle work"));
+    // The group's last row, then its first: the copy of the middle session.
+    await view.press(SHIFT_UP);
+    await view.press(UP);
+    await until(() => previewShows(view.frame(), "middle work"));
+    view.unmount();
+    expect(readPositions(cwd, "sessions")).toMatchObject({ selected: "s2", pinned: true });
+
+    // From the copy, two rows down is the newest session in the list; from the list it would stay on the oldest.
+    const again = renderView();
+    await until(() => previewShows(again.frame(), "middle work"));
+    await again.press(DOWN);
+    await until(() => previewShows(again.frame(), "oldest work"));
+    await again.press(DOWN);
+    await until(() => previewShows(again.frame(), "newest work"));
+    again.unmount();
   });
 });
 

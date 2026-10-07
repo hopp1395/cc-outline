@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
 import { toggleFavorite } from "../src/favorites.js";
+import { readPositions } from "../src/positions.js";
 import { updateSettings } from "../src/settings.js";
 import type { Turn } from "../src/transcript/parse.js";
 import { ChatView } from "../src/tui/ChatView.js";
@@ -92,6 +93,54 @@ describe("the Pinned group", () => {
     await view.press(UP);
     await shows("Answer a");
     view.unmount();
+  });
+
+  it("restores a selected pinned copy as the copy, and as the entry in the list once it is no longer pinned", async () => {
+    toggleFavorite(cwd, "turns", "a");
+    toggleFavorite(cwd, "turns", "c");
+    const render = () => renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript} layout={layout} active liveSession />);
+    const view = render();
+    const shows = (v: typeof view, answer: string) => expect.poll(v.frame, { timeout: 2000 }).toContain(answer);
+    await shows(view, "Answer c");
+    // The group's first row: the copy of the first turn.
+    await view.press(SHIFT_UP);
+    await view.press(UP);
+    await shows(view, "Answer a");
+    view.unmount();
+    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "a", follow: false, pinned: true });
+
+    // Back on the copy: ↓ goes to the next pinned row, not to the second turn in the list.
+    const again = render();
+    await shows(again, "Answer a");
+    await again.press(DOWN);
+    await shows(again, "Answer c");
+    await again.press(UP);
+    await shows(again, "Answer a");
+    again.unmount();
+
+    // No longer marked: the turn in the list, and that is stored.
+    toggleFavorite(cwd, "turns", "a");
+    const unpinned = render();
+    await shows(unpinned, "Answer a");
+    await unpinned.press(DOWN);
+    await shows(unpinned, "Answer b");
+    await unpinned.press(UP);
+    await shows(unpinned, "Answer a");
+    unpinned.unmount();
+    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "a", follow: false });
+    expect(readPositions(cwd, "chat").pinned).toBeUndefined();
+  });
+
+  it("does not store the copy while following", async () => {
+    toggleFavorite(cwd, "turns", "c");
+    const view = renderView(<ChatView cwd={cwd} path="s.jsonl" transcript={transcript} layout={layout} active liveSession />);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
+    // The copy of the newest turn: still following it.
+    await view.press(SHIFT_UP);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
+    view.unmount();
+    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "c", follow: true });
+    expect(readPositions(cwd, "chat").pinned).toBeUndefined();
   });
 
   it("is off by default", async () => {

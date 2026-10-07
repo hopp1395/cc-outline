@@ -301,6 +301,7 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
     onTyping,
     keep: isLoadMore,
     marked: (d) => !isLoadMore(d) && favorites.isMarked(d.day),
+    restoreCopy: positions.pinned ? (d) => !isLoadMore(d) && d.day === positions.selected : undefined,
   });
   const picked = filter.none ? undefined : entries[current];
   const onLoadMore = isLoadMore(picked);
@@ -309,8 +310,8 @@ export function MonitorView({ layout, visible, active, cwd, onTyping }: Props) {
     if (!range.requested) range.loadAll();
   };
   useEffect(() => {
-    if (selected && restored.current) positions.select(selected.day);
-  }, [selected?.day]);
+    if (selected && restored.current) positions.select(selected.day, undefined, filter.copySelected);
+  }, [selected?.day, filter.copySelected]);
 
   const columns = Math.max(24, previewWidth - CHART_AXIS_WIDTH);
   const minutes = bucketMinutes(columns);

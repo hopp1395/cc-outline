@@ -478,10 +478,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [selectedId, setSelectedId] = useState<string | undefined>(positions.selected);
   const storedId = useRef(positions.selected);
   const restoredShown = useRef(false);
-  // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
-  useEffect(() => {
-    if (selectedId !== LOAD_MORE_ID) positions.select(selectedId);
-  }, [selectedId]);
   const [trashSelectedId, setTrashSelectedId] = useState<string>();
   const [flash, setFlash] = useState<string>();
   const favorites = useFavorites(cwd, "sessions");
@@ -522,7 +518,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     keep: isLoadMore,
     marked: (e) => !isLoadMore(e) && favorites.isMarked(e.id),
     pin: pinnedSessions ? (e) => !isLoadMore(e) && (e.id === activeId || running.has(e.id)) : undefined,
+    restoreCopy: positions.pinned ? (e) => !isLoadMore(e) && e.id === storedId.current : undefined,
   });
+  // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
+  useEffect(() => {
+    if (selectedId !== LOAD_MORE_ID) positions.select(selectedId, undefined, filter.copySelected);
+  }, [selectedId, filter.copySelected]);
   const picked = filter.none ? undefined : list[index];
   const onLoadMore = isLoadMore(picked);
   const session = isLoadMore(picked) ? undefined : picked;

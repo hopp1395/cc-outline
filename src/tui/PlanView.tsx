@@ -162,6 +162,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const favorites = useFavorites(cwd, "plans");
   const markedCount = plans.filter((p) => favorites.isMarked(p.id)).length;
   const index = Math.max(0, Math.min(selected, newest));
+  // Selection and each plan's scroll position survive switching plans and restarting the viewer.
+  const positions = usePositions(cwd, "plan");
   // A plan is found by its title; its details are its text, its status and the feedback it got.
   const filter = useListFilter({
     items: plans,
@@ -172,6 +174,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
     layout,
     onTyping,
     marked: (p) => favorites.isMarked(p.id),
+    restoreCopy: positions.follow === false && positions.pinned ? (p) => p.id === positions.selected : undefined,
   });
   // The newest plan shown: following stays on it, also while a filter is on.
   const last = filter.last;
@@ -180,8 +183,6 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
     if (follow && last >= 0) setSelected(last);
   }, [follow, last]);
 
-  // Selection and each plan's scroll position survive switching plans and restarting the viewer.
-  const positions = usePositions(cwd, "plan");
   const restored = useRef(false);
   const justRestored = useRef(false);
   // Once the plans are there: back to the plan selected last time, unless the newest was being followed.
@@ -228,8 +229,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       justRestored.current = false;
       return;
     }
-    if (plan) positions.select(plan.id, follow);
-  }, [plan?.id, follow]);
+    if (plan) positions.select(plan.id, follow, filter.copySelected);
+  }, [plan?.id, follow, filter.copySelected]);
 
   // How far unwrapped lines can be shifted until the longest one ends at the right edge.
   const maxHscroll = useMemo(

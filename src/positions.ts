@@ -7,6 +7,8 @@ export type PositionList = "chat" | "git" | "plan" | "sessions" | "settings" | "
 export interface ListPositions {
   selected?: string;
   follow?: boolean;
+  /** The selected entry's copy in the Pinned group was selected, not its row in the list below; only without follow. */
+  pinned?: boolean;
   /** Scroll position per entry key, e.g. a turn id, a file path or "path#file" for its whole-file view. */
   scroll: Record<string, number>;
 }
@@ -25,6 +27,7 @@ function sanitize(value: unknown): ListPositions {
   return {
     selected: typeof v.selected === "string" ? v.selected : undefined,
     follow: typeof v.follow === "boolean" ? v.follow : undefined,
+    pinned: v.pinned === true ? true : undefined,
     scroll,
   };
 }
