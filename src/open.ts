@@ -165,7 +165,9 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   const { claudePid, action } = opts;
   if (!opts.replace && runningViewer(cwd, claudePid) !== undefined) {
     requestView(cwd, view, claudePid, opts.select, action);
-    return action ? ACTION_DONE[action] : `cco is already open; switched it to the ${VIEW_NAMES[view ?? "chat"]} view.`;
+    if (action) return ACTION_DONE[action];
+    // Without a view (/cco:open) it keeps the one it shows.
+    return view ? `cco is already open; switched it to the ${VIEW_NAMES[view]} view.` : "cco is already open.";
   }
   const terminal = detectTerminal();
   const chosen = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid)?.session_id);
@@ -179,7 +181,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   const placement = tabless || away ? "window" : chosen;
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
-  // Without a view (/cco:restart with no viewer running), the viewer starts in the session's last one.
+  // Without a view (/cco:open, /cco:restart with no viewer running), the viewer starts in the session's last one.
   const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, ...(view ? ["--view", view] : []), "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");

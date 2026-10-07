@@ -97,8 +97,10 @@ program
   .command("open")
   .description("open the viewer in a split pane of the current terminal")
   .option("--cwd <dir>", "project directory", process.cwd())
-  // Without it, a running viewer keeps its view (--action restart); a new one opens in the chat, or with --action in the session's last view.
+  // Without it, a running viewer keeps its view (--action restart); a new one opens in the chat, or with --action or --last-view in the session's last view.
   .addOption(new Option("--view <view>", "view to start with (default: chat)").choices(VIEWS))
+  // /cco:open: back where the viewer was left.
+  .addOption(new Option("--last-view", "start in the session's last view; a running viewer keeps its view").conflicts("view"))
   .addOption(new Option("--placement <placement>", "where to open it (default: the session's placement, else the setting)").choices(PLACEMENT_VALUES))
   .addOption(pidOption("--claude-pid <pid>", "the Claude Code process the viewer belongs to (default: CLAUDE_PID)"))
   // Moving with p: the running viewer quits, and the new one opens once it is gone.
@@ -108,13 +110,13 @@ program
   .addOption(new Option("--action <action>", "restart the running viewer (else open one), or check for an update and offer it").choices(VIEWER_ACTIONS))
   // A viewer that paired with a Claude Code it started (Sessions) moves next to it: its wt window or tmux pane.
   .addOption(new Option("--target <target>").hideHelp())
-  .action(async (opts: { cwd: string; view?: Mode; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string }) => {
+  .action(async (opts: { cwd: string; view?: Mode; lastView?: boolean; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string }) => {
     const afterPid = validPid(opts.afterPid);
     if (afterPid) await waitForExit(afterPid);
     const claudePid = validPid(opts.claudePid) ?? claudePidFromEnv();
     // Moving with p is not a command of Claude Code's.
     const queued = afterPid === undefined && openedFromQueue(opts.cwd, claudePid);
-    const view = opts.view ?? (opts.action ? undefined : "chat");
+    const view = opts.view ?? (opts.action || opts.lastView ? undefined : "chat");
     console.log(openPane(opts.cwd, view, { claudePid, placement: opts.placement, replace: afterPid !== undefined, select: opts.select, updatedTo: opts.updatedTo, queued, action: opts.action, target: opts.target }));
   });
 
