@@ -51,16 +51,7 @@ export function FilterDialog({
   usePaste((text) => onChange(editLine(line, insertable(text), {})));
 
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
-  // Inside the border and padding, one column kept for the cursor at the end.
-  const room = width - 4 - 2;
-  const { text, cursor, selected } = line;
-  // The part of the text around the cursor that fits.
-  let start = 0;
-  while (stringWidth(text.slice(start, cursor)) > room) start++;
-  const before = text.slice(start, cursor);
-  const at = text.slice(cursor, cursor + 1);
-  const after = text.slice(cursor + 1);
-  const color = shown === 0 && text.trim() ? "red" : "green";
+  const color = shown === 0 && line.text.trim() ? "red" : "green";
   const box = (on: boolean) => (on ? <Text color="green">[x]</Text> : <Text dimColor>[ ]</Text>);
   // Title, blank, input, count, blank, where, blank, keys, hint, plus the border.
   return (
@@ -69,21 +60,7 @@ export function FilterDialog({
         Filter
       </Text>
       <Text> </Text>
-      <Text wrap="truncate">
-        <Text color="yellow">› </Text>
-        {selected ? (
-          <>
-            <Text inverse>{text}</Text>
-            <Text inverse> </Text>
-          </>
-        ) : (
-          <>
-            {before}
-            <Text inverse>{at || " "}</Text>
-            {after}
-          </>
-        )}
-      </Text>
+      <LineField line={line} width={width} />
       <Text color={color} wrap="truncate">
         {"  "}
         {shown} of {total}
@@ -105,5 +82,34 @@ export function FilterDialog({
         words must all match · * any text · ? _ one character
       </Text>
     </Dialog>
+  );
+}
+
+/** A line of text being edited in a dialog `width` columns wide, the part around the cursor shown. */
+export function LineField({ line, width }: { line: LineState; width: number }) {
+  // Inside the border and padding, one column kept for the cursor at the end.
+  const room = width - 4 - 2;
+  const { text, cursor, selected } = line;
+  let start = 0;
+  while (stringWidth(text.slice(start, cursor)) > room) start++;
+  const before = text.slice(start, cursor);
+  const at = text.slice(cursor, cursor + 1);
+  const after = text.slice(cursor + 1);
+  return (
+    <Text wrap="truncate">
+      <Text color="yellow">› </Text>
+      {selected ? (
+        <>
+          <Text inverse>{text}</Text>
+          <Text inverse> </Text>
+        </>
+      ) : (
+        <>
+          {before}
+          <Text inverse>{at || " "}</Text>
+          {after}
+        </>
+      )}
+    </Text>
   );
 }

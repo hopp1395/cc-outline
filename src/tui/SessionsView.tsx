@@ -28,6 +28,7 @@ import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude,
 import { cancelPairing, requestPairing, runningViewer, type PairTarget } from "../viewer.js";
 import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
+import { RenameDialog } from "./RenameDialog.js";
 import { enterLabel, sessionOptions, type SessionAction, type SessionSituation } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
@@ -59,6 +60,7 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { projectSlug } from "../transcript/locate.js";
+import { renameSession } from "../transcript/rename.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 import { TIMING } from "../timing.js";
 
@@ -462,6 +464,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // Enter on a session that runs nowhere: where to continue it; then, for pairing, the wait for its Claude Code.
   const [choice, setChoice] = useState<Choice<SessionAction>>();
   const [pairing, setPairing] = useState<Pairing>();
+  // The session being renamed, while its dialog is open.
+  const [renaming, setRenaming] = useState<SessionSummary>();
   const [, setPairTick] = useState(0);
   // e: the sessions to export, while the form is open; I: the import dialog; then the run of either.
   const [exporting, setExporting] = useState<{ sessions: SessionSummary[]; opts: ExportOptions; lines: string[] }>();
@@ -471,7 +475,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
   const progressOpen = useProgressOpen();
   const dialogOpen =
-    confirmation !== undefined || choice !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || pairing !== undefined || progressOpen;
+    confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || pairing !== undefined || progressOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -675,6 +679,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         return;
       case "window-attach":
         return void startPairing(s, dir);
+      case "rename":
+        return setRenaming(s);
       case "copy":
         return void copy(command).then(
           () => notify(`copied: ${command}`),
@@ -694,6 +700,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     setChoice(undefined);
   };
   useEffect(() => () => takeTyper()?.cancel(), []);
+
+  /** Writes the new title into the transcript the session continues in; the next scan shows it. */
+  const rename = (s: SessionSummary, title: string) => {
+    setRenaming(undefined);
+    try {
+      renameSession(s.path, s.id, title);
+      notify(`renamed: ${title}`);
+    } catch (err) {
+      notify(`rename failed: ${(err as Error).message}`);
+    }
+    refresh();
+  };
 
   /** Continues the session in the viewer's own Claude Code: types /resume into it, else copies it to paste there. */
   const continueHere = async (id: string, claude: NonNullable<Props["paired"]>, prepared?: ConsoleTyper) => {
@@ -1055,6 +1073,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       )}
       {choice && (
         <ChoiceDialog layout={layout} choice={choice} onClose={closeChoice} />
+      )}
+      {renaming && (
+        <RenameDialog
+          layout={layout}
+          session={truncate(sessionTitle(renaming), 56)}
+          title={renaming.title ?? ""}
+          onSave={(title) => rename(renaming, title)}
+          onCancel={() => setRenaming(undefined)}
+        />
       )}
       {exporting && (
         <ExportDialog
