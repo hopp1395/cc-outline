@@ -1,10 +1,10 @@
 import { Box, Text } from "ink";
 import sliceAnsi from "slice-ansi";
-import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { openInDefaultApp } from "../open.js";
 import { AreaContext, inArea, Spinner } from "./layout.js";
 import { linkAt, shotAt, stripAnsi } from "./links.js";
-import { useMouse } from "./mouse.js";
+import { MouseContext, useMouse } from "./mouse.js";
 import { highlightColumns, type Point, type Selection, selectedColumns, selectedText } from "./selection.js";
 import { useClipboard } from "./useClipboard.js";
 
@@ -14,6 +14,12 @@ const WHEEL_LINES = 3;
 export const COPIED_MS = 1500;
 /** Columns `previewHeader` puts before each line: the marker, then the wrapped lines' indentation. */
 const HEADER_INDENT = 2;
+
+/**
+ * Where Ctrl+C copies the selection again: the shown preview that has one puts
+ * its copy here (`App` provides it, and calls it on Ctrl+C); false: nothing to copy.
+ */
+export const CopySelectionContext = createContext<{ current?: () => boolean }>({});
 
 /** Where a selection is: in the sticky header or in the scrolling lines. */
 type Region = "header" | "body";
@@ -232,6 +238,28 @@ export function Preview({
     const indented = header.slice(1, headerLines).every((l) => stripAnsi(l).startsWith(" ".repeat(HEADER_INDENT)));
     return indented && at.col >= HEADER_INDENT ? HEADER_INDENT : 0;
   };
+  /** Copies the selection, if there is one with text; false otherwise. */
+  const copySelection = () => {
+    if (!selected) return false;
+    const text = selectedText(source(selected.region), selected);
+    if (!text) return false;
+    const count = text.split("\n").length;
+    copy(text).then(
+      () => setCopied(`copied ${count === 1 ? "1 line" : `${count} lines`}`),
+      () => setCopied("copy failed"),
+    );
+    return true;
+  };
+  // Ctrl+C copies it again while this preview is shown (its mouse context is on).
+  const copyKey = useContext(CopySelectionContext);
+  const shown = useContext(MouseContext);
+  useEffect(() => {
+    if (!shown || !selected) return;
+    copyKey.current = copySelection;
+    return () => {
+      if (copyKey.current === copySelection) copyKey.current = undefined;
+    };
+  });
   // A click on a web address opens it, one on the scroll bar or a badge jumps there; the wheel scrolls; a drag selects text and copies it.
   useMouse((e) => {
     // The right button drops the selection, wherever it is pressed.
@@ -244,15 +272,8 @@ export function Preview({
       if (!held) return;
       if (e.kind === "release") {
         press.current = undefined;
-        if (held.dragged && selected) {
-          const text = selectedText(source(selected.region), selected);
-          const count = text.split("\n").length;
-          if (text)
-            copy(text).then(
-              () => setCopied(`copied ${count === 1 ? "1 line" : `${count} lines`}`),
-              () => setCopied("copy failed"),
-            );
-        } else if (!held.dragged && held.url) {
+        if (held.dragged) copySelection();
+        else if (!held.dragged && held.url) {
           openInDefaultApp(held.url);
           onLink?.(held.url);
         } else if (!held.dragged && held.shot !== undefined) onShot?.(held.shot);
