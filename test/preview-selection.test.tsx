@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
 import { AreaContext } from "../src/tui/layout.js";
 import { MouseContext } from "../src/tui/mouse.js";
-import { Preview } from "../src/tui/Preview.js";
+import { CopySelectionContext, Preview } from "../src/tui/Preview.js";
 import { clipboard } from "../src/tui/useClipboard.js";
 
 const copied: string[] = [];
@@ -75,5 +75,32 @@ it("selects the prompt in the header without its marker, indentation and rule", 
   await send("\u001b[<0;23;3M", "\u001b[<32;25;4M", "\u001b[<32;40;7M", "\u001b[<0;40;7m");
   expect(copied).toEqual(["fix the wrapped\nprompt text"]);
   expect(out.raw).toContain("\u001b[7mfix the wrapped\u001b[27m");
+  app.unmount();
+});
+
+it("hands its selection to Ctrl+C while it has one", async () => {
+  const key: { current?: () => boolean } = {};
+  const app = renderInk(
+    <CopySelectionContext.Provider value={key}>
+      <MouseContext.Provider value={true}>
+        <AreaContext.Provider value={{ x: 20, y: 2, width: 30, height: 6 }}>
+          <Preview header={[]} lines={["first line"]} scroll={0} width={30} height={6} />
+        </AreaContext.Provider>
+      </MouseContext.Provider>
+    </CopySelectionContext.Provider>,
+    { columns: 60, rows: 10 },
+  );
+  await wait();
+  expect(key.current).toBeUndefined();
+  for (const input of ["\u001b[<0;21;3M", "\u001b[<32;25;3M", "\u001b[<0;25;3m"]) await app.press(input);
+  await wait();
+  expect(copied).toEqual(["first"]);
+  expect(key.current?.()).toBe(true);
+  await wait();
+  expect(copied).toEqual(["first", "first"]);
+  // The right button drops the selection, and with it the copy.
+  await app.press("\u001b[<2;5;1M");
+  await wait();
+  expect(key.current).toBeUndefined();
   app.unmount();
 });

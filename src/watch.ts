@@ -2,6 +2,7 @@ import { render } from "ink";
 import { createElement, useState } from "react";
 import type { Placement } from "./settings.js";
 import { App } from "./tui/App.js";
+import { withoutCtrlC } from "./tui/ctrlC.js";
 import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
 import type { ViewerAction } from "./viewer.js";
@@ -47,8 +48,10 @@ export async function runViewer(opts: WatchOptions): Promise<void> {
   const app = render(createElement(Viewer, opts), {
     // Only changed lines, in one write: no flicker under load. CCO_FRAME_BUFFER=0 turns it off.
     stdout: process.stdout.isTTY && process.env.CCO_FRAME_BUFFER !== "0" ? frameBufferedStdout(process.stdout) : process.stdout,
+    // Ctrl+C does not quit: copying out of habit closed the pane. The filter hands it to App instead.
+    stdin: process.stdin.isTTY ? withoutCtrlC(process.stdin) : process.stdin,
     alternateScreen: true,
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
   });
   await app.waitUntilExit();
 }

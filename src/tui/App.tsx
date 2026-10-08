@@ -23,7 +23,8 @@ import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./Progres
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
-import { COPIED_MS } from "./Preview.js";
+import { COPIED_MS, CopySelectionContext } from "./Preview.js";
+import { onCtrlC } from "./ctrlC.js";
 import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
@@ -356,6 +357,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     setNotice({ text: `width: ${next.width}` });
   };
 
+  // Ctrl+C (taken out before Ink, see ctrlC.ts) copies the preview's selection again, else says how to quit.
+  const copySelection = useRef<{ current?: () => boolean }>({}).current;
+  useEffect(() => onCtrlC(() => {
+    if (!copySelection.current?.()) setNotice({ text: "Ctrl+C does not quit: q does" });
+  }), []);
+
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
   const choosePlacement = (choice: Placement) => {
     const id = sessionOf(path);
@@ -400,6 +407,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <ProgressHostProvider host={progress.host}>
     <SessionColorContext.Provider value={transcript.color}>
     <ScreenNoticeContext.Provider value={notice?.text}>
+    <CopySelectionContext.Provider value={copySelection}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
@@ -529,6 +537,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         )}
         {progress.dialog}
       </Box>
+    </CopySelectionContext.Provider>
     </ScreenNoticeContext.Provider>
     </SessionColorContext.Provider>
     </ProgressHostProvider>
