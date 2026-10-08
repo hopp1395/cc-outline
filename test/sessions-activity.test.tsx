@@ -95,11 +95,11 @@ describe("session activity", () => {
     await until(() => view.frame().includes("↵ switch"));
     expect(view.frame()).toContain("↵ switch");
     await view.press("\r");
-    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toMatch(/› +Switch to its tab/);
     await view.press("\u001b");
-    await until(() => !view.frame().includes("This session runs in a Claude Code"));
-    expect(view.frame()).not.toContain("This session runs in a Claude Code");
+    await until(() => !view.frame().includes("runs in a Claude Code"));
+    expect(view.frame()).not.toContain("runs in a Claude Code");
     view.unmount();
   });
 });

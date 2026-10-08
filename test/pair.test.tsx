@@ -91,7 +91,7 @@ describe("pairing the viewer", () => {
     const app = renderInk(<Viewer cwd={cwd} initialMode="sessions" />, { columns: 160, rows: 24 });
     await until(() => app.frame().includes("↵ attach"));
     await app.press("\r");
-    await until(() => app.frame().includes("This session runs in a Claude Code"));
+    await until(() => app.frame().includes("runs in a Claude Code"));
     await app.press("\r");
     await until(() => runningViewer(cwd, process.pid) !== undefined && app.frame().includes("f follow"));
     expect(existsSync(viewerFile(cwd))).toBe(false);
@@ -110,7 +110,7 @@ describe("pairing in the Sessions view", () => {
     await until(() => view.frame().includes("↵ attach"));
     expect(view.frame()).toContain("↵ attach");
     await view.press("\r");
-    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("it stays here and follows that Claude Code");
     await view.press("\r");
     await until(() => paired.length > 0);

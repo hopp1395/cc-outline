@@ -17,7 +17,7 @@ import { crc32, readZip, ZipWriter } from "../src/export/zip.js";
 import { readFavorites, toggleFavorite } from "../src/favorites.js";
 import { boxesAsQuotes, BOX_END, BOX_RULE, BOX_START } from "../src/render/markdown.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
-import { SessionReader, type SessionSummary } from "../src/transcript/sessions.js";
+import { lastActive, SessionReader, type SessionSummary } from "../src/transcript/sessions.js";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex").toString("base64");
 const line = (entry: object) => JSON.stringify(entry) + "\n";
@@ -186,7 +186,7 @@ describe("export archive", () => {
     const second = await exportSessions([s], OPTS, { viewerCwd: cwd, dir: out });
     expect(second.file).toBe(join(out, "cco-session-export (2).zip"));
     expect(freeName(out, "cco-session-export")).toBe(join(out, "cco-session-export (3).zip"));
-    const stamp = folderStamp("2026-10-02T10:05:00.000Z");
+    const stamp = folderStamp(lastActive(s));
     const names = readZip(first.file).map((e) => e.name);
     for (const format of ["markdown", "llm", "json", "backup"]) expect(names.some((n) => n.startsWith(`${stamp}-s1aaaaaa-${format}/`))).toBe(true);
     expect(names).toContain(`${stamp}-s1aaaaaa-markdown/session.md`);
@@ -206,14 +206,14 @@ describe("export archive", () => {
     const { file } = await exportSessions([s], OPTS, { viewerCwd: cwd, dir: out });
     // Gone, as on another machine.
     rmSync(claudeDir(), { recursive: true, force: true });
-    const result = importArchive(file);
+    const result = importArchive(file, cwd);
     expect(result.imported).toEqual([{ id: "s1", title: "Export demo" }]);
     expect(readFileSync(join(projectDir(cwd), "s1.jsonl"), "utf8")).toContain("Explain this screen");
     expect(existsSync(join(projectDir(cwd), "s1", "subagents", "agent-ag1.jsonl"))).toBe(true);
     expect(readFileSync(join(claudeDir(), "file-history", "s1", "v1"), "utf8")).toBe("old");
     expect(readFavorites(cwd, "turns")).toEqual(["u1"]);
     expect(readFavorites(cwd, "sessions")).toEqual(["s1"]);
-    const again = importArchive(file);
+    const again = importArchive(file, cwd);
     expect(again.imported).toEqual([]);
     expect(again.skipped).toEqual([{ id: "s1", title: "Export demo", reason: "already there" }]);
     expect(importSummary(again)).toBe("imported 0 sessions · skipped 1 (already there)");
@@ -224,7 +224,7 @@ describe("export archive", () => {
     const zip = new ZipWriter(file);
     await zip.add("x/session.md", "# hi");
     zip.close();
-    expect(() => importArchive(file)).toThrow(/no session backups/);
+    expect(() => importArchive(file, cwd)).toThrow(/no session backups/);
   });
 
   it("does not write outside ~/.claude", async () => {
@@ -234,7 +234,7 @@ describe("export archive", () => {
     await zip.add("f-backup/manifest.json", JSON.stringify(manifest));
     await zip.add("f-backup/claude/../../evil.txt", "x");
     zip.close();
-    const result = importArchive(file);
+    const result = importArchive(file, cwd);
     expect(result.skipped[0]!.reason).toMatch(/unsafe path/);
     expect(existsSync(join(claudeDir(), "..", "evil.txt"))).toBe(false);
   });

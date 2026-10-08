@@ -33,7 +33,7 @@ describe("← and → in the viewer", () => {
     await expect.poll(view.frame).toContain("auto open");
     // The hidden Monitor is skipped.
     await view.press("\u001b[D");
-    await expect.poll(view.frame).toContain("No sessions");
+    await expect.poll(view.frame).toContain("import sessions…");
     // Ctrl+← scrolls sideways in the views and leaves the view alone.
     await view.press("\u001b[1;5D");
     await view.press("\u001b[C");

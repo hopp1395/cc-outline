@@ -93,35 +93,43 @@ const shown = (s: Partial<Situation>) => {
 
 describe("sessionOptions", () => {
   it("offers its own session to stay or detach", () => {
-    expect(shown({ paired: idle, state: "current" })).toBe("✱stay detach ✗rename copy");
+    expect(shown({ paired: idle, state: "current" })).toBe("✱stay detach ✗rename export import copy");
   });
 
   it("switches to a running session by default, and attaches the viewer there if that Claude Code has none", () => {
-    expect(shown({ paired: idle, state: "active" })).toBe("✱switch attach ✗rename copy");
-    expect(shown({ paired: idle, state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✱switch ✗attach ✗rename copy");
+    expect(shown({ paired: idle, state: "active" })).toBe("✱switch attach ✗rename export import copy");
+    expect(shown({ paired: idle, state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✱switch ✗attach ✗rename export import copy");
     // A viewer of no Claude Code attaches by default.
-    expect(shown({ state: "active" })).toBe("✱attach switch ✗rename copy");
-    expect(shown({ state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✱switch ✗rename copy");
+    expect(shown({ state: "active" })).toBe("✱attach switch ✗rename export import copy");
+    expect(shown({ state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✱switch ✗rename export import copy");
   });
 
   it("continues a session that runs nowhere here when the viewer's Claude Code has no prompt yet, else in a new window", () => {
-    expect(shown({ paired: idle })).toBe("✱here window window-attach rename copy");
-    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window window-attach rename copy");
+    expect(shown({ paired: idle })).toBe("✱here window window-attach rename export import copy");
+    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window window-attach rename export import copy");
     // Versions without a status count as free.
-    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window window-attach rename copy");
-    expect(shown({})).toBe("✱window-attach window rename copy");
+    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window window-attach rename export import copy");
+    expect(shown({})).toBe("✱window-attach window rename export import copy");
   });
 
   it("greys out continuing here while Claude works or waits, and for another project folder", () => {
-    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window window-attach rename copy");
+    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window window-attach rename export import copy");
     const { options } = sessionOptions({ ...base, paired: idle, otherFolder: "other" });
     expect(options[0]!.disabled).toBe("ran in other, not in this folder");
   });
 
   it("falls back to copying the command when nothing else can be done", () => {
-    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window ✗window-attach rename ✱copy");
-    expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window rename ✱copy");
-    expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✗rename ✱copy");
+    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window ✗window-attach rename export import ✱copy");
+    expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window rename export import ✱copy");
+    expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✗rename export import ✱copy");
+  });
+
+  it("moves a session whose folder is gone here first, and exports the marked sessions where there are some", () => {
+    expect(shown({ folderMissing: true, movable: "old" })).toBe("✱move ✗window-attach ✗window rename export import copy");
+    expect(enterLabel({ ...base, folderMissing: true, movable: "old" })).toBe("↵ move here");
+    const label = (marked: number) => sessionOptions({ ...base, marked }).options.find((o) => o.id === "export")!.label;
+    expect(label(0)).toBe("Export it");
+    expect(label(3)).toBe("Export 3 marked sessions");
   });
 
   it("names the selected action in the help line, and detaching for its own session", () => {
@@ -181,7 +189,7 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ paired: { claudePid: process.pid, empty: true, placement: "right" } });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     // Started with the dialog, before anything is chosen.
     expect(spawned.filter((c) => c.cmd === "powershell.exe")).toHaveLength(1);
     await view.press("\r");
@@ -195,7 +203,7 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     await view.press("2");
     await until(() => spawned.some((c) => c.args.includes("--resume")));
     expect(spawned.find((c) => c.cmd === "powershell.exe")).toMatchObject({ killed: true, typed: undefined });
@@ -207,7 +215,7 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ paired: { claudePid: process.pid, empty: true, placement: "right" } });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toMatch(/› +Continue it here/);
     await view.press("\r");
     await until(() => view.frame().includes("copied /resume s1"));
@@ -222,7 +230,7 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toContain("Claude is working");
     expect(view.frame()).toMatch(/› +Continue it in a new window/);
     // A disabled option is not taken, by key or digit.
@@ -242,7 +250,7 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ onPair: () => true, onPairStarted: (t, w) => void started.push([t, w]) });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toMatch(/› +Start it and attach the viewer/);
     await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
@@ -261,13 +269,13 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ onPair: () => true, onPairStarted: () => {} });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     // The choice has closed; the progress dialog waits, and Esc cancels it.
     expect(view.frame()).toContain("Attach the viewer");
     expect(view.frame()).toContain("Esc cancel");
-    expect(view.frame()).not.toContain("Continue this session where?");
+    expect(view.frame()).not.toContain("What to do with this session?");
     await view.press("\u001b");
     await until(() => view.frame().includes("pairing cancelled"));
     expect(existsSync(pairingFile(cwd))).toBe(false);
@@ -279,7 +287,7 @@ describe("continuing a session that runs nowhere", () => {
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toContain("ran in cco-resume-elsewhere, not in this folder");
     expect(view.frame()).toMatch(/› +Continue it in a new window/);
     view.unmount();
@@ -294,14 +302,14 @@ describe("Enter on a session that runs", () => {
     const view = renderView({ activePath: join(projectDir(cwd), "s1.jsonl"), paired: { claudePid: process.pid, empty: false }, onDetach: () => void detached.push("s1") });
     await until(() => view.frame().includes("↵ detach…"));
     await view.press("\r");
-    await until(() => view.frame().includes("This viewer's session"));
+    await until(() => view.frame().includes("this viewer's session"));
     expect(view.frame()).toMatch(/› +Stay attached/);
     // Enter twice changes nothing.
     await view.press("\r");
-    await until(() => !view.frame().includes("This viewer's session"));
+    await until(() => !view.frame().includes("this viewer's session"));
     expect(detached).toEqual([]);
     await view.press("\r");
-    await until(() => view.frame().includes("This viewer's session"));
+    await until(() => view.frame().includes("this viewer's session"));
     await view.press("2");
     await until(() => detached.length > 0);
     expect(detached).toEqual(["s1"]);
@@ -315,7 +323,7 @@ describe("Enter on a session that runs", () => {
     const view = renderView({ paired: { claudePid: 1, empty: true }, onPair: (t) => (attached.push(t), true) });
     await until(() => view.frame().includes("↵ switch"));
     await view.press("\r");
-    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toMatch(/› +Switch to its tab/);
     await view.press("2");
     await until(() => attached.length > 0);
@@ -330,9 +338,9 @@ describe("Enter on a session that runs", () => {
     const view = renderView({ paired: { claudePid: 1, empty: true }, onPair: () => true });
     await until(() => view.frame().includes("↵ switch"));
     await view.press("\r");
-    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("claude attach job7");
-    await view.press("4");
+    await view.press("6");
     await until(() => view.frame().includes("copied: claude attach job7"));
     view.unmount();
   });
@@ -344,7 +352,7 @@ describe("renaming a session", () => {
     const view = renderView({});
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     await view.press("3");
     await until(() => view.frame().includes("Rename the session"));
     await view.press("\r");
@@ -365,7 +373,7 @@ describe("renaming a session", () => {
     const view = renderView({});
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue this session where?"));
+    await until(() => view.frame().includes("What to do with this session?"));
     await view.press("3");
     await until(() => view.frame().includes("› Old name"));
     await view.press("\r");
@@ -380,7 +388,7 @@ describe("renaming a session", () => {
     const view = renderView({ onPair: () => true });
     await until(() => view.frame().includes("↵ attach"));
     await view.press("\r");
-    await until(() => view.frame().includes("This session runs in a Claude Code"));
+    await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("it runs: use /rename in its Claude Code");
     await view.press("3");
     await tick(100);

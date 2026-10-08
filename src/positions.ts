@@ -51,6 +51,15 @@ export function savePositions(cwd: string, list: PositionList, positions: ListPo
   writeJson(positionsFile(cwd), { ...stored, [list]: positions } satisfies Stored);
 }
 
+/** Drops the scroll positions of `keys` from one list, e.g. of a session moved to another project. */
+export function forgetScroll(cwd: string, list: PositionList, keys: string[]): void {
+  const positions = readPositions(cwd, list);
+  const present = keys.filter((k) => k in positions.scroll);
+  if (present.length === 0) return;
+  for (const k of present) delete positions.scroll[k];
+  savePositions(cwd, list, positions);
+}
+
 /** Records `n` for `key`, moving it to the end so the least recently used entries are dropped first. */
 export function rememberScroll(positions: ListPositions, key: string, n: number): void {
   delete positions.scroll[key];

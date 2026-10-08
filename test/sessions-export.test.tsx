@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -49,7 +49,9 @@ describe("export in the Sessions view", () => {
     session("bbbbbbbb-2", "second question", 5);
     const view = renderView();
     await until(() => view.frame().includes("second question"));
-    await view.press("e");
+    await view.press("\r");
+    await until(() => view.frame().includes("Export it"));
+    await view.press("4");
     await until(() => view.frame().includes("Tool calls"));
     expect(view.frame()).toContain("markdown · llm · json · backup");
     expect(view.frame()).toContain("cco-session-export.zip");
@@ -71,7 +73,7 @@ describe("export in the Sessions view", () => {
     view.unmount();
   });
 
-  it("exports all marked sessions, and imports them back with I", async () => {
+  it("exports all marked sessions, and imports them back through the dialog", async () => {
     session("aaaaaaaa-1", "first question", 10);
     session("bbbbbbbb-2", "second question", 5);
     session("cccccccc-3", "third question", 1);
@@ -79,8 +81,11 @@ describe("export in the Sessions view", () => {
     toggleFavorite(cwd, "sessions", "bbbbbbbb-2");
     const view = renderView();
     await until(() => view.frame().includes("third question"));
-    await view.press("e");
-    await until(() => view.frame().includes("2 marked sessions"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Export 2 marked sessions"));
+    await view.press("4");
+    await until(() => view.frame().includes("Tool calls"));
+    expect(view.frame()).toContain("2 marked sessions");
     await view.press("\r");
     await until(() => view.frame().includes("✓ Exported"));
     const file = join(out, "cco-session-export.zip");
@@ -91,8 +96,10 @@ describe("export in the Sessions view", () => {
     await tick(100);
 
     rmSync(join(projectDir(cwd), "aaaaaaaa-1.jsonl"));
-    await view.press("I");
-    await until(() => view.frame().includes("Import sessions"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Import sessions…"));
+    await view.press("5");
+    await until(() => view.frame().includes("Sessions that are there already"));
     expect(view.frame()).toContain("cco-session-export.zip");
     await view.press("\r");
     await until(() => view.frame().includes("✓ Imported"));
@@ -100,4 +107,38 @@ describe("export in the Sessions view", () => {
     view.unmount();
     expect(claudeDir()).toBeTruthy();
   }, 15_000);
+
+  it("offers to import from an empty list", async () => {
+    const view = renderView();
+    await until(() => view.frame().includes("import sessions…"));
+    expect(view.frame()).toContain("↵ import");
+    await view.press("\r");
+    await until(() => view.frame().includes("Sessions that are there already"));
+    await view.press("\u001b");
+    await until(() => !view.frame().includes("Sessions that are there already"));
+    view.unmount();
+  });
+
+  it("marks a session whose folder is gone and moves it here", async () => {
+    const gone = join(tmpdir(), "cco-sessions-export-gone");
+    mkdirSync(projectDir(gone), { recursive: true });
+    writeFileSync(
+      join(projectDir(gone), "dddddddd-4.jsonl"),
+      JSON.stringify({ type: "user", uuid: "d-u", timestamp: new Date().toISOString(), cwd: gone, message: { role: "user", content: "orphaned question" } }) + "\n",
+    );
+    mkdirSync(cwd, { recursive: true });
+    const view = renderView();
+    await until(() => view.frame().includes("orphaned question"));
+    expect(view.frame()).toContain("∅");
+    expect(view.frame()).toContain("folder gone");
+    await view.press("\r");
+    await until(() => view.frame().includes("Move it here"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Move this session here?"));
+    await view.press("\r");
+    await until(() => view.frame().includes("moved here"));
+    expect(existsSync(join(projectDir(cwd), "dddddddd-4.jsonl"))).toBe(true);
+    expect(existsSync(projectDir(gone))).toBe(false);
+    view.unmount();
+  });
 });

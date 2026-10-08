@@ -22,6 +22,12 @@ const tool = (id: string, time: string, name: string, input: unknown) =>
     timestamp: `2026-09-26T${time}:00.000Z`,
     message: { id: `m-${id}`, role: "assistant", content: [{ type: "tool_use", id, name, input }] },
   });
+/** Writes a transcript and dates its last write to `time` of the day the entries are from. */
+const transcript = (path: string, text: string, time: string) => {
+  writeFileSync(path, text);
+  const at = new Date(`2026-09-26T${time}:00.000Z`);
+  utimesSync(path, at, at);
+};
 const result = (id: string, isError: boolean) =>
   line({
     type: "user",
@@ -104,37 +110,37 @@ describe("SessionIndex", () => {
 
   it("lists sessions with prompts oldest first, skipping bookkeeping files", async () => {
     const dir = projectDir(cwd);
-    writeFileSync(join(dir, "late.jsonl"), prompt("u1", "12:00", "Later"));
-    writeFileSync(join(dir, "early.jsonl"), prompt("u1", "08:00", "Earlier"));
+    transcript(join(dir, "late.jsonl"), prompt("u1", "12:00", "Later"), "12:00");
+    transcript(join(dir, "early.jsonl"), prompt("u1", "08:00", "Earlier"), "08:00");
     writeFileSync(join(dir, "bridge.jsonl"), line({ type: "bridge-session", sessionId: "bridge" }));
     // Only slash commands, nothing changed: left out.
     writeFileSync(join(dir, "resume.jsonl"), prompt("u1", "09:00", "<command-name>/resume</command-name>"));
     // A slash command that changed files counts.
-    writeFileSync(
-      join(dir, "cmd.jsonl"),
-      prompt("u1", "10:00", "<command-name>/fix</command-name>") + tool("e1", "10:01", "Edit", { file_path: "/a.cs" }),
-    );
+    transcript(join(dir, "cmd.jsonl"), prompt("u1", "10:00", "<command-name>/fix</command-name>") + tool("e1", "10:01", "Edit", { file_path: "/a.cs" }), "10:01");
     const sessions = await new SessionIndex().scan(cwd);
     expect(sessions.map((s) => s.id)).toEqual(["early", "cmd", "late"]);
   });
 
-  it("orders sessions by their last question to Claude, not by their start or Claude's work", async () => {
+  it("orders sessions by their transcript's last write, whatever wrote it", async () => {
     const dir = projectDir(cwd);
-    // Started first, asked again last.
-    writeFileSync(join(dir, "long.jsonl"), prompt("u1", "08:00", "Start") + prompt("u2", "13:00", "Go on"));
-    // Claude still worked late, but the question came early; a slash command later does not count.
-    writeFileSync(
+    // Started first, written to last.
+    transcript(join(dir, "long.jsonl"), prompt("u1", "08:00", "Start") + prompt("u2", "13:00", "Go on"), "13:00");
+    // Asked early, but Claude worked late and a slash command came later still: that counts too.
+    transcript(
       join(dir, "busy.jsonl"),
       prompt("u1", "11:00", "Work") + tool("e1", "14:00", "Edit", { file_path: "/a.cs" }) + prompt("u2", "15:00", "<command-name>/rename</command-name>"),
+      "15:00",
     );
-    // No question at all: its last entry.
-    writeFileSync(
-      join(dir, "cmd.jsonl"),
-      prompt("u1", "10:00", "<command-name>/fix</command-name>") + tool("e1", "12:00", "Edit", { file_path: "/b.cs" }),
-    );
+    // Imported just now: the last write, not the entries' time.
+    transcript(join(dir, "cmd.jsonl"), prompt("u1", "10:00", "<command-name>/fix</command-name>") + tool("e1", "12:00", "Edit", { file_path: "/b.cs" }), "16:00");
     const sessions = await new SessionIndex().scan(cwd);
-    expect(sessions.map((s) => s.id)).toEqual(["busy", "cmd", "long"]);
-    expect(sessions.map(lastActive)).toEqual(["2026-09-26T11:00:00.000Z", "2026-09-26T12:00:00.000Z", "2026-09-26T13:00:00.000Z"]);
+    expect(sessions.map((s) => s.id)).toEqual(["long", "busy", "cmd"]);
+    expect(sessions.map(lastActive)).toEqual(["2026-09-26T13:00:00.000Z", "2026-09-26T15:00:00.000Z", "2026-09-26T16:00:00.000Z"]);
+  });
+
+  it("dates a session without a readable last write by its last entry", () => {
+    const s = new SessionReader("x.jsonl").push(prompt("u1", "09:00", "Go") + tool("e1", "09:30", "Edit", { file_path: "/a.cs" }));
+    expect(lastActive(s)).toBe("2026-09-26T09:30:00.000Z");
   });
 
   it("reads only the transcripts written since a time, and the rest later", async () => {
@@ -150,10 +156,10 @@ describe("SessionIndex", () => {
   });
 
   it("lists the sessions of all projects without a cwd", async () => {
-    writeFileSync(join(projectDir(cwd), "here.jsonl"), prompt("u1", "09:00", "Here"));
+    transcript(join(projectDir(cwd), "here.jsonl"), prompt("u1", "09:00", "Here"), "09:00");
     const other = join(tmpdir(), "cco-sessions-other");
     mkdirSync(projectDir(other), { recursive: true });
-    writeFileSync(join(projectDir(other), "there.jsonl"), prompt("u1", "08:00", "There"));
+    transcript(join(projectDir(other), "there.jsonl"), prompt("u1", "08:00", "There"), "08:00");
     const index = new SessionIndex();
     expect((await index.scan(cwd)).map((s) => s.id)).toEqual(["here"]);
     const seen: number[] = [];
