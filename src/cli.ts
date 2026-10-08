@@ -133,14 +133,14 @@ program
 
 program
   .command("import")
-  .description("import the session backups of a cco-session-export zip archive (Sessions view: e exports)")
+  .description("import the session backups of a cco-session-export zip archive into the current folder (Sessions view: Enter, Export it)")
   .argument("<zip>", "the archive")
   .action(async (zip: string) => {
     // Loaded here only: the hook must start fast.
     const { importArchive, importSummary } = await import("./export/archive.js");
     try {
-      const result = importArchive(zip);
-      for (const s of result.imported) console.log(`imported  ${s.id}  ${s.title}`);
+      const result = importArchive(zip, process.cwd());
+      for (const s of result.imported) console.log(`imported  ${s.id}  ${s.title}${s.from ? ` (was ${s.from})` : ""}`);
       for (const s of result.skipped) console.log(`skipped   ${s.id}  ${s.title} (${s.reason})`);
       console.log(importSummary(result));
     } catch (err) {

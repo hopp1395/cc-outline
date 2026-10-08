@@ -78,13 +78,14 @@ const KEYS: Record<Mode, [string, string][]> = {
   sessions: [
     ...LIST_KEYS("session"),
     ["s", "newest / oldest first"],
-    ["↵", "start in a new window"],
+    ["↵", "resume, move, export, import…"],
     ["c", "copy resume command"],
     ["d Del", "move to trash"],
     ["u", "undo / restore"],
     ["T", "trash on / off"],
     ["a", "all projects / this one"],
     ["x X", "delete / empty trash"],
+    ["● ▶ ∅", "active / running / folder gone"],
     ...COMMON_KEYS,
   ],
   settings: [

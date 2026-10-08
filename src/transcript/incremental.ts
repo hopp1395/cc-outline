@@ -17,17 +17,24 @@ export class IncrementalFile {
     private readonly onReset?: () => void,
   ) {}
 
+  /** When the file was last written (epoch ms), as of the last `update`; undefined while it cannot be read. */
+  modified: number | undefined;
+
   /** Reads what was appended; returns whether the file changed since the last call. */
   update(): boolean {
     let size: number;
+    let modified: number | undefined;
     try {
-      size = statSync(this.path).size;
+      const stat = statSync(this.path);
+      size = stat.size;
+      modified = stat.mtimeMs;
     } catch {
       size = 0;
     }
     if (size < this.offset) this.reset();
-    if (size === this.size) return false;
+    if (size === this.size && modified === this.modified) return false;
     this.size = size;
+    this.modified = modified;
     if (size > this.offset) this.read(size);
     return true;
   }

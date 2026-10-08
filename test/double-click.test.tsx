@@ -40,10 +40,10 @@ describe("double click", () => {
     // The first row of the list, below the top bar.
     await view.click(10, 2);
     await tick();
-    expect(view.frame()).not.toContain("Continue this session");
+    expect(view.frame()).not.toContain("What to do with this session?");
     await view.click(10, 2);
-    await until(() => view.frame().includes("Continue this session"));
-    expect(view.frame()).toContain("Continue this session where?");
+    await until(() => view.frame().includes("What to do with this session?"));
+    expect(view.frame()).toContain("What to do with this session?");
     view.unmount();
   });
 

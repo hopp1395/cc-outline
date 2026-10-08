@@ -8,10 +8,12 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `attach`: pair the viewer with that Claude Code, staying where it is.
  * - `here`: continue it in the viewer's own Claude Code (`/resume`).
  * - `window`: continue it in a new window; `window-attach`: and move the viewer next to it, paired.
+ * - `move`: bring a session whose folder is gone into the viewer's project folder.
  * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
+ * - `export`: write it (or the marked sessions) into a zip archive; `import`: read the sessions of one.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "rename" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -44,6 +46,12 @@ export interface SessionSituation {
   otherFolder?: string;
   /** Its folder is gone. */
   folderMissing?: boolean;
+  /** Its folder is gone and it can move into the viewer's: the gone folder's name, shortened. */
+  movable?: string;
+  /** The viewer's project folder (its name, shortened): where imported and moved sessions go. */
+  here?: string;
+  /** How many sessions are marked: export takes them instead of this one. */
+  marked?: number;
   /** Windows Terminal or tmux runs the viewer: tabs can be switched and windows opened. */
   terminal: boolean;
   /** The command `copy` copies. */
@@ -111,7 +119,20 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
       preferred = ["window-attach", "window"];
     }
   }
-  options.push({ id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: s.state === "inactive" ? undefined : RUNS }, copy);
+  const into = s.here ? ` into ${s.here}` : "";
+  if (s.state === "inactive" && s.movable !== undefined) {
+    options.unshift({ id: "move", label: "Move it here", detail: `from ${s.movable}${into}` });
+    preferred = ["move"];
+  }
+  const marked = s.marked ?? 0;
+  options.push(
+    { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: s.state === "inactive" ? undefined : RUNS },
+    marked > 0
+      ? { id: "export", label: `Export ${marked} marked session${marked === 1 ? "" : "s"}`, detail: "into a zip archive in the downloads folder" }
+      : { id: "export", label: "Export it", detail: "into a zip archive in the downloads folder" },
+    { id: "import", label: "Import sessions…", detail: `from a cco-session-export zip${into}` },
+    copy,
+  );
   const first = preferred.map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
   return { options, initial: first ?? options.indexOf(copy) };
 }
@@ -128,7 +149,10 @@ export function enterLabel(s: SessionSituation): string {
     here: "resume here",
     window: s.paired ? "new window" : "start",
     "window-attach": s.paired ? "new window + attach" : "start + attach",
+    move: "move here",
     rename: "rename",
+    export: "export",
+    import: "import",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;

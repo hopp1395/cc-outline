@@ -61,6 +61,14 @@ export function saveSessionPlacement(cwd: string, sessionId: string, placement: 
   update(cwd, sessionId, { placement });
 }
 
+/** Forgets what was remembered of `sessionId`, e.g. when it moved to another project. */
+export function forgetSessionView(cwd: string, sessionId: string): void {
+  const entries = read(cwd);
+  if (!(sessionId in entries)) return;
+  delete entries[sessionId];
+  writeJson(sessionViewsFile(cwd), entries);
+}
+
 /** Where the viewer opens for `sessionId`: the placement chosen for it, else the setting. */
 export function resolvePlacement(cwd: string, sessionId: string | undefined): Placement {
   return readSessionPlacement(cwd, sessionId) ?? readSettings().placement;

@@ -24,6 +24,8 @@ export interface SessionSummary {
   /** First and last timestamp in the transcript. */
   start?: string;
   end?: string;
+  /** When its transcript was last written (ISO); of a chain, the latest of its transcripts. Missing for text fed directly (tests). */
+  modified?: string;
   /** The session id this one went on in (`continued-in`); such a session is shown merged into that one. */
   continuedIn?: string;
   /** Ids of the sessions merged into this one, which it continued from, oldest first. */
@@ -156,6 +158,7 @@ export class SessionReader {
       cwd: this.cwd,
       start: this.start,
       end: this.end,
+      modified: this.file.modified !== undefined ? new Date(this.file.modified).toISOString() : undefined,
       continuedIn: this.parser.continuedIn,
     };
   }
@@ -181,6 +184,7 @@ function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionS
     cwd: earlier.cwd ?? later.cwd,
     start: earlier.start ?? later.start,
     end: later.end ?? earlier.end,
+    modified: [earlier.modified, later.modified].filter((m): m is string => m !== undefined).sort().at(-1),
     continues: [...(earlier.continues ?? []), earlier.id, ...(later.continues ?? [])],
   };
 }
@@ -241,15 +245,12 @@ export function writtenSince(files: string[], since: number | undefined): string
 const byStart = (a: SessionSummary, b: SessionSummary) => (a.start ?? "").localeCompare(b.start ?? "");
 
 /**
- * When the session was last worked in: its last question to Claude (a queued
- * one too; not a slash or `!` command), else its last entry. The Sessions
- * list is sorted, dated and cut to its range by it, so a long session or one
- * continued with /resume comes up again, but not merely because Claude works.
+ * When the session was last worked in: when its transcripts were last written,
+ * else its last entry. The Sessions list is sorted, dated and cut to its range
+ * by it: any write (a prompt, Claude working, an import or a move) counts.
  */
 export function lastActive(s: SessionSummary): string | undefined {
-  let last: string | undefined;
-  for (const p of s.prompts) if (p.timestamp && !isCommand(p.text) && (!last || p.timestamp > last)) last = p.timestamp;
-  return last ?? s.end ?? s.start;
+  return s.modified ?? s.end ?? s.start;
 }
 
 const byLastActive = (a: SessionSummary, b: SessionSummary) => (lastActive(a) ?? "").localeCompare(lastActive(b) ?? "");
@@ -264,7 +265,7 @@ export class SessionIndex {
    * scan over many large transcripts does not freeze the viewer, and reports
    * what it has so far through `onProgress`. With `since` (epoch ms), only
    * transcripts written since then are read: the sessions of a range of days
-   * are among them, since a session's last question is before its last write.
+   * are exactly those, since a session counts from its last write.
    */
   async scan(
     cwd?: string,

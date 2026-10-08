@@ -13,11 +13,14 @@ const MAX_WIDTH = 72;
 export function ImportDialog({
   layout,
   initial,
+  into,
   onImport,
   onClose,
 }: {
   layout: Layout;
   initial: string;
+  /** The project folder the sessions go to. */
+  into: string;
   onImport: (file: string) => void;
   onClose: () => void;
 }) {
@@ -36,14 +39,15 @@ export function ImportDialog({
   const { text, cursor, selected } = line;
   let start = 0;
   while (stringWidth(text.slice(start, cursor)) > room) start++;
-  // Title, blank, two lines, blank, input, blank, keys, plus the border.
+  // Title, blank, three lines, blank, input, blank, keys, plus the border.
   return (
-    <Dialog layout={layout} width={width} height={10}>
+    <Dialog layout={layout} width={width} height={11}>
       <Text bold color="cyan" wrap="truncate">
         Import sessions
       </Text>
       <Text> </Text>
       <Text wrap="truncate">The backups in a cco-session-export zip archive.</Text>
+      <Text wrap="truncate">into {into}</Text>
       <Text dimColor wrap="truncate">
         Sessions that are there already are skipped.
       </Text>

@@ -2,7 +2,7 @@ import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
@@ -19,6 +19,7 @@ import {
 } from "../transcript/trash.js";
 import { detectTerminal, resumeForPairing, resumeInNewWindow } from "../open.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
+import { moveSession } from "../export/move.js";
 import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
 import { ExportDialog } from "./ExportDialog.js";
 import { ImportDialog } from "./ImportDialog.js";
@@ -36,6 +37,7 @@ import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import {
+  AreaContext,
   bold,
   dim,
   handleNavigation,
@@ -52,7 +54,7 @@ import {
   type Layout,
 } from "./layout.js";
 import { planTitle } from "./PlanView.js";
-import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { bodyHeightBelow, centredBadge, fitHeader, Preview } from "./Preview.js";
 import { haystack, type FilterText } from "../filter.js";
 import { useFavorites } from "./useFavorites.js";
 import { useOnReload, useReload } from "./reload.js";
@@ -219,7 +221,7 @@ type State = "active" | "running" | "trash" | undefined;
 /** What the header says a running session's Claude does; nothing while it is idle. */
 const ACTIVITY_TEXT: Record<SessionActivity, string> = { busy: "working · ", waiting: "waiting for input · ", idle: "" };
 
-function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt?: number, activity?: SessionActivity): string[] {
+function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt?: number, activity?: SessionActivity, gone?: boolean): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
   const counts = [
     plural(s.prompts.length, "prompt"),
@@ -236,7 +238,7 @@ function sessionHeader(s: SessionSummary, state: State, width: number, deletedAt
   return previewHeader(sessionTitle(s), width, {
     marker: state === "active" || state === "running" ? (activity === "waiting" ? yellow : green)(state === "active" ? "● " : "▶ ") : "  ",
     style: bold,
-    details: [when, counts.join(" · "), ...(s.cwd ? [`in ${tilde(s.cwd)}`] : []), ...continues, last],
+    details: [when, counts.join(" · "), ...(s.cwd ? [gone ? red(`folder gone: ${tilde(s.cwd)}`) : `in ${tilde(s.cwd)}`] : []), ...continues, last],
   });
 }
 
@@ -373,11 +375,12 @@ function projectName(s: SessionSummary): string {
 }
 
 /** What a session is found by in the filter: in the list its title and project; in the details where and on which branch it ran, its prompts, files, plans and agents. */
-function sessionText(s: SessionSummary): FilterText {
+function sessionText(s: SessionSummary, gone: boolean): FilterText {
   return {
     list: haystack([sessionTitle(s), projectName(s)]),
     details: haystack([
       s.cwd,
+      gone ? "folder gone" : undefined,
       s.branch,
       s.id,
       ...(s.continues ?? []),
@@ -389,10 +392,23 @@ function sessionText(s: SessionSummary): FilterText {
   };
 }
 
-/** An entry of the list: a session, or load more at its oldest end. */
-type Entry = SessionSummary | LoadMore;
+/** The entry of an empty list that imports sessions. */
+const IMPORT_ENTRY = { importSessions: true } as const;
+type ImportEntry = typeof IMPORT_ENTRY;
+const isImport = (e: unknown): e is ImportEntry => e === IMPORT_ENTRY;
+
+/** An entry of the list: a session, load more at its oldest end, or import while there is no session. */
+type Entry = SessionSummary | LoadMore | ImportEntry;
 const LOAD_MORE_ID = "load-more";
-const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : e.id);
+const IMPORT_ID = "import";
+const isSession = (e: Entry | undefined): e is SessionSummary => e !== undefined && !isLoadMore(e) && !isImport(e);
+const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : isImport(e) ? IMPORT_ID : e.id);
+
+/** The row of the import entry, a badge like load more. */
+function ImportRow() {
+  const area = useContext(AreaContext);
+  return <Text>{centredBadge("⤓ import sessions…", area.width || 40)}</Text>;
+}
 
 /** The wait for a started Claude Code to pair with. */
 interface Pairing {
@@ -467,7 +483,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The session being renamed, while its dialog is open.
   const [renaming, setRenaming] = useState<SessionSummary>();
   const [, setPairTick] = useState(0);
-  // e: the sessions to export, while the form is open; I: the import dialog; then the run of either.
+  // Export (Enter): the sessions to export, while the form is open; import: its dialog; then the run of either.
   const [exporting, setExporting] = useState<{ sessions: SessionSummary[]; opts: ExportOptions; lines: string[] }>();
   // The archive the import dialog proposes ("" for none), while it is open.
   const [importFrom, setImportFrom] = useState<string>();
@@ -485,17 +501,29 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [trashSelectedId, setTrashSelectedId] = useState<string>();
   const [flash, setFlash] = useState<string>();
   const favorites = useFavorites(cwd, "sessions");
+  // Whether a session's folder is gone: looked up once per folder while the view runs, again after F5.
+  const folders = useRef(new Map<string, boolean>());
+  const folderGone = (s: SessionSummary) => {
+    if (!s.cwd) return false;
+    let gone = folders.current.get(s.cwd);
+    if (gone === undefined) folders.current.set(s.cwd, (gone = !existsSync(s.cwd)));
+    return gone;
+  };
 
   // The sessions are kept oldest first and shown newest first, so load more (the oldest end) comes last;
   // the trash is kept and shown with the latest deletion first.
   const reversed = !trashOpen;
   const more = showsLoadMore(range, complete);
-  const sessionList: Entry[] = useMemo(() => (more && sessions ? [LOAD_MORE, ...sessions] : (sessions ?? [])), [more, sessions]);
+  // Without any session, an entry to import some leads the list (it is kept oldest first and shown reversed).
+  const sessionList: Entry[] = useMemo(
+    () => [...(more && sessions ? [LOAD_MORE] : []), ...(sessions ?? []), ...(sessions?.length === 0 ? [IMPORT_ENTRY] : [])],
+    [more, sessions],
+  );
   const list: Entry[] = trashOpen ? trash.map((e) => e.summary) : sessionList;
   // The time the list is sorted by and shown with: the last question to Claude (lastActive), in the trash the deletion.
   const deletedAt = new Map(trash.map((e) => [e.id, e.deletedAt]));
   const listedAt = (s: Entry) => {
-    if (isLoadMore(s)) return undefined;
+    if (!isSession(s)) return undefined;
     const deleted = trashOpen ? deletedAt.get(s.id) : undefined;
     return deleted !== undefined ? new Date(deleted).toISOString() : lastActive(s);
   };
@@ -512,25 +540,26 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   if (!restoredShown.current && sessionFound >= 0 && selectedId === storedId.current) restoredShown.current = true;
   const filter = useListFilter({
     items: sessionList,
-    text: (e) => (isLoadMore(e) ? { list: "", details: "" } : sessionText(e)),
+    text: (e) => (isSession(e) ? sessionText(e, folderGone(e)) : { list: "", details: "" }),
     selected: sessionFound >= 0 ? sessionFound : sessionList.length - 1,
     select: (i) => select(i),
     reversed: true,
     layout,
     enabled: !trashOpen,
     onTyping,
-    keep: isLoadMore,
-    marked: (e) => !isLoadMore(e) && favorites.isMarked(e.id),
-    pin: pinnedSessions ? (e) => !isLoadMore(e) && (e.id === activeId || running.has(e.id)) : undefined,
-    restoreCopy: positions.pinned ? (e) => !isLoadMore(e) && e.id === storedId.current : undefined,
+    keep: (e) => !isSession(e),
+    marked: (e) => isSession(e) && favorites.isMarked(e.id),
+    pin: pinnedSessions ? (e) => isSession(e) && (e.id === activeId || running.has(e.id)) : undefined,
+    restoreCopy: positions.pinned ? (e) => isSession(e) && e.id === storedId.current : undefined,
   });
   // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
   useEffect(() => {
-    if (selectedId !== LOAD_MORE_ID) positions.select(selectedId, undefined, filter.copySelected);
+    if (selectedId !== LOAD_MORE_ID && selectedId !== IMPORT_ID) positions.select(selectedId, undefined, filter.copySelected);
   }, [selectedId, filter.copySelected]);
   const picked = filter.none ? undefined : list[index];
   const onLoadMore = isLoadMore(picked);
-  const session = isLoadMore(picked) ? undefined : picked;
+  const onImport = isImport(picked);
+  const session = isSession(picked) ? picked : undefined;
   // The oldest session before load more was clicked: the one read next to it gets the selection.
   const loadedAfter = useRef<string | undefined>(undefined);
   const loadMore = () => {
@@ -552,7 +581,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (!session) return [];
     const state = stateOf(session);
     const activity = state === "active" || state === "running" ? running.get(session.id)?.activity : undefined;
-    return fitHeader(sessionHeader(session, state, previewWidth, entry?.deletedAt, activity), bodyHeight);
+    return fitHeader(sessionHeader(session, state, previewWidth, entry?.deletedAt, activity, folderGone(session)), bodyHeight);
   }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight]);
   const lines = useMemo(
     () => (session ? sessionLines(session, cwd, previewWidth, separators) : []),
@@ -571,7 +600,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   };
   /** After removing the selected entry: select its neighbour, a session rather than load more. */
   const selectNeighbour = () =>
-    setCurrentId([list[index + 1], list[index - 1]].find((e): e is SessionSummary => e !== undefined && !isLoadMore(e))?.id);
+    setCurrentId([list[index + 1], list[index - 1]].find(isSession)?.id);
 
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const notify = (msg: string) => {
@@ -595,8 +624,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (open) setTrash(listTrash(trashScope));
     setTrashOpen(open);
   };
-  // F5 in the trash reads it again too.
+  // F5 in the trash reads it again too, and the folders are looked up again.
   useOnReload(() => {
+    folders.current.clear();
     if (trashOpen) setTrash(listTrash(trashScope));
   });
 
@@ -609,13 +639,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const claude = running.get(s.id);
     const own = paired && [...running.values()].find((r) => r.pid === paired.claudePid);
     const state: SessionSituation["state"] = paired && s.id === activeId ? "current" : claude ? "active" : "inactive";
+    const folderMissing = state === "inactive" && !existsSync(dir);
     const situation: SessionSituation = {
       paired: paired && { empty: paired.empty, activity: own ? own.activity : undefined, method: resumeHereMethod() },
       state,
       attachBlocked: !onPair ? "this viewer cannot attach" : claude && runningViewer(dir, claude.pid) ? "it has a viewer of its own" : undefined,
       // /resume finds only the sessions of the project folder its Claude Code runs in, this viewer's.
       otherFolder: projectSlug(dir) === projectSlug(cwd) ? undefined : truncate(basename(dir), 20),
-      folderMissing: state === "inactive" && !existsSync(dir),
+      folderMissing,
+      movable: folderMissing && s.cwd && projectSlug(s.cwd) !== projectSlug(cwd) ? truncate(basename(s.cwd), 20) : undefined,
+      here: truncate(basename(cwd), 20),
+      marked: markedCount,
       terminal: detectTerminal() !== undefined,
       // A session the Claude Code daemon runs is attached to, not resumed.
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
@@ -623,10 +657,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     return { situation, claude, dir };
   };
 
-  const CHOICE_TITLES: Record<SessionSituation["state"], string> = {
-    current: "This viewer's session",
-    active: "This session runs in a Claude Code",
-    inactive: "Continue this session where?",
+  /** Where the session stands, below its folder: the dialog's title is the same for all of them. */
+  const STATE_LINES: Record<SessionSituation["state"], string> = {
+    current: "this viewer's session",
+    active: "runs in a Claude Code",
+    inactive: "runs nowhere",
   };
 
   /** Enter: asks what to do with the session (`sessionOptions`), with the usual choice selected. */
@@ -635,14 +670,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const lines = [
       truncate(sessionTitle(s), 56),
       `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
-      truncate(`in ${tilde(dir)}`, 56),
+      truncate(`${situation.folderMissing ? "folder gone:" : "in"} ${tilde(dir)}`, 56),
+      STATE_LINES[situation.state],
     ];
     const { options, initial } = sessionOptions(situation);
     // On Windows, PowerShell takes a second or more to start: it does so while the dialog is open.
     const here = options.find((o) => o.id === "here");
     if (paired && here && !here.disabled && resumeHereMethod() === "keys" && detectTerminal() !== "tmux") typer.current = prepareConsoleInput(paired.claudePid);
     setChoice({
-      title: CHOICE_TITLES[situation.state],
+      title: "What to do with this session?",
       lines,
       options,
       initial,
@@ -679,8 +715,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         return;
       case "window-attach":
         return void startPairing(s, dir);
+      case "move":
+        return askMove(s);
       case "rename":
         return setRenaming(s);
+      case "export":
+        return askExport(s);
+      case "import":
+        return askImport();
       case "copy":
         return void copy(command).then(
           () => notify(`copied: ${command}`),
@@ -830,12 +872,29 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     });
   };
 
-  /** e: the marked sessions, else the selected one, with the form for the options. */
-  const askExport = () => {
-    const marked = (sessions ?? []).filter((s) => favorites.isMarked(s.id));
-    const targets = marked.length ? marked : session ? [session] : [];
-    if (targets.length) setExporting({ sessions: targets, opts: readExportOptions(), lines: exportLines(targets) });
+  /** The marked sessions, else `s`, with the form for the options. */
+  const askExport = (s: SessionSummary) => {
+    const marked = (sessions ?? []).filter((m) => favorites.isMarked(m.id));
+    const targets = marked.length ? marked : [s];
+    setExporting({ sessions: targets, opts: readExportOptions(), lines: exportLines(targets) });
   };
+  const askImport = () => setImportFrom(newestExport() ?? "");
+  /** Asks, then moves a session whose folder is gone into this project folder. */
+  const askMove = (s: SessionSummary) =>
+    setConfirmation({
+      title: "Move this session here?",
+      lines: [
+        truncate(sessionTitle(s), 56),
+        truncate(`from ${tilde(s.cwd ?? "")}`, 56),
+        truncate(`into ${tilde(cwd)}`, 56),
+        "Its paths are rewritten; claude --resume continues it here.",
+      ],
+      onConfirm: () =>
+        attempt(() => {
+          moveSession(s, cwd);
+          setSelectedId(s.id);
+        }, "moved here"),
+    });
   const exportLines = (targets: SessionSummary[]) => {
     const file = freeName(downloadsDir(), EXPORT_NAME);
     const dir = tilde(dirname(file));
@@ -868,13 +927,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     // A moment for the dialog to show; the import itself runs at once.
     setTimeout(() => {
       try {
-        const result = importArchive(file);
+        const result = importArchive(file, cwd);
         const lines = [
-          ...result.imported.map((s) => `  ✓ ${s.title}`),
+          ...result.imported.map((s) => `  ✓ ${s.title}${s.from ? ` (new id ${s.id.slice(0, 8)})` : ""}`),
           ...result.skipped.map((s) => `  – ${s.title}: ${s.reason}`),
         ].slice(0, 8);
         const summary = importSummary(result);
         setRun({ title: "Import", status: "done", text: summary[0]!.toUpperCase() + summary.slice(1), lines });
+        // Written just now, the imported sessions are the newest: the first of them is selected.
+        if (result.imported[0]) setSelectedId(result.imported[0].id);
         refresh();
       } catch (err) {
         setRun({ title: "Import", status: "failed", text: "Nothing was imported", lines: [(err as Error).message] });
@@ -910,14 +971,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           return target !== undefined && select(target);
         }
         if ((input === "d" || key.delete) && session) return askDelete(session);
-        if (input === "e") return askExport();
-        if (input === "I") return setImportFrom(newestExport() ?? "");
         if (input === "u") {
           if (!lastTrashed) return notify("nothing to undo");
           const s = lastTrashed;
           return restore(s, () => setSelectedId(s.id));
         }
         if (key.return && onLoadMore) return loadMore();
+        if (key.return && onImport) return askImport();
         if (key.return && session) return start(session);
         if (input === "c" && session) {
           const command = resumeCommand(session);
@@ -946,7 +1006,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
   else if (filter.none) preview = <Text dimColor>No session matches the filter</Text>;
-  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, "sessions", sessionList.length - 1, range.requested).join("\n")}</Text>;
+  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, "sessions", sessions.length, range.requested).join("\n")}</Text>;
+  else if (onImport)
+    preview = (
+      <Text dimColor>
+        {[
+          all ? "No Claude Code sessions found." : `No Claude Code session found for ${cwd}.`,
+          "",
+          `Enter or a double click imports sessions from a cco-session-export zip archive into ${tilde(cwd)}.`,
+        ].join("\n")}
+      </Text>
+    );
   else if (!session) preview = <Text dimColor>{all ? "No Claude Code sessions found" : `No Claude Code session found for ${cwd}`}</Text>;
   else
     preview = (
@@ -976,11 +1046,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "PgUp/Dn scroll", priority: 1 },
         ...markFooter(favorites.isMarked(session?.id), markedCount),
         ...filter.footer,
-        { text: onLoadMore ? "↵ load more" : session ? enterLabel(situationOf(session).situation) : "↵ start", priority: 3 },
+        { text: onLoadMore ? "↵ load more" : onImport ? "↵ import" : session ? enterLabel(situationOf(session).situation) : "↵ start", priority: 3 },
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
-        { text: markedCount > 0 ? "e export ★" : "e export", priority: 2 },
-        { text: "I import", priority: 1 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a all", on: all, priority: 2 },
         { text: "T trash", priority: 2 },
@@ -1014,7 +1082,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             onClick={(i) => {
               const e = list[i];
               if (isLoadMore(e)) return loadMore();
-              if (isDoubleClick(i) && i === index && !trashOpen && e) start(e);
+              if (!isDoubleClick(i) || i !== index || trashOpen) return;
+              if (isImport(e)) askImport();
+              else if (isSession(e)) start(e);
             }}
             items={list}
             shown={filter.shown}
@@ -1028,8 +1098,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             time={listedAt}
             render={(s, isSelected) => {
               if (isLoadMore(s)) return <LoadMoreRow progress={range.requested ? progress : undefined} />;
+              if (isImport(s)) return <ImportRow />;
               const marked = favorites.isMarked(s.id);
               const state = stateOf(s);
+              const gone = !state && folderGone(s);
               const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
               // A /rename title is bright, a first prompt standing in for it dim and quoted.
               // The quotes go around the cut text, so the closing one is never cut off.
@@ -1040,7 +1112,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {/* Without the date separators, the date is back in each row. */}
                   <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
                   {badge && <SessionMarker symbol={badge} activity={running.get(s.id)?.activity} />}
-                  {all && <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>}
+                  {gone && <Text dimColor>∅ </Text>}
+                  {all &&
+                    (gone ? (
+                      <>
+                        <Text dimColor strikethrough>
+                          {truncate(projectName(s), 12)}
+                        </Text>
+                        <Text> </Text>
+                      </>
+                    ) : (
+                      <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>
+                    ))}
                   {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
                   <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
                     {quoted && "„"}
@@ -1051,7 +1134,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                         listWidth -
                           (separators ? 7 : 13) -
                           (marked ? 2 : 0) -
-                          badge.length -
+                          (badge || gone ? 2 : 0) -
                           (all ? Math.min(12, projectName(s).length) + 1 : 0) -
                           (quoted ? 2 : 0),
                       )}
@@ -1093,7 +1176,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           onClose={() => setExporting(undefined)}
         />
       )}
-      {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
+      {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} into={tilde(cwd)} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
       {filter.dialog}
     </>
   );

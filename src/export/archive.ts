@@ -5,7 +5,7 @@ import { readFavorites, toggleFavorite } from "../favorites.js";
 import { readPositions, rememberScroll, savePositions, type PositionList } from "../positions.js";
 import { readSettings, PLACEMENT_VALUES, type Placement } from "../settings.js";
 import { readSessionPlacement, readSessionView, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { claudeDir, readJson, writeJson } from "../transcript/locate.js";
+import { claudeDir, projectSlug, readJson, writeJson } from "../transcript/locate.js";
 import type { SessionSummary } from "../transcript/sessions.js";
 import { sessionItems } from "../transcript/trash.js";
 import { TOOL_LEVELS } from "../transcript/tools.js";
@@ -26,6 +26,7 @@ import {
   type LoadedSession,
   type SessionCcoData,
 } from "./session.js";
+import { changesAnything, firstCwd, firstUuid, freshIds, holdsCopy, isJsonFile, relocatePath, relocateText, rewrites, type Relocation } from "./relocate.js";
 import { readZip, ZipWriter } from "./zip.js";
 
 /** The archive's name in the downloads folder; a taken name gets " (2)", " (3)", … */
@@ -72,7 +73,7 @@ export function freeName(dir: string, name: string): string {
 }
 
 /** Every file below `path` (or `path` itself), with its path relative to `root`. */
-function walk(path: string, root: string): string[] {
+export function walk(path: string, root: string): string[] {
   let stat;
   try {
     stat = statSync(path);
@@ -101,6 +102,8 @@ export interface BackupManifest {
   /** Folder name under ~/.claude/projects. */
   slug: string;
   cwd?: string;
+  /** The ~/.claude the files came from, so paths into it can be rewritten on import; missing in older archives. */
+  claudeDir?: string;
   /** Files relative to ~/.claude, forward slashes; they are below `claude/` in the backup's folder. */
   files: string[];
   summary: SessionSummary;
@@ -212,6 +215,7 @@ async function addBackup(zip: ZipWriter, session: LoadedSession, viewerCwd: stri
     ids: [...(s.continues ?? []), s.id],
     slug: basename(dirname(s.path)),
     cwd,
+    claudeDir: root,
     files: written,
     summary: s,
   };
@@ -222,8 +226,8 @@ async function addBackup(zip: ZipWriter, session: LoadedSession, viewerCwd: stri
 // --- Import -----------------------------------------------------------------------------------
 
 export interface ImportResult {
-  /** Titles or ids of the sessions imported. */
-  imported: { id: string; title: string }[];
+  /** Titles and ids of the sessions imported; `from` is the id in the archive when it got a new one. */
+  imported: { id: string; title: string; from?: string }[];
   skipped: { id: string; title: string; reason: string }[];
 }
 
@@ -255,16 +259,27 @@ export function mergeCcoData(cwd: string, data: Partial<SessionCcoData>, id: str
   if (PLACEMENT_VALUES.includes(data.placement as Placement) && !readSessionPlacement(cwd, id)) saveSessionPlacement(cwd, id, data.placement as Placement);
 }
 
+/** A file's content as `r` has it: rewritten where it is a transcript or lies next to one, else as it is. */
+export function relocatedData(rel: string, data: Buffer, r: Relocation): Buffer {
+  if (!rewrites(rel) || !changesAnything(r)) return data;
+  return Buffer.from(relocateText(data.toString("utf8"), r, isJsonFile(rel)), "utf8");
+}
+
 /**
- * Imports the backups in the archive `file` into ~/.claude: per session its
- * files and cco's data. A session whose transcript is there already is
- * skipped, as is a pasted image that is there; the others are imported.
+ * Imports the backups in the archive `file` into ~/.claude, into the project
+ * folder `cwd`: per session its files and cco's data. Paths of the folder the
+ * session ran in and of the ~/.claude it came from are rewritten to these.
+ * A session whose transcript is in that folder already is skipped; one whose
+ * ids are taken in another folder gets new ids. A pasted image that is there
+ * stays as it is.
  */
-export function importArchive(file: string): ImportResult {
+export function importArchive(file: string, cwd: string): ImportResult {
   const entries = readZip(file);
   const result: ImportResult = { imported: [], skipped: [] };
   const manifests = entries.filter((e) => /^[^/]+-backup\/manifest\.json$/.test(e.name));
   if (manifests.length === 0) throw new Error("no session backups in this archive");
+  const slugTo = projectSlug(cwd);
+  const projectDir = join(claudeDir(), "projects", slugTo);
   for (const m of manifests) {
     const folder = m.name.slice(0, -"/manifest.json".length);
     let manifest: BackupManifest;
@@ -279,7 +294,6 @@ export function importArchive(file: string): ImportResult {
       result.skipped.push({ id: folder, title, reason: "not a session backup" });
       continue;
     }
-    const projectDir = join(claudeDir(), "projects", manifest.slug);
     const ids = Array.isArray(manifest.ids) ? manifest.ids : [manifest.id];
     if (ids.some((id) => existsSync(join(projectDir, `${id}.jsonl`)))) {
       result.skipped.push({ id: manifest.id, title, reason: "already there" });
@@ -287,16 +301,43 @@ export function importArchive(file: string): ImportResult {
     }
     const prefix = `${folder}/claude/`;
     const files = entries.filter((e) => e.name.startsWith(prefix) && !e.name.endsWith("/"));
-    const targets = files.map((e) => ({ entry: e, target: insideClaude(e.name.slice(prefix.length)) }));
+    let relocation: Relocation;
+    let targets: { entry: (typeof files)[number]; rel: string; target?: string }[];
+    try {
+      const transcript = files.find((e) => e.name === `${prefix}projects/${manifest.slug}/${manifest.id}.jsonl`);
+      relocation = {
+        from: manifest.cwd ?? (transcript ? firstCwd(transcript.data().toString("utf8")) : undefined),
+        to: cwd,
+        claudeFrom: manifest.claudeDir,
+        claudeTo: claudeDir(),
+        slugFrom: manifest.slug,
+        slugTo,
+        ids: freshIds(ids, slugTo),
+      };
+      targets = files.map((e) => {
+        const rel = relocatePath(e.name.slice(prefix.length), relocation);
+        return { entry: e, rel, target: insideClaude(rel) };
+      });
+    } catch (err) {
+      result.skipped.push({ id: manifest.id, title, reason: (err as Error).message });
+      continue;
+    }
+    // Under new ids, a copy imported before is known by the entries it begins with.
+    const oldest = files.find((e) => e.name === `${prefix}projects/${manifest.slug}/${ids[0]}.jsonl`);
+    const uuid = relocation.ids.size > 0 && oldest ? firstUuid(oldest.data().toString("utf8")) : undefined;
+    if (uuid && holdsCopy(projectDir, uuid)) {
+      result.skipped.push({ id: manifest.id, title, reason: "already there" });
+      continue;
+    }
     const outside = targets.find((t) => !t.target);
     if (outside) {
       result.skipped.push({ id: manifest.id, title, reason: `unsafe path ${outside.entry.name}` });
       continue;
     }
     // Unpacked (and checked) first, so a damaged archive leaves nothing half imported.
-    let data: { target: string; data: Buffer; modified: Date }[];
+    let data: { target: string; data: Buffer }[];
     try {
-      data = targets.map((t) => ({ target: t.target!, data: t.entry.data(), modified: t.entry.modified }));
+      data = targets.map((t) => ({ target: t.target!, data: relocatedData(t.rel, t.entry.data(), relocation) }));
     } catch (err) {
       result.skipped.push({ id: manifest.id, title, reason: (err as Error).message });
       continue;
@@ -307,15 +348,16 @@ export function importArchive(file: string): ImportResult {
       mkdirSync(dirname(d.target), { recursive: true });
       writeFileSync(d.target, d.data);
     }
+    const id = relocation.ids.get(manifest.id) ?? manifest.id;
     const cco = entries.find((e) => e.name === `${folder}/cco.json`);
-    if (cco && manifest.cwd) {
+    if (cco) {
       try {
-        mergeCcoData(manifest.cwd, JSON.parse(cco.data().toString("utf8")) as Partial<SessionCcoData>, manifest.id);
+        mergeCcoData(cwd, JSON.parse(relocateText(cco.data().toString("utf8"), relocation, true)) as Partial<SessionCcoData>, id);
       } catch {
         // The session is in; its marks and positions are a nicety.
       }
     }
-    result.imported.push({ id: manifest.id, title });
+    result.imported.push({ id, title, ...(id !== manifest.id ? { from: manifest.id } : {}) });
   }
   return result;
 }
@@ -341,6 +383,8 @@ export function newestExport(dir = downloadsDir()): string | undefined {
 /** "imported 2 sessions · skipped 1 (already there)". */
 export function importSummary(result: ImportResult): string {
   const parts = [`imported ${result.imported.length} session${result.imported.length === 1 ? "" : "s"}`];
+  const renamed = result.imported.filter((s) => s.from).length;
+  if (renamed) parts.push(`${renamed} with a new id`);
   if (result.skipped.length) {
     const reasons = [...new Set(result.skipped.map((s) => s.reason))].join(", ");
     parts.push(`skipped ${result.skipped.length} (${reasons})`);
