@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,7 +36,8 @@ describe("findRepos", () => {
     fakeRepo(join(root, "wt"), true);
 
     const found = await findRepos(join(root, "tools"), true);
-    expect(found.base).toBe(resolve(root));
+    // git names the real path: /private/var on macOS, the long name instead of RUNNER~1 on Windows.
+    expect(found.base).toBe(resolve(realpathSync.native(root)));
     expect(found.repos.map((r) => r.rel)).toEqual(["", "a/b/c", "lib", "tools/bar", "wt"]);
     expect((await findRepos(root, false)).repos.map((r) => r.rel)).toEqual([""]);
   });
