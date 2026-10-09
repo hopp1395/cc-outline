@@ -1,6 +1,6 @@
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { parseDiff } from "../git/diff.js";
@@ -9,11 +9,13 @@ import {
   fileContent,
   fileDiff,
   listChanges,
-  repoRoot,
+  recentCommits,
   type BranchStatus,
+  type Commit,
   type FileChange,
   type FileContent,
 } from "../git/git.js";
+import { findRepos, nestedPaths, REPO_DEPTH, withoutNested, type Repo } from "../git/repos.js";
 import { addedLines, renderDiff, renderFile, type RenderedDiff } from "../render/diff.js";
 import {
   bold,
@@ -39,6 +41,7 @@ import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { openInDefaultApp } from "../open.js";
 import { doubleClicks, useCtrlEnter } from "./openKey.js";
+import { isLoadMore, LOAD_MORE, LoadMoreRow, type LoadMore } from "./loadMore.js";
 
 interface Props {
   cwd: string;
@@ -72,16 +75,74 @@ const STATUS_LABEL: Record<string, string> = {
   U: "conflict",
 };
 
+/** What was read of a repository. */
+interface RepoState {
+  files: FileChange[];
+  branch?: BranchStatus;
+  /** git failed in it. */
+  error?: string;
+}
+
+/**
+ * An entry of the list: a changed file of a repository, or (`file` undefined)
+ * the one entry of a repository without changes. `key` is its path from the
+ * base (`tools/bar/src/x.ts`; a file of the base's repository by its own path,
+ * as before there were several), which positions and marks are stored under.
+ */
+export interface GitEntry {
+  repo: Repo;
+  file?: FileChange;
+  key: string;
+}
+
+type Item = GitEntry | LoadMore;
+
+const LOAD_MORE_KEY = "load-more";
+const keyOf = (item: Item) => (isLoadMore(item) ? LOAD_MORE_KEY : item.key);
+const isEntry = (item: Item | undefined): item is GitEntry => item !== undefined && !isLoadMore(item);
+
+/** The key of a file of `repo`: its path from the base. */
+export const fileKey = (repo: Repo, path: string) => (repo.rel ? `${repo.rel}/${path}` : path);
+/** The key of a repository's entry while it has no changes. */
+export const repoKey = (repo: Repo) => `repo:${repo.rel}`;
+
+/** How many repositories are read without load more, every `POLL_MS`; the others every `SLOW_EVERY` polls. */
+export const REPO_LIMIT = 10;
+
+/**
+ * The list's entries: per repository its changed files, or its one entry
+ * while it has none, then load more while repositories past `REPO_LIMIT` are
+ * not read. A repository not read yet has no entries.
+ */
+export function gitEntries(repos: Repo[], states: Record<string, RepoState>, loadAll: boolean): Item[] {
+  const items: Item[] = [];
+  for (const repo of loadAll ? repos : repos.slice(0, REPO_LIMIT)) {
+    const state = states[repo.root];
+    if (!state) continue;
+    if (state.files.length === 0) items.push({ repo, key: repoKey(repo) });
+    for (const file of state.files) items.push({ repo, file, key: fileKey(repo, file.path) });
+  }
+  const unread = repos.slice(REPO_LIMIT).some((r) => !states[r.root]);
+  if (repos.length > REPO_LIMIT && (!loadAll || unread)) items.push(LOAD_MORE);
+  return items;
+}
+
+/** The separator of a repository: its path from the base (the base's own by its folder name) and its branch. */
+export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undefined): string {
+  const name = repo.rel || basename(base) || base;
+  return branch ? `${name} · ${branch.branch ?? "(detached)"}` : name;
+}
+
 /**
  * Full path of the file above its diff, like the prompt above a chat answer.
  * The rule names what Enter switches to.
  */
-function fileHeader(file: FileChange, width: number, showFile: boolean): string[] {
+function fileHeader(file: FileChange, path: string, width: number, showFile: boolean): string[] {
   const color = STATUS_ANSI[STATUS_COLOR[file.status]] ?? "39";
   const counts = file.added !== undefined ? ` · +${file.added} -${file.removed}` : "";
   const details = [(STATUS_LABEL[file.status] ?? file.status) + counts + (showFile ? " · whole file" : " · diff")];
   if (file.oldPath) details.push(`from ${file.oldPath}`);
-  const header = previewHeader(file.path, width, {
+  const header = previewHeader(path, width, {
     marker: `\u001b[${color}m${file.status}\u001b[39m `,
     style: bold,
     details,
@@ -90,9 +151,41 @@ function fileHeader(file: FileChange, width: number, showFile: boolean): string[
   return [...header.slice(0, -1), rule(width, showFile ? "↵ diff" : "↵ whole file")];
 }
 
+/** The folder of a repository without changes above its preview, with its branch. */
+function repoHeader(repo: Repo, branch: BranchStatus | undefined, width: number): string[] {
+  const details: string[] = [];
+  if (branch) {
+    const name = branch.branch ?? "(detached)";
+    details.push(branch.upstream ? `${name} · ↑${branch.ahead} ↓${branch.behind} · ${branch.upstream}` : name);
+  }
+  const header = previewHeader(repo.root, width, { marker: "  ", style: bold, details, wrap: wrapPath });
+  return [...header.slice(0, -1), rule(width, "↵ open folder")];
+}
+
 const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
+const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 
 const message = (text: string): RenderedDiff => ({ lines: [dim(text)], hunkStarts: [], gutterWidth: 0 });
+
+/** The preview of a repository without changes: that, and its last commits. */
+export function repoLines(state: RepoState | undefined, commits: Commit[] | undefined): string[] {
+  if (state?.error) return [`\u001b[31mgit: ${state.error}\u001b[39m`];
+  const lines = [dim("No changes")];
+  if (commits === undefined) return lines;
+  if (commits.length === 0) return [...lines, "", dim("No commits yet")];
+  return [...lines, "", "Last commits:", ...commits.map((c) => `${yellow(c.hash)}  ${dim(c.when)}  ${c.subject}`)];
+}
+
+/** The preview of load more: how many repositories are read and what Enter does. */
+function loadMoreLines(total: number, base: string, loading: boolean): string[] {
+  return [
+    `The list shows the first ${REPO_LIMIT} of the ${total} repositories in ${base} and the folders below.`,
+    "",
+    loading
+      ? "Reading the others…"
+      : `Enter or a click reads the other ${total - REPO_LIMIT}, until the viewer restarts. They are read again every 10 s, the one of the selected entry every 2 s.`,
+  ];
+}
 
 function renderContent(
   content: FileContent | undefined,
@@ -136,78 +229,142 @@ function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) 
 }
 
 const POLL_MS = 2000;
+/** The repositories past `REPO_LIMIT` are read every fifth poll (10 s). */
+const SLOW_EVERY = 5;
+/** The folders are searched for repositories every 15th poll (30 s). */
+const DISCOVER_EVERY = 15;
 /** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
+async function readRepo(repo: Repo, repos: Repo[]): Promise<RepoState> {
+  try {
+    const [files, branch] = await Promise.all([listChanges(repo.root), branchStatus(repo.root)]);
+    return { files: withoutNested(files, nestedPaths(repo, repos)), branch };
+  } catch (err) {
+    return { files: [], error: (err as Error).message.split("\n")[0] };
+  }
+}
+
 export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
-  const [root, setRoot] = useState<string | null>();
-  const [files, setFiles] = useState<FileChange[]>([]);
+  const [nested] = useSetting("gitNestedRepos");
+  // The repositories found (null: none), the folder they were searched from, and what was read of each.
+  const [repos, setRepos] = useState<Repo[] | null>();
+  const [base, setBase] = useState(cwd);
+  const [states, setStates] = useState<Record<string, RepoState>>({});
+  // Load more: all repositories are read, until the viewer restarts.
+  const [loadAll, setLoadAll] = useState(false);
   // Selection and each file's scroll position survive switching files and restarting the viewer.
   const positions = usePositions(cwd, "git");
-  const [selectedPath, setSelectedPath] = useState<string | undefined>(positions.selected);
+  const [selectedKey, setSelectedKey] = useState<string | undefined>(positions.selected);
   const [diffText, setDiffText] = useState("");
   const [showFile, setShowFile] = useState(false);
   const [wrap, setWrap] = useSetting("wrap");
   const focused = useFocused();
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
+  const [commits, setCommits] = useState<Commit[]>();
   const [error, setError] = useState<string>();
-  // Marked files of the project, by path.
+  // Marked entries of the project, by key.
   const favorites = useFavorites(cwd, "files");
-  const [branch, setBranch] = useState<BranchStatus>();
   const [flash, setFlash] = useState<string>();
   const [isDoubleClick] = useState(() => doubleClicks());
   const showFileRef = useRef(showFile);
   showFileRef.current = showFile;
 
-  useEffect(() => {
-    repoRoot(cwd).then((r) => setRoot(r ?? null));
-  }, [cwd]);
-
-  const selectedIndex = Math.max(0, files.findIndex((f) => f.path === selectedPath));
-  // A file is found by its path; its details are the path it was renamed from and its status.
+  const items = useMemo(() => gitEntries(repos ?? [], states, loadAll), [repos, states, loadAll]);
+  const shownRepos = repos ? (loadAll ? repos : repos.slice(0, REPO_LIMIT)) : [];
+  // Every repository shown has been read: only then a selection that is gone moves on.
+  const ready = repos === null || (repos !== undefined && shownRepos.every((r) => states[r.root]));
+  const selectedIndex = Math.max(0, items.findIndex((e) => keyOf(e) === selectedKey));
+  const labelOf = (repo: Repo) => repoLabel(repo, base, states[repo.root]?.branch);
+  // An entry is found by its path from the base, so also by its repository's; its details are the path it was renamed from, its status and branch.
   const filter = useListFilter({
-    items: files,
-    text: (f) => ({ list: f.path, details: haystack([f.oldPath, STATUS_LABEL[f.status]]) }),
+    items,
+    text: (e) =>
+      isLoadMore(e)
+        ? { list: "", details: "" }
+        : e.file
+          ? { list: e.key, details: haystack([e.file.oldPath, STATUS_LABEL[e.file.status], labelOf(e.repo)]) }
+          : { list: `${labelOf(e.repo)} no changes`, details: "" },
     selected: selectedIndex,
     select: (i) => select(i),
     layout,
     onTyping,
-    marked: (f) => favorites.isMarked(f.path),
-    restoreCopy: positions.pinned ? (f) => f.path === positions.selected : undefined,
+    keep: (e) => isLoadMore(e),
+    marked: (e) => isEntry(e) && favorites.isMarked(e.key),
+    restoreCopy: positions.pinned ? (e) => keyOf(e) === positions.selected : undefined,
   });
-  const current = filter.none ? undefined : files[selectedIndex];
+  const picked = filter.none ? undefined : items[selectedIndex];
+  const current = isEntry(picked) ? picked : undefined;
+  const onLoadMore = isLoadMore(picked);
+  const currentFile = current?.file;
+  const currentState = current && states[current.repo.root];
 
-  // The refresh keeps the selected file, also the one restored before the list was read.
-  const selectedRef = useRef(selectedPath);
-  selectedRef.current = selectedPath;
-  useEffect(() => positions.select(selectedPath, undefined, filter.copySelected), [selectedPath, filter.copySelected]);
+  // The refresh keeps the selected entry, also the one restored before the list was read.
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  const reposRef = useRef<Repo[] | null | undefined>(undefined);
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+  useEffect(() => {
+    if (selectedKey !== LOAD_MORE_KEY) positions.select(selectedKey, undefined, filter.copySelected);
+  }, [selectedKey, filter.copySelected]);
   // The refresh running, which another one waits for instead of starting a second.
   const running = useRef<Promise<void> | undefined>(undefined);
 
-  const refresh = useCallback(async () => {
-    if (!root) return;
-    if (running.current) return running.current;
-    const run = load(root);
-    running.current = run;
-    try {
-      await run;
-    } finally {
-      running.current = undefined;
-    }
-  }, [root]);
+  /**
+   * Reads the repositories: with `discover` it searches for them first, with `all`
+   * it reads every one shown, else only the first `REPO_LIMIT` and the selected one's.
+   */
+  const refresh = useCallback(
+    async (opts: { discover?: boolean; all?: boolean }) => {
+      if (running.current) return running.current;
+      const run = load(opts);
+      running.current = run;
+      try {
+        await run;
+      } finally {
+        running.current = undefined;
+      }
+    },
+    [cwd, nested],
+  );
 
-  const load = async (root: string) => {
+  const load = async ({ discover, all }: { discover?: boolean; all?: boolean }) => {
+    let list = reposRef.current;
+    if (discover || list === undefined) {
+      const found = await findRepos(cwd, nested);
+      list = found.repos.length > 0 ? found.repos : null;
+      if (JSON.stringify(list) !== JSON.stringify(reposRef.current)) {
+        reposRef.current = list;
+        setRepos(list);
+      }
+      setBase(found.base);
+    }
+    if (!list) return;
+    const shown = loadAllRef.current ? list : list.slice(0, REPO_LIMIT);
+    const selectedRoot = currentRef.current?.repo.root;
+    const targets = shown.filter((r, i) => all || i < REPO_LIMIT || r.root === selectedRoot);
+    const read = await Promise.all(targets.map(async (r) => [r.root, await readRepo(r, list)] as const));
+    setStates((prev) => {
+      let next = prev;
+      for (const [root, state] of read) {
+        if (JSON.stringify(prev[root]) === JSON.stringify(state)) continue;
+        if (next === prev) next = { ...prev };
+        next[root] = state;
+      }
+      return next;
+    });
+    // The selected file may have changed again since it was shown.
+    const entry = currentRef.current;
+    const state = entry && read.find(([root]) => root === entry.repo.root)?.[1];
+    const file = entry?.file && state?.files.find((f) => f.path === entry.file!.path);
+    if (!entry || !file) return setError(undefined);
     try {
-      const [next, nextBranch] = await Promise.all([listChanges(root), branchStatus(root)]);
-      setFiles((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-      setBranch((prev) => (JSON.stringify(prev) === JSON.stringify(nextBranch) ? prev : nextBranch));
-      const file = next.find((f) => f.path === selectedRef.current) ?? next[0];
-      setSelectedPath(file?.path);
-      setDiffText(file ? await fileDiff(root, file) : "");
-      if (file && showFileRef.current) {
-        const next = await fileContent(root, file);
+      setDiffText(await fileDiff(entry.repo.root, file));
+      if (showFileRef.current) {
+        const next = await fileContent(entry.repo.root, file);
         setContent((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       }
       setError(undefined);
@@ -216,18 +373,22 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     }
   };
 
-  // F5: the repository is looked up again (e.g. after git init), then read once the refresh running has ended.
+  // A selection that is gone (committed, reverted, a repository removed) moves to the first entry;
+  // after load more, to the first one of the repositories read since.
+  useEffect(() => {
+    if (!ready || items.some((e) => keyOf(e) === selectedKey)) return;
+    const after = selectedKey === LOAD_MORE_KEY && repos ? repos[REPO_LIMIT]?.root : undefined;
+    const next = items.find((e) => isEntry(e) && e.repo.root === after) ?? items.find(isEntry);
+    setSelectedKey(next ? keyOf(next) : undefined);
+  }, [ready, items, selectedKey]);
+
+  // F5: the repositories are searched again (e.g. after git init or a clone), then all are read.
   useOnReload(({ done }) => {
     let cancelled = false;
     void (async () => {
       try {
-        const found = (await repoRoot(cwd)) ?? null;
-        if (cancelled) return;
-        if (found !== root) setRoot(found);
-        else {
-          await running.current;
-          await refresh();
-        }
+        await running.current;
+        if (!cancelled) await refresh({ discover: true, all: true });
       } finally {
         // Also when it failed: F5 is refused while a reload runs.
         done();
@@ -240,55 +401,78 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
 
   // Poll only while visible; Claude edits files between prompts, so this keeps the view current.
   useEffect(() => {
-    if (!active || !root) return;
-    void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    if (!active) return;
+    let tick = 0;
+    void refresh({ discover: true, all: true });
+    const timer = setInterval(() => {
+      tick++;
+      void refresh({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 });
+    }, POLL_MS);
     return () => clearInterval(timer);
-  }, [active, root, refresh]);
+  }, [active, refresh]);
 
   // Load the diff as soon as the selection changes instead of waiting for the next poll.
   useEffect(() => {
-    if (!root || !current) return;
+    if (!current || !currentFile) return setDiffText("");
     let cancelled = false;
-    fileDiff(root, current).then(
+    fileDiff(current.repo.root, currentFile).then(
       (text) => !cancelled && setDiffText(text),
       (err: Error) => !cancelled && setError(err.message.split("\n")[0]),
     );
     return () => {
       cancelled = true;
     };
-  }, [root, current?.path]);
+  }, [current?.key]);
 
   // The whole file is only read while that view is open.
   useEffect(() => {
     setContent(undefined);
-    if (!root || !current || !showFile) return;
+    if (!current || !currentFile || !showFile) return;
     let cancelled = false;
-    fileContent(root, current).then(
+    fileContent(current.repo.root, currentFile).then(
       (c) => !cancelled && setContent(c),
       (err: Error) => !cancelled && setError(err.message.split("\n")[0]),
     );
     return () => {
       cancelled = true;
     };
-  }, [root, current?.path, showFile]);
+  }, [current?.key, showFile]);
+
+  // A repository without changes shows its last commits.
+  const cleanRoot = current && !currentFile ? current.repo.root : undefined;
+  useEffect(() => {
+    setCommits(undefined);
+    if (!cleanRoot) return;
+    let cancelled = false;
+    void recentCommits(cleanRoot).then((c) => !cancelled && setCommits(c));
+    return () => {
+      cancelled = true;
+    };
+  }, [cleanRoot]);
+
+  // The whole file closes when the selection is no file.
+  useEffect(() => {
+    if (showFile && !currentFile && ready) toggleFile(false);
+  }, [showFile, currentFile, ready]);
 
   const header = useMemo(() => {
     if (!current) return [];
-    const full = fileHeader(current, previewWidth, showFile);
+    const full = currentFile ? fileHeader(currentFile, current.key, previewWidth, showFile) : repoHeader(current.repo, currentState?.branch, previewWidth);
     const fitted = fitHeader(full, bodyHeight);
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
-  }, [current, previewWidth, bodyHeight, showFile]);
+  }, [current, currentFile, currentState?.branch, previewWidth, bodyHeight, showFile]);
   const rendered = useMemo(() => {
+    if (onLoadMore && repos) return { ...message(""), lines: loadMoreLines(repos.length, base, loadAll) };
     if (!current) return message("");
+    if (!currentFile) return { ...message(""), lines: repoLines(currentState, commits) };
     return showFile
-      ? renderContent(content, diffText, current.path, previewWidth, wrap)
-      : renderDiff(parseDiff(diffText), current.path, previewWidth, wrap);
-  }, [diffText, content, current?.path, previewWidth, showFile, wrap]);
+      ? renderContent(content, diffText, currentFile.path, previewWidth, wrap)
+      : renderDiff(parseDiff(diffText), currentFile.path, previewWidth, wrap);
+  }, [diffText, content, current?.key, currentState, commits, onLoadMore, repos, base, loadAll, previewWidth, showFile, wrap]);
   const viewport = bodyHeightBelow(header, bodyHeight);
   // The diff and the whole file of a file each keep their own position.
-  const scroll = positions.scroll(current && (showFile ? `${current.path}#file` : current.path), rendered.lines.length, viewport);
+  const scroll = positions.scroll(current && (showFile ? `${current.key}#file` : current.key), rendered.lines.length, viewport);
 
   // How far unwrapped lines can be shifted until the longest one ends at the right edge.
   const maxHscroll = useMemo(
@@ -298,9 +482,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const shift = (delta: number) => setHscroll((h) => Math.max(0, Math.min(maxHscroll, h + delta)));
 
   const select = (index: number) => {
-    const file = files[Math.max(0, Math.min(files.length - 1, index))];
-    if (!file || file.path === current?.path) return;
-    setSelectedPath(file.path);
+    const item = items[Math.max(0, Math.min(items.length - 1, index))];
+    if (!item || keyOf(item) === selectedKey) return;
+    setSelectedKey(keyOf(item));
     setHscroll(0);
   };
   const toggleFile = (open: boolean) => {
@@ -308,7 +492,17 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     onFileOpen?.(open);
     setHscroll(0);
   };
-  /** Selects the next or previous marked file. */
+  /** Load more: the repositories past the first ones are read from now on. */
+  const loadMore = () => {
+    if (loadAll) return;
+    setLoadAll(true);
+    loadAllRef.current = true;
+    void (async () => {
+      await running.current;
+      await refresh({ all: true });
+    })();
+  };
+  /** Selects the next or previous marked entry. */
   const jumpMark = (dir: 1 | -1) => {
     const target = filter.nextMark(dir);
     if (target !== undefined) select(target);
@@ -317,13 +511,14 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     setFlash(msg);
     setTimeout(() => setFlash(undefined), 2000);
   };
-  /** Opens the selected file as it is now in the app the system uses for it. */
+  /** Opens the selected file as it is now in the app the system uses for it, or the folder of a repository without changes. */
   const openExternal = () => {
-    if (!root || !current) return;
-    const file = join(root, current.path);
-    if (!existsSync(file)) return notify(`${current.path} no longer exists`);
-    openInDefaultApp(file);
-    notify(`opened ${current.path}`);
+    if (!current) return;
+    const target = currentFile ? join(current.repo.root, currentFile.path) : current.repo.root;
+    const name = currentFile ? current.key : current.repo.rel || basename(base);
+    if (!existsSync(target)) return notify(`${name} no longer exists`);
+    openInDefaultApp(target);
+    notify(`opened ${name}`);
   };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
@@ -341,8 +536,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       const mark = markKeys(input, key);
       if (mark === "toggle") {
         if (!current) return;
-        if (favorites.isMarked(current.path)) filter.unmarking(selectedIndex);
-        return favorites.toggle(current.path);
+        if (favorites.isMarked(current.key)) filter.unmarking(selectedIndex);
+        return favorites.toggle(current.key);
       }
       if (mark) return jumpMark(mark);
       if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
@@ -352,6 +547,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       }
       const nav = { ...filter.nav, scroll, page: viewport - 2 };
       if (handleNavigation(input, key, nav)) return;
+      if (key.return && onLoadMore) return loadMore();
       if (key.return && current) return openExternal();
       if (key.escape && showFile) return toggleFile(false);
       if (input === "]") return jumpHunk(1);
@@ -359,16 +555,26 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     },
     { isActive: active && !filter.open },
   );
-  useCtrlEnter(() => current && toggleFile(!showFile), active && !filter.open);
+  useCtrlEnter(() => currentFile && toggleFile(!showFile), active && !filter.open);
 
-  const markedCount = files.filter((f) => favorites.isMarked(f.path)).length;
-  const totals = files.reduce((acc, f) => [acc[0] + (f.added ?? 0), acc[1] + (f.removed ?? 0)], [0, 0]);
+  const entries = items.filter(isEntry);
+  const changed = entries.filter((e) => e.file);
+  const markedCount = entries.filter((e) => favorites.isMarked(e.key)).length;
+  const totals = changed.reduce((acc, e) => [acc[0] + (e.file!.added ?? 0), acc[1] + (e.file!.removed ?? 0)], [0, 0]);
+  // Files only: the entries of repositories without changes are none.
+  const isFile = (i: number) => isEntry(items[i]) && (items[i] as GitEntry).file !== undefined;
+  const fileCount = filter.shown ? `${filter.shown.filter(isFile).length}/${changed.length}` : String(changed.length);
 
   let preview;
-  if (root === null) preview = <Text dimColor>{cwd} is not inside a git repository</Text>;
-  else if (error) preview = <Text color="red">git: {error}</Text>;
+  if (repos === null)
+    preview = (
+      <Text dimColor>
+        {nested ? `No git repository in ${cwd} or up to ${REPO_DEPTH} levels below` : `${cwd} is not inside a git repository`}
+      </Text>
+    );
+  else if (error && currentFile) preview = <Text color="red">git: {error}</Text>;
   else if (filter.none) preview = <Text dimColor>No file matches the filter</Text>;
-  else if (!current) preview = <Text dimColor>Working tree clean</Text>;
+  else if (!current && !onLoadMore) preview = <Text dimColor>{repos === undefined ? "Loading…" : "Working tree clean"}</Text>;
   else
     preview = (
       <Preview
@@ -384,6 +590,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       />
     );
 
+  const readMore = repos ? repos.slice(REPO_LIMIT).filter((r) => states[r.root]).length : 0;
   return (
     <>
     <Screen
@@ -391,8 +598,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       mode="git"
       status={
         <Text dimColor={!focused}>
-          <BranchInfo status={branch} bold={focused} />
-          {filter.count(files.length)} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
+          <BranchInfo status={currentState?.branch} bold={focused} />
+          {repos && repos.length > 1 && `${repos.length} repos · `}
+          {fileCount} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
@@ -400,25 +608,44 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       }
       list={
         <List
-            onPick={select}
-          onClick={(i) => isDoubleClick(i) && openExternal()}
-          items={files}
+          onPick={select}
+          onClick={(i) => {
+            if (isLoadMore(items[i])) return loadMore();
+            if (isDoubleClick(i)) openExternal();
+          }}
+          items={items}
           shown={filter.shown}
           pinned={filter.pinned}
           filter={filter.banner}
           selected={selectedIndex}
           height={bodyHeight}
-          empty={filter.empty ?? (root === undefined ? "Loading…" : "No changes")}
-          itemKey={(f) => f.path}
-          render={(f, isSelected) => {
-            const marked = favorites.isMarked(f.path);
+          empty={filter.empty ?? (repos === undefined || !ready ? "Loading…" : "No changes")}
+          itemKey={keyOf}
+          group={(e) => (isLoadMore(e) ? "" : labelOf(e.repo))}
+          render={(e, isSelected, pinnedCopy) => {
+            if (isLoadMore(e)) return <LoadMoreRow progress={loadAll && repos ? { done: readMore, total: repos.length - REPO_LIMIT } : undefined} />;
+            const marked = favorites.isMarked(e.key);
+            // A pinned copy stands apart from its repository's separator, so it names the repository.
+            const prefix = pinnedCopy && e.repo.rel ? `${e.repo.rel}/` : "";
+            if (!e.file) {
+              const text = pinnedCopy ? `${repoLabel(e.repo, base, undefined)}: no changes` : "no changes";
+              return (
+                <>
+                  {marked && <Star />}
+                  <Text dimColor={!isSelected}>
+                    <EntryText text={text} width={Math.max(4, listWidth - (marked ? 2 : 0))} selected={isSelected} active={active} />
+                  </Text>
+                </>
+              );
+            }
+            const f = e.file;
             const counts = f.added !== undefined ? ` +${f.added} -${f.removed}` : "";
             const nameWidth = Math.max(4, listWidth - 2 - counts.length - (marked ? 2 : 0));
             return (
               <>
                 {marked && <Star />}
                 <Text color={STATUS_COLOR[f.status]}>{f.status} </Text>
-                <EntryText text={f.path} width={nameWidth} selected={isSelected} active={active} />
+                <EntryText text={prefix + f.path} width={nameWidth} selected={isSelected} active={active} />
                 <Text dimColor>{counts}</Text>
               </>
             );
@@ -431,8 +658,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         { text: "PgUp/Dn scroll", priority: 1 },
         ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
         { text: "^↵ file", on: showFile },
-        { text: "↵ open", priority: 1 },
-        ...markFooter(favorites.isMarked(current?.path), markedCount),
+        { text: onLoadMore ? "↵ more" : "↵ open", priority: 1 },
+        ...markFooter(favorites.isMarked(current?.key), markedCount),
         ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },

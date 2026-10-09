@@ -8,7 +8,7 @@
 `cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has six views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
-- **Changes** lists the files changed in the git repository and shows their diffs with syntax highlighting.
+- **Changes** lists the files changed in the git repository, and in the repositories in the folders below, and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 - **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, is exported (Markdown, JSON and a backup to import elsewhere), or goes to the trash.
 - **Monitor** charts how fast Claude answered over the day: output tokens per second, the wait for the first block and the number of responses, compared with the usual values at that time, plus errors such as usage limits.
@@ -208,12 +208,14 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 ![Changes view: changed files on the left, the diff with line numbers and C# highlighting on the right](docs/changes.svg)
 
-**List (left).** One entry per changed file, with its status and line counts. A marked file keeps its mark by path, also after it was committed and changed again. The statuses:
+**Repositories.** The view shows the repository the project folder is in and every repository up to 3 folder levels below its top level (or below the folder, when it is in none): repositories inside it, submodules and worktrees, also in folders the repository ignores. Hidden folders, `node_modules`, `bin` and `obj` are not searched. Each repository gets a separator with its path and branch (`── tools/bar · main ──`; the project's own repository first, by its folder name, then the others by path), also when it is the only one. A repository without changes shows one entry, `no changes`: its preview names the folder, the branch with `↑`/`↓` and the last 5 commits, and `Enter` opens the folder. A nested repository or submodule no longer shows as an entry of the repository around it; its files show under its own separator. The first 10 repositories are read; with more, the last entry `↓ more ↓` reads the others (`Enter` or a click) until the viewer restarts, every 10 seconds. The *Changes: sub-repositories* setting turns the search off: then only the project's repository shows, under its separator.
+
+**List (left).** One entry per changed file, with its status and line counts, its path relative to its repository. A marked file keeps its mark by path, also after it was committed and changed again; in the Pinned group it shows its repository's path in front. The statuses:
 - `M` modified, `A` added, `D` deleted, `R` renamed, `C` copied, `U` conflict
 - `?` untracked, counted as all-added lines
 
 **File header (top right).** It stays in place while you scroll, like the prompt in the Chat view. It shows:
-- the full path, wrapped at `/`
+- the full path, from the project's repository (with the repository's path in front for one below), wrapped at `/`
 - the status, the line counts and the current mode (`diff` or `whole file`)
 - for renames, the old path
 
@@ -229,9 +231,9 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 **Wrapping.** Long lines wrap by default. After `w`, lines stay whole and `Ctrl+←/→` scrolls sideways in steps of 8 columns. The line numbers and hunk headers stay in place.
 
-**Status.** The top bar shows the current branch, the files and line counts, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
+**Status.** The top bar shows the branch of the selected entry's repository, the number of repositories (when there are several), the files and line counts over all of them, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
 
-**Refresh.** While the view is visible, it re-reads git every 2 seconds; `F5` refreshes at once and also finds a repository created since (`git init`). The selected file stays selected as long as it is still changed.
+**Refresh.** While the view is visible, it re-reads git every 2 seconds and searches for repositories every 30 seconds; `F5` does both at once, so a repository created or cloned since (`git init`, `git clone`) shows. The selected file stays selected as long as it is still changed.
 
 **Syntax highlighting** exists so far for C# (`.cs`, `.csx`). Add more languages through the `LANGUAGES` map in `src/render/diff.ts`.
 
@@ -381,6 +383,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | Changes: tab | on / off | on | – |
 | Changes: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Changes |
 | Changes: wrap | on / off | on | `w` in Changes |
+| Changes: sub-repositories | on / off | on | – |
 | Plan: tab | on / off | on | – |
 | Plan: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Plan |
 | Plan: wrap | on / off | on | `w` in Plan |

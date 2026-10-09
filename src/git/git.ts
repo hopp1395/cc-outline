@@ -142,6 +142,29 @@ export async function branchStatus(root: string): Promise<BranchStatus> {
   return parseBranch(await git(root, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=no"]));
 }
 
+export interface Commit {
+  hash: string;
+  /** When it was committed, relative: "2 days ago". */
+  when: string;
+  subject: string;
+}
+
+/** The last `count` commits of HEAD, newest first; none in a repository without commits. */
+export async function recentCommits(root: string, count = 5): Promise<Commit[]> {
+  try {
+    const out = await git(root, ["log", `-n${count}`, "--format=%h%x09%cr%x09%s"]);
+    return out
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [hash, when, ...subject] = line.split("\t");
+        return { hash, when, subject: subject.join("\t") };
+      });
+  } catch {
+    return [];
+  }
+}
+
 /** Unified diff of one file against HEAD. Untracked files are shown as entirely added. */
 export async function fileDiff(root: string, change: FileChange): Promise<string> {
   if (change.status === "?") return untrackedDiff(root, change.path);
