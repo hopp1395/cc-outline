@@ -95,6 +95,8 @@ export interface Settings {
   chatWrap: boolean;
   /** Changes: wrap long lines (w). */
   wrap: boolean;
+  /** Changes: also show the repositories in the folders below (nested, submodules, worktrees). */
+  gitNestedRepos: boolean;
   /** Plan: wrap long lines (w). */
   planWrap: boolean;
   /** Sessions: show the sessions of all projects, not only this one (a). */
@@ -139,6 +141,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showAgents: true,
   chatWrap: true,
   wrap: true,
+  gitNestedRepos: true,
   planWrap: true,
   allProjects: true,
   pinnedSessions: true,

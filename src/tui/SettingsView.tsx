@@ -421,6 +421,17 @@ export const SETTING_ROWS: Row[] = [
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
   listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room."),
   wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),
+  {
+    key: "gitNestedRepos",
+    group: "Changes",
+    label: "sub-repositories",
+    description:
+      "Whether Changes also shows the git repositories in the folders below: repositories inside the project's repository, submodules, worktrees, or the repositories of a folder that is none itself. They are searched up to 3 levels below the repository's top level (or the folder, when it is none), leaving out hidden folders, `node_modules`, `bin` and `obj`, also when the repository ignores them; `F5` searches again, and the view does every 30 s. Each repository gets a line with its path and branch above its files, also the only one; one without changes shows no changes, whose preview names its branch and last commits. The first 10 are read every 2 s; ↓ more ↓ at the end of the list reads the others, every 10 s.",
+    values: ON_OFF(
+      "every repository found, e.g. ── tools/bar · main ── above the files changed there; a nested repository or submodule no longer shows as one entry of the repository around it",
+      "only the repository the folder is in, as one group",
+    ),
+  },
   viewTab("viewPlan", "Plan", "3", "the plans Claude presented in plan mode"),
   listWidthRow("planListWidth", "Plan", "list width", "Plan", "A wider list shows more of each plan's title; a narrower one leaves the plan text more room."),
   wrapRow("planWrap", "Plan", "of plans", "useful for wide tables and code blocks"),

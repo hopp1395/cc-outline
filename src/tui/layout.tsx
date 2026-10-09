@@ -647,7 +647,8 @@ interface ListProps<T> {
   height: number;
   empty: string;
   itemKey: (item: T, index: number) => string;
-  render: (item: T, selected: boolean) => ReactNode;
+  /** `pinnedCopy`: the row is the entry's copy in the Pinned group. */
+  render: (item: T, selected: boolean, pinnedCopy?: boolean) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
   /** A click on an entry, after `onPick` selected it (the wheel only picks). */
@@ -884,6 +885,7 @@ function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned
       onClick={props.onClick && ((at) => props.onClick!(order[at]))}
       heads={heads}
       tops={tops}
+      copies={count}
     />
   );
 }
@@ -921,6 +923,8 @@ export function listRows(count: number, heads: (string[] | undefined)[]): ListRo
 interface RowsProps {
   heads: (string[] | undefined)[];
   tops: (string | undefined)[] | undefined;
+  /** The first rows that are pinned copies. */
+  copies?: number;
 }
 
 /**
@@ -939,7 +943,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, centre }: ListProps<T> & RowsProps) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, copies = 0, centre }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, heads);
@@ -991,7 +995,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         if (!isSelected)
           return (
             <Text key={itemKey(item, index)} wrap="truncate">
-              {render(item, false)}
+              {render(item, false, index < copies)}
             </Text>
           );
         // The selection spans the list's width, also past a short entry: a row of spaces in the
@@ -1001,7 +1005,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
           <Box key={itemKey(item, index)} width={width} height={1}>
             <Box overflow="hidden">
               <Text wrap="truncate" {...style}>
-                {render(item, true)}
+                {render(item, true, index < copies)}
               </Text>
             </Box>
             <Box flexGrow={1} flexBasis={0} overflow="hidden">
