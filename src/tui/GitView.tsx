@@ -77,7 +77,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /** What was read of a repository. */
-interface RepoState {
+export interface RepoState {
   files: FileChange[];
   branch?: BranchStatus;
   /** git failed in it. */
@@ -168,19 +168,31 @@ const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 
 const message = (text: string): RenderedDiff => ({ lines: [dim(text)], hunkStarts: [], gutterWidth: 0 });
 
-/** The preview of a repository: its changes in short, and its last commits. */
+/** The most commits a repository's preview lists; one more is read to tell whether there are older ones. */
+export const COMMIT_LIMIT = 100;
+
+/** The preview of a repository: its changes in one line, and its last commits (up to `COMMIT_LIMIT`, of `COMMIT_LIMIT + 1` read). */
 export function repoLines(state: RepoState | undefined, commits: Commit[] | undefined): string[] {
   if (state?.error) return [`\u001b[31mgit: ${state.error}\u001b[39m`];
   const files = state?.files ?? [];
-  const lines = [dim(files.length === 0 ? "No changes" : `${files.length} changed file${files.length === 1 ? "" : "s"}`)];
-  for (const f of files) {
-    const color = STATUS_ANSI[STATUS_COLOR[f.status]] ?? "39";
-    const counts = f.added !== undefined ? dim(` +${f.added} -${f.removed}`) : "";
-    lines.push(`\u001b[${color}m${f.status}\u001b[39m ${f.path}${counts}`);
-  }
+  const added = files.reduce((n, f) => n + (f.added ?? 0), 0);
+  const removed = files.reduce((n, f) => n + (f.removed ?? 0), 0);
+  const lines = [
+    files.length === 0
+      ? dim("No changes")
+      : `${files.length} file${files.length === 1 ? "" : "s"} · \u001b[32m+${added}\u001b[39m \u001b[31m-${removed}\u001b[39m`,
+  ];
   if (commits === undefined) return lines;
   if (commits.length === 0) return [...lines, "", dim("No commits yet")];
-  return [...lines, "", "Last commits:", ...commits.map((c) => `${yellow(c.hash)}  ${dim(c.when)}  ${c.subject}`)];
+  const shown = commits.slice(0, COMMIT_LIMIT);
+  const older = commits.length > COMMIT_LIMIT ? [dim("older commits: ") + yellow("git log")] : [];
+  return [
+    ...lines,
+    "",
+    `Last ${shown.length} commit${shown.length === 1 ? "" : "s"}:`,
+    ...shown.map((c) => `${yellow(c.hash)}  ${dim(c.when)}  ${c.subject}`),
+    ...older,
+  ];
 }
 
 /** The preview of load more: how many repositories are read and what Enter does. */
@@ -270,7 +282,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const focused = useFocused();
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
-  const [commits, setCommits] = useState<Commit[]>();
+  // The last commits of the selected repository entry, with the root they were read from.
+  const [commitsOf, setCommitsOf] = useState<{ root: string; commits: Commit[] }>();
   const [error, setError] = useState<string>();
   // Marked entries of the project, by key.
   const favorites = useFavorites(cwd, "files");
@@ -339,6 +352,14 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     [cwd, nested],
   );
 
+  /** Reads a repository's last commits, if it is still the selected entry once they arrive; unchanged ones keep the preview as it is. */
+  const readCommits = async (root: string) => {
+    const commits = await recentCommits(root, COMMIT_LIMIT + 1);
+    const entry = currentRef.current;
+    if (!entry || entry.file || entry.repo.root !== root) return;
+    setCommitsOf((prev) => (prev?.root === root && JSON.stringify(prev.commits) === JSON.stringify(commits) ? prev : { root, commits }));
+  };
+
   const load = async ({ discover, all }: { discover?: boolean; all?: boolean }) => {
     let list = reposRef.current;
     if (discover || list === undefined) {
@@ -364,8 +385,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       }
       return next;
     });
-    // The selected file may have changed again since it was shown.
+    // The selected file may have changed again since it was shown, a selected repository got new commits.
     const entry = currentRef.current;
+    if (entry && !entry.file) await readCommits(entry.repo.root);
     const state = entry && read.find(([root]) => root === entry.repo.root)?.[1];
     const file = entry?.file && state?.files.find((f) => f.path === entry.file!.path);
     if (!entry || !file) return setError(undefined);
@@ -446,17 +468,12 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     };
   }, [current?.key, showFile]);
 
-  // A repository without changes shows its last commits.
-  const cleanRoot = current && !currentFile ? current.repo.root : undefined;
+  // A repository entry shows its last commits, read at once when it is selected and again with each refresh.
+  const repoRoot = current && !currentFile ? current.repo.root : undefined;
+  const commits = repoRoot && commitsOf?.root === repoRoot ? commitsOf.commits : undefined;
   useEffect(() => {
-    setCommits(undefined);
-    if (!cleanRoot) return;
-    let cancelled = false;
-    void recentCommits(cleanRoot).then((c) => !cancelled && setCommits(c));
-    return () => {
-      cancelled = true;
-    };
-  }, [cleanRoot]);
+    if (repoRoot) void readCommits(repoRoot);
+  }, [repoRoot]);
 
   // The whole file closes when the selection is no file.
   useEffect(() => {

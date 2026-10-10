@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { listChanges, recentCommits } from "../src/git/git.js";
+import { listChanges, recentCommits, type Commit } from "../src/git/git.js";
 import { findRepos, nestedPaths, withoutNested, type Repo } from "../src/git/repos.js";
-import { gitEntries, repoLabel, REPO_LIMIT } from "../src/tui/GitView.js";
+import { COMMIT_LIMIT, gitEntries, repoLabel, repoLines, REPO_LIMIT, type RepoState } from "../src/tui/GitView.js";
 import { isLoadMore } from "../src/tui/loadMore.js";
 
 const git = (cwd: string, ...args: string[]) =>
@@ -81,14 +81,42 @@ describe("nestedPaths", () => {
 });
 
 describe("recentCommits", () => {
-  it("lists the last commits, none without any", async () => {
+  it("lists the last commits, newest first and at most as many as asked, none without any", async () => {
     const root = mkdtempSync(join(tmpdir(), "cco-commits-"));
     repo(root);
-    git(root, "commit", "-q", "--allow-empty", "-m", "init");
-    const commits = await recentCommits(root);
-    expect(commits).toHaveLength(1);
-    expect(commits[0].subject).toBe("init");
-    expect(await recentCommits(mkdtempSync(join(tmpdir(), "cco-commits-none-")))).toEqual([]);
+    for (const m of ["init", "second", "third"]) git(root, "commit", "-q", "--allow-empty", "-m", m);
+    const commits = await recentCommits(root, 2);
+    expect(commits.map((c) => c.subject)).toEqual(["third", "second"]);
+    expect(await recentCommits(mkdtempSync(join(tmpdir(), "cco-commits-none-")), 2)).toEqual([]);
+  });
+});
+
+describe("repoLines", () => {
+  const plain = (lines: string[]) => lines.map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""));
+  const commit = (i: number): Commit => ({ hash: `h${i}`, when: "1 day ago", subject: `commit ${i}` });
+  const state: RepoState = {
+    files: [
+      { path: "a.cs", status: "M", added: 3, removed: 1 },
+      { path: "b.png", status: "?" },
+      { path: "c.cs", status: "?", added: 2, removed: 0 },
+    ],
+  };
+
+  it("sums the changes in one line instead of listing the files", () => {
+    expect(plain(repoLines(state, undefined))).toEqual(["3 files · +5 -1"]);
+    expect(plain(repoLines({ files: [state.files[0]] }, undefined))).toEqual(["1 file · +3 -1"]);
+    expect(plain(repoLines({ files: [] }, []))).toEqual(["No changes", "", "No commits yet"]);
+  });
+
+  it("counts the commits in the heading and names git log when there are more than the limit", () => {
+    const few = plain(repoLines({ files: [] }, [commit(1), commit(2)]));
+    expect(few).toEqual(["No changes", "", "Last 2 commits:", "h1  1 day ago  commit 1", "h2  1 day ago  commit 2"]);
+    const all = Array.from({ length: COMMIT_LIMIT }, (_, i) => commit(i));
+    expect(plain(repoLines({ files: [] }, all)).at(-1)).toBe(`h${COMMIT_LIMIT - 1}  1 day ago  commit ${COMMIT_LIMIT - 1}`);
+    const more = plain(repoLines({ files: [] }, [...all, commit(COMMIT_LIMIT)]));
+    expect(more).toContain(`Last ${COMMIT_LIMIT} commits:`);
+    expect(more).not.toContain(`h${COMMIT_LIMIT}  1 day ago  commit ${COMMIT_LIMIT}`);
+    expect(more.at(-1)).toBe("older commits: git log");
   });
 });
 
