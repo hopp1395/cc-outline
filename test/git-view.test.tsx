@@ -43,19 +43,22 @@ describe("Changes with repositories below", () => {
     git(bar, "commit", "-q", "--allow-empty", "-m", "first commit");
 
     const view = renderInk(<GitView cwd={root} layout={layout} active />, layout);
-    await expect.poll(view.frame, { timeout: 5000 }).toContain("no changes");
+    await expect.poll(view.frame, { timeout: 5000 }).toContain("tools/bar");
     const name = basename(root);
     const lines = listLines(view.frame());
     expect(lines[0]).toMatch(new RegExp(`^── ${name} · \\S+ ─+`));
     expect(lines[1]).toContain("? a.cs +1 -0");
     // The nested repository is no entry of the one around it.
     expect(lines[2]).toMatch(/^── tools\/bar · \S+ ─+/);
-    expect(lines[3]).toContain("no changes");
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(3);
     expect(view.frame()).toContain("2 repos · 1 files");
+    // The separator is selected first: its preview names the change.
+    expect(view.frame()).toContain("1 changed file");
 
     await view.press(DOWN);
+    await view.press(DOWN);
     await expect.poll(view.frame).toContain("first commit");
+    expect(view.frame()).toContain("No changes");
     expect(view.frame()).toContain("↵ open folder");
     view.unmount();
   });

@@ -96,11 +96,12 @@ describe("gitEntries", () => {
   const repos: Repo[] = Array.from({ length: REPO_LIMIT + 2 }, (_, i) => ({ root: `/r${i}`, rel: i === 0 ? "" : `r${i}` }));
   const file = { path: "x.cs", status: "M" };
 
-  it("lists the files per repository, one entry for a clean one, and load more past the limit", () => {
+  it("lists each repository's own entry before its files, and load more past the limit", () => {
     const states = Object.fromEntries(repos.map((r, i) => [r.root, { files: i === 1 ? [file] : [] }]));
     const items = gitEntries(repos, states, false);
     expect(items.map((e) => (isLoadMore(e) ? "more" : e.key))).toEqual([
       "repo:",
+      "repo:r1",
       "r1/x.cs",
       ...repos.slice(2, REPO_LIMIT).map((r) => `repo:${r.rel}`),
       "more",
@@ -113,7 +114,7 @@ describe("gitEntries", () => {
 
   it("keys the base repository's files by their own path", () => {
     const items = gitEntries(repos.slice(0, 1), { "/r0": { files: [file] } }, false);
-    expect(items).toEqual([{ repo: repos[0], file, key: "x.cs" }]);
+    expect(items).toEqual([{ repo: repos[0], key: "repo:" }, { repo: repos[0], file, key: "x.cs" }]);
   });
 });
 
