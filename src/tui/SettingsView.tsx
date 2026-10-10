@@ -1,11 +1,13 @@
 import { Text, useInput } from "ink";
 import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
+import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, type Account, type AccountColorName } from "../account.js";
+import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
 import { projectData } from "../projectData.js";
@@ -385,6 +387,33 @@ export const SETTING_ROWS: Row[] = [
     values: UPDATE_VALUES.map((v) => [v, UPDATE_MEANINGS[v]]),
     notes: ["`F5` in Settings checks once either way.", "The answer is kept in `~/.claude/cco/releases.json`, so the notes also show offline."],
   },
+  {
+    key: "accountBadge",
+    group: "Account",
+    label: "colour in the top bar",
+    description:
+      "Whether the \"cco\" at the left of the top bar takes the account's colour as its background, so you see at a glance which Claude account this Claude Code runs with. It shows only while cco finds two or more accounts (config folders `~/.claude*` that are signed in), for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`.",
+    values: ON_OFF("the \"cco\" in the top bar is drawn on the account's colour", "the \"cco\" keeps the colour of the bar"),
+  },
+  {
+    key: "accountTitle",
+    group: "Account",
+    label: "email in the title",
+    description:
+      "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. Like the colour, it shows only while cco finds two or more accounts.",
+    values: ON_OFF("the title ends with the email of the account", "the title is the session's title alone"),
+  },
+  {
+    key: "accountColor",
+    group: "Account",
+    label: "colour of this account",
+    description:
+      "The colour of the account this viewer's config folder is signed in to. auto takes one from the email, so an account has the same colour on every machine; a fixed one overrides it. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
+    values: [
+      ["auto", "from the email"],
+      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, `${name} (${ACCOUNT_COLORS[name]})`]),
+    ],
+  },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
   {
@@ -580,15 +609,77 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   return lines;
 }
 
+/** The colour name of `account` as this viewer shows it. */
+const colorNameOf = (account: Account, state: AccountState, chosen: Settings["accountColor"]): AccountColorName => colorOfAccount(account, state, chosen);
+
+/** The label of an Account entry in the list. */
+function accountLabel(e: AccountEntry, state: AccountState): string {
+  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : "no account found";
+  const account = state.accounts.find((a) => a.dir === e.dir);
+  // The active account is marked; the folder tells accounts with the same email apart.
+  return `${e.dir === state.current?.dir ? "● " : "○ "}${account?.email ?? e.dir} (${basename(e.dir)})`;
+}
+
+/** The account an Account entry shows, if it is one. */
+const accountOf = (e: AccountEntry, state: AccountState): Account | undefined =>
+  "dir" in e ? state.accounts.find((a) => a.dir === e.dir) : undefined;
+
+/** The preview of an Account entry: the account's data, or how the accounts were looked for. */
+function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
+  const field = (name: string, value: string | undefined) => (value ? wrap(`${name}: ${value}`) : []);
+  if (e.account === "details") {
+    const searched = state.accounts.map((a) => `${tilde(a.dir)}  ${a.email}`);
+    return [
+      ...wrap("cco looks for accounts in the config folders of Claude Code: the one of this viewer (`CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.claude` and every folder `~/.claude*` in your home folder. A folder counts as an account when its `.claude.json` names one (`oauthAccount`)."),
+      "",
+      bold("This viewer"),
+      ...field("CLAUDE_CONFIG_DIR", process.env.CLAUDE_CONFIG_DIR ? tilde(process.env.CLAUDE_CONFIG_DIR) : "not set"),
+      ...field("config folder", tilde(state.own)),
+      ...field("cco's files", tilde(join(state.own, "cco"))),
+      "",
+      bold(`Accounts found (${state.accounts.length})`),
+      ...(searched.length > 0 ? searched.flatMap((l) => wrap(l, "  ")) : wrap("none", "  ")),
+      "",
+      ...wrap(dim(codeMarks(state.multiple ? "With two or more accounts the colour in the top bar and the email in the title are shown." : "With a single account the colour in the top bar and the email in the title stay hidden: nothing to tell apart. Start a second one with its own `CLAUDE_CONFIG_DIR`."))),
+      ...wrap(dim("The account of a Claude Code you attach to is looked up through the file `sessions/<pid>.json` in these folders.")),
+    ];
+  }
+  const account = accountOf(e, state);
+  if (!account) {
+    return wrap("No account found for this Claude Code: its config folder has no `.claude.json` with a signed-in account. Sign in with `/login` in Claude Code; the list updates within 30 seconds, or at once with `F5`.");
+  }
+  const color = colorNameOf(account, state, settings.accountColor);
+  const fixed = account.dir === state.own && settings.accountColor !== "auto";
+  return [
+    state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
+    "",
+    ...field("email", account.email),
+    ...field("name", account.name),
+    ...field("organization", [account.organization, account.organizationType && `(${account.organizationType})`].filter(Boolean).join(" ")),
+    ...field("billing", account.billing),
+    ...field("seat", account.seat),
+    ...field("rate limit tier", account.rateLimitTier),
+    "",
+    ...field("config folder", tilde(account.dir)),
+    ...field("read from", tilde(account.file)),
+    `colour: ${color} (${ACCOUNT_COLORS[color]})${fixed ? ", chosen" : ", from the email"}`,
+    "",
+    ...wrap(dim(codeMarks(state.multiple ? "The colour and the email show in the top bar and the title while this is the active account." : "Hidden for now: cco finds only this one account."))),
+  ];
+}
+
 /** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
 type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
-type Entry = Row | ReleaseEntry | ResetAction;
+/** The info entries of the Account group: one per account found (the active one marked), a note while there is none, and how they were found. */
+type AccountEntry = { account: "none" | "details" } | { account: "item"; dir: string };
+type Entry = Row | ReleaseEntry | ResetAction | AccountEntry;
 
 /** The group an entry is listed under. */
-const groupOf = (e: Entry): string => ("key" in e ? e.group : "id" in e ? "Reset" : "Releases");
+const groupOf = (e: Entry): string => ("key" in e ? e.group : "account" in e ? "Account" : "id" in e ? "Reset" : "Releases");
 
 const keyOf = (e: Entry): string =>
-  "key" in e ? e.key : "id" in e ? `reset:${e.id}` : e.kind === "release" ? `release:${e.release.tag}` : e.kind;
+  "key" in e ? e.key : "account" in e ? ("dir" in e ? `account:${e.dir}` : `account:${e.account}`) : "id" in e ? `reset:${e.id}` : e.kind === "release" ? `release:${e.release.tag}` : e.kind;
 
 function releaseEntries(update: Update): ReleaseEntry[] {
   const offer: ReleaseEntry[] = update.state.kind !== "none" || update.run ? [{ kind: "update" }] : [];
@@ -722,8 +813,20 @@ function restartDetail(root: string): string {
 }
 
 /** The list: the settings, the reset actions, then the releases (the last group, since it grows). */
-export function settingsEntries(update: Update): Entry[] {
-  return [...SETTING_ROWS, ...RESET_ACTIONS, ...releaseEntries(update)];
+export function settingsEntries(update: Update, accounts: AccountState = { accounts: [], multiple: false, own: "" }): Entry[] {
+  // The Account group sits after General: its info entries come before its settings.
+  const first = SETTING_ROWS.findIndex((r) => r.group === "Account");
+  const last = first + SETTING_ROWS.filter((r) => r.group === "Account").length - 1;
+  const items: AccountEntry[] = accounts.accounts.length > 0 ? accounts.accounts.map((a): AccountEntry => ({ account: "item", dir: a.dir })) : [{ account: "none" }];
+  return [
+    ...SETTING_ROWS.slice(0, first),
+    ...items,
+    ...SETTING_ROWS.slice(first, last + 1),
+    { account: "details" },
+    ...SETTING_ROWS.slice(last + 1),
+    ...RESET_ACTIONS,
+    ...releaseEntries(update),
+  ];
 }
 
 export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked }: Props) {
@@ -751,7 +854,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   // (a repair that worked closes its own; a successful update ends with the viewer).
   const [updateDialog, setUpdateDialog] = useState(false);
   const [repairDialog, setRepairDialog] = useState(false);
-  const listEntries = settingsEntries(update);
+  const accountState = useAccountState();
+  const listEntries = settingsEntries(update, accountState);
   const entries = listEntries.map(keyOf);
   // Kept by key: the releases arrive after the start and move the entries below them.
   const [selectedKey, setSelectedKey] = useState(() => positions.selected);
@@ -760,6 +864,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const row = "key" in entry ? entry : undefined;
   const reset = "id" in entry ? entry : undefined;
   const release = "kind" in entry ? entry : undefined;
+  const accountEntry = "account" in entry ? entry : undefined;
   const current = row ? settings[row.key] : undefined;
   const entryKey = entries[index];
   const favorites = useFavorites(cwd, "settings");
@@ -776,12 +881,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     text: (e) =>
       "key" in e
         ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: plainMarks(textOf(e.description, context)) }
+        : "account" in e
+          ? { list: haystack(["Account", accountLabel(e, accountState)]), details: accountLines(e, accountState, settings, 80).join("\n") }
         : "id" in e
           ? { list: haystack(["Reset", e.label]), details: plainMarks(e.description) }
           : e.kind === "release"
             ? { list: haystack(["Releases", e.release.tag, e.release.title]), details: e.release.body }
             : { list: haystack(["Releases", entryLabel(e)]), details: "" },
-    deps: [settings, update.releases, update.state, context],
+    deps: [settings, update.releases, update.state, context, accountState],
     selected: index,
     select: (i) => select(i),
     layout,
@@ -867,6 +974,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
                       : restartDetail(update.root),
               ],
             })
+          : accountEntry
+            ? previewHeader(`Account: ${accountLabel(accountEntry, accountState)}`, previewWidth, {
+                marker: "◉ ",
+                style: bold,
+                details: [`${accountState.accounts.length} ${accountState.accounts.length === 1 ? "account" : "accounts"} found`],
+              })
           : release
             ? releaseHeader(release)
             : previewHeader(`${row!.group}: ${row!.label}`, previewWidth, {
@@ -876,7 +989,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               }),
         bodyHeight,
       ),
-    [entry, update, current, changed.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, bodyHeight],
+    [entry, update, current, changed.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, bodyHeight, accountState],
   );
   const lines = useMemo(
     () =>
@@ -884,6 +997,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         ? reset.id === "doctor"
           ? doctorLines(reset, doctorCheck, doctorChecking, doctorRun, previewWidth)
           : resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
+        : accountEntry
+          ? accountLines(accountEntry, accountState, settings, previewWidth)
         : release
           ? release.kind === "update"
             ? updateLines(update, previewWidth)
@@ -891,7 +1006,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               ? releaseLines(release.release, previewWidth)
               : releasesNote(update, previewWidth)
           : settingLines(row!, current!, previewWidth, context),
-    [entry, update, current, changed.length, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context],
+    [entry, update, current, changed.length, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context, accountState],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
@@ -1036,6 +1151,11 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       const value = settings[e.key];
       return { value: shortValueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
     }
+    if ("account" in e) {
+      const account = accountOf(e, accountState);
+      const color = account && accountState.multiple ? colorNameOf(account, accountState, settings.accountColor) : undefined;
+      return { value: color ?? "", color: color && ACCOUNT_COLORS[color], label: accountLabel(e, accountState) };
+    }
     if ("id" in e) return { value: e.id === "doctor" ? "✚" : "↺", label: e.label };
     if (e.kind === "release") {
       const cmp = compareVersions(e.release.version, VERSION);
@@ -1059,7 +1179,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           ...(canUpdate ? [{ text: "↵ update", priority: 4 }] : state.kind === "restart" ? [{ text: "↵ restart", priority: 4 }] : []),
           { text: "c copy commands", priority: 3 },
         ]
-      : release
+      : accountEntry
+        ? [{ text: "F5 reload", priority: 2 }]
+        : release
         ? [{ text: "F5 check", priority: 2 }]
         : [
             { text: "↵ change", priority: 4 },

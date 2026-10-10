@@ -33,8 +33,8 @@ describe("list filter in the settings", () => {
   it("filters while typing, keeps the filter with Enter and drops it with Ctrl+F", async () => {
     let typing = false;
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active onTyping={(t) => (typing = t)} />);
-    // Below the settings: the four reset actions and the Releases note (no releases known offline).
-    const total = SETTING_ROWS.length + 5;
+    // Below the settings: the account entries, the four reset actions and the Releases note (no releases known offline).
+    const total = SETTING_ROWS.length + 7;
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
     await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Filter");
