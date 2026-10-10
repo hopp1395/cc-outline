@@ -15,6 +15,7 @@ import {
   type FileChange,
   type FileContent,
 } from "../git/git.js";
+import { gitDirs, gitOperation, repoInfo, repoLive, shortUrl, shownRemote, type RepoInfo, type RepoLive } from "../git/info.js";
 import { findRepos, nestedPaths, REPO_DEPTH, withoutNested, type Repo } from "../git/repos.js";
 import { addedLines, renderDiff, renderFile, type RenderedDiff } from "../render/diff.js";
 import {
@@ -82,6 +83,14 @@ export interface RepoState {
   branch?: BranchStatus;
   /** git failed in it. */
   error?: string;
+  /** A git operation in progress (`gitOperation`), shown in the separator and the header. */
+  operation?: string;
+}
+
+/** What a repository entry's preview shows besides its state, read while it is selected. */
+export interface RepoDetails {
+  info?: RepoInfo;
+  live?: RepoLive;
 }
 
 /**
@@ -128,10 +137,11 @@ export function gitEntries(repos: Repo[], states: Record<string, RepoState>, loa
   return items;
 }
 
-/** The separator of a repository: its path from the base (the base's own by its folder name) and its branch. */
-export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undefined): string {
+/** The separator of a repository: its path from the base (the base's own by its folder name), its branch and an operation in progress. */
+export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undefined, operation?: string): string {
   const name = repo.rel || basename(base) || base;
-  return branch ? `${name} · ${branch.branch ?? "(detached)"}` : name;
+  const label = branch ? `${name} · ${branch.branch ?? "(detached)"}` : name;
+  return operation ? `${label} · ${operation}` : label;
 }
 
 /**
@@ -152,32 +162,72 @@ function fileHeader(file: FileChange, path: string, width: number, showFile: boo
   return [...header.slice(0, -1), rule(width, showFile ? "↵ diff" : "↵ whole file")];
 }
 
-/** The folder of a repository without changes above its preview, with its branch. */
-function repoHeader(repo: Repo, branch: BranchStatus | undefined, width: number): string[] {
+/**
+ * The folder of a repository above its preview, with the operation in progress,
+ * its branch, upstream and when it was last fetched (`never fetched` only with an upstream).
+ */
+export function repoHeader(repo: Repo, state: RepoState | undefined, live: RepoLive | undefined, width: number): string[] {
   const details: string[] = [];
+  const branch = state?.branch;
+  const parts: string[] = [];
+  if (state?.operation) parts.push(bright(state.operation));
   if (branch) {
     const name = branch.branch ?? "(detached)";
-    details.push(branch.upstream ? `${name} · ↑${branch.ahead} ↓${branch.behind} · ${branch.upstream}` : name);
+    parts.push(branch.upstream ? `${name} ↑${branch.ahead} ↓${branch.behind}` : name);
+    if (branch.upstream) parts.push(branch.upstream);
   }
+  if (live?.fetched) parts.push(live.staleFetch ? bright(`fetched ${live.fetched}`) : `fetched ${live.fetched}`);
+  else if (live && branch?.upstream) parts.push(bright("never fetched"));
+  if (parts.length > 0) details.push(parts.join(" · "));
   const header = previewHeader(repo.root, width, { marker: "  ", style: bold, details, wrap: wrapPath });
   return [...header.slice(0, -1), rule(width, "↵ open folder")];
 }
 
 const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
+/** Yellow and not dim, also inside a dim line. */
+const bright = (s: string) => `\u001b[22m${yellow(s)}\u001b[2m`;
+/** `1234567` → `1 234 567`. */
+const grouped = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+/** The lines above a repository's changes: remote and kind, tag and stashes, the identity commits are made with. */
+export function repoInfoLines(info: RepoInfo | undefined, live: RepoLive | undefined, upstream: string | undefined): string[] {
+  const lines: string[] = [];
+  const first: string[] = [];
+  const remote = info && shownRemote(info.remotes, upstream);
+  if (remote) first.push(dim(shortUrl(remote.url) + (info.remotes.length > 1 ? ` +${info.remotes.length - 1}` : "")));
+  for (const kind of info?.kinds ?? []) first.push(dim(kind));
+  if (first.length > 0) lines.push(first.join(dim(" · ")));
+  const second: string[] = [];
+  if (live?.describe) second.push(dim(live.describe));
+  if (live?.stashes) second.push(yellow(`${live.stashes} stash${live.stashes === 1 ? "" : "es"}`));
+  if (second.length > 0) lines.push(second.join(dim(" · ")));
+  if (info) {
+    const { name, email } = info.user;
+    lines.push(email ? dim(name ? `${name} <${email}>` : `<${email}>`) : yellow("no user.email"));
+  }
+  return lines;
+}
 
 const message = (text: string): RenderedDiff => ({ lines: [dim(text)], hunkStarts: [], gutterWidth: 0 });
 
 /** The most commits a repository's preview lists; one more is read to tell whether there are older ones. */
 export const COMMIT_LIMIT = 100;
 
-/** The preview of a repository: its changes in one line, and its last commits (up to `COMMIT_LIMIT`, of `COMMIT_LIMIT + 1` read). */
-export function repoLines(state: RepoState | undefined, commits: Commit[] | undefined): string[] {
+/**
+ * The preview of a repository: its details (`repoInfoLines`), its changes in one line, and its
+ * last commits (up to `COMMIT_LIMIT`, of `COMMIT_LIMIT + 1` read; of `total` when it is known).
+ */
+export function repoLines(state: RepoState | undefined, commits: Commit[] | undefined, details?: RepoDetails): string[] {
   if (state?.error) return [`\u001b[31mgit: ${state.error}\u001b[39m`];
+  const info = repoInfoLines(details?.info, details?.live, state?.branch?.upstream);
+  const total = details?.live?.commitCount;
   const files = state?.files ?? [];
   const added = files.reduce((n, f) => n + (f.added ?? 0), 0);
   const removed = files.reduce((n, f) => n + (f.removed ?? 0), 0);
   const lines = [
+    ...info,
+    ...(info.length > 0 ? [""] : []),
     files.length === 0
       ? dim("No changes")
       : `${files.length} file${files.length === 1 ? "" : "s"} · \u001b[32m+${added}\u001b[39m \u001b[31m-${removed}\u001b[39m`,
@@ -186,10 +236,11 @@ export function repoLines(state: RepoState | undefined, commits: Commit[] | unde
   if (commits.length === 0) return [...lines, "", dim("No commits yet")];
   const shown = commits.slice(0, COMMIT_LIMIT);
   const older = commits.length > COMMIT_LIMIT ? [dim("older commits: ") + yellow("git log")] : [];
+  const of = total !== undefined && total > shown.length ? ` of ${grouped(total)}` : "";
   return [
     ...lines,
     "",
-    `Last ${shown.length} commit${shown.length === 1 ? "" : "s"}:`,
+    `Last ${shown.length}${of} commit${shown.length === 1 && !of ? "" : "s"}:`,
     ...shown.map((c) => `${yellow(c.hash)}  ${dim(c.when)}  ${c.subject}`),
     ...older,
   ];
@@ -257,8 +308,14 @@ const HSCROLL_STEP = 8;
 
 async function readRepo(repo: Repo, repos: Repo[]): Promise<RepoState> {
   try {
-    const [files, branch] = await Promise.all([listChanges(repo.root), branchStatus(repo.root)]);
-    return { files: withoutNested(files, nestedPaths(repo, repos)), branch };
+    const [files, branch, operation] = await Promise.all([
+      listChanges(repo.root),
+      branchStatus(repo.root),
+      gitDirs(repo.root).then((dirs) => (dirs ? gitOperation(dirs) : undefined)),
+    ]);
+    const state: RepoState = { files: withoutNested(files, nestedPaths(repo, repos)), branch };
+    if (operation) state.operation = operation;
+    return state;
   } catch (err) {
     return { files: [], error: (err as Error).message.split("\n")[0] };
   }
@@ -282,8 +339,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const focused = useFocused();
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
-  // The last commits of the selected repository entry, with the root they were read from.
-  const [commitsOf, setCommitsOf] = useState<{ root: string; commits: Commit[] }>();
+  // The last commits and details of the selected repository entry, with the root they were read from.
+  const [selectedRepo, setSelectedRepo] = useState<{ root: string; commits: Commit[] } & RepoDetails>();
   const [error, setError] = useState<string>();
   // Marked entries of the project, by key.
   const favorites = useFavorites(cwd, "files");
@@ -297,7 +354,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   // Every repository shown has been read: only then a selection that is gone moves on.
   const ready = repos === null || (repos !== undefined && shownRepos.every((r) => states[r.root]));
   const selectedIndex = Math.max(0, items.findIndex((e) => keyOf(e) === selectedKey));
-  const labelOf = (repo: Repo) => repoLabel(repo, base, states[repo.root]?.branch);
+  const labelOf = (repo: Repo) => repoLabel(repo, base, states[repo.root]?.branch, states[repo.root]?.operation);
   // An entry is found by its path from the base, so also by its repository's; its details are the path it was renamed from, its status and branch.
   const filter = useListFilter({
     items,
@@ -352,12 +409,24 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     [cwd, nested],
   );
 
-  /** Reads a repository's last commits, if it is still the selected entry once they arrive; unchanged ones keep the preview as it is. */
-  const readCommits = async (root: string) => {
-    const commits = await recentCommits(root, COMMIT_LIMIT + 1);
+  /**
+   * Reads a repository's last commits and what changes often (`repoLive`), with `withInfo` also what
+   * rarely does (`repoInfo`, else kept from before), if it is still the selected entry once they
+   * arrive; unchanged ones keep the preview as it is.
+   */
+  const readSelectedRepo = async (root: string, withInfo: boolean) => {
+    const dirs = await gitDirs(root);
+    const [commits, live, info] = await Promise.all([
+      recentCommits(root, COMMIT_LIMIT + 1),
+      repoLive(root, dirs),
+      withInfo ? repoInfo(root, dirs) : undefined,
+    ]);
     const entry = currentRef.current;
     if (!entry || entry.file || entry.repo.root !== root) return;
-    setCommitsOf((prev) => (prev?.root === root && JSON.stringify(prev.commits) === JSON.stringify(commits) ? prev : { root, commits }));
+    setSelectedRepo((prev) => {
+      const next = { root, commits, live, info: info ?? (prev?.root === root ? prev.info : undefined) };
+      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+    });
   };
 
   const load = async ({ discover, all }: { discover?: boolean; all?: boolean }) => {
@@ -387,7 +456,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     });
     // The selected file may have changed again since it was shown, a selected repository got new commits.
     const entry = currentRef.current;
-    if (entry && !entry.file) await readCommits(entry.repo.root);
+    if (entry && !entry.file) await readSelectedRepo(entry.repo.root, discover === true);
     const state = entry && read.find(([root]) => root === entry.repo.root)?.[1];
     const file = entry?.file && state?.files.find((f) => f.path === entry.file!.path);
     if (!entry || !file) return setError(undefined);
@@ -468,11 +537,12 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     };
   }, [current?.key, showFile]);
 
-  // A repository entry shows its last commits, read at once when it is selected and again with each refresh.
+  // A repository entry shows its last commits and details, read at once when it is selected and again with each refresh.
   const repoRoot = current && !currentFile ? current.repo.root : undefined;
-  const commits = repoRoot && commitsOf?.root === repoRoot ? commitsOf.commits : undefined;
+  const repoRead = repoRoot && selectedRepo?.root === repoRoot ? selectedRepo : undefined;
+  const commits = repoRead?.commits;
   useEffect(() => {
-    if (repoRoot) void readCommits(repoRoot);
+    if (repoRoot) void readSelectedRepo(repoRoot, true);
   }, [repoRoot]);
 
   // The whole file closes when the selection is no file.
@@ -482,19 +552,21 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
 
   const header = useMemo(() => {
     if (!current) return [];
-    const full = currentFile ? fileHeader(currentFile, current.key, previewWidth, showFile) : repoHeader(current.repo, currentState?.branch, previewWidth);
+    const full = currentFile
+      ? fileHeader(currentFile, current.key, previewWidth, showFile)
+      : repoHeader(current.repo, currentState, repoRead?.live, previewWidth);
     const fitted = fitHeader(full, bodyHeight);
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
-  }, [current, currentFile, currentState?.branch, previewWidth, bodyHeight, showFile]);
+  }, [current, currentFile, currentState, repoRead?.live, previewWidth, bodyHeight, showFile]);
   const rendered = useMemo(() => {
     if (onLoadMore && repos) return { ...message(""), lines: loadMoreLines(repos.length, base, loadAll) };
     if (!current) return message("");
-    if (!currentFile) return { ...message(""), lines: repoLines(currentState, commits) };
+    if (!currentFile) return { ...message(""), lines: repoLines(currentState, commits, repoRead) };
     return showFile
       ? renderContent(content, diffText, currentFile.path, previewWidth, wrap)
       : renderDiff(parseDiff(diffText), currentFile.path, previewWidth, wrap);
-  }, [diffText, content, current?.key, currentState, commits, onLoadMore, repos, base, loadAll, previewWidth, showFile, wrap]);
+  }, [diffText, content, current?.key, currentState, repoRead, onLoadMore, repos, base, loadAll, previewWidth, showFile, wrap]);
   const viewport = bodyHeightBelow(header, bodyHeight);
   // The diff and the whole file of a file each keep their own position.
   const scroll = positions.scroll(current && (showFile ? `${current.key}#file` : current.key), rendered.lines.length, viewport);
@@ -651,7 +723,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
             // A repository's entry is its separator.
             if (!e.file)
               return (
-                <Text dimColor={!isSelected}>
+                // An operation in progress (rebase, merge…) makes the separator yellow, so it shows from afar.
+                <Text dimColor={!isSelected && !states[e.repo.root]?.operation} color={states[e.repo.root]?.operation ? "yellow" : undefined}>
                   <EntryText text={ruleText(labelOf(e.repo), listWidth)} width={listWidth} selected={isSelected} active={active} />
                 </Text>
               );
