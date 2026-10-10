@@ -388,31 +388,24 @@ export const SETTING_ROWS: Row[] = [
     notes: ["`F5` in Settings checks once either way.", "The answer is kept in `~/.claude/cco/releases.json`, so the notes also show offline."],
   },
   {
-    key: "accountBadge",
+    key: "accountColor",
     group: "Account",
     label: "colour in the top bar",
     description:
-      "Whether the \"cco\" at the left of the top bar takes the account's colour as its background, so you see at a glance which Claude account this Claude Code runs with. It shows only while cco finds two or more accounts (config folders `~/.claude*` that are signed in), for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`.",
-    values: ON_OFF("the \"cco\" in the top bar is drawn on the account's colour", "the \"cco\" keeps the colour of the bar"),
+      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. auto takes a colour from the email, so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
+    values: [
+      ["auto", "a colour from the email"],
+      ["off", "the \"cco\" keeps the colour of the bar"],
+      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, `${name} (${ACCOUNT_COLORS[name]})`]),
+    ],
   },
   {
     key: "accountTitle",
     group: "Account",
     label: "email in the title",
     description:
-      "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. Like the colour, it shows only while cco finds two or more accounts.",
+      "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. It shows only while cco finds two or more accounts.",
     values: ON_OFF("the title ends with the email of the account", "the title is the session's title alone"),
-  },
-  {
-    key: "accountColor",
-    group: "Account",
-    label: "colour of this account",
-    description:
-      "The colour of the account this viewer's config folder is signed in to. auto takes one from the email, so an account has the same colour on every machine; a fixed one overrides it. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
-    values: [
-      ["auto", "from the email"],
-      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, `${name} (${ACCOUNT_COLORS[name]})`]),
-    ],
   },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
@@ -641,7 +634,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
       bold(`Accounts found (${state.accounts.length})`),
       ...(searched.length > 0 ? searched.flatMap((l) => wrap(l, "  ")) : wrap("none", "  ")),
       "",
-      ...wrap(dim(codeMarks(state.multiple ? "With two or more accounts the colour in the top bar and the email in the title are shown." : "With a single account the colour in the top bar and the email in the title stay hidden: nothing to tell apart. Start a second one with its own `CLAUDE_CONFIG_DIR`."))),
+      ...wrap(dim(codeMarks(state.multiple ? "With two or more accounts the email also ends the title." : "With a single account only the colour shows in the top bar; the email joins the title once there is a second one, started with its own `CLAUDE_CONFIG_DIR`."))),
       ...wrap(dim("The account of a Claude Code you attach to is looked up through the file `sessions/<pid>.json` in these folders.")),
     ];
   }
@@ -650,7 +643,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
     return wrap("No account found for this Claude Code: its config folder has no `.claude.json` with a signed-in account. Sign in with `/login` in Claude Code; the list updates within 30 seconds, or at once with `F5`.");
   }
   const color = colorNameOf(account, state, settings.accountColor);
-  const fixed = account.dir === state.own && settings.accountColor !== "auto";
+  const fixed = account.dir === state.own && settings.accountColor !== "auto" && settings.accountColor !== "off";
   return [
     state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
     "",
@@ -665,7 +658,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
     ...field("read from", tilde(account.file)),
     `colour: ${color} (${ACCOUNT_COLORS[color]})${fixed ? ", chosen" : ", from the email"}`,
     "",
-    ...wrap(dim(codeMarks(state.multiple ? "The colour and the email show in the top bar and the title while this is the active account." : "Hidden for now: cco finds only this one account."))),
+    ...wrap(dim(codeMarks(state.multiple ? "The colour shows in the top bar and the email in the title while this is the active account." : "The colour shows in the top bar; the email joins the title once cco finds a second account."))),
   ];
 }
 
@@ -1153,7 +1146,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     }
     if ("account" in e) {
       const account = accountOf(e, accountState);
-      const color = account && accountState.multiple ? colorNameOf(account, accountState, settings.accountColor) : undefined;
+      const color = account ? colorNameOf(account, accountState, settings.accountColor) : undefined;
       return { value: color ?? "", color: color && ACCOUNT_COLORS[color], label: accountLabel(e, accountState) };
     }
     if ("id" in e) return { value: e.id === "doctor" ? "✚" : "↺", label: e.label };
