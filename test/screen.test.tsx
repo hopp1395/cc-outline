@@ -1,7 +1,8 @@
+import chalk from "chalk";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
-import { Screen, type Layout } from "../src/tui/layout.js";
+import { AccountBadgeContext, Screen, type Layout } from "../src/tui/layout.js";
 import { VERSION } from "../src/version.js";
 
 async function topBar(columns: number, status: string): Promise<string> {
@@ -39,5 +40,30 @@ describe("Screen top bar", () => {
 
   it("still truncates a bar that is too wide", async () => {
     expect(await topBar(60, "3 prompts")).toBe("cco  1 Chat  2 Changes  3 Plan  4 Sessions  5 Monitor  6 Se…");
+  });
+
+  it("draws the cco lead on the account's colour, and leaves it alone without one", async () => {
+    const layout: Layout = { columns: 100, rows: 10, listWidth: 20, previewWidth: 77, bodyHeight: 8 };
+    const bar = async (badge: string | undefined) => {
+      const app = renderInk(
+        <AccountBadgeContext.Provider value={badge}>
+          <Screen layout={layout} mode="chat" status={<Text>x</Text>} list={null} preview={null} footer="" />
+        </AccountBadgeContext.Provider>,
+        layout,
+        { interactive: true },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      app.unmount();
+      return app.raw().split("\n")[0]!;
+    };
+    // Tests run without colours; 48;2;r;g;b is a truecolor background: #0f766e.
+    const level = chalk.level;
+    chalk.level = 3;
+    try {
+      expect(await bar("#0f766e")).toContain("48;2;15;118;110m");
+      expect(await bar(undefined)).not.toContain("48;2;15;118;110m");
+    } finally {
+      chalk.level = level;
+    }
   });
 });

@@ -31,8 +31,8 @@ export const ACCOUNT_COLORS = {
 } as const;
 export type AccountColorName = keyof typeof ACCOUNT_COLORS;
 export const ACCOUNT_COLOR_NAMES = Object.keys(ACCOUNT_COLORS) as AccountColorName[];
-/** The setting's values: `auto` takes the colour from the email, the rest fix it. */
-export const ACCOUNT_COLOR_VALUES = ["auto", ...ACCOUNT_COLOR_NAMES] as const;
+/** The setting's values: `auto` takes the colour from the email, `off` shows none in the top bar, the rest fix it. */
+export const ACCOUNT_COLOR_VALUES = ["auto", "off", ...ACCOUNT_COLOR_NAMES] as const;
 export type AccountColorSetting = (typeof ACCOUNT_COLOR_VALUES)[number];
 
 /** FNV-1a, so the same email always gets the same colour on every machine. */
@@ -47,7 +47,7 @@ function hash(text: string): number {
 
 /** The colour name of an account: the email's hash, or `chosen` where it is not `auto`. */
 export function accountColorName(email: string, chosen: AccountColorSetting = "auto"): AccountColorName {
-  if (chosen !== "auto") return chosen;
+  if (chosen !== "auto" && chosen !== "off") return chosen;
   return ACCOUNT_COLOR_NAMES[hash(email.trim().toLowerCase()) % ACCOUNT_COLOR_NAMES.length];
 }
 

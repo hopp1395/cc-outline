@@ -86,11 +86,9 @@ export interface Settings {
   filterIn: FilterIn;
   /** Ask npm and GitHub for a newer version and the release notes when the viewer starts; `auto` also offers to install it. */
   updateMode: UpdateMode;
-  /** With two or more accounts, the "cco" in the top bar takes the account's colour as its background. */
-  accountBadge: boolean;
   /** With two or more accounts, the terminal title ends with the account's email. */
   accountTitle: boolean;
-  /** The colour of this folder's account: `auto` takes it from the email. */
+  /** With two or more accounts, the "cco" in the top bar takes the account's colour as its background: `auto` from the email, a fixed one for this folder's account, or `off`. */
   accountColor: AccountColorSetting;
   /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. With it off, questions still show, framed. */
   showTools: ToolLevel;
@@ -143,7 +141,6 @@ export const DEFAULT_SETTINGS: Settings = {
   mouse: true,
   filterIn: "list",
   updateMode: "auto",
-  accountBadge: true,
   accountTitle: true,
   accountColor: "auto",
   showTools: "off",
@@ -256,6 +253,9 @@ export function readSettings(): Settings {
   // pinnedFavorites was pinnedGroup before the active sessions could be pinned too.
   const group = (stored as { pinnedGroup?: unknown }).pinnedGroup;
   if (stored.pinnedFavorites === undefined && typeof group === "boolean") stored.pinnedFavorites = group;
+  // accountColor was the colour of this account alone; the on/off setting accountBadge is its value off now.
+  const badge = (stored as { accountBadge?: unknown }).accountBadge;
+  if (stored.accountColor === undefined && badge === false) stored.accountColor = "off";
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];

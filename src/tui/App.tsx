@@ -103,7 +103,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // With two or more accounts the title ends with the shown account's email and the "cco" takes its colour.
   const account = useAccounts(claudePid);
   const [accountTitle] = useSetting("accountTitle");
-  const [accountBadge] = useSetting("accountBadge");
+  const [accountColor] = useSetting("accountColor");
   useTerminalTitle(
     transcript.title ?? basename(cwd),
     sessionId ? undefined : working ? "working" : "idle",
@@ -415,7 +415,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <UpdateContext.Provider value={update}>
     <ProgressHostProvider host={progress.host}>
     <AccountContext.Provider value={account}>
-    <AccountBadgeContext.Provider value={account.multiple && accountBadge ? account.color : undefined}>
+    <AccountBadgeContext.Provider value={accountColor !== "off" ? account.color : undefined}>
     <SessionColorContext.Provider value={transcript.color}>
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
