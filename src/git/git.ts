@@ -150,7 +150,7 @@ export interface Commit {
 }
 
 /** The last `count` commits of HEAD, newest first; none in a repository without commits. */
-export async function recentCommits(root: string, count = 5): Promise<Commit[]> {
+export async function recentCommits(root: string, count: number): Promise<Commit[]> {
   try {
     const out = await git(root, ["log", `-n${count}`, "--format=%h%x09%cr%x09%s"]);
     return out
