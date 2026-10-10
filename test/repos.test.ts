@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { listChanges, recentCommits, type Commit } from "../src/git/git.js";
 import { findRepos, nestedPaths, withoutNested, type Repo } from "../src/git/repos.js";
-import { COMMIT_LIMIT, gitEntries, repoLabel, repoLines, REPO_LIMIT, type RepoState } from "../src/tui/GitView.js";
+import { COMMIT_LIMIT, gitEntries, repoHeader, repoLabel, repoLines, REPO_LIMIT, type RepoState } from "../src/tui/GitView.js";
 import { isLoadMore } from "../src/tui/loadMore.js";
 
 const git = (cwd: string, ...args: string[]) =>
@@ -117,6 +117,41 @@ describe("repoLines", () => {
     expect(more).toContain(`Last ${COMMIT_LIMIT} commits:`);
     expect(more).not.toContain(`h${COMMIT_LIMIT}  1 day ago  commit ${COMMIT_LIMIT}`);
     expect(more.at(-1)).toBe("older commits: git log");
+    const counted = plain(repoLines({ files: [] }, [...all, commit(COMMIT_LIMIT)], { live: { stashes: 0, commitCount: 1234 } }));
+    expect(counted).toContain(`Last ${COMMIT_LIMIT} of 1 234 commits:`);
+    expect(plain(repoLines({ files: [] }, [commit(1)], { live: { stashes: 0, commitCount: 1 } }))).toContain("Last 1 commit:");
+  });
+
+  it("puts remote and kind, tag and stashes and the identity above the changes, leaving out what is missing", () => {
+    const info = {
+      remotes: [
+        { name: "origin", url: "git@github.com:a/b.git" },
+        { name: "fork", url: "https://github.com/c/b.git" },
+      ],
+      kinds: ["shallow"],
+      user: { name: "Jan", email: "jan@example.com" },
+    };
+    const lines = plain(repoLines({ files: [], branch: { ahead: 0, behind: 0, upstream: "fork/main" } }, [], { info, live: { stashes: 2, describe: "v1.0.0-3-gabc" } }));
+    expect(lines.slice(0, 5)).toEqual(["github.com/c/b +1 · shallow", "v1.0.0-3-gabc · 2 stashes", "Jan <jan@example.com>", "", "No changes"]);
+    const bare = plain(repoLines({ files: [] }, [], { info: { remotes: [], kinds: [], user: {} }, live: { stashes: 0 } }));
+    expect(bare.slice(0, 3)).toEqual(["no user.email", "", "No changes"]);
+  });
+});
+
+describe("repoHeader", () => {
+  const repo: Repo = { root: "/r", rel: "" };
+  const plain = (lines: string[]) => lines.map((l) => l.replace(/\u001b\[[0-9;]*m/g, "").trimEnd());
+  const branch = { branch: "main", upstream: "origin/main", ahead: 2, behind: 1 };
+
+  it("names the operation, branch, upstream and last fetch in one line", () => {
+    const lines = plain(repoHeader(repo, { files: [], branch, operation: "REBASE 3/7" }, { stashes: 0, fetched: "3 h ago" }, 80));
+    expect(lines[1]).toBe("  REBASE 3/7 · main ↑2 ↓1 · origin/main · fetched 3 h ago");
+  });
+
+  it("says never fetched only with an upstream, and nothing before the details are read", () => {
+    expect(plain(repoHeader(repo, { files: [], branch }, { stashes: 0 }, 80))[1]).toBe("  main ↑2 ↓1 · origin/main · never fetched");
+    expect(plain(repoHeader(repo, { files: [], branch }, undefined, 80))[1]).toBe("  main ↑2 ↓1 · origin/main");
+    expect(plain(repoHeader(repo, { files: [], branch: { ahead: 0, behind: 0, branch: "x" } }, { stashes: 0 }, 80))[1]).toBe("  x");
   });
 });
 
@@ -151,5 +186,6 @@ describe("repoLabel", () => {
     expect(repoLabel({ root: "/w/proj", rel: "" }, "/w/proj", { branch: "main", ahead: 0, behind: 0 })).toBe("proj · main");
     expect(repoLabel({ root: "/w/proj/t", rel: "t" }, "/w/proj", { ahead: 0, behind: 0 })).toBe("t · (detached)");
     expect(repoLabel({ root: "/w/proj/t", rel: "t" }, "/w/proj", undefined)).toBe("t");
+    expect(repoLabel({ root: "/w/proj", rel: "" }, "/w/proj", { branch: "main", ahead: 0, behind: 0 }, "REBASE 3/7")).toBe("proj · main · REBASE 3/7");
   });
 });

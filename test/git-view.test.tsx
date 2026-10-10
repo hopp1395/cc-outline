@@ -69,6 +69,23 @@ describe("Changes with repositories below", () => {
     view.unmount();
   });
 
+  it("names an operation in progress in the separator and the header, and the repository's details below", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cco-op-"));
+    git(root, "init", "-q");
+    git(root, "commit", "-q", "--allow-empty", "-m", "first commit");
+    git(root, "remote", "add", "origin", "git@github.com:a/b.git");
+    git(root, "config", "user.email", "view@example.com");
+    writeFileSync(join(root, ".git", "MERGE_HEAD"), "");
+
+    const view = renderInk(<GitView cwd={root} layout={layout} active />, layout);
+    await expect.poll(view.frame, { timeout: 5000 }).toContain("view@example.com");
+    expect(listLines(view.frame())[0]).toMatch(/· MERGE ─/);
+    expect(view.frame()).toContain("MERGE · ");
+    expect(view.frame()).toContain("github.com/a/b");
+    expect(view.frame()).toContain("Last 1 commit:");
+    view.unmount();
+  });
+
   it("shows only the repository around the folder with the setting off, under its separator", async () => {
     updateSettings({ gitNestedRepos: false });
     const root = mkdtempSync(join(tmpdir(), "cco-git-view-off-"));
