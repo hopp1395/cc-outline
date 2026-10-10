@@ -31,7 +31,8 @@ import {
   wrapPath,
   type Layout,
 } from "./layout.js";
-import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
+import { ruleText } from "./days.js";
+import { bodyHeightBelow,fitHeader, Preview } from "./Preview.js";
 import { haystack } from "../filter.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
@@ -103,15 +104,15 @@ const isEntry = (item: Item | undefined): item is GitEntry => item !== undefined
 
 /** The key of a file of `repo`: its path from the base. */
 export const fileKey = (repo: Repo, path: string) => (repo.rel ? `${repo.rel}/${path}` : path);
-/** The key of a repository's entry while it has no changes. */
+/** The key of a repository's entry, the separator above its files. */
 export const repoKey = (repo: Repo) => `repo:${repo.rel}`;
 
 /** How many repositories are read without load more, every `POLL_MS`; the others every `SLOW_EVERY` polls. */
 export const REPO_LIMIT = 10;
 
 /**
- * The list's entries: per repository its changed files, or its one entry
- * while it has none, then load more while repositories past `REPO_LIMIT` are
+ * The list's entries: per repository its own entry (drawn as the separator,
+ * with the last commits as its preview), then its changed files, then load more while repositories past `REPO_LIMIT` are
  * not read. A repository not read yet has no entries.
  */
 export function gitEntries(repos: Repo[], states: Record<string, RepoState>, loadAll: boolean): Item[] {
@@ -119,7 +120,7 @@ export function gitEntries(repos: Repo[], states: Record<string, RepoState>, loa
   for (const repo of loadAll ? repos : repos.slice(0, REPO_LIMIT)) {
     const state = states[repo.root];
     if (!state) continue;
-    if (state.files.length === 0) items.push({ repo, key: repoKey(repo) });
+    items.push({ repo, key: repoKey(repo) });
     for (const file of state.files) items.push({ repo, file, key: fileKey(repo, file.path) });
   }
   const unread = repos.slice(REPO_LIMIT).some((r) => !states[r.root]);
@@ -167,10 +168,16 @@ const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 
 const message = (text: string): RenderedDiff => ({ lines: [dim(text)], hunkStarts: [], gutterWidth: 0 });
 
-/** The preview of a repository without changes: that, and its last commits. */
+/** The preview of a repository: its changes in short, and its last commits. */
 export function repoLines(state: RepoState | undefined, commits: Commit[] | undefined): string[] {
   if (state?.error) return [`\u001b[31mgit: ${state.error}\u001b[39m`];
-  const lines = [dim("No changes")];
+  const files = state?.files ?? [];
+  const lines = [dim(files.length === 0 ? "No changes" : `${files.length} changed file${files.length === 1 ? "" : "s"}`)];
+  for (const f of files) {
+    const color = STATUS_ANSI[STATUS_COLOR[f.status]] ?? "39";
+    const counts = f.added !== undefined ? dim(` +${f.added} -${f.removed}`) : "";
+    lines.push(`\u001b[${color}m${f.status}\u001b[39m ${f.path}${counts}`);
+  }
   if (commits === undefined) return lines;
   if (commits.length === 0) return [...lines, "", dim("No commits yet")];
   return [...lines, "", "Last commits:", ...commits.map((c) => `${yellow(c.hash)}  ${dim(c.when)}  ${c.subject}`)];
@@ -286,13 +293,14 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         ? { list: "", details: "" }
         : e.file
           ? { list: e.key, details: haystack([e.file.oldPath, STATUS_LABEL[e.file.status], labelOf(e.repo)]) }
-          : { list: `${labelOf(e.repo)} no changes`, details: "" },
+          : // The separator stays while its name or one of its files matches.
+            { list: haystack([labelOf(e.repo), ...(states[e.repo.root]?.files ?? []).map((f) => fileKey(e.repo, f.path))]), details: "" },
     selected: selectedIndex,
     select: (i) => select(i),
     layout,
     onTyping,
     keep: (e) => isLoadMore(e),
-    marked: (e) => isEntry(e) && favorites.isMarked(e.key),
+    marked: (e) => isEntry(e) && e.file !== undefined && favorites.isMarked(e.key),
     restoreCopy: positions.pinned ? (e) => keyOf(e) === positions.selected : undefined,
   });
   const picked = filter.none ? undefined : items[selectedIndex];
@@ -535,9 +543,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       // Checked first because plain ↑/↓ switch files.
       const mark = markKeys(input, key);
       if (mark === "toggle") {
-        if (!current) return;
-        if (favorites.isMarked(current.key)) filter.unmarking(selectedIndex);
-        return favorites.toggle(current.key);
+        if (!currentFile) return;
+        if (favorites.isMarked(current!.key)) filter.unmarking(selectedIndex);
+        return favorites.toggle(current!.key);
       }
       if (mark) return jumpMark(mark);
       if (key.ctrl && (key.leftArrow || key.rightArrow)) return shift(key.leftArrow ? -HSCROLL_STEP : HSCROLL_STEP);
@@ -559,7 +567,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
 
   const entries = items.filter(isEntry);
   const changed = entries.filter((e) => e.file);
-  const markedCount = entries.filter((e) => favorites.isMarked(e.key)).length;
+  const markedCount = changed.filter((e) => favorites.isMarked(e.key)).length;
   const totals = changed.reduce((acc, e) => [acc[0] + (e.file!.added ?? 0), acc[1] + (e.file!.removed ?? 0)], [0, 0]);
   // Files only: the entries of repositories without changes are none.
   const isFile = (i: number) => isEntry(items[i]) && (items[i] as GitEntry).file !== undefined;
@@ -621,23 +629,18 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
           height={bodyHeight}
           empty={filter.empty ?? (repos === undefined || !ready ? "Loading…" : "No changes")}
           itemKey={keyOf}
-          group={(e) => (isLoadMore(e) ? "" : labelOf(e.repo))}
           render={(e, isSelected, pinnedCopy) => {
             if (isLoadMore(e)) return <LoadMoreRow progress={loadAll && repos ? { done: readMore, total: repos.length - REPO_LIMIT } : undefined} />;
+            // A repository's entry is its separator.
+            if (!e.file)
+              return (
+                <Text dimColor={!isSelected}>
+                  <EntryText text={ruleText(labelOf(e.repo), listWidth)} width={listWidth} selected={isSelected} active={active} />
+                </Text>
+              );
             const marked = favorites.isMarked(e.key);
             // A pinned copy stands apart from its repository's separator, so it names the repository.
             const prefix = pinnedCopy && e.repo.rel ? `${e.repo.rel}/` : "";
-            if (!e.file) {
-              const text = pinnedCopy ? `${repoLabel(e.repo, base, undefined)}: no changes` : "no changes";
-              return (
-                <>
-                  {marked && <Star />}
-                  <Text dimColor={!isSelected}>
-                    <EntryText text={text} width={Math.max(4, listWidth - (marked ? 2 : 0))} selected={isSelected} active={active} />
-                  </Text>
-                </>
-              );
-            }
             const f = e.file;
             const counts = f.added !== undefined ? ` +${f.added} -${f.removed}` : "";
             const nameWidth = Math.max(4, listWidth - 2 - counts.length - (marked ? 2 : 0));
@@ -659,7 +662,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
         { text: "^↵ file", on: showFile },
         { text: onLoadMore ? "↵ more" : "↵ open", priority: 1 },
-        ...markFooter(favorites.isMarked(current?.key), markedCount),
+        ...markFooter(currentFile !== undefined && favorites.isMarked(current?.key), markedCount),
         ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
