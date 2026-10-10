@@ -14,9 +14,11 @@ export const IDLE_MARK = "✳";
 /** How long each half circle shows, as in Claude Code. */
 export const WORKING_FRAME_MS = 960;
 
-/** The title with Claude Code's status mark: `frame` of the working marks, or the idle one; none without a status. */
-export function titleWithStatus(title: string, status: "working" | "idle" | undefined, frame = 0): string {
-  const text = terminalTitle(title);
+/** The title with Claude Code's status mark: `frame` of the working marks, or the idle one; none without a status. A `suffix` (the account's email) follows after a dot. */
+export function titleWithStatus(title: string, status: "working" | "idle" | undefined, frame = 0, suffix?: string): string {
+  const base = terminalTitle(title);
+  const extra = suffix ? terminalTitle(suffix) : "";
+  const text = extra && extra !== "cco" ? `${base} · ${extra}` : base;
   if (status === undefined) return text;
   const mark = status === "working" ? WORKING_FRAMES[frame % WORKING_FRAMES.length] : IDLE_MARK;
   return `${mark} ${text}`;
@@ -26,10 +28,10 @@ export function titleWithStatus(title: string, status: "working" | "idle" | unde
  * Sets the terminal's window and tab title (OSC 0) to `title`, so the
  * viewer's tab and a window of its own show the session instead of "cco".
  * With a `status`, it starts with Claude Code's mark: ◐/◑ in turn while the
- * session's last turn runs, ✳ otherwise. Windows Terminal takes it over the
+ * session's last turn runs, ✳ otherwise. A `suffix` ends it: the account's email. Windows Terminal takes it over the
  * `--title` of the tab unless the profile sets `suppressApplicationTitle`.
  */
-export function useTerminalTitle(title: string, status?: "working" | "idle"): void {
+export function useTerminalTitle(title: string, status?: "working" | "idle", suffix?: string): void {
   const { stdout } = useStdout();
   const [frame, setFrame] = useState(0);
   useEffect(() => {

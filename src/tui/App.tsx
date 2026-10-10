@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
+import { AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -30,6 +30,7 @@ import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
+import { AccountContext, useAccounts } from "./useAccount.js";
 import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
@@ -99,7 +100,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; a viewer of a --session shows no status.
   const lastTurn = transcript.turns.at(-1);
   const working = lastTurn !== undefined && !lastTurn.done && !lastTurn.interrupted;
-  useTerminalTitle(transcript.title ?? basename(cwd), sessionId ? undefined : working ? "working" : "idle");
+  // With two or more accounts the title ends with the shown account's email and the "cco" takes its colour.
+  const account = useAccounts(claudePid);
+  const [accountTitle] = useSetting("accountTitle");
+  const [accountBadge] = useSetting("accountBadge");
+  useTerminalTitle(
+    transcript.title ?? basename(cwd),
+    sessionId ? undefined : working ? "working" : "idle",
+    account.multiple && accountTitle ? account.current?.email : undefined,
+  );
   const [rememberView] = useSetting("rememberView");
   // An explicit --view opens its view even when hidden; a remembered or default one only if shown.
   const [mode, setMode] = useState<Mode>(() => {
@@ -405,6 +414,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <FocusContext.Provider value={focused}>
     <UpdateContext.Provider value={update}>
     <ProgressHostProvider host={progress.host}>
+    <AccountContext.Provider value={account}>
+    <AccountBadgeContext.Provider value={account.multiple && accountBadge ? account.color : undefined}>
     <SessionColorContext.Provider value={transcript.color}>
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
@@ -540,6 +551,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     </CopySelectionContext.Provider>
     </ScreenNoticeContext.Provider>
     </SessionColorContext.Provider>
+    </AccountBadgeContext.Provider>
+    </AccountContext.Provider>
     </ProgressHostProvider>
     </UpdateContext.Provider>
     </FocusContext.Provider>

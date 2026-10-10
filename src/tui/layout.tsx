@@ -367,6 +367,9 @@ export const SESSION_BARS: Record<string, { focused: string; unfocused: string }
 /** The colour of the shown session (/color); undefined for none, or one cco does not know. */
 export const SessionColorContext = createContext<string | undefined>(undefined);
 
+/** The account's colour (a hex value) for the "cco" in the top bar; undefined for none (one account, or the badge off). */
+export const AccountBadgeContext = createContext<string | undefined>(undefined);
+
 /** The top bar's background: the session colour's, else the blue focus bar while focused. */
 export function barBackground(color: string | undefined, focused: boolean): string | undefined {
   const bar = color ? SESSION_BARS[color] : undefined;
@@ -406,10 +409,11 @@ export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefin
 
 function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const settings = useSettings();
+  const badge = useContext(AccountBadgeContext);
   return (
     <Text>
-      {/* Cyan is hard to read on the blue focus bar. */}
-      <Text bold color={focused ? "whiteBright" : "cyan"}>
+      {/* Cyan is hard to read on the blue focus bar. The account's colour is the background, so the text stays white. */}
+      <Text bold color={badge || focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
         {TABS_LEAD}
       </Text>
       {shownTabs(settings, mode).map((tab) =>

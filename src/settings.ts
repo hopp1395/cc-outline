@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { ACCOUNT_COLOR_VALUES, type AccountColorSetting } from "./account.js";
 import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
 import { TOOL_LEVELS, type ToolLevel } from "./transcript/tools.js";
 import type { Mode } from "./tui/layout.js";
@@ -85,6 +86,12 @@ export interface Settings {
   filterIn: FilterIn;
   /** Ask npm and GitHub for a newer version and the release notes when the viewer starts; `auto` also offers to install it. */
   updateMode: UpdateMode;
+  /** With two or more accounts, the "cco" in the top bar takes the account's colour as its background. */
+  accountBadge: boolean;
+  /** With two or more accounts, the terminal title ends with the account's email. */
+  accountTitle: boolean;
+  /** The colour of this folder's account: `auto` takes it from the email. */
+  accountColor: AccountColorSetting;
   /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. With it off, questions still show, framed. */
   showTools: ToolLevel;
   /** Chat: show thinking blocks (h). */
@@ -136,6 +143,9 @@ export const DEFAULT_SETTINGS: Settings = {
   mouse: true,
   filterIn: "list",
   updateMode: "auto",
+  accountBadge: true,
+  accountTitle: true,
+  accountColor: "auto",
   showTools: "off",
   showThinking: false,
   showAgents: true,
@@ -217,6 +227,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   placement: PLACEMENT_VALUES,
   filterIn: FILTER_IN_VALUES,
   updateMode: UPDATE_VALUES,
+  accountColor: ACCOUNT_COLOR_VALUES,
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
