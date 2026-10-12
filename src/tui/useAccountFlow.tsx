@@ -6,7 +6,7 @@ import type { Account } from "../account.js";
 import { continueInAccount, matchAccount, otherAccounts, type ContinuePlan } from "../accountContinue.js";
 import { pluginSteps } from "../accountSetup.js";
 import { detectTerminal, openInDefaultApp, resumeForPairing, resumeInNewWindow, resumeShellCommand } from "../open.js";
-import { prepareConsoleInput, type ConsoleTyper } from "../switchSession.js";
+import { prepareConsoleInput, switchToSession, type ConsoleTyper } from "../switchSession.js";
 import { TIMING } from "../timing.js";
 import { inClaudeDir, projectSlug } from "../transcript/locate.js";
 import { isCommand } from "../transcript/parse.js";
@@ -384,6 +384,56 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     });
   };
 
+  /**
+   * Enter on a session of another account (Sessions listing every account's): switch to the Claude Code it runs in
+   * there, continue it in a new window under that account's folder, or copy the command that does.
+   */
+  const foreignMenu = (s: SessionSummary, account: Account, claude: RunningSession | undefined, dir: string, folderGone: boolean) => {
+    const command = resumeShellCommand(s.id, account.dir);
+    const terminal = detectTerminal() !== undefined;
+    const title = sessionTitle(s);
+    const options = [
+      ...(claude ? [{ id: "switch", label: "Switch to its tab", detail: "it runs in a Claude Code of that account", disabled: terminal ? undefined : "no Windows Terminal or tmux here" }] : []),
+      {
+        id: "window",
+        label: "Continue it there",
+        detail: truncate(`claude --resume in a new window, as ${account.email}`, 56),
+        disabled: claude ? "it runs there already" : folderGone ? "its folder is gone" : undefined,
+      },
+      { id: "copy", label: "Copy the command", detail: truncate(command, 56) },
+    ];
+    const usual = options.findIndex((o) => !o.disabled && (terminal || o.id === "copy"));
+    setChoice({
+      title: "What to do with this session?",
+      lines: [
+        truncate(title, 56),
+        truncate(`of ${account.email}`, 56),
+        truncate(`${folderGone ? "folder gone:" : "in"} ${tilde(dir)}`, 56),
+        claude ? "runs in a Claude Code of that account" : "runs nowhere",
+      ],
+      options,
+      initial: Math.max(0, usual),
+      onChoose: (id) => {
+        setChoice(undefined);
+        if (id === "switch" && claude) {
+          notify("looking for its tab…");
+          return void switchToSession(claude, s.title ? [s.title] : []).then(notify);
+        }
+        if (id === "copy") return void copy(command).then(() => notify(`copied: ${command}`), (err: Error) => notify(`copy failed: ${err.message}`));
+        if (id !== "window") return;
+        if (!terminal)
+          return setRun({
+            title: `Continue in ${account.email}`,
+            status: "done",
+            text: "Start it by hand",
+            lines: ["No Windows Terminal or tmux to open a window in. Run in a terminal:", `  ${command}`, `in ${tilde(dir)}`],
+            copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
+          });
+        notify(resumeInNewWindow(s.id, dir, truncate(title, 30), "new", account.dir));
+      },
+    });
+  };
+
   const element: ReactNode = (
     <>
       {confirmation && <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />}
@@ -394,6 +444,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     askAccount,
     askHow,
     accountMenu,
+    foreignMenu,
     startPairing,
     open: choice !== undefined || confirmation !== undefined || run !== undefined || pairing !== undefined,
     element,

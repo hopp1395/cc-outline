@@ -163,6 +163,12 @@ export function colorOfAccount(account: Account, info: Pick<AccountInfo, "own">,
   return accountColorName(account.email, same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto"));
 }
 
+/** The colour of the bar that marks the sessions of `account` in the Sessions view: its colour, gray where it is `off`. */
+export function barColorOfAccount(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): AccountColorName | "gray" {
+  const value = same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto");
+  return value === "off" ? "gray" : accountColorName(account.email, value);
+}
+
 /** Whether the colour of `account` is a fixed one rather than taken from the email. */
 export function hasChosenColor(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): boolean {
   const value = same(account.dir, info.own) ? chosen : account.chosenColor;

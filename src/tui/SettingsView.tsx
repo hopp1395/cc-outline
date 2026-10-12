@@ -482,11 +482,17 @@ export const SETTING_ROWS: Row[] = [
   viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
   listWidthRow("sessionsListWidth", "Sessions", "list width", "Sessions", "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room."),
   {
-    key: "allProjects",
+    key: "sessionsScope",
     group: "Sessions",
-    label: "all projects",
-    description: "Whether the Sessions view lists the sessions of all projects or only of this one. All projects helps to find a session started in another folder; the trash follows the same choice.",
-    values: ON_OFF("all projects with sessions in `~/.claude/projects`", (c) => `only this one, ${basename(c.cwd) || c.cwd}`),
+    label: "sessions of",
+    description:
+      "Which sessions the Sessions view lists: of this project or of all, and of this account only or also of the other Claude accounts signed in on this machine (the `~/.claude*` folders). All projects helps to find a session started in another folder; the trash follows that choice, but always shows this account's. With the other accounts, every row starts with a bar in its account's colour (gray for an account whose colour is off), the preview names the account, whether the session runs there and whether it has the cco plugin, and `Enter` offers to continue it there, in a new window under that account. Their sessions can be marked, not deleted, renamed, exported or moved.",
+    values: [
+      ["project", (c) => `only this one, ${basename(c.cwd) || c.cwd}, of this account`],
+      ["all", "all projects with sessions in `~/.claude/projects`, of this account"],
+      ["project-accounts", (c) => `${basename(c.cwd) || c.cwd}, of every account found`],
+      ["all-accounts", "all projects of every account found"],
+    ],
     viewKey: "`a` in Sessions",
   },
   {

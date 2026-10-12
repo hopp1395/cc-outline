@@ -35,6 +35,16 @@ export function rangeStart(range: ListRange, now = new Date()): number | undefin
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
 }
 
+/** Which sessions the Sessions view lists (a goes round them): this project's or all projects', of this account or of all accounts found. */
+export const SESSIONS_SCOPE_VALUES = ["project", "all", "project-accounts", "all-accounts"] as const;
+export type SessionsScope = (typeof SESSIONS_SCOPE_VALUES)[number];
+/** The scope lists the sessions of every project. */
+export const scopeAllProjects = (scope: SessionsScope) => scope === "all" || scope === "all-accounts";
+/** The scope lists the sessions of the other accounts found too. */
+export const scopeAccounts = (scope: SessionsScope) => scope === "project-accounts" || scope === "all-accounts";
+/** The scope after `scope`, for a in Sessions. */
+export const nextScope = (scope: SessionsScope): SessionsScope => SESSIONS_SCOPE_VALUES[(SESSIONS_SCOPE_VALUES.indexOf(scope) + 1) % SESSIONS_SCOPE_VALUES.length];
+
 /** What the list filter (Ctrl+F) looks at: the entries' rows, their details, or both. */
 export const FILTER_IN_VALUES = ["list", "details", "both"] as const;
 export type FilterIn = (typeof FILTER_IN_VALUES)[number];
@@ -104,8 +114,8 @@ export interface Settings {
   gitNestedRepos: boolean;
   /** Plan: wrap long lines (w). */
   planWrap: boolean;
-  /** Sessions: show the sessions of all projects, not only this one (a). */
-  allProjects: boolean;
+  /** Sessions: the sessions of this project or of all, of this account or of all accounts found (a goes round); formerly the on/off allProjects. */
+  sessionsScope: SessionsScope;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -151,7 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wrap: true,
   gitNestedRepos: true,
   planWrap: true,
-  allProjects: true,
+  sessionsScope: "all",
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
@@ -235,6 +245,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
+  sessionsScope: SESSIONS_SCOPE_VALUES,
   sessionsRange: RANGE_VALUES,
   monitorRange: RANGE_VALUES,
   chatListWidth: LIST_WIDTH_VALUES,
@@ -264,6 +275,9 @@ export function readSettings(): Settings {
   // accountColor was the colour of this account alone; the on/off setting accountBadge is its value off now.
   const badge = (stored as { accountBadge?: unknown }).accountBadge;
   if (stored.accountColor === undefined && badge === false) stored.accountColor = "off";
+  // sessionsScope was the on/off setting allProjects before the other accounts could be listed too.
+  const allProjects = (stored as { allProjects?: unknown }).allProjects;
+  if (stored.sessionsScope === undefined && typeof allProjects === "boolean") stored.sessionsScope = allProjects ? "all" : "project";
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];

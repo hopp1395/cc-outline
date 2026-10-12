@@ -657,6 +657,11 @@ interface ListProps<T> {
   itemKey: (item: T, index: number) => string;
   /** `pinnedCopy`: the row is the entry's copy in the Pinned group. */
   render: (item: T, selected: boolean, pinnedCopy?: boolean) => ReactNode;
+  /**
+   * What a row starts with, drawn outside the selection's style, so its colour shows on the selected row too
+   * (Sessions: the account's bar); `render` then draws the rest.
+   */
+  lead?: (item: T) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
   /** A click on an entry, after `onPick` selected it (the wheel only picks). */
@@ -951,7 +956,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, copies = 0, centre }: ListProps<T> & RowsProps) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, onPick, onClick, heads, tops, copies = 0, centre }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, heads);
@@ -1003,6 +1008,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         if (!isSelected)
           return (
             <Text key={itemKey(item, index)} wrap="truncate">
+              {lead?.(item)}
               {render(item, false, index < copies)}
             </Text>
           );
@@ -1011,6 +1017,11 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         const style = { inverse: focused, bold: focused, backgroundColor: focused ? undefined : INACTIVE_SELECTION };
         return (
           <Box key={itemKey(item, index)} width={width} height={1}>
+            {lead && (
+              <Box flexShrink={0}>
+                <Text>{lead(item)}</Text>
+              </Box>
+            )}
             <Box overflow="hidden">
               <Text wrap="truncate" {...style}>
                 {render(item, true, index < copies)}

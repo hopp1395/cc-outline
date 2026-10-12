@@ -274,11 +274,13 @@ The help line highlights `w wrap` while wrapping is on and `End follow` while th
 
 ## Sessions view
 
-The Sessions view is an overview of your Claude Code sessions: of all projects by default, or only of this one after `a` (remembered in `settings.json`). It only reads them: the other views keep showing the active session.
+The Sessions view is an overview of your Claude Code sessions: of all projects by default. `a` goes round four scopes, remembered in `settings.json` (*Sessions: sessions of*): this project, all projects, this project in every account, all projects in every account. It only reads them: the other views keep showing the active session.
 
 ![Sessions view: sessions of two projects on the left, an older session with its plans, changed files and prompts on the right](docs/sessions.svg)
 
 **List (left).** One entry per session, the one last written to first, with the time its transcript was last written (under a line per day; for a session continued under a new id, its latest transcript). Any write counts: a prompt, Claude working, a report of a background task, a rename, an import or a move. Each row shows, with all projects, the project's folder name and then the session's name: the name given with `/rename` (bright), otherwise its first prompt (dim and in quotes, „like this“). The active session is marked with a green `●`, sessions running in another Claude Code with `▶`, and a session whose folder is gone with a gray `∅` (with all projects, its folder name is struck through; the preview says `folder gone`, and the filter finds it by that). Whether a folder exists is looked up once while the view runs, again after `F5`. While Claude works in one of them, its mark blinks; while it waits for you (a permission, a question), the mark is yellow. The preview's header says `working` or `waiting for input`. Both come from the status Claude Code writes to `~/.claude/sessions/` (version 2.1.283 on), read every second. Sessions that only ran slash commands such as `/resume` or `!` commands and changed nothing are left out.
+
+**Other accounts.** With the last two scopes, the list also holds the sessions of the other Claude accounts signed in on this machine (the `~/.claude*` folders, see the Accounts view), sorted in with this account's. Every row then starts with a bar `▌` in its account's colour (the colour chosen in that folder's settings, else the one from the email; gray where it is `off`), this account's too. The preview's header names the account (email, organisation, folder) and whether the cco plugin is installed there; whether the session runs in a Claude Code there shows like for this account's. `Enter` on another account's session offers to continue it there, in a new window under that account's folder (`cco claude --config-dir … -- --resume`), to switch to its tab while it runs there, or to copy the command (`CLAUDE_CONFIG_DIR=… claude --resume …`; also `c`). Such sessions can be marked, but not deleted, renamed, exported or moved; the trash holds this account's only. The filter also finds a session by its account's email. A session continued in another account shows in both, each with its `⇢`/`⇠`.
 
 **Range.** The list holds the sessions written to in the last 7 days (the *Sessions: range* setting: today, 7, 30 or 90 days, or unlimited; days count from midnight, today included). The active session and sessions running elsewhere are listed even if that was earlier. When there is no session at all, the list's top entry is `⤓ import sessions…`, which opens the import (`Enter` or a double click). The last entry, `↓ more ↓` (centred, blue like the previews' "more lines"), reads the whole history with `Enter` or a click (`↓ loading… 42/97 ↓` meanwhile) and then goes; that holds until the viewer restarts, also if the setting changes. Transcripts last written before the range are not read at all, so a short range is quicker. A filter never hides it.
 
@@ -404,7 +406,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | Plan: order | oldest first / newest first | oldest first | `s` in Plan |
 | Sessions: tab | on / off | on | – |
 | Sessions: list width | hidden / narrow / normal / wide / wider / full | normal | `<` `>` `\|` in Sessions |
-| Sessions: all projects | on / off | on | `a` in Sessions |
+| Sessions: sessions of | this project / all projects / this project of every account / all projects of every account | all projects | `a` in Sessions |
 | Sessions: pinned sessions (active and running ones at the top) | on / off | on | – |
 | Sessions: range | today / 7 days / 30 days / 90 days / unlimited | 7 days | – |
 | Monitor: tab | on / off | on | – |
@@ -472,7 +474,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |
 | `T` | – | – | – | show / leave the trash |
-| `a` | – | – | – | all projects ↔ this project |
+| `a` | – | – | – | this project → all projects → this project of every account → all projects of every account |
 | `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |
