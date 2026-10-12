@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { ACCOUNT_COLORS, accountInfo, colorOfAccount, type AccountInfo } from "../account.js";
+import { accountInfo, colorOfAccount, type AccountColorName, type AccountInfo } from "../account.js";
 import { useSetting } from "./useSetting.js";
 
 /** How often the account folders are read again (a login in another terminal shows up). */
@@ -7,8 +7,8 @@ const REFRESH_MS = 30_000;
 
 /** What the viewer knows of the accounts, for the top bar, the title and the Settings view. */
 export interface AccountState extends AccountInfo {
-  /** The shown account's colour as a hex value; undefined without an account. */
-  color?: string;
+  /** The shown account's colour; undefined without an account. */
+  color?: AccountColorName;
 }
 
 const EMPTY: AccountState = { accounts: [], multiple: false, own: "" };
@@ -26,5 +26,5 @@ export function useAccounts(pid?: number): AccountState {
     return () => clearInterval(timer);
   }, []);
   const info = useMemo(() => accountInfo(pid), [pid, tick]);
-  return { ...info, color: info.current && ACCOUNT_COLORS[colorOfAccount(info.current, info, chosen)] };
+  return { ...info, color: info.current && colorOfAccount(info.current, info, chosen) };
 }

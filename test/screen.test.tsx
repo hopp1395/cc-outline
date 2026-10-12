@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
+import type { AccountColorName } from "../src/account.js";
 import { AccountBadgeContext, Screen, type Layout } from "../src/tui/layout.js";
 import { VERSION } from "../src/version.js";
 
@@ -44,7 +45,7 @@ describe("Screen top bar", () => {
 
   it("draws the cco lead on the account's colour, and leaves it alone without one", async () => {
     const layout: Layout = { columns: 100, rows: 10, listWidth: 20, previewWidth: 77, bodyHeight: 8 };
-    const bar = async (badge: string | undefined) => {
+    const bar = async (badge: AccountColorName | undefined) => {
       const app = renderInk(
         <AccountBadgeContext.Provider value={badge}>
           <Screen layout={layout} mode="chat" status={<Text>x</Text>} list={null} preview={null} footer="" />
@@ -56,12 +57,15 @@ describe("Screen top bar", () => {
       app.unmount();
       return app.raw().split("\n")[0]!;
     };
-    // Tests run without colours; 48;2;r;g;b is a truecolor background: #0f766e.
+    // Tests run without colours; with them, magentaBright is background 105, with black text (30) readable on it.
     const level = chalk.level;
     chalk.level = 3;
     try {
-      expect(await bar("#0f766e")).toContain("48;2;15;118;110m");
-      expect(await bar(undefined)).not.toContain("48;2;15;118;110m");
+      const lead = await bar("magentaBright");
+      expect(lead).toContain("105m");
+      expect(lead).toContain("30m");
+      expect(await bar("red")).toContain("41m");
+      expect(await bar(undefined)).not.toMatch(/\u001b\[(4[0-7]|10[0-7])m/);
     } finally {
       chalk.level = level;
     }

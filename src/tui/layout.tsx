@@ -19,6 +19,7 @@ import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
 import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
+import { ACCOUNT_COLORS, type AccountColorName } from "../account.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
 import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
 import { centredBadge } from "./Preview.js";
@@ -367,8 +368,8 @@ export const SESSION_BARS: Record<string, { focused: string; unfocused: string }
 /** The colour of the shown session (/color); undefined for none, or one cco does not know. */
 export const SessionColorContext = createContext<string | undefined>(undefined);
 
-/** The account's colour (a hex value) for the "cco" in the top bar; undefined for none (one account, or the badge off). */
-export const AccountBadgeContext = createContext<string | undefined>(undefined);
+/** The account's colour for the "cco" in the top bar; undefined for none (no account, or the badge off). */
+export const AccountBadgeContext = createContext<AccountColorName | undefined>(undefined);
 
 /** The top bar's background: the session colour's, else the blue focus bar while focused. */
 export function barBackground(color: string | undefined, focused: boolean): string | undefined {
@@ -412,8 +413,8 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const badge = useContext(AccountBadgeContext);
   return (
     <Text>
-      {/* Cyan is hard to read on the blue focus bar. The account's colour is the background, so the text stays white. */}
-      <Text bold color={badge || focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
+      {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
+      <Text bold color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
         {TABS_LEAD}
       </Text>
       {shownTabs(settings, mode).map((tab) =>

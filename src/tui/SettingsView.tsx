@@ -392,11 +392,11 @@ export const SETTING_ROWS: Row[] = [
     group: "Account",
     label: "colour in the top bar",
     description:
-      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. auto takes a colour from the email, so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
+      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
     values: [
       ["auto", "a colour from the email"],
       ["off", "the \"cco\" keeps the colour of the bar"],
-      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, `${name} (${ACCOUNT_COLORS[name]})`]),
+      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, colorBadge(name)]),
     ],
   },
   {
@@ -602,6 +602,14 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   return lines;
 }
 
+/** A colour's name drawn like the "cco" in the top bar: on the colour, in the text colour readable on it. */
+function colorBadge(name: AccountColorName): string {
+  const index = ACCOUNT_COLOR_NAMES.indexOf(name);
+  const background = index < 8 ? 40 + index : 100 + index - 8;
+  const text = ACCOUNT_COLORS[name] === "black" ? 30 : 97;
+  return `\u001b[${background};${text}m ${name} \u001b[39;49m`;
+}
+
 /** The colour name of `account` as this viewer shows it. */
 const colorNameOf = (account: Account, state: AccountState, chosen: Settings["accountColor"]): AccountColorName => colorOfAccount(account, state, chosen);
 
@@ -656,7 +664,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
     "",
     ...field("config folder", tilde(account.dir)),
     ...field("read from", tilde(account.file)),
-    `colour: ${color} (${ACCOUNT_COLORS[color]})${fixed ? ", chosen" : ", from the email"}`,
+    `colour: ${colorBadge(color)}${fixed ? ", chosen" : ", from the email"}`,
     "",
     ...wrap(dim(codeMarks(state.multiple ? "The colour shows in the top bar and the email in the title while this is the active account." : "The colour shows in the top bar; the email joins the title once cco finds a second account."))),
   ];
@@ -1139,7 +1147,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
-  const rowParts = (e: Entry): { value: string; color?: string; label: string } => {
+  const rowParts = (e: Entry): { value: string; color?: string; background?: string; label: string } => {
     if ("key" in e) {
       const value = settings[e.key];
       return { value: shortValueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
@@ -1147,7 +1155,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if ("account" in e) {
       const account = accountOf(e, accountState);
       const color = account ? colorNameOf(account, accountState, settings.accountColor) : undefined;
-      return { value: color ?? "", color: color && ACCOUNT_COLORS[color], label: accountLabel(e, accountState) };
+      // A badge like the "cco" in the top bar, readable on any colour, also black on a black pane.
+      return { value: color ? ` ${color} ` : "", color: color && ACCOUNT_COLORS[color], background: color, label: accountLabel(e, accountState) };
     }
     if ("id" in e) return { value: e.id === "doctor" ? "✚" : "↺", label: e.label };
     if (e.kind === "release") {
@@ -1211,7 +1220,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             group={groupOf}
             render={(e, isSelected) => {
               const star = favorites.isMarked(keyOf(e));
-              const { value, color, label } = rowParts(e);
+              const { value, color, background, label } = rowParts(e);
               // The value keeps its place at the right end; a label too long for the rest is cut (or scrolls).
               const labelWidth = Math.max(4, listWidth - (star ? 2 : 0) - (value ? stringWidth(value) + 1 : 0));
               const pad = Math.max(0, labelWidth - stringWidth(label));
@@ -1219,7 +1228,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
                 <>
                   {star && <Star />}
                   <EntryText text={label} width={labelWidth} selected={isSelected} active={active && !modal} />
-                  {value && <Text color={color}>{" ".repeat(pad + 1) + value}</Text>}
+                  {value && (
+                    <Text>
+                      {" ".repeat(pad + 1)}
+                      <Text color={color} backgroundColor={background}>
+                        {value}
+                      </Text>
+                    </Text>
+                  )}
                 </>
               );
             }}
