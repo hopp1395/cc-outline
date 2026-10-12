@@ -1,5 +1,6 @@
 import { proc } from "./proc.js";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
 import { resolvePlacement } from "./sessionViews.js";
@@ -125,11 +126,18 @@ export function scriptInNewWindow(script: string, dir: string, title: string): s
  * The shell command that continues the session, under the config folder `configDir` if given: POSIX syntax,
  * except on Windows, where it is written for cmd (`set "…" && claude …`).
  */
-export function resumeShellCommand(sessionId: string, configDir?: string, platform: NodeJS.Platform = process.platform, fresh = false): string {
+export function resumeShellCommand(sessionId: string, configDir?: string, platform: NodeJS.Platform = process.platform, fresh = false, home = homedir()): string {
   const claude = `claude ${sessionFlag(fresh)} ${sessionId}`;
   if (!configDir) return claude;
-  if (platform === "win32") return isDefaultClaudeDir(configDir) ? `set "CLAUDE_CONFIG_DIR=" && ${claude}` : `set "CLAUDE_CONFIG_DIR=${configDir}" && ${claude}`;
-  return isDefaultClaudeDir(configDir) ? `env -u CLAUDE_CONFIG_DIR ${claude}` : `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ${claude}`;
+  // A folder in the home folder is named through its variable, as the start scripts do: shorter, and the same on every machine.
+  const rel = relative(home, configDir);
+  const inHome = rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && /^[\w.\\/-]+$/.test(rel);
+  if (platform === "win32") {
+    if (isDefaultClaudeDir(configDir)) return `set "CLAUDE_CONFIG_DIR=" && ${claude}`;
+    return `set "CLAUDE_CONFIG_DIR=${inHome ? `%USERPROFILE%\\${rel}` : configDir}" && ${claude}`;
+  }
+  if (isDefaultClaudeDir(configDir)) return `env -u CLAUDE_CONFIG_DIR ${claude}`;
+  return `CLAUDE_CONFIG_DIR=${inHome ? `"$HOME/${rel}"` : shellQuote(configDir)} ${claude}`;
 }
 
 /** How claude takes the session id: one to continue (`--resume`), or the id of a new one (`--session-id`, `fresh`). */
