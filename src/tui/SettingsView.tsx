@@ -6,7 +6,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
-import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, type Account, type AccountColorName } from "../account.js";
+import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
@@ -394,7 +394,7 @@ export const SETTING_ROWS: Row[] = [
     group: "Account",
     label: "colour in the top bar",
     description:
-      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
+      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings; the viewers of the other accounts read it from there and show this account in it too.",
     values: [
       ["auto", "a colour from the email"],
       ["off", "the \"cco\" keeps the colour of the bar"],
@@ -664,7 +664,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
     return wrap("No account found for this Claude Code: its config folder has no `.claude.json` with a signed-in account. Sign in with `/login` in Claude Code; the list updates within 30 seconds, or at once with `F5`.");
   }
   const color = colorNameOf(account, state, settings.accountColor);
-  const fixed = account.dir === state.own && settings.accountColor !== "auto" && settings.accountColor !== "off";
+  const fixed = hasChosenColor(account, state, settings.accountColor);
   return [
     state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
     "",
