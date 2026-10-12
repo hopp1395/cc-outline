@@ -141,11 +141,12 @@ describe("adding an account", () => {
     await until(() => view.frame().includes("↵ add an account…"));
     await view.press("\r");
     await until(() => view.frame().includes("Add an account"));
-    // The name of a PowerShell alias is refused.
+    // The name of a PowerShell alias (elsewhere: of a Bash builtin) is refused.
+    const windows = process.platform === "win32";
     await view.press("\u0015");
-    await view.press("cp");
+    await view.press(windows ? "cp" : "test");
     await view.press("\r");
-    await until(() => view.frame().includes("cp is a PowerShell alias of Copy-Item"));
+    await until(() => view.frame().includes(windows ? "cp is a PowerShell alias of Copy-Item" : "test is built into Bash"));
     await view.press("\u0015");
     await view.press("cw");
     await view.press("\r");

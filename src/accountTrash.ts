@@ -69,7 +69,8 @@ export function scriptFolder(text: string, home = accountsHome.get()): string | 
   const value = /CLAUDE_CONFIG_DIR=("?)([^"\r\n]+)\1/.exec(text)?.[2]?.trim();
   if (!value) return undefined;
   const expanded = value.replace(/^(%USERPROFILE%|\$USERPROFILE|\$\{USERPROFILE\}|\$HOME|\$\{HOME\}|~)(?=[\\/]|$)/i, home);
-  return resolve(expanded);
+  // A script written for Windows names the folder with backslashes, which are no separators elsewhere.
+  return resolve(expanded.replace(/\\/g, "/"));
 }
 
 /** The start scripts that run Claude Code under `dir`: in the folder next to claude and in `~/.local/bin`. */
