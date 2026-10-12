@@ -19,7 +19,7 @@
 
 ## Why
 
-Working with Claude Code in the terminal has five blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
+Working with Claude Code in the terminal has six blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
 
 ### 1. Answers are hard to read and quickly gone
 
@@ -47,9 +47,15 @@ Working with Claude Code in the terminal has five blind spots. cc-outline fills 
 
 ### 5. Several Claude accounts don't know of each other
 
-**The problem.** Many people run Claude Code with more than one account: a work and a private one, or a team plan next to a personal one, each in its own config folder (`CLAUDE_CONFIG_DIR`). Claude Code shows nothing of the others. Which account a terminal runs is easy to mix up, `/resume` lists only that account's sessions, and a session cannot move to another account when one hits its usage limit. Setting up another account means writing a start script by hand, and a name like `cp` or `sc` quietly runs a PowerShell command instead. Nothing removes an account you no longer use.
+**The problem.** Many people run Claude Code with more than one account: a work and a private one, or a team plan next to a personal one, each in its own config folder (`CLAUDE_CONFIG_DIR`). Claude Code shows nothing of the others. Which account a terminal runs is easy to mix up, and `/resume` lists only that account's sessions. Setting up another account means writing a start script by hand, and a name like `cp` or `sc` quietly runs a PowerShell command instead. Nothing removes an account you no longer use.
 
 **How cc-outline solves it.** Every account gets a colour: the "cco" at the left of the top bar shows it, and the terminal title ends with the account's email. The Accounts view (`0`) lists all accounts on the machine with their organization, plan, plugin, running Claude Codes and sessions. The Sessions view (`a`) lists the sessions of all accounts in one list, each with a bar in its account's colour. Any session continues in another account in a new window, the viewer moving along. *How to add an account* sets one up with `Enter` and refuses names a shell would run something else for, and `d` moves an account to a trash, after asking twice, from where it can be restored.
+
+### 6. A usage limit stops the work
+
+**The problem.** With more than one account, say a team plan and a personal Max plan, one of them sooner or later reaches its usage limit in the middle of a session. Claude Code stops, and it only goes on after the reset, hours later. The other account still has capacity but does not know the session: it lives in the first account's config folder, and `/resume` lists only the account's own sessions. In the other account the whole context is missing: the plan, what was discussed and decided, which files are already changed. You start over or explain everything to Claude again.
+
+**How cc-outline solves it.** `Enter` on the session in the Sessions view, then *Continue it in <email>…*; `/cco:account <email>` does the same from Claude Code, and so does the Accounts view. If the session still runs, cco asks whether to close it and then types `/exit` into it. Where the other account lacks the cco plugin, it is installed first. cco then copies the conversation into the other account, with its predecessors from before a `/compact`, its subagents, file history, pasted images and cco's own marks and positions; the original stays as it is. The copy starts in a new window under the other account, and the viewer moves along: its colour and email show the new account. Claude has the whole history and goes on where the limit stopped it. In the Sessions view the original is marked `⇢` and the copy `⇠`, so you can tell where the work went. Once the first account is free again, the session comes back the same way.
 
 ### In daily work
 
