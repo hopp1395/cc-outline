@@ -3,7 +3,7 @@ import { recordCli } from "./cliPath.js";
 import { runHook } from "./hook.js";
 import { openedFromQueue, openPane } from "./open.js";
 import type { Mode } from "./tui/layout.js";
-import { claudePidFromEnv } from "./transcript/locate.js";
+import { claudePidFromEnv, setClaudeDir } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
 import { isAlive, registerViewer, runningViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
@@ -60,7 +60,11 @@ program
   .addOption(new Option("--updated-to <version>").hideHelp())
   // /cco:update and /cco:account opening a new viewer: it checks and asks at once, or asks for the account.
   .addOption(new Option("--action <action>").choices(["update", "account"]).hideHelp())
-  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction }) => {
+  // The config folder (account) of the Claude Code that opened it: a terminal pane does not get its environment.
+  .addOption(new Option("--config-dir <dir>").hideHelp())
+  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
+    // First: every state file and setting is read from the config folder.
+    if (opts.configDir) setClaudeDir(opts.configDir);
     const claudePid = validPid(opts.claudePid);
     // One viewer per Claude Code: a second one would share its state files and its /cco:… requests.
     const other = claudePid ? runningViewer(opts.cwd, claudePid) : undefined;
@@ -86,6 +90,16 @@ program
       action: opts.action,
     });
     process.exit(0);
+  });
+
+program
+  .command("claude")
+  .description("run claude under a config folder (account), then a shell there; for terminal windows cco opens")
+  .requiredOption("--config-dir <dir>", "the config folder (CLAUDE_CONFIG_DIR)")
+  .argument("[args...]", "arguments for claude")
+  .action(async (args: string[], opts: { configDir: string }) => {
+    const { runClaudeIn } = await import("./launch.js");
+    process.exitCode = await runClaudeIn(opts.configDir, args);
   });
 
 program

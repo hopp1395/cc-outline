@@ -6,7 +6,7 @@ import { independentEnv, moveViewer, openInDefaultApp, openPane, resumeForPairin
 import { proc } from "../src/proc.js";
 import { saveSessionPlacement } from "../src/sessionViews.js";
 import { updateSettings } from "../src/settings.js";
-import { claudeFile, writeJson } from "../src/transcript/locate.js";
+import { claudeDir, claudeFile, writeJson } from "../src/transcript/locate.js";
 import { readControl, registerViewer, unregisterViewer } from "../src/viewer.js";
 
 const spawned: { cmd: string; args: string[]; env?: NodeJS.ProcessEnv; windowsHide?: boolean }[] = [];
@@ -45,11 +45,19 @@ describe("resumeInNewWindow", () => {
     expect(spawned.map(({ cmd, args }) => ({ cmd, args }))).toEqual([
       {
         cmd: "wt",
-        args: ["-w", "new", "new-tab", "--title", "orders", "-d", "W:\\repo", "cmd", "/k", "claude", "--resume", "abc"],
+        // cco claude starts it under this config folder, which a tab does not get from the wt call.
+        args: ["-w", "new", "new-tab", "--title", "orders", "-d", "W:\\repo", process.execPath, expect.stringMatching(/cli\.js$/), "claude", "--config-dir", claudeDir(), "--", "--resume", "abc"],
       },
     ]);
     // A hidden start would keep the new window hidden.
     expect(spawned[0].windowsHide).toBe(false);
+  });
+
+  it("starts it under another account's config folder as an argument", () => {
+    process.env.WT_SESSION = "x";
+    resumeInNewWindow("abc", "W:\\repo", "orders", "cco-resume-abc", "C:\\h\\.claude-work");
+    expect(spawned[0].args.slice(0, 2)).toEqual(["-w", "cco-resume-abc"]);
+    expect(spawned[0].args.slice(-6)).toEqual(["claude", "--config-dir", "C:\\h\\.claude-work", "--", "--resume", "abc"]);
   });
 
   it("does not pass on the variables of the Claude Code the viewer was opened from", () => {
@@ -141,6 +149,8 @@ describe("openPane", () => {
     expect(viewer).toMatch(/ --placement right --unfocused --claude-pid 42 ; move-focus left$/);
     // The CLI, not the file (chunk) openPane was bundled into.
     expect(viewer).toMatch(/[\\/]cli\.js watch --cwd /);
+    // The pane does not get the environment of the call: the viewer is told the config folder (account).
+    expect(spawned[0].args.slice(spawned[0].args.indexOf("--config-dir"), spawned[0].args.indexOf("--config-dir") + 2)).toEqual(["--config-dir", claudeDir()]);
   });
 
   it("opens a window of its own when Claude Code has no tab (no WT_SESSION)", () => {

@@ -34,6 +34,12 @@ export function withClaudeDir(env: NodeJS.ProcessEnv, dir: string): NodeJS.Proce
   return result;
 }
 
+/** Makes this process run under the config folder `dir` from now on, as `withClaudeDir` gives it to a child. */
+export function setClaudeDir(dir: string): void {
+  for (const key of Object.keys(process.env)) if (key.toUpperCase() === "CLAUDE_CONFIG_DIR") delete process.env[key];
+  if (!isDefaultClaudeDir(dir)) process.env.CLAUDE_CONFIG_DIR = dir;
+}
+
 /**
  * Runs `fn` as if this process ran under the config folder `dir` (another account's): every path through
  * `claudeDir()` (transcripts, `sessions/`, cco's state files) is that folder's while it runs. Synchronous

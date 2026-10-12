@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
 import { resolvePlacement } from "./sessionViews.js";
-import { claudeFile, isDefaultClaudeDir, readActive, readJson, withClaudeDir, type ActiveSession } from "./transcript/locate.js";
+import { claudeDir, claudeFile, isDefaultClaudeDir, readActive, readJson, withClaudeDir, type ActiveSession } from "./transcript/locate.js";
 import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
@@ -82,12 +82,14 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
   const terminal = detectTerminal();
   if (terminal === "wt") {
     // -w new: without it, wt may add a tab to an open window (its windowingBehavior setting).
-    // cmd /k finds claude whether it is an .exe or an npm .cmd shim, and keeps the window open afterwards.
-    const args = ["-w", window, "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
-    // Windows Terminal starts the tab with the environment of the wt call. No windowsHide: wt would apply
-    // the hidden start to the new window, which then never shows.
-    const env = configDir ? withClaudeDir(independentEnv(), configDir) : independentEnv();
-    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
+    // `cco claude` (`runClaudeIn`) starts claude under the config folder, whether it is an .exe or an npm .cmd
+    // shim, and keeps a shell open afterwards. The folder goes as an argument: a pane or tab of a running
+    // Windows Terminal does not get the environment of the wt call (a viewer opened from another account's
+    // Claude Code ran under the default folder).
+    const account = configDir ?? claudeDir();
+    const args = ["-w", window, "new-tab", "--title", title, "-d", dir, process.execPath, CLI, "claude", "--config-dir", account, "--", "--resume", sessionId];
+    // No windowsHide: wt would apply the hidden start to the new window, which then never shows.
+    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: withClaudeDir(independentEnv(), account) }).unref();
     return "started in a new Windows Terminal window";
   }
   if (terminal === "tmux") {
@@ -202,7 +204,9 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
 
   // Invoke node directly: Windows Terminal cannot launch npm's .cmd shims by bare name.
   // Without a view (/cco:open, /cco:restart with no viewer running), the viewer starts in the session's last one.
-  const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, ...(view ? ["--view", view] : []), "--placement", placement];
+  // The config folder (account) goes as an argument: neither a tmux pane nor a Windows Terminal pane gets the
+  // environment of the call, so a viewer of another account's Claude Code ran under the default folder.
+  const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, "--config-dir", claudeDir(), ...(view ? ["--view", view] : []), "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
   const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");
   if (unfocused) viewer.push("--unfocused");
@@ -216,9 +220,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   const where = PLACE_NAMES[placement];
   const label = view ? ` ${VIEW_NAMES[view]}` : "";
   if (terminal === "tmux") {
-    // tmux starts the pane with its server's environment: the viewer keeps this process's config folder (account).
-    const account = process.env.CLAUDE_CONFIG_DIR ? `CLAUDE_CONFIG_DIR=${shellQuote(process.env.CLAUDE_CONFIG_DIR)} ` : "";
-    const cmd = account + viewer.map(shellQuote).join(" ");
+    const cmd = viewer.map(shellQuote).join(" ");
     // -d leaves the current pane active; -b puts the new pane before (left of) it.
     const keep = opts.keepFocus ? ["-d"] : [];
     // Claude Code's own pane, not the one active now (a queued command runs only at the end of the turn).
