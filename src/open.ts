@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
 import { resolvePlacement } from "./sessionViews.js";
-import { claudeFile, readActive, readJson, type ActiveSession } from "./transcript/locate.js";
+import { claudeFile, isDefaultClaudeDir, readActive, readJson, withClaudeDir, type ActiveSession } from "./transcript/locate.js";
 import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
@@ -75,9 +75,10 @@ export function openInDefaultApp(file: string, platform: NodeJS.Platform = proce
  * Claude Code exits. Returns what happened, for the help line.
  * The new Claude Code must not inherit the variables of the Claude Code this
  * viewer was opened from (see `independentEnv`). `window` names the Windows
- * Terminal window (`resumeForPairing`); by default it is a new one.
+ * Terminal window (`resumeForPairing`); by default it is a new one. `configDir` starts it in another
+ * account: under that config folder (`withClaudeDir`).
  */
-export function resumeInNewWindow(sessionId: string, dir: string, title: string, window = "new"): string {
+export function resumeInNewWindow(sessionId: string, dir: string, title: string, window = "new", configDir?: string): string {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     // -w new: without it, wt may add a tab to an open window (its windowingBehavior setting).
@@ -85,21 +86,39 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
     const args = ["-w", window, "new-tab", "--title", title, "-d", dir, "cmd", "/k", "claude", "--resume", sessionId];
     // Windows Terminal starts the tab with the environment of the wt call. No windowsHide: wt would apply
     // the hidden start to the new window, which then never shows.
-    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
+    const env = configDir ? withClaudeDir(independentEnv(), configDir) : independentEnv();
+    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
     return "started in a new Windows Terminal window";
   }
   if (terminal === "tmux") {
-    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId)], { stdio: "ignore", detached: true }).unref();
+    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId, configDir)], { stdio: "ignore", detached: true }).unref();
     return "started in a new tmux window";
   }
-  return `no Windows Terminal or tmux: run claude --resume ${sessionId} in ${dir}`;
+  return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir)} in ${dir}`;
 }
 
-/** The shell command of a tmux window that continues the session and keeps a shell afterwards. */
-function tmuxResume(sessionId: string): string {
+/**
+ * The shell command that continues the session, under the config folder `configDir` if given: POSIX syntax,
+ * except on Windows, where it is written for cmd (`set "…" && claude …`).
+ */
+export function resumeShellCommand(sessionId: string, configDir?: string, platform: NodeJS.Platform = process.platform): string {
+  const claude = `claude --resume ${sessionId}`;
+  if (!configDir) return claude;
+  if (platform === "win32") return isDefaultClaudeDir(configDir) ? `set "CLAUDE_CONFIG_DIR=" && ${claude}` : `set "CLAUDE_CONFIG_DIR=${configDir}" && ${claude}`;
+  return isDefaultClaudeDir(configDir) ? `env -u CLAUDE_CONFIG_DIR ${claude}` : `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ${claude}`;
+}
+
+/** `s` in single quotes for a POSIX shell. */
+const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+
+/** The shell command of a tmux window that continues the session and keeps a shell afterwards; under `configDir` if given. */
+function tmuxResume(sessionId: string, configDir?: string): string {
   const shell = process.env.SHELL || "sh";
+  const id = sessionId.replace(/'/g, "");
+  // The window's shell stays in the account it was started for.
+  const account = configDir ? (isDefaultClaudeDir(configDir) ? "unset CLAUDE_CONFIG_DIR; " : `export CLAUDE_CONFIG_DIR=${shellQuote(configDir)}; `) : "";
   // tmux takes the environment from its server, which may itself have been started inside Claude Code.
-  return `unset ${SESSION_BOUND_VARS.join(" ")}; claude --resume '${sessionId.replace(/'/g, "")}'; exec ${shell}`;
+  return `unset ${SESSION_BOUND_VARS.join(" ")}; ${account}claude --resume '${id}'; exec ${shell}`;
 }
 
 /** The name of the Windows Terminal window a session is continued in for pairing. */
@@ -110,15 +129,15 @@ export const pairingWindow = (sessionId: string) => `cco-resume-${sessionId.slic
  * where it runs, for `cco open --target`. In Windows Terminal a window named after the session
  * (`pairingWindow`), in tmux the id of the new pane (`%7`). No target without a supported terminal.
  */
-export async function resumeForPairing(sessionId: string, dir: string, title: string): Promise<{ message: string; target?: string }> {
+export async function resumeForPairing(sessionId: string, dir: string, title: string, configDir?: string): Promise<{ message: string; target?: string }> {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     const window = pairingWindow(sessionId);
-    return { message: resumeInNewWindow(sessionId, dir, title, window), target: window };
+    return { message: resumeInNewWindow(sessionId, dir, title, window, configDir), target: window };
   }
-  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title) };
+  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title, "new", configDir) };
   const pane = await new Promise<string | undefined>((resolve) =>
-    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId)], { timeout: 10_000 }, (err, stdout) =>
+    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId, configDir)], { timeout: 10_000 }, (err, stdout) =>
       resolve(err ? undefined : String(stdout).trim() || undefined),
     ),
   );
@@ -155,6 +174,7 @@ export interface OpenOptions {
 const ACTION_DONE: Record<ViewerAction, string> = {
   restart: "cco is open; it restarts in the same place and view with the version installed now.",
   update: "cco is open; it checks for an update and asks in the settings view whether to install it.",
+  account: "cco is open; it asks in the sessions view which account to continue this session in.",
 };
 
 /**
@@ -189,14 +209,16 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   if (opts.select) viewer.push("--select", opts.select);
   if (opts.updatedTo) viewer.push("--updated-to", opts.updatedTo);
   // A restart has nothing to restart in a new viewer; an update check is run by it.
-  if (action === "update") viewer.push("--action", action);
+  if (action === "update" || action === "account") viewer.push("--action", action);
   // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
   if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
   const where = PLACE_NAMES[placement];
   const label = view ? ` ${VIEW_NAMES[view]}` : "";
   if (terminal === "tmux") {
-    const cmd = viewer.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+    // tmux starts the pane with its server's environment: the viewer keeps this process's config folder (account).
+    const account = process.env.CLAUDE_CONFIG_DIR ? `CLAUDE_CONFIG_DIR=${shellQuote(process.env.CLAUDE_CONFIG_DIR)} ` : "";
+    const cmd = account + viewer.map(shellQuote).join(" ");
     // -d leaves the current pane active; -b puts the new pane before (left of) it.
     const keep = opts.keepFocus ? ["-d"] : [];
     // Claude Code's own pane, not the one active now (a queued command runs only at the end of the turn).
@@ -244,14 +266,15 @@ export function openedFromQueue(cwd: string, claudePid: number | undefined): boo
  * detached, which waits until this process has exited and then opens the
  * viewer there. The caller quits right after. False without a supported terminal.
  * After an update (`updatedTo`), the CLI started is the new one. `target` names where the
- * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`).
+ * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`). `configDir`: the viewer
+ * goes on under another account's config folder (a session continued there), with that folder's state.
  */
-export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string): boolean {
+export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string, configDir?: string): boolean {
   if (!detectTerminal()) return false;
   const args = [CLI, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
   if (claudePid) args.push("--claude-pid", String(claudePid));
   if (updatedTo) args.push("--updated-to", updatedTo);
   if (target) args.push("--target", target);
-  proc.spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
+  proc.spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true, ...(configDir ? { env: withClaudeDir(process.env, configDir) } : {}) }).unref();
   return true;
 }

@@ -11,9 +11,10 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `move`: bring a session whose folder is gone into the viewer's project folder.
  * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
  * - `export`: write it (or the marked sessions) into a zip archive; `import`: read the sessions of one.
+ * - `account`: copy it into another account's config folder and continue it there, in a new window.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -52,6 +53,8 @@ export interface SessionSituation {
   here?: string;
   /** How many sessions are marked: export takes them instead of this one. */
   marked?: number;
+  /** The emails of the other accounts signed in on this machine: the session can continue in one of them. */
+  accounts?: string[];
   /** Windows Terminal or tmux runs the viewer: tabs can be switched and windows opened. */
   terminal: boolean;
   /** The command `copy` copies. */
@@ -125,6 +128,15 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     preferred = ["move"];
   }
   const marked = s.marked ?? 0;
+  // Only offered with a second account signed in on this machine.
+  const accounts = s.accounts ?? [];
+  if (accounts.length > 0)
+    options.push({
+      id: "account",
+      label: "Continue in another account…",
+      detail: accounts.length === 1 ? `as ${accounts[0]}, in a new window` : `${accounts.length} other accounts, in a new window`,
+      disabled: s.folderMissing ? "its folder is gone" : undefined,
+    });
   options.push(
     { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: s.state === "inactive" ? undefined : RUNS },
     marked > 0
@@ -153,6 +165,7 @@ export function enterLabel(s: SessionSituation): string {
     rename: "rename",
     export: "export",
     import: "import",
+    account: "other account",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;

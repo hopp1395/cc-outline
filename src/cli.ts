@@ -58,8 +58,8 @@ program
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   // After an update the viewer reopens and says so once.
   .addOption(new Option("--updated-to <version>").hideHelp())
-  // /cco:update opening a new viewer: it checks and asks at once.
-  .addOption(new Option("--action <action>").choices(["update"]).hideHelp())
+  // /cco:update and /cco:account opening a new viewer: it checks and asks at once, or asks for the account.
+  .addOption(new Option("--action <action>").choices(["update", "account"]).hideHelp())
   .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction }) => {
     const claudePid = validPid(opts.claudePid);
     // One viewer per Claude Code: a second one would share its state files and its /cco:… requests.
@@ -107,7 +107,7 @@ program
   .addOption(pidOption("--after-pid <pid>", "open once this viewer process has exited"))
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   .addOption(new Option("--updated-to <version>").hideHelp())
-  .addOption(new Option("--action <action>", "restart the running viewer (else open one), or check for an update and offer it").choices(VIEWER_ACTIONS))
+  .addOption(new Option("--action <action>", "restart the running viewer (else open one), check for an update and offer it, or continue the session in another account").choices(VIEWER_ACTIONS))
   // A viewer that paired with a Claude Code it started (Sessions) moves next to it: its wt window or tmux pane.
   .addOption(new Option("--target <target>").hideHelp())
   .action(async (opts: { cwd: string; view?: Mode; lastView?: boolean; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string }) => {

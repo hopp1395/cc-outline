@@ -8,8 +8,11 @@ export interface ViewerInfo {
   view?: Mode;
 }
 
-/** What a running viewer is asked to do besides showing a view: reopen itself (/cco:restart), or check for an update and offer it (/cco:update). */
-export const VIEWER_ACTIONS = ["restart", "update"] as const;
+/**
+ * What a running viewer is asked to do besides showing a view: reopen itself (/cco:restart), check for an update
+ * and offer it (/cco:update), or continue its session in another account (/cco:account; `select` names the account).
+ */
+export const VIEWER_ACTIONS = ["restart", "update", "account"] as const;
 export type ViewerAction = (typeof VIEWER_ACTIONS)[number];
 
 export interface ControlRequest {
@@ -57,6 +60,8 @@ export interface PairTarget {
   claudePid: number;
   sessionId: string;
   transcript: string;
+  /** The config folder the Claude Code runs under, when it is another account's than the viewer's (a session continued there). */
+  configDir?: string;
 }
 
 /**

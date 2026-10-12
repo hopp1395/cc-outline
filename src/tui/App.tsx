@@ -8,7 +8,7 @@ import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
 import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
-import { continueSession } from "../transcript/locate.js";
+import { continueSession, inClaudeDir } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
@@ -174,13 +174,23 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }
 
   // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
-  const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
+  const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() =>
+    initialSelect && initialAction !== "account" ? { key: initialSelect, at: Date.now() } : undefined,
+  );
+  // /cco:account: Sessions asks which account to continue the session in; `query` names one (email or folder).
+  const [accountRequest, setAccountRequest] = useState<{ at: number; query?: string } | undefined>(() =>
+    initialAction === "account" ? { at: Date.now(), query: initialSelect || undefined } : undefined,
+  );
   const showView = (view: Mode | undefined, select?: string, ask?: boolean) => {
     if (view) setMode(view);
     if (select) setSettingsSelect({ key: select, at: Date.now(), ask });
   };
   // Requests of cco open: a view, and /cco:restart and /cco:update.
   const onRequest = (view: Mode | undefined, select?: string, action?: ViewerAction) => {
+    if (action === "account") {
+      setMode("sessions");
+      return setAccountRequest({ at: Date.now(), query: select || undefined });
+    }
     showView(view, select);
     if (action === "restart") restartViewer();
     if (action === "update") checkForUpdate();
@@ -188,7 +198,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // The watcher keeps the first callback; the restart needs the view and session shown now.
   const request = useRef(onRequest);
   request.current = onRequest;
-  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: exit });
+  // While Sessions continues the session in another account, its Claude Code may be closed on purpose: the viewer stays to move along.
+  const holdOpen = useRef(false);
+  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: () => holdOpen.current || exit() });
 
   // The update check runs once at the start, unless the setting is off then.
   const [updateMode] = useState(() => readSettings().updateMode);
@@ -281,8 +293,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    * (`resumeForPairing`): the viewer reopens next to it, paired, in the chat.
    */
   const pairWithStarted = (target: PairTarget, where: string) => {
-    writeTargetSession(target);
-    if (moveViewer(target.cwd, "chat", resolvePlacement(target.cwd, target.sessionId), target.claudePid, undefined, where)) exit();
+    // A session continued in another account: its Claude Code and the viewer from now on run under that account's folder.
+    const { configDir } = target;
+    const inTarget = <T,>(fn: () => T) => (configDir ? inClaudeDir(configDir, fn) : fn());
+    inTarget(() => writeTargetSession(target));
+    const placementThere = inTarget(() => resolvePlacement(target.cwd, target.sessionId));
+    if (moveViewer(target.cwd, "chat", placementThere, target.claudePid, undefined, where, configDir)) return exit();
+    holdOpen.current = false;
   };
   // Reset: restart, and /cco:restart. The viewer says so for a moment, then reopens where it is, running the CLI on disk now.
   const restarting = useRef(false);
@@ -482,6 +499,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             // Any viewer attaches to another Claude Code, leaving its own if it has one.
             onPair={onPair ? pairWith : undefined}
             onPairStarted={onPair ? pairWithStarted : undefined}
+            onHoldOpen={(hold) => (holdOpen.current = hold)}
+            accountRequest={accountRequest}
             onDetach={claudePid !== undefined && !sessionId && onDetach ? detach : undefined}
             // A viewer of its Claude Code's live session can continue another session there (/resume).
             paired={

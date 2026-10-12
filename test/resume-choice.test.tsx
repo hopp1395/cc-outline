@@ -14,14 +14,17 @@ import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { enterLabel, isEmptySession, sessionOptions } from "../src/tui/resumeChoice.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 import type { PairTarget } from "../src/viewer.js";
+import { AccountContext } from "../src/tui/useAccount.js";
+import { inClaudeDir, projectSlug } from "../src/transcript/locate.js";
+import { readTransfers } from "../src/transfers.js";
 
-const spawned: { cmd: string; args: string[]; typed?: string; killed?: boolean }[] = [];
+const spawned: { cmd: string; args: string[]; env?: NodeJS.ProcessEnv; typed?: string; killed?: boolean }[] = [];
 /** What a started PowerShell prints once it got its line; "ok" types, anything else fails. */
 let typerAnswer = "";
 const real = { ...proc };
 beforeAll(() => {
-  proc.spawn = ((cmd: string, args: string[]) => {
-    const call: (typeof spawned)[number] = { cmd, args };
+  proc.spawn = ((cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv }) => {
+    const call: (typeof spawned)[number] = { cmd, args, env: opts?.env };
     spawned.push(call);
     const child = Object.assign(new EventEmitter(), {
       unref: () => {},
@@ -130,6 +133,15 @@ describe("sessionOptions", () => {
     const label = (marked: number) => sessionOptions({ ...base, marked }).options.find((o) => o.id === "export")!.label;
     expect(label(0)).toBe("Export it");
     expect(label(3)).toBe("Export 3 marked sessions");
+  });
+
+  it("offers another account only when one is signed in, for every state, but not for a session whose folder is gone", () => {
+    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window window-attach account rename export import copy");
+    expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account ✗rename export import copy");
+    expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account rename export import ✱copy");
+    const detail = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!.detail;
+    expect(detail(["b@x"])).toBe("as b@x, in a new window");
+    expect(detail(["b@x", "c@x"])).toBe("2 other accounts, in a new window");
   });
 
   it("names the selected action in the help line, and detaching for its own session", () => {
@@ -293,6 +305,70 @@ describe("continuing a session that runs nowhere", () => {
     view.unmount();
   });
 
+});
+
+describe("continuing a session in another account", () => {
+  it("copies it there after asking, starts it under that account's folder and pairs with it there", async () => {
+    pastSession("s1");
+    const own = claudeDir();
+    const other = mkdtempSync(join(tmpdir(), "cco-resume-other-"));
+    // The plugin is there already: nothing to install.
+    mkdirSync(join(other, "plugins"), { recursive: true });
+    writeFileSync(join(other, "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "cco@cc-outline": [{ scope: "user" }] } }));
+    const accounts = { accounts: [{ dir: own, file: "", email: "a@x" }, { dir: other, file: "", email: "b@x" }], current: { dir: own, file: "", email: "a@x" }, multiple: true, own };
+    const started: [PairTarget, string][] = [];
+    const view = renderInk(
+      <AccountContext.Provider value={accounts}>
+        <SessionsView cwd={cwd} layout={layout} visible active onPair={() => true} onPairStarted={(t, w) => void started.push([t, w])} />
+      </AccountContext.Provider>,
+      layout,
+      { wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider> },
+    );
+    await until(() => view.frame().includes("Prompts (1)"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Continue in another account…"));
+    expect(view.frame()).toContain("as b@x, in a new window");
+    await view.press("3");
+    await until(() => view.frame().includes("Continue in b@x?"));
+    expect(view.frame()).toContain("from a@x to b@x");
+    await view.press("\r");
+    await until(() => view.frame().includes("Waiting for Claude Code…"));
+    expect(existsSync(join(other, "projects", projectSlug(cwd), "s1.jsonl"))).toBe(true);
+    const wt = spawned.find((c) => c.cmd === "wt")!;
+    expect(wt.args.slice(0, 2)).toEqual(["-w", "cco-resume-s1"]);
+    expect(wt.env?.CLAUDE_CONFIG_DIR).toBe(other);
+    // The other account's hook reads the pairing request in its own folder.
+    expect(inClaudeDir(other, () => readJson<{ sessionId: string }>(pairingFile(cwd)))?.sessionId).toBe("s1");
+    expect(readTransfers(cwd).s1?.to?.[0]?.email).toBe("b@x");
+    inClaudeDir(other, () => runs("s1"));
+    await until(() => started.length > 0);
+    expect(started[0]![0]).toMatchObject({ cwd, claudePid: process.pid, sessionId: "s1", configDir: other });
+    view.unmount();
+  });
+
+  it("asks for a running session whether to close it, which waits while Claude works", async () => {
+    pastSession("s1");
+    runs("s1", "busy");
+    const own = claudeDir();
+    const other = mkdtempSync(join(tmpdir(), "cco-resume-other-"));
+    const accounts = { accounts: [{ dir: own, file: "", email: "a@x" }, { dir: other, file: "", email: "b@x" }], current: { dir: own, file: "", email: "a@x" }, multiple: true, own };
+    const view = renderInk(
+      <AccountContext.Provider value={accounts}>
+        <SessionsView cwd={cwd} layout={layout} visible active onPair={() => true} />
+      </AccountContext.Provider>,
+      layout,
+      { wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider> },
+    );
+    await until(() => view.frame().includes("Prompts (1)") && view.frame().includes("↵ attach"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Continue in another account…"));
+    await view.press("3");
+    await until(() => view.frame().includes("Continue in b@x?"));
+    expect(view.frame()).toContain("installs the cco plugin there first");
+    expect(view.frame()).toContain("Claude is working; close it once it is idle");
+    expect(view.frame()).toMatch(/› +Continue there, keep it running/);
+    view.unmount();
+  });
 });
 
 describe("Enter on a session that runs", () => {
