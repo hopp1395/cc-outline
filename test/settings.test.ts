@@ -166,6 +166,17 @@ describe("settings view", () => {
     expect(lines.join("\n")).toContain("\u001b[33mF5\u001b[39m in Settings");
   });
 
+  it("lists the account colours one per line, each name once, on its colour", () => {
+    const row = SETTING_ROWS.find((r) => r.key === "accountColor")!;
+    const lines = settingLines(row, "redBright", 2000, { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app") });
+    const text = plain(lines);
+    expect(text).toContain("○  black \n○  red ");
+    expect(text).toContain("○  blackBright \n●  redBright \n○  greenBright ");
+    expect(text.match(/redBright/g)).toHaveLength(1);
+    // Bright red background (101) with black text.
+    expect(lines.join("\n")).toContain("\u001b[101;30m redBright ");
+  });
+
   it("gives the ranges' first day as an example, counted from today", () => {
     const text = details("sessionsRange");
     expect(text).toContain("only today, since Wed 30 Sep 00:00");

@@ -18,19 +18,33 @@ export interface Account {
   rateLimitTier?: string;
 }
 
-/** Dark colours for the account's badge, each readable with white text and apart from the blue focus bar. */
+/**
+ * The console's 16 colours for the account's badge, in ANSI order (0–15) and under Ink's names, so they show in the
+ * terminal theme's colours. Each with the text colour that stays readable on it: white on the dark ones, black on
+ * the bright ones and white.
+ */
 export const ACCOUNT_COLORS = {
-  teal: "#0f766e",
-  green: "#3f7d20",
-  amber: "#a15c07",
-  orange: "#c2410c",
-  red: "#b91c1c",
-  pink: "#be185d",
-  purple: "#7e22ce",
-  indigo: "#4338ca",
+  black: "whiteBright",
+  red: "whiteBright",
+  green: "whiteBright",
+  yellow: "whiteBright",
+  blue: "whiteBright",
+  magenta: "whiteBright",
+  cyan: "whiteBright",
+  white: "black",
+  blackBright: "black",
+  redBright: "black",
+  greenBright: "black",
+  yellowBright: "black",
+  blueBright: "black",
+  magentaBright: "black",
+  cyanBright: "black",
+  whiteBright: "black",
 } as const;
 export type AccountColorName = keyof typeof ACCOUNT_COLORS;
 export const ACCOUNT_COLOR_NAMES = Object.keys(ACCOUNT_COLORS) as AccountColorName[];
+/** The colours `auto` picks from: the coloured ones, without black, white and gray, and without blue, the focus bar's. */
+export const AUTO_COLORS: AccountColorName[] = ["red", "green", "yellow", "magenta", "cyan", "redBright", "greenBright", "yellowBright", "magentaBright", "cyanBright"];
 /** The setting's values: `auto` takes the colour from the email, `off` shows none in the top bar, the rest fix it. */
 export const ACCOUNT_COLOR_VALUES = ["auto", "off", ...ACCOUNT_COLOR_NAMES] as const;
 export type AccountColorSetting = (typeof ACCOUNT_COLOR_VALUES)[number];
@@ -48,7 +62,7 @@ function hash(text: string): number {
 /** The colour name of an account: the email's hash, or `chosen` where it is not `auto`. */
 export function accountColorName(email: string, chosen: AccountColorSetting = "auto"): AccountColorName {
   if (chosen !== "auto" && chosen !== "off") return chosen;
-  return ACCOUNT_COLOR_NAMES[hash(email.trim().toLowerCase()) % ACCOUNT_COLOR_NAMES.length];
+  return AUTO_COLORS[hash(email.trim().toLowerCase()) % AUTO_COLORS.length];
 }
 
 const same = (a: string, b: string) => (process.platform === "win32" ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b));

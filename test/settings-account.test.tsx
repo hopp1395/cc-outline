@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
-import { ACCOUNT_COLORS, type Account } from "../src/account.js";
+import { accountColorName, type Account } from "../src/account.js";
 import { DEFAULT_SETTINGS, readSettings, settingsFile } from "../src/settings.js";
 import type { Layout } from "../src/tui/layout.js";
 import { SETTING_ROWS, SettingsView, settingsEntries } from "../src/tui/SettingsView.js";
@@ -44,10 +44,20 @@ describe("Account group in the settings", () => {
     mkdirSync(join(process.env.CLAUDE_CONFIG_DIR!, "cco"), { recursive: true });
     writeFileSync(settingsFile(), JSON.stringify({ accountBadge: false }));
     expect(readSettings().accountColor).toBe("off");
-    writeFileSync(settingsFile(), JSON.stringify({ accountBadge: false, accountColor: "pink" }));
-    expect(readSettings().accountColor).toBe("pink");
+    writeFileSync(settingsFile(), JSON.stringify({ accountBadge: false, accountColor: "magentaBright" }));
+    expect(readSettings().accountColor).toBe("magentaBright");
     writeFileSync(settingsFile(), JSON.stringify({ accountBadge: true }));
     expect(readSettings().accountColor).toBe("auto");
+  });
+
+  it("takes the colours before the console's 16 back to auto", () => {
+    mkdirSync(join(process.env.CLAUDE_CONFIG_DIR!, "cco"), { recursive: true });
+    for (const old of ["teal", "amber", "orange", "pink", "purple", "indigo"]) {
+      writeFileSync(settingsFile(), JSON.stringify({ accountColor: old }));
+      expect(readSettings().accountColor).toBe("auto");
+    }
+    writeFileSync(settingsFile(), JSON.stringify({ accountColor: "red" }));
+    expect(readSettings().accountColor).toBe("red");
   });
 
   it("keeps an entry while no account is found", () => {
@@ -58,7 +68,7 @@ describe("Account group in the settings", () => {
   it("shows the accounts in the list under their own separator", async () => {
     const work = account(".claude-work", "work@example.com");
     const me = account(".claude-personal", "me@example.com");
-    const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir, color: ACCOUNT_COLORS.teal };
+    const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir, color: "cyan" };
     const app = renderInk(
       <AccountContext.Provider value={state}>
         <SettingsView cwd={cwd} layout={layout} active={false} />
@@ -69,8 +79,11 @@ describe("Account group in the settings", () => {
     const frame = app.frame();
     // The active account is marked, the other one is not; the folder tells them apart.
     expect(frame).toContain("● me@example.com (.claude-personal)");
-    expect(frame).toContain("○ work@example.com (.claude-work)");
+    // The colour badge may cut the label.
+    expect(frame).toContain("○ work@example.com (.claude-w");
     expect(frame).toContain("how accounts are found");
+    // The colour name at the right end, as a badge with a space on each side.
+    expect(frame).toContain(` ${accountColorName("me@example.com")} `);
     app.unmount();
   });
 

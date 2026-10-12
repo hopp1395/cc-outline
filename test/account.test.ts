@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCOUNT_COLOR_NAMES, accountColorName, accountDirs, accountInfo, accountOfProcess, colorOfAccount, findAccounts, readAccount } from "../src/account.js";
+import { ACCOUNT_COLOR_NAMES, AUTO_COLORS, accountColorName, accountDirs, accountInfo, accountOfProcess, colorOfAccount, findAccounts, readAccount } from "../src/account.js";
 
 /** A home folder with the given config folders; a value is the email its `.claude.json` names, undefined: no such file. */
 function homeWith(folders: Record<string, string | undefined>, homeFile?: string): string {
@@ -62,12 +62,19 @@ describe("accounts", () => {
 
   it("gives an email the same colour every time, whatever its case, and a chosen one wins", () => {
     const color = accountColorName("work@example.com");
-    expect(ACCOUNT_COLOR_NAMES).toContain(color);
+    expect(AUTO_COLORS).toContain(color);
     expect(accountColorName(" Work@Example.com ")).toBe(color);
-    expect(accountColorName("work@example.com", "pink")).toBe("pink");
+    expect(accountColorName("work@example.com", "magentaBright")).toBe("magentaBright");
     // Different emails spread over the palette.
     const used = new Set(Array.from({ length: 40 }, (_, i) => accountColorName(`user${i}@example.com`)));
     expect(used.size).toBeGreaterThan(3);
+  });
+
+  it("offers the console's 16 colours in ANSI order, auto only the coloured ones apart from blue", () => {
+    expect(ACCOUNT_COLOR_NAMES).toEqual(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "blackBright", "redBright", "greenBright", "yellowBright", "blueBright", "magentaBright", "cyanBright", "whiteBright"]);
+    const used = new Set(Array.from({ length: 200 }, (_, i) => accountColorName(`user${i}@example.com`)));
+    for (const name of ["black", "white", "blackBright", "whiteBright", "blue", "blueBright"]) expect(used).not.toContain(name);
+    expect(used.size).toBe(AUTO_COLORS.length);
   });
 
   it("applies the colour chosen in this viewer's settings only to its own folder", () => {
@@ -75,7 +82,7 @@ describe("accounts", () => {
     const own = join(home, ".claude-personal");
     const info = accountInfo(undefined, home, own);
     const [mine, other] = info.accounts;
-    expect(colorOfAccount(mine, info, "pink")).toBe("pink");
-    expect(colorOfAccount(other, info, "pink")).toBe(accountColorName("work@example.com"));
+    expect(colorOfAccount(mine, info, "magentaBright")).toBe("magentaBright");
+    expect(colorOfAccount(other, info, "magentaBright")).toBe(accountColorName("work@example.com"));
   });
 });
