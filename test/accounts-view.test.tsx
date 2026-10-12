@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -7,7 +7,7 @@ import { proc } from "../src/proc.js";
 import { renderInk, until } from "./helpers/ink.js";
 import type { Account } from "../src/account.js";
 import { accountSessions, transcriptTitle } from "../src/accountsInfo.js";
-import { readSettings } from "../src/settings.js";
+import { isViewShown, nextShownView, readSettings, updateSettings } from "../src/settings.js";
 import { projectSlug } from "../src/transcript/locate.js";
 import { accountEntries, AccountsView } from "../src/tui/AccountsView.js";
 import { tabAt, type Layout } from "../src/tui/layout.js";
@@ -87,6 +87,41 @@ describe("the Accounts view", () => {
     const c = account("/c", "bob@x");
     expect(accountEntries({ accounts: [b, a, c], current: a }).map((e) => (e.kind === "account" ? e.account.email : e.kind))).toEqual(["zed@x", "amy@x", "bob@x", "details"]);
     expect(accountEntries({ accounts: [] }).map((e) => e.kind)).toEqual(["none", "details"]);
+  });
+
+  it("sorts the other accounts by email, folder or last use, the active one always first", () => {
+    const a = account(join(own, "z"), "zed@x");
+    const b = account(join(own, ".claude-b"), "amy@x");
+    const c = account(join(own, ".claude-a"), "bob@x");
+    mkdirSync(b.dir, { recursive: true });
+    mkdirSync(c.dir, { recursive: true });
+    writeFileSync(join(b.dir, "history.jsonl"), "");
+    writeFileSync(join(c.dir, "history.jsonl"), "");
+    utimesSync(join(b.dir, "history.jsonl"), new Date(1000), new Date(1000));
+    utimesSync(join(c.dir, "history.jsonl"), new Date(2000), new Date(2000));
+    const emails = (order: "email" | "folder" | "recent") =>
+      accountEntries({ accounts: [b, a, c], current: a }, order).flatMap((e) => (e.kind === "account" ? [e.account.email] : []));
+    expect(emails("email")).toEqual(["zed@x", "amy@x", "bob@x"]);
+    expect(emails("folder")).toEqual(["zed@x", "bob@x", "amy@x"]);
+    expect(emails("recent")).toEqual(["zed@x", "bob@x", "amy@x"]);
+  });
+
+  it("goes round the orders with s and keeps the choice", async () => {
+    const view = render();
+    await until(() => view.frame().includes("jan@work.com"));
+    await view.press("s");
+    await expect.poll(() => readSettings().accountsOrder).toBe("folder");
+    await view.press("s");
+    await view.press("s");
+    await expect.poll(() => readSettings().accountsOrder).toBe("email");
+    view.unmount();
+  });
+
+  it("is not reached by a click on the cco while it is off", () => {
+    updateSettings({ viewAccounts: false });
+    expect(tabAt(1, readSettings(), "chat")).toBeUndefined();
+    expect(isViewShown(readSettings(), "accounts")).toBe(false);
+    expect(nextShownView(readSettings(), "chat", -1)).toBe("settings");
   });
 
   it("reads the sessions of the project in another account without reading them in full", () => {

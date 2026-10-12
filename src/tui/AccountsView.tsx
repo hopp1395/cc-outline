@@ -1,7 +1,8 @@
 import { Text, useInput } from "ink";
 import { basename } from "node:path";
 import { useEffect, useMemo, useState } from "react";
-import { colorOfAccount, hasChosenColor, type Account } from "../account.js";
+import { accountUsedAt, colorOfAccount, hasChosenColor, type Account } from "../account.js";
+import { ACCOUNTS_ORDER_VALUES, type AccountsOrder } from "../settings.js";
 import { accountPlugin, accountRunning, accountSessions } from "../accountsInfo.js";
 import { haystack } from "../filter.js";
 import { TIMING } from "../timing.js";
@@ -15,7 +16,7 @@ import { useAccountState, type AccountState } from "./useAccount.js";
 import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
-import { useSettings } from "./useSetting.js";
+import { useSetting, useSettings } from "./useSetting.js";
 import { ownSession, useAccountFlow } from "./useAccountFlow.js";
 import type { PairTarget } from "../viewer.js";
 
@@ -54,10 +55,17 @@ const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
 const magenta = (s: string) => `\u001b[35m${s}\u001b[39m`;
 const heading = (s: string) => `\u001b[1;36m${s}\u001b[22;39m`;
 
-/** The active account first, the others by email, then how they are found; a note first while there is none. */
-export function accountEntries(state: Pick<AccountState, "accounts" | "current">): Entry[] {
+/** How the other accounts are sorted, for each value of the `accountsOrder` setting. */
+const ORDERS: Record<AccountsOrder, (a: Account, b: Account) => number> = {
+  email: (a, b) => a.email.localeCompare(b.email),
+  folder: (a, b) => basename(a.dir).localeCompare(basename(b.dir)) || a.email.localeCompare(b.email),
+  recent: (a, b) => accountUsedAt(b) - accountUsedAt(a) || a.email.localeCompare(b.email),
+};
+
+/** The active account first, the others in `order` (by email by default), then how they are found; a note first while there is none. */
+export function accountEntries(state: Pick<AccountState, "accounts" | "current">, order: AccountsOrder = "email"): Entry[] {
   const current = state.current && state.accounts.find((a) => a.dir === state.current!.dir);
-  const others = state.accounts.filter((a) => a !== current).sort((a, b) => a.email.localeCompare(b.email));
+  const others = state.accounts.filter((a) => a !== current).sort(ORDERS[order]);
   const accounts = [...(current ? [current] : []), ...others].map((account): Entry => ({ kind: "account", account }));
   return [...(accounts.length ? accounts : [{ kind: "none" } as Entry]), { kind: "details" }];
 }
@@ -77,7 +85,8 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
   const settings = useSettings();
   const favorites = useFavorites(cwd, "accounts");
   const positions = usePositions(cwd, "accounts");
-  const entries = useMemo(() => accountEntries(state), [state.accounts, state.current?.dir]);
+  const [order, setOrder] = useSetting("accountsOrder");
+  const entries = useMemo(() => accountEntries(state, order), [state.accounts, state.current?.dir, order]);
   const [selectedKey, setSelectedKey] = useState<string | undefined>(positions.selected);
   const found = entries.findIndex((e) => keyOf(e) === selectedKey);
   const index = found >= 0 ? found : 0;
@@ -200,6 +209,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     (input, key) => {
       if (filter.handleKey(input, key)) return;
       if (key.return) return enter();
+      if (input === "s") return setOrder(ACCOUNTS_ORDER_VALUES[(ACCOUNTS_ORDER_VALUES.indexOf(order) + 1) % ACCOUNTS_ORDER_VALUES.length]);
       const mark = markKeys(input, key);
       if (mark === "toggle") {
         if (!account) return;
@@ -267,6 +277,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
             ...markFooter(favorites.isMarked(account?.dir), markedCount),
             ...filter.footer,
             ...(account ? [{ text: "↵ actions…", priority: 3 }] : []),
+            { text: `s order: ${order}`, on: order !== "email", priority: 2 },
             { text: "0-6/tab view", priority: 1 },
           ]
         }

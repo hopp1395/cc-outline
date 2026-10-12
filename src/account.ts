@@ -163,6 +163,21 @@ export function colorOfAccount(account: Account, info: Pick<AccountInfo, "own">,
   return accountColorName(account.email, same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto"));
 }
 
+/**
+ * When the account of `account.dir` was last used: Claude Code adds each prompt to `history.jsonl` there; without it,
+ * when its `.claude.json` was written. 0 if neither can be read.
+ */
+export function accountUsedAt(account: Pick<Account, "dir" | "file">): number {
+  for (const file of [join(account.dir, "history.jsonl"), account.file]) {
+    try {
+      return statSync(file).mtimeMs;
+    } catch {
+      // not there
+    }
+  }
+  return 0;
+}
+
 /** The colour of the bar that marks the sessions of `account` in the Sessions view: its colour, gray where it is `off`. */
 export function barColorOfAccount(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): AccountColorName | "gray" {
   const value = same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto");

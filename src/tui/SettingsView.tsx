@@ -421,6 +421,14 @@ export const SETTING_ROWS: Row[] = [
       "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. It shows only while cco finds two or more accounts.",
     values: ON_OFF("the title ends with the email of the account", "the title is the session's title alone"),
   },
+  {
+    key: "viewAccounts",
+    group: "Account",
+    label: "accounts view",
+    description:
+      "Whether the Accounts view (the accounts found, their plugin, what runs there and the project's sessions in each) is reachable with `0`, a click on the \"cco\" at the left of the top bar, and `←` `→` / `Tab`. The \"cco\" stays either way, in the account's colour. `/cco:accounts` opens the view also while it is off, as `--view` does for a hidden tab.",
+    values: ON_OFF("`0`, the click on \"cco\" and `Tab` reach it", "`0` and the click do nothing, `Tab` skips it"),
+  },
   listWidthRow(
     "accountsListWidth",
     "Account",
@@ -428,6 +436,18 @@ export const SETTING_ROWS: Row[] = [
     "Accounts",
     "The Accounts view (`0`, or a click on the \"cco\" at the left of the top bar) lists the accounts by email: a wider list shows long emails in full, a narrower one leaves the details more room.",
   ),
+  {
+    key: "accountsOrder",
+    group: "Account",
+    label: "accounts order",
+    description: "The order of the Accounts view's list below the active account, which always comes first.",
+    values: [
+      ["email", "by email, e.g. jan@work.com before me@home.de"],
+      ["folder", "by the config folder's name, e.g. .claude before .claude-work"],
+      ["recent", "the account used last first: the latest prompt in its `history.jsonl`, else when its `.claude.json` was written"],
+    ],
+    viewKey: "`s` in Accounts",
+  },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
   {

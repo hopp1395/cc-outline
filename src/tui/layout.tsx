@@ -397,9 +397,9 @@ function shownTabs(settings: Settings, mode: Mode) {
   return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
 }
 
-/** The view whose tab is at column `x` of the top bar, or undefined; the "cco" at its start is the Accounts view's (0). */
+/** The view whose tab is at column `x` of the top bar, or undefined; the "cco" at its start is the Accounts view's (0), unless that is off. */
 export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefined {
-  if (x >= 0 && x < TABS_LEAD.length - 1) return "accounts";
+  if (x >= 0 && x < TABS_LEAD.length - 1) return isViewShown(settings, "accounts") ? "accounts" : undefined;
   let start = TABS_LEAD.length;
   for (const tab of shownTabs(settings, mode)) {
     const end = start + tabText(tab).length;

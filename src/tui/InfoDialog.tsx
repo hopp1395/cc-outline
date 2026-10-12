@@ -105,7 +105,8 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
   accounts: [
     ...LIST_KEYS("account"),
-    ["↵", "continue this session there"],
+    ["↵", "actions: continue this session there, a new session, its folder"],
+    ["s", "order: email → folder → last used"],
     ...COMMON_KEYS,
   ],
 };

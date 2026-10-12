@@ -45,6 +45,10 @@ export const scopeAccounts = (scope: SessionsScope) => scope === "project-accoun
 /** The scope after `scope`, for a in Sessions. */
 export const nextScope = (scope: SessionsScope): SessionsScope => SESSIONS_SCOPE_VALUES[(SESSIONS_SCOPE_VALUES.indexOf(scope) + 1) % SESSIONS_SCOPE_VALUES.length];
 
+/** The order of the other accounts in the Accounts view (s there), below the active one: by email, by folder name, or the one used last first. */
+export const ACCOUNTS_ORDER_VALUES = ["email", "folder", "recent"] as const;
+export type AccountsOrder = (typeof ACCOUNTS_ORDER_VALUES)[number];
+
 /** What the list filter (Ctrl+F) looks at: the entries' rows, their details, or both. */
 export const FILTER_IN_VALUES = ["list", "details", "both"] as const;
 export type FilterIn = (typeof FILTER_IN_VALUES)[number];
@@ -132,6 +136,10 @@ export interface Settings {
   monitorListWidth: ListWidth;
   settingsListWidth: ListWidth;
   accountsListWidth: ListWidth;
+  /** Accounts: the view is reachable with 0, a click on the "cco" and ←/→; /cco:accounts opens it either way. */
+  viewAccounts: boolean;
+  /** Accounts: the order of the other accounts (s in the view). */
+  accountsOrder: AccountsOrder;
   /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
   viewChat: boolean;
   viewGit: boolean;
@@ -174,6 +182,8 @@ export const DEFAULT_SETTINGS: Settings = {
   monitorListWidth: "normal",
   settingsListWidth: "normal",
   accountsListWidth: "normal",
+  viewAccounts: true,
+  accountsOrder: "email",
   viewChat: true,
   viewGit: true,
   viewPlan: true,
@@ -212,7 +222,8 @@ export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
 
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
-  return mode === "settings" || mode === "accounts" || settings[VIEW_SETTINGS[mode]] === true;
+  if (mode === "accounts") return settings.viewAccounts;
+  return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
 }
 
 /** The views in tab order. */
@@ -255,6 +266,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   monitorListWidth: LIST_WIDTH_VALUES,
   settingsListWidth: LIST_WIDTH_VALUES,
   accountsListWidth: LIST_WIDTH_VALUES,
+  accountsOrder: ACCOUNTS_ORDER_VALUES,
 };
 
 export function settingsFile(): string {
