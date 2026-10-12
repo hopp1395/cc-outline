@@ -9,6 +9,8 @@ const REFRESH_MS = 30_000;
 export interface AccountState extends AccountInfo {
   /** The shown account's colour; undefined without an account. */
   color?: AccountColorName;
+  /** Reads the folders again at once (an account moved to the trash or back). */
+  refresh?: () => void;
 }
 
 const EMPTY: AccountState = { accounts: [], multiple: false, own: "" };
@@ -26,5 +28,5 @@ export function useAccounts(pid?: number): AccountState {
     return () => clearInterval(timer);
   }, []);
   const info = useMemo(() => accountInfo(pid), [pid, tick]);
-  return { ...info, color: info.current && colorOfAccount(info.current, info, chosen) };
+  return { ...info, color: info.current && colorOfAccount(info.current, info, chosen), refresh: () => setTick((t) => t + 1) };
 }

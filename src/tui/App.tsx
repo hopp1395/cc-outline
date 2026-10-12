@@ -164,7 +164,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const was = reported.current[m];
     reported.current = { ...reported.current, [m]: open };
     // A detail opened from the full list shows over the whole pane; the trash is a list itself.
-    if (m !== "sessions") setFolds((f) => ({ ...f, [m]: detailFold(readSettings()[LIST_WIDTH_SETTINGS[m]], f[m], open, was) }));
+    if (m !== "sessions" && m !== "accounts") setFolds((f) => ({ ...f, [m]: detailFold(readSettings()[LIST_WIDTH_SETTINGS[m]], f[m], open, was) }));
     setDetailOpen((d) => ({ ...d, [m]: open }));
   };
   const viewLayout = (m: Mode) => layoutOf(m, folds[m].drilled);
@@ -554,6 +554,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onPairStarted={onPair ? pairWithStarted : undefined}
             onHoldOpen={(hold) => (holdOpen.current = hold)}
             noSession={noSession}
+            onTrashOpen={setDetail("accounts")}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>

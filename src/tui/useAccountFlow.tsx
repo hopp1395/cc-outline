@@ -7,6 +7,17 @@ import { continueInAccount, matchAccount, otherAccounts, type ContinuePlan } fro
 import { pluginSteps } from "../accountSetup.js";
 import { accountsHome, checkNewAccount, claudeBinDir, powershellAliases, writeAccountFiles, type StartScript } from "../addAccount.js";
 import { AddAccountDialog } from "./AddAccountDialog.js";
+import {
+  accountDeleteBlocker,
+  accountTrashPlan,
+  emptyAccountTrash,
+  purgeAccount,
+  restoreAccount,
+  sizeText,
+  trashAccount,
+  type AccountTrashEntry,
+} from "../accountTrash.js";
+import { TypedConfirmDialog, type TypedConfirmation } from "./TypedConfirmDialog.js";
 import { detectTerminal, openInDefaultApp, resumeForPairing, resumeInNewWindow, resumeShellCommand, scriptInNewWindow } from "../open.js";
 import { prepareConsoleInput, type ConsoleTyper } from "../switchSession.js";
 import { TIMING } from "../timing.js";
@@ -108,6 +119,12 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
   const copy = useClipboard();
   const [choice, setChoice] = useState<Choice>();
   const [confirmation, setConfirmation] = useState<Confirmation>();
+  // The second confirmation of the danger zone: a word to type.
+  const [typed, setTyped] = useState<TypedConfirmation>();
+  // The account moved to the trash last, for u (undo); and a count that tells the trash list to read again.
+  const [lastTrashed, setLastTrashed] = useState<string>();
+  const [trashChanged, setTrashChanged] = useState(0);
+  const [viewAccounts] = useSetting("viewAccounts");
   const [run, setRun] = useState<Progress>();
   const [pairing, setPairing] = useState<Pairing>();
   // Adding an account: where its start scripts go, while the dialog asks for its names.
@@ -356,6 +373,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
    */
   const accountMenu = (account: Account, cwd: string, own: OwnSession | undefined, noSession?: string) => {
     const active = account.dir === accountState.current?.dir;
+    const blocker = accountDeleteBlocker(account.dir, accountState.current?.dir);
     const plugin = pluginSteps(account.dir).length > 0 ? " · gets the cco plugin" : "";
     setChoice({
       title: `What to do in ${truncate(account.email, 40)}?`,
@@ -374,6 +392,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
         { id: "new", label: "Start a new session there", detail: truncate(`in ${tilde(cwd)}, in a new window${plugin}`, HEAD_WIDTH) },
         { id: "new-attach", label: "Start a new session and attach the viewer", detail: "the viewer moves next to it, into that account" },
         { id: "folder", label: "Open its config folder", detail: truncate(tilde(account.dir), HEAD_WIDTH) },
+        { id: "trash", label: "Move this account to the trash…", detail: "its folder and start scripts; they can be restored", disabled: blocker, danger: true },
       ],
       initial: !active && own ? 0 : 1,
       onChoose: (id) => {
@@ -381,11 +400,135 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
         if (id === "continue" && own) return askHow(own.summary, account, own.claude, own.dir);
         if (id === "new") return void startNew(account, cwd, false);
         if (id === "new-attach") return void startNew(account, cwd, true);
+        if (id === "trash") return askTrash(account);
         if (id === "folder") {
           openInDefaultApp(account.dir);
           notify(`opened ${tilde(account.dir)}`);
         }
       },
+    });
+  };
+
+  /** Where the accounts trash is: in the Accounts view, reached with 0, or with /cco:accounts while that view is off. */
+  const trashHint = viewAccounts ? "0 › T" : "/cco:accounts › T";
+  const accountLine = (account: Account) => `${accountBar(account, accountState, accountColor)} ${truncate(`${account.email} · ${tilde(account.dir)}`, HEAD_WIDTH - 2)}`;
+  const changed = () => {
+    accountState.refresh?.();
+    setTrashChanged((n) => n + 1);
+  };
+  const failed = (title: string, text: string, err: unknown) => setRun({ title, status: "failed", text, lines: [(err as Error).message] });
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  /**
+   * Moves `account` to the trash after two confirmations: what moves, then its folder name typed. Refused with the
+   * reason for the default and the active account and while a Claude Code or a viewer runs with it.
+   */
+  const askTrash = (account: Account) => {
+    const blocker = accountDeleteBlocker(account.dir, accountState.current?.dir);
+    if (blocker) return notify(`can't delete: ${blocker}`);
+    const plan = accountTrashPlan(account);
+    setConfirmation({
+      title: "Move this account to the trash?",
+      danger: true,
+      lines: [
+        accountLine(account),
+        ...(account.organization ? [truncate(`organization ${account.organization}`, HEAD_WIDTH)] : []),
+        `${count(plan.sessions, "session")} · ${sizeText(plan.size)}`,
+        ...(plan.scripts.length ? plan.scripts.map((f) => truncate(`script  ${tilde(f)}`, HEAD_WIDTH)) : ["no start script found"]),
+        "",
+        `It can be restored from the trash (${trashHint}).`,
+      ],
+      onConfirm: () =>
+        setTyped({
+          title: "Really move it to the trash?",
+          lines: [accountLine(account)],
+          word: basename(account.dir),
+          onConfirm: () => {
+            try {
+              const entry = trashAccount(account, accountState.current?.dir);
+              setLastTrashed(entry.id);
+              changed();
+              notify(`moved to the trash · u undo · ${trashHint} trash`);
+            } catch (err) {
+              failed("Move to the trash", "The account was not moved", err);
+            }
+          },
+        }),
+    });
+  };
+
+  /** Brings an account back from the trash; refused when its folder or a script exists again. */
+  const restore = (id: string) => {
+    try {
+      const entry = restoreAccount(id);
+      if (id === lastTrashed) setLastTrashed(undefined);
+      changed();
+      notify(`restored ${entry.account.email}`);
+    } catch (err) {
+      failed("Restore the account", "The account was not restored", err);
+    }
+  };
+  /** u after a move to the trash: brings it back. False when there is nothing to undo. */
+  const undoTrash = () => {
+    if (!lastTrashed) return false;
+    restore(lastTrashed);
+    return true;
+  };
+
+  /** Deletes an account in the trash for good, after two confirmations. */
+  const askPurge = (entry: AccountTrashEntry, cwd: string) => {
+    const head = truncate(`${entry.account.email} · ${tilde(entry.folder.from)}`, HEAD_WIDTH);
+    setConfirmation({
+      title: "Delete this account for good?",
+      danger: true,
+      lines: [
+        head,
+        `${count(entry.sessions, "session")} · ${sizeText(entry.size)}${entry.scripts.length ? ` · ${count(entry.scripts.length, "script")}` : ""}`,
+        "",
+        "Its login, sessions and settings are deleted.",
+        "This can't be undone.",
+      ],
+      onConfirm: () =>
+        setTyped({
+          title: "Really delete it for good?",
+          lines: [head],
+          word: basename(entry.folder.from),
+          onConfirm: () => {
+            try {
+              purgeAccount(entry.id, cwd);
+              changed();
+              notify(`deleted ${entry.account.email} for good`);
+            } catch (err) {
+              failed("Delete the account", "The account was not deleted", err);
+            }
+          },
+        }),
+    });
+  };
+
+  /** Empties the accounts trash, after two confirmations (the second: `delete` typed). */
+  const askEmpty = (entries: AccountTrashEntry[], cwd: string) => {
+    if (entries.length === 0) return;
+    const accounts = count(entries.length, "account");
+    setConfirmation({
+      title: "Empty the accounts trash?",
+      danger: true,
+      lines: [accounts, "", "They are deleted for good, with their logins,", "sessions and settings. This can't be undone."],
+      onConfirm: () =>
+        setTyped({
+          title: "Really empty the trash?",
+          lines: [accounts],
+          word: "delete",
+          onConfirm: () => {
+            try {
+              emptyAccountTrash(cwd);
+              changed();
+              notify("accounts trash emptied");
+            } catch (err) {
+              failed("Empty the trash", "The trash was not emptied", err);
+            }
+          },
+        }),
     });
   };
 
@@ -437,6 +580,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
         <AddAccountDialog layout={layout} binDir={tilde(adding.dir)} onPath={adding.onPath} check={checkAccount} onAdd={addAccount} onCancel={() => setAdding(undefined)} />
       )}
       {confirmation && <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />}
+      {typed && <TypedConfirmDialog key={typed.title} layout={layout} confirmation={typed} onClose={() => setTyped(undefined)} />}
       {choice && <ChoiceDialog key={choice.title} layout={layout} choice={choice} onClose={closeChoice} />}
     </>
   );
@@ -445,8 +589,14 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     askHow,
     accountMenu,
     askAddAccount,
+    askTrash,
+    askPurge,
+    askEmpty,
+    restore,
+    undoTrash,
+    trashChanged,
     startPairing,
-    open: choice !== undefined || confirmation !== undefined || run !== undefined || pairing !== undefined || adding !== undefined,
+    open: choice !== undefined || confirmation !== undefined || run !== undefined || pairing !== undefined || adding !== undefined || typed !== undefined,
     element,
   };
 }

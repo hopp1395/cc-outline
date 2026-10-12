@@ -23,6 +23,8 @@ export interface ChoiceOption<T extends string = string> {
   detail: string;
   /** Why it cannot be chosen now; shown instead of the detail. */
   disabled?: string;
+  /** Hard to undo: shown in red, below a "Danger zone" line (above the first such option). */
+  danger?: boolean;
 }
 
 /** The Claude Code a viewer belongs to, as far as continuing a session in it matters. */

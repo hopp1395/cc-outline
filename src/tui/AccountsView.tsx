@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { accountUsedAt, colorOfAccount, hasChosenColor, type Account } from "../account.js";
 import { ACCOUNTS_ORDER_VALUES, type AccountsOrder } from "../settings.js";
 import { accountPlugin, accountRunning, accountSessions } from "../accountsInfo.js";
+import { listAccountTrash, sizeText, type AccountTrashEntry } from "../accountTrash.js";
 import { haystack } from "../filter.js";
 import { TIMING } from "../timing.js";
 import { useFocused } from "./focus.js";
@@ -39,12 +40,14 @@ interface Props {
   onPairStarted?: (target: PairTarget, where: string) => void;
   /** While true, the viewer stays open when its Claude Code ends (closed on purpose). */
   onHoldOpen?: (hold: boolean) => void;
+  /** Reports whether the trash is shown, so Esc leaves it instead of quitting. */
+  onTrashOpen?: (open: boolean) => void;
 }
 
 /** An entry of the list: an account, a note that there is none, or how they are looked for. */
-type Entry = { kind: "account"; account: Account } | { kind: "none" } | { kind: "details" } | { kind: "add" };
+type Entry = { kind: "account"; account: Account } | { kind: "none" } | { kind: "details" } | { kind: "add" } | { kind: "trashed"; entry: AccountTrashEntry };
 
-const keyOf = (e: Entry) => (e.kind === "account" ? e.account.dir : e.kind);
+const keyOf = (e: Entry) => (e.kind === "account" ? e.account.dir : e.kind === "trashed" ? `trash:${e.entry.id}` : e.kind);
 
 /** How often the running Claude Codes are read while the view is shown; the rest goes with the account list (30 s) and F5. */
 const RUNNING_MS = 3000;
@@ -62,6 +65,28 @@ const ORDERS: Record<AccountsOrder, (a: Account, b: Account) => number> = {
   recent: (a, b) => accountUsedAt(b) - accountUsedAt(a) || a.email.localeCompare(b.email),
 };
 
+/** The preview of an account in the trash: what it was, what moved and how to get it back. */
+function trashedLines(t: AccountTrashEntry): string[] {
+  const field = (name: string, value: string | undefined) => (value ? [`  ${dim(`${name}:`)} ${value}`] : []);
+  const a = t.account;
+  return [
+    heading("Account"),
+    ...field("name", a.name),
+    ...field("organization", [a.organization, a.organizationType && `(${a.organizationType})`].filter(Boolean).join(" ")),
+    ...field("billing", a.billing),
+    ...field("seat", a.seat),
+    "",
+    heading("In the trash"),
+    ...field("deleted", when(t.deletedAt)),
+    ...field("folder", tilde(t.folder.from)),
+    ...field("size", `${sizeText(t.size)} · ${plural(t.sessions, "session")}`),
+    ...(t.scripts.length ? t.scripts.map((s) => `  ${dim("script:")} ${tilde(s.from)}`) : [dim("  no start script moved with it")]),
+    ...field("kept in", tilde(t.folder.to)),
+    "",
+    dim("u: restore it (refused while its folder or a script exists again). x: delete it for good. X: empty the trash."),
+  ];
+}
+
 /** The active account first, the others in `order` (by email by default), then how they are found; a note first while there is none. */
 export function accountEntries(state: Pick<AccountState, "accounts" | "current">, order: AccountsOrder = "email"): Entry[] {
   const current = state.current && state.accounts.find((a) => a.dir === state.current!.dir);
@@ -77,7 +102,7 @@ const when = (ms: number) => {
 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen }: Props) {
+export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen, onTrashOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -86,8 +111,28 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
   const favorites = useFavorites(cwd, "accounts");
   const positions = usePositions(cwd, "accounts");
   const [order, setOrder] = useSetting("accountsOrder");
-  const entries = useMemo(() => accountEntries(state, order), [state.accounts, state.current?.dir, order]);
-  const [selectedKey, setSelectedKey] = useState<string | undefined>(positions.selected);
+  const [flash, setFlash] = useState<string>();
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(undefined), 3000);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  // The account menu: continue the session there, start a new one, open its folder, move it to the trash.
+  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
+  useEffect(() => onModal?.(flow.open), [flow.open]);
+  // Plugin and sessions are read with the account list (every 30 s) and on F5; the running Claude Codes every few seconds.
+  const [reads, setReads] = useState(0);
+  useOnReload(() => setReads((n) => n + 1));
+  // The accounts trash (T): read when it opens, after each change and on F5.
+  const [trashOpen, setTrashOpen] = useState(false);
+  const trash = useMemo(() => (trashOpen ? listAccountTrash() : []), [trashOpen, flow.trashChanged, reads]);
+  useEffect(() => onTrashOpen?.(trashOpen), [trashOpen]);
+  const accountList = useMemo(() => accountEntries(state, order), [state.accounts, state.current?.dir, order]);
+  const entries = useMemo((): Entry[] => (trashOpen ? trash.map((entry) => ({ kind: "trashed", entry })) : accountList), [trashOpen, trash, accountList]);
+  const [listKey, setListKey] = useState<string | undefined>(positions.selected);
+  const [trashKey, setTrashKey] = useState<string>();
+  const selectedKey = trashOpen ? trashKey : listKey;
+  const setSelectedKey = trashOpen ? setTrashKey : setListKey;
   const found = entries.findIndex((e) => keyOf(e) === selectedKey);
   const index = found >= 0 ? found : 0;
   const select = (i: number) => {
@@ -104,19 +149,17 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     select,
     layout,
     onTyping,
+    enabled: !trashOpen,
     keep: (e) => e.kind !== "account",
     marked: (e) => e.kind === "account" && favorites.isMarked(e.account.dir),
     restoreCopy: positions.pinned ? (e) => keyOf(e) === positions.selected : undefined,
   });
   const entry = filter.none ? undefined : entries[index];
   const account = entry?.kind === "account" ? entry.account : undefined;
+  const trashed = entry?.kind === "trashed" ? entry.entry : undefined;
   useEffect(() => {
-    if (entry) positions.select(keyOf(entry), undefined, filter.copySelected);
+    if (entry && !trashOpen) positions.select(keyOf(entry), undefined, filter.copySelected);
   }, [entry && keyOf(entry), filter.copySelected]);
-
-  // Plugin and sessions are read with the account list (every 30 s) and on F5; the running Claude Codes every few seconds.
-  const [reads, setReads] = useState(0);
-  useOnReload(() => setReads((n) => n + 1));
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!visible) return;
@@ -131,6 +174,15 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
 
   const isCurrent = (a: Account) => a.dir === state.current?.dir;
   const header = useMemo(() => {
+    if (trashed)
+      return fitHeader(
+        previewHeader(trashed.account.email, previewWidth, {
+          marker: "○ ",
+          style: bold,
+          details: [red(`in the trash since ${when(trashed.deletedAt)} · u restores it`), tilde(trashed.folder.from)],
+        }),
+        bodyHeight,
+      );
     if (!account) return [];
     const marker = isCurrent(account) ? "● " : "○ ";
     return fitHeader(
@@ -141,10 +193,11 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
       }),
       bodyHeight,
     );
-  }, [account, state.current?.dir, previewWidth, bodyHeight]);
+  }, [account, trashed, state.current?.dir, previewWidth, bodyHeight]);
 
   const lines = useMemo(() => {
-    if (!entry) return [dim("No account matches the filter")];
+    if (!entry) return [dim(trashOpen ? "The trash is empty." : "No account matches the filter")];
+    if (entry.kind === "trashed") return trashedLines(entry.entry);
     if (entry.kind !== "account") return accountLines({ account: entry.kind }, state, settings, previewWidth);
     const a = entry.account;
     const field = (name: string, value: string | undefined) => (value ? [`  ${dim(`${name}:`)} ${value}`] : []);
@@ -183,22 +236,12 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     }
     out.push("");
     if (isCurrent(a)) out.push(dim("This is the account of the Claude Code the viewer follows."));
-    out.push(dim("Enter: continue this session there, start a new session there (with or without the viewer), or open its config folder."));
+    out.push(dim("Enter: continue this session there, start a new session there (with or without the viewer), or open its config folder. d: move it to the trash (T shows the trash)."));
     return out;
-  }, [entry, state, settings.accountColor, details, running, previewWidth, cwd]);
+  }, [entry, trashOpen, state, settings.accountColor, details, running, previewWidth, cwd]);
 
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entry && keyOf(entry), lines.length, viewport);
-  const [flash, setFlash] = useState<string>();
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(undefined), 3000);
-    return () => clearTimeout(timer);
-  }, [flash]);
-
-  // The account menu: continue the session there, start a new one, open its folder.
-  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
-  useEffect(() => onModal?.(flow.open), [flow.open]);
   const enter = () => {
     if (entry?.kind === "add") return flow.askAddAccount(cwd);
     if (!account) return;
@@ -209,7 +252,17 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
   useInput(
     (input, key) => {
       if (filter.handleKey(input, key)) return;
+      if (input === "T") return setTrashOpen(!trashOpen);
+      if (trashOpen) {
+        if (key.escape) return setTrashOpen(false);
+        if (input === "u" && trashed) return flow.restore(trashed.id);
+        if (input === "x" && trashed) return flow.askPurge(trashed, cwd);
+        if (input === "X") return flow.askEmpty(trash, cwd);
+        return handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
+      }
       if (key.return) return enter();
+      if (input === "d" && account) return flow.askTrash(account);
+      if (input === "u" && flow.undoTrash()) return;
       if (input === "s") return setOrder(ACCOUNTS_ORDER_VALUES[(ACCOUNTS_ORDER_VALUES.indexOf(order) + 1) % ACCOUNTS_ORDER_VALUES.length]);
       const mark = markKeys(input, key);
       if (mark === "toggle") {
@@ -234,15 +287,19 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
         mode="accounts"
         status={
           <Text dimColor={!focused}>
-            {`${filter.count(state.accounts.length)} ${state.accounts.length === 1 ? "account" : "accounts"}`}
+            {trashOpen ? (
+              <Text color="red">TRASH · {plural(trash.length, "account")}</Text>
+            ) : (
+              `${filter.count(state.accounts.length)} ${state.accounts.length === 1 ? "account" : "accounts"}`
+            )}
             {entry && ` · ${scroll.position}`}
-            {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
+            {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           </Text>
         }
         list={
           <List
             onPick={select}
-            onClick={(i) => isDoubleClick(i) && i === index && enter()}
+            onClick={(i) => isDoubleClick(i) && i === index && !trashOpen && enter()}
             items={entries}
             shown={filter.shown}
             pinned={filter.pinned}
@@ -250,12 +307,23 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
             selected={index}
             centre={true}
             height={bodyHeight}
-            empty={filter.empty ?? "No accounts"}
+            empty={trashOpen ? "The trash is empty" : (filter.empty ?? "No accounts")}
             itemKey={keyOf}
             render={(e, isSelected) => {
               if (e.kind === "none") return <Text color="yellow">no account found: /login in Claude Code</Text>;
               if (e.kind === "details") return <Text dimColor={!isSelected}>how accounts are found</Text>;
               if (e.kind === "add") return <Text dimColor={!isSelected}>how to add an account</Text>;
+              if (e.kind === "trashed") {
+                const t = e.entry;
+                const folder = basename(t.folder.from);
+                return (
+                  <>
+                    <Text color="red">○ </Text>
+                    <EntryText text={t.account.email} width={Math.max(4, listWidth - 3 - Math.min(folder.length, 16) - 1)} selected={isSelected} active={active} />
+                    <Text dimColor> {folder.length > 16 ? `${folder.slice(0, 15)}…` : folder}</Text>
+                  </>
+                );
+              }
               const a = e.account;
               const marked = favorites.isMarked(a.dir);
               const color = colorOfAccount(a, state, settings.accountColor);
@@ -273,15 +341,31 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
         }
         preview={<Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} onWheel={(d) => scroll.by(d)} />}
         footer={
-          flash ?? [
+          flash ??
+          (trashOpen
+            ? [
+                { text: "↑↓ account", priority: 4 },
+                ...(trashed
+                  ? [
+                      { text: "u restore", priority: 4 },
+                      { text: "x delete for good", priority: 3 },
+                    ]
+                  : []),
+                ...(trash.length ? [{ text: "X empty", priority: 2 }] : []),
+                { text: "T trash", on: true, priority: 3 },
+                { text: "Esc back", priority: 2 },
+              ]
+            : [
             { text: "↑↓ account", priority: 4 },
             { text: "PgUp/Dn scroll", priority: 1 },
             ...markFooter(favorites.isMarked(account?.dir), markedCount),
             ...filter.footer,
             ...(account ? [{ text: "↵ actions…", priority: 3 }] : entry?.kind === "add" ? [{ text: "↵ add an account…", priority: 3 }] : []),
+            ...(account ? [{ text: "d delete", priority: 2 }] : []),
             { text: `s order: ${order}`, on: order !== "email", priority: 2 },
+            { text: "T trash", priority: 2 },
             { text: "0-6/tab view", priority: 1 },
-          ]
+          ])
         }
       />
       {flow.element}

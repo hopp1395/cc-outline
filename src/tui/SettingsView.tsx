@@ -1255,6 +1255,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       }
       if (filter.none && (key.return || input === "r" || input === "c")) return;
       if (key.return && (reset || onUpdate || row || accountEntry)) return activate();
+      // d moves an account to the trash (the Accounts view keeps it), u brings back the one moved last.
+      if (input === "d" && accountEntry && "dir" in accountEntry) {
+        const account = accountState.accounts.find((a) => a.dir === accountEntry.dir);
+        return account && flow.askTrash(account);
+      }
+      if (input === "u" && flow.undoTrash()) return;
       if (onUpdate && input === "c") return copyCommands();
       if (input === "r" && row) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
@@ -1300,7 +1306,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         ]
       : accountEntry
         ? [
-            ...("dir" in accountEntry ? [{ text: "↵ actions…", priority: 4 }] : accountEntry.account === "add" ? [{ text: "↵ add an account…", priority: 4 }] : []),
+            ...("dir" in accountEntry
+              ? [
+                  { text: "↵ actions…", priority: 4 },
+                  { text: "d delete", priority: 2 },
+                ]
+              : accountEntry.account === "add"
+                ? [{ text: "↵ add an account…", priority: 4 }]
+                : []),
             { text: "F5 reload", priority: 2 },
           ]
         : release
