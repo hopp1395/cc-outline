@@ -358,6 +358,93 @@ function monitorHistory() {
   return lines;
 }
 
+/** The demo's other accounts: a config folder each (`~/.claude-<name>`), with a few sessions of their own. */
+const OTHER_ACCOUNTS = (shop, docs) => [
+  {
+    folder: ".claude-work",
+    command: "cw",
+    account: { emailAddress: "jan@acme.example", displayName: "Jan", organizationName: "Acme Corp", organizationType: "claude_team", billingType: "stripe_subscription", seatTier: "team_premium" },
+    sessions: [
+      {
+        id: "b1e2c3d4-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+        cwd: shop,
+        branch: "feature/invoices",
+        title: "invoice-export",
+        steps: [
+          { at: "2026-09-26T06:40:00.000Z", prompt: "Export invoices as PDF from the order page" },
+          { at: "2026-09-26T06:58:00.000Z", plan: "# Invoice export\n\n1. Add InvoiceRenderer\n2. Add the export button" },
+          { at: "2026-09-26T07:20:00.000Z", edit: "src/Invoices/InvoiceRenderer.cs" },
+          { at: "2026-09-26T07:31:00.000Z", edit: "src/Orders/OrderPage.cs" },
+        ],
+      },
+      {
+        id: "c2f3d4e5-6b7c-4d8e-9fa0-1b2c3d4e5f60",
+        cwd: shop,
+        branch: "main",
+        steps: [
+          { at: "2026-09-25T09:05:00.000Z", prompt: "Why is the order total off by one cent?" },
+          { at: "2026-09-25T09:24:00.000Z", edit: "src/Orders/Money.cs" },
+        ],
+      },
+    ],
+  },
+  {
+    folder: ".claude-oss",
+    command: "coss",
+    account: { emailAddress: "jan@mail.example", displayName: "Jan", billingType: "stripe_subscription", seatTier: "pro" },
+    sessions: [
+      {
+        id: "d3a4b5c6-7d8e-4f90-a1b2-c3d4e5f60718",
+        cwd: docs,
+        branch: "main",
+        steps: [
+          { at: "2026-09-24T18:10:00.000Z", prompt: "Fix the broken links in the docs" },
+          { at: "2026-09-24T18:22:00.000Z", edit: "docs/index.md" },
+        ],
+      },
+    ],
+  },
+];
+
+/**
+ * Turns the demo into one with three Claude accounts: the viewer's own (`configDir`) gets an account, two more
+ * config folders `~/.claude-work` and `~/.claude-oss` sit next to it with sessions of their own, each with the cco
+ * plugin, and `~/.local/bin` holds their start scripts and a stand-in for claude. Returns that folder.
+ */
+export function createAccounts(root, configDir) {
+  const shop = join(root, "shop");
+  const docs = join(root, "docs-site");
+  const bin = join(root, ".local", "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, process.platform === "win32" ? "claude.exe" : "claude"), "");
+  const plugin = (dir) => {
+    mkdirSync(join(dir, "plugins"), { recursive: true });
+    writeFileSync(join(dir, "plugins", "known_marketplaces.json"), JSON.stringify({ "cc-outline": { source: { source: "github", repo: "hopp1395/cc-outline" } } }));
+    writeFileSync(join(dir, "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "cco@cc-outline": [{ scope: "user" }] } }));
+  };
+  writeFileSync(
+    join(configDir, ".claude.json"),
+    JSON.stringify({ oauthAccount: { emailAddress: "jan@home.example", displayName: "Jan", billingType: "stripe_subscription", seatTier: "max" } }),
+  );
+  plugin(configDir);
+  for (const { folder, command, account, sessions } of OTHER_ACCOUNTS(shop, docs)) {
+    const dir = join(root, folder);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: account }));
+    plugin(dir);
+    for (const session of sessions) {
+      const projects = join(dir, "projects", slug(session.cwd));
+      mkdirSync(projects, { recursive: true });
+      const file = join(projects, `${session.id}.jsonl`);
+      writeFileSync(file, olderSession(session).map((e) => JSON.stringify(e)).join("\n") + "\n");
+      const last = new Date(session.steps.at(-1).at);
+      utimesSync(file, last, last);
+    }
+    writeFileSync(join(bin, `${command}.cmd`), `@echo off\r\nsetlocal\r\nset "CLAUDE_CONFIG_DIR=%USERPROFILE%\\${folder}"\r\ncall claude %*\r\n`);
+  }
+  return bin;
+}
+
 export function createDemo(root) {
   const cwd = join(root, "shop");
   const configDir = join(root, "claude");

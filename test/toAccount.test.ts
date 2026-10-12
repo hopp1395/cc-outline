@@ -157,5 +157,9 @@ describe("accounts", () => {
     expect(resumeShellCommand("id1", "/h/.claude-work", "linux")).toBe("CLAUDE_CONFIG_DIR='/h/.claude-work' claude --resume id1");
     expect(resumeShellCommand("id1", "C:\\h\\.claude-work", "win32")).toBe('set "CLAUDE_CONFIG_DIR=C:\\h\\.claude-work" && claude --resume id1');
     expect(resumeShellCommand("id1")).toBe("claude --resume id1");
+    // A folder in the home folder is named through its variable.
+    const home = join(tmpdir(), "cco-home");
+    expect(resumeShellCommand("id1", join(home, ".claude-work"), "win32", false, home)).toBe('set "CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-work" && claude --resume id1');
+    expect(resumeShellCommand("id1", join(home, ".claude-work"), "linux", false, home)).toBe('CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude --resume id1');
   });
 });
