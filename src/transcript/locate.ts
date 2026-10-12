@@ -15,6 +15,48 @@ export function claudeDir(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 }
 
+/** Whether `dir` is Claude Code's default config folder, `~/.claude`, which is used without CLAUDE_CONFIG_DIR. */
+export function isDefaultClaudeDir(dir: string, home = homedir()): boolean {
+  const a = resolve(dir);
+  const b = resolve(join(home, ".claude"));
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/**
+ * `env` for a process that runs under the config folder `dir`: CLAUDE_CONFIG_DIR set to it, or removed for the
+ * default folder, whose account Claude Code also reads from `~/.claude.json`.
+ */
+export function withClaudeDir(env: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
+  const result = { ...env };
+  // Windows environment names are case-insensitive, and Node keeps the original spelling.
+  for (const key of Object.keys(result)) if (key.toUpperCase() === "CLAUDE_CONFIG_DIR") delete result[key];
+  if (!isDefaultClaudeDir(dir)) result.CLAUDE_CONFIG_DIR = dir;
+  return result;
+}
+
+/** Makes this process run under the config folder `dir` from now on, as `withClaudeDir` gives it to a child. */
+export function setClaudeDir(dir: string): void {
+  for (const key of Object.keys(process.env)) if (key.toUpperCase() === "CLAUDE_CONFIG_DIR") delete process.env[key];
+  if (!isDefaultClaudeDir(dir)) process.env.CLAUDE_CONFIG_DIR = dir;
+}
+
+/**
+ * Runs `fn` as if this process ran under the config folder `dir` (another account's): every path through
+ * `claudeDir()` (transcripts, `sessions/`, cco's state files) is that folder's while it runs. Synchronous
+ * code only, so nothing else runs meanwhile.
+ */
+export function inClaudeDir<T>(dir: string, fn: () => T): T {
+  const had = Object.prototype.hasOwnProperty.call(process.env, "CLAUDE_CONFIG_DIR");
+  const before = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    return fn();
+  } finally {
+    if (had) process.env.CLAUDE_CONFIG_DIR = before;
+    else delete process.env.CLAUDE_CONFIG_DIR;
+  }
+}
+
 /** Claude Code names project folders after the cwd with every non-alphanumeric char replaced by "-". */
 export function projectSlug(cwd: string): string {
   return resolve(cwd).replace(/[^a-zA-Z0-9]/g, "-");
@@ -161,6 +203,11 @@ export function positionsFile(cwd: string): string {
 /** The view each session of the project was shown in last. */
 export function sessionViewsFile(cwd: string): string {
   return stateFile(cwd, ".views");
+}
+
+/** Sessions continued in another account, or from one (`src/transfers.ts`). */
+export function transfersFile(cwd: string): string {
+  return stateFile(cwd, ".accounts");
 }
 
 /** Marked (favourite) turns per session. */

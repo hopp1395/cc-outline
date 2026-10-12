@@ -16,6 +16,8 @@ export interface Account {
   billing?: string;
   seat?: string;
   rateLimitTier?: string;
+  /** The colour chosen in that folder's cco settings (`<dir>/cco/settings.json`); `auto` without one. */
+  chosenColor?: AccountColorSetting;
 }
 
 /**
@@ -87,9 +89,21 @@ export function readAccount(dir: string, home = homedir()): Account | undefined 
       billing: text(stored.billingType),
       seat: text(stored.seatTier),
       rateLimitTier: text(stored.organizationRateLimitTier),
+      chosenColor: chosenColorOf(dir),
     };
   }
   return undefined;
+}
+
+/**
+ * The colour chosen for the account of `dir` in its own cco settings, read here since settings.ts depends on
+ * this module; `auto` without one. The former on/off setting `accountBadge` counts as `off`.
+ */
+export function chosenColorOf(dir: string): AccountColorSetting {
+  const stored = readJson<{ accountColor?: unknown; accountBadge?: unknown }>(join(dir, "cco", "settings.json"));
+  const value = stored?.accountColor;
+  if ((ACCOUNT_COLOR_VALUES as readonly unknown[]).includes(value)) return value as AccountColorSetting;
+  return value === undefined && stored?.accountBadge === false ? "off" : "auto";
 }
 
 /** The folders that may hold an account: this viewer's own, the default one and every `~/.claude*` folder. */
@@ -141,9 +155,37 @@ export function accountInfo(pid?: number, home = homedir(), own = claudeDir()): 
 }
 
 /**
- * The colour (name) of `account`: the one chosen in this viewer's settings for its own folder, else from the
- * email. The other folders' settings are not read.
+ * The colour (name) of `account`: for this viewer's own folder the one chosen in its settings (`chosen`, which
+ * may have changed since the folders were read), for another the one chosen in that folder's settings, else
+ * from the email.
  */
 export function colorOfAccount(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): AccountColorName {
-  return accountColorName(account.email, same(account.dir, info.own) ? chosen : "auto");
+  return accountColorName(account.email, same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto"));
+}
+
+/**
+ * When the account of `account.dir` was last used: Claude Code adds each prompt to `history.jsonl` there; without it,
+ * when its `.claude.json` was written. 0 if neither can be read.
+ */
+export function accountUsedAt(account: Pick<Account, "dir" | "file">): number {
+  for (const file of [join(account.dir, "history.jsonl"), account.file]) {
+    try {
+      return statSync(file).mtimeMs;
+    } catch {
+      // not there
+    }
+  }
+  return 0;
+}
+
+/** The colour of the bar that marks the sessions of `account` in the Sessions view: its colour, gray where it is `off`. */
+export function barColorOfAccount(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): AccountColorName | "gray" {
+  const value = same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto");
+  return value === "off" ? "gray" : accountColorName(account.email, value);
+}
+
+/** Whether the colour of `account` is a fixed one rather than taken from the email. */
+export function hasChosenColor(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): boolean {
+  const value = same(account.dir, info.own) ? chosen : account.chosenColor;
+  return value !== undefined && value !== "auto" && value !== "off";
 }

@@ -3,12 +3,12 @@ import { recordCli } from "./cliPath.js";
 import { runHook } from "./hook.js";
 import { openedFromQueue, openPane } from "./open.js";
 import type { Mode } from "./tui/layout.js";
-import { claudePidFromEnv } from "./transcript/locate.js";
+import { claudePidFromEnv, setClaudeDir } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
 import { isAlive, registerViewer, runningViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
 
-const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
+const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor", "accounts"];
 
 const pidOption = (flags: string, description: string) => new Option(flags, description).argParser(Number).hideHelp();
 const validPid = (pid: number | undefined) => (pid && Number.isInteger(pid) ? pid : undefined);
@@ -58,9 +58,13 @@ program
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   // After an update the viewer reopens and says so once.
   .addOption(new Option("--updated-to <version>").hideHelp())
-  // /cco:update opening a new viewer: it checks and asks at once.
-  .addOption(new Option("--action <action>").choices(["update"]).hideHelp())
-  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction }) => {
+  // /cco:update and /cco:account opening a new viewer: it checks and asks at once, or asks for the account.
+  .addOption(new Option("--action <action>").choices(["update", "account"]).hideHelp())
+  // The config folder (account) of the Claude Code that opened it: a terminal pane does not get its environment.
+  .addOption(new Option("--config-dir <dir>").hideHelp())
+  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
+    // First: every state file and setting is read from the config folder.
+    if (opts.configDir) setClaudeDir(opts.configDir);
     const claudePid = validPid(opts.claudePid);
     // One viewer per Claude Code: a second one would share its state files and its /cco:… requests.
     const other = claudePid ? runningViewer(opts.cwd, claudePid) : undefined;
@@ -89,6 +93,16 @@ program
   });
 
 program
+  .command("claude")
+  .description("run claude under a config folder (account), then a shell there; for terminal windows cco opens")
+  .requiredOption("--config-dir <dir>", "the config folder (CLAUDE_CONFIG_DIR)")
+  .argument("[args...]", "arguments for claude")
+  .action(async (args: string[], opts: { configDir: string }) => {
+    const { runClaudeIn } = await import("./launch.js");
+    process.exitCode = await runClaudeIn(opts.configDir, args);
+  });
+
+program
   .command("hook")
   .description("Claude Code hook: record the active session (reads hook JSON from stdin)")
   .action(runHook);
@@ -107,7 +121,7 @@ program
   .addOption(pidOption("--after-pid <pid>", "open once this viewer process has exited"))
   .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
   .addOption(new Option("--updated-to <version>").hideHelp())
-  .addOption(new Option("--action <action>", "restart the running viewer (else open one), or check for an update and offer it").choices(VIEWER_ACTIONS))
+  .addOption(new Option("--action <action>", "restart the running viewer (else open one), check for an update and offer it, or continue the session in another account").choices(VIEWER_ACTIONS))
   // A viewer that paired with a Claude Code it started (Sessions) moves next to it: its wt window or tmux pane.
   .addOption(new Option("--target <target>").hideHelp())
   .action(async (opts: { cwd: string; view?: Mode; lastView?: boolean; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string }) => {

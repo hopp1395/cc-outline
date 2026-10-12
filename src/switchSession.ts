@@ -56,21 +56,29 @@ export function resumeHereMethod(terminal = detectTerminal(), platform: NodeJS.P
  * `typed` is false if it could not; the caller then copies the command instead.
  */
 export async function resumeInClaude(claudePid: number, sessionId: string, typer?: ConsoleTyper): Promise<{ typed: boolean; message: string }> {
-  const command = resumeSlashCommand(sessionId);
+  const result = await typeInClaude(claudePid, resumeSlashCommand(sessionId), typer);
+  return result.typed ? { typed: true, message: "continuing it in this Claude Code" } : result;
+}
+
+/**
+ * Types `text` into the Claude Code process `claudePid` and submits it, as `resumeInClaude` does (`/exit` to
+ * close it). `typed` is false, with the reason, if it could not.
+ */
+export async function typeInClaude(claudePid: number, text: string, typer?: ConsoleTyper): Promise<{ typed: boolean; message: string }> {
   if (detectTerminal() !== "tmux") {
     const console = typer ?? prepareConsoleInput(claudePid);
     if (!console) return { typed: false, message: "no tmux to type it in" };
-    return (await console.type(command)) ? { typed: true, message: "continuing it in this Claude Code" } : { typed: false, message: "it could not be typed into Claude Code" };
+    return (await console.type(text)) ? { typed: true, message: `typed ${text}` } : { typed: false, message: "it could not be typed into Claude Code" };
   }
   const pane = await tmuxPaneOf(claudePid);
   if (!pane) return { typed: false, message: "its tmux pane was not found" };
   const typed =
     (await run("tmux", ["send-keys", "-t", pane, "C-l"])) !== undefined &&
-    (await run("tmux", ["send-keys", "-t", pane, "-l", command])) !== undefined;
+    (await run("tmux", ["send-keys", "-t", pane, "-l", text])) !== undefined;
   await new Promise((resolve) => setTimeout(resolve, 150));
   if (!typed || (await run("tmux", ["send-keys", "-t", pane, "Enter"])) === undefined) return { typed: false, message: "the command could not be typed into its pane" };
   await run("tmux", ["select-pane", "-t", pane]);
-  return { typed: true, message: "continuing it in this Claude Code" };
+  return { typed: true, message: `typed ${text}` };
 }
 
 /** A PowerShell started ahead (`prepareConsoleInput`), ready to type into one Claude Code's console. */

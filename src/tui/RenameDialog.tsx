@@ -12,14 +12,14 @@ const MAX_WIDTH = 64;
  */
 export function RenameDialog({
   layout,
-  session,
+  lines,
   title,
   onSave,
   onCancel,
 }: {
   layout: Layout;
-  /** The session as the list names it. */
-  session: string;
+  /** The session's head (`sessionHead`). */
+  lines: string[];
   /** Its /rename title so far. */
   title: string;
   onSave: (title: string) => void;
@@ -44,16 +44,18 @@ export function RenameDialog({
   usePaste((text) => change(editLine(line, insertable(text), {})));
 
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
-  // Title, blank, session, blank, input, error, blank, keys, plus the border.
+  // Title, blank, the head, blank, input, error, blank, keys, plus the border.
   return (
-    <Dialog layout={layout} width={width} height={10}>
+    <Dialog layout={layout} width={width} height={9 + lines.length}>
       <Text bold color="cyan" wrap="truncate">
         Rename the session
       </Text>
       <Text> </Text>
-      <Text dimColor wrap="truncate">
-        {session}
-      </Text>
+      {lines.map((line, i) => (
+        <Text key={i} dimColor wrap="truncate">
+          {line}
+        </Text>
+      ))}
       <Text> </Text>
       <LineField line={line} width={width} />
       <Text color="red" wrap="truncate">

@@ -30,7 +30,7 @@ const padColumns = (text: string, width: number) => text + " ".repeat(Math.max(0
 /** A short message of the app for the preview's bottom row, like "copied" (the list width after < or >). */
 export const ScreenNoticeContext = createContext<string | undefined>(undefined);
 
-export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
+export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor" | "accounts";
 
 export interface Layout {
   columns: number;
@@ -397,8 +397,9 @@ function shownTabs(settings: Settings, mode: Mode) {
   return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
 }
 
-/** The view whose tab is at column `x` of the top bar, or undefined. */
+/** The view whose tab is at column `x` of the top bar, or undefined; the "cco" at its start is the Accounts view's (0), unless that is off. */
 export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefined {
+  if (x >= 0 && x < TABS_LEAD.length - 1) return isViewShown(settings, "accounts") ? "accounts" : undefined;
   let start = TABS_LEAD.length;
   for (const tab of shownTabs(settings, mode)) {
     const end = start + tabText(tab).length;
@@ -414,9 +415,11 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
-      <Text bold color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
-        {TABS_LEAD}
+      {/* The "cco" is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
+      <Text bold inverse={mode === "accounts"} color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
+        {TABS_LEAD.trimEnd()}
       </Text>
+      <Text> </Text>
       {shownTabs(settings, mode).map((tab) =>
         tab.mode === mode ? (
           <Text key={tab.mode} inverse bold>
@@ -654,6 +657,11 @@ interface ListProps<T> {
   itemKey: (item: T, index: number) => string;
   /** `pinnedCopy`: the row is the entry's copy in the Pinned group. */
   render: (item: T, selected: boolean, pinnedCopy?: boolean) => ReactNode;
+  /**
+   * What a row starts with, drawn outside the selection's style, so its colour shows on the selected row too
+   * (Sessions: the account's bar); `render` then draws the rest.
+   */
+  lead?: (item: T) => ReactNode;
   /** Mouse: a click selects the entry under it, the wheel the previous or next one. */
   onPick?: (index: number) => void;
   /** A click on an entry, after `onPick` selected it (the wheel only picks). */
@@ -948,7 +956,7 @@ export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem 
   return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
 }
 
-function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, onClick, heads, tops, copies = 0, centre }: ListProps<T> & RowsProps) {
+function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, onPick, onClick, heads, tops, copies = 0, centre }: ListProps<T> & RowsProps) {
   const focused = useFocused();
   const area = useContext(AreaContext);
   const rows = listRows(items.length, heads);
@@ -1000,6 +1008,7 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         if (!isSelected)
           return (
             <Text key={itemKey(item, index)} wrap="truncate">
+              {lead?.(item)}
               {render(item, false, index < copies)}
             </Text>
           );
@@ -1008,6 +1017,11 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, onPick, 
         const style = { inverse: focused, bold: focused, backgroundColor: focused ? undefined : INACTIVE_SELECTION };
         return (
           <Box key={itemKey(item, index)} width={width} height={1}>
+            {lead && (
+              <Box flexShrink={0}>
+                <Text>{lead(item)}</Text>
+              </Box>
+            )}
             <Box overflow="hidden">
               <Text wrap="truncate" {...style}>
                 {render(item, true, index < copies)}

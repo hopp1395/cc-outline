@@ -213,9 +213,14 @@ export type RunCommand = (command: string, onOutput: (text: string) => void) => 
  * shims, which Node starts only that way. The command is fixed text, and
  * without the variables of the Claude Code session the viewer came from.
  */
-export const runCommand: RunCommand = (command, onOutput) =>
+export const runCommand: RunCommand = (command, onOutput) => runCommandWith(independentEnv())(command, onOutput);
+
+/** `runCommand` with the environment `env`, e.g. another account's config folder (`withClaudeDir`). */
+export const runCommandWith =
+  (env: NodeJS.ProcessEnv): RunCommand =>
+  (command, onOutput) =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, { shell: true, env: independentEnv(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, { shell: true, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (d) => onOutput(String(d)));
     child.stderr.on("data", (d) => onOutput(String(d)));
     child.on("error", reject);

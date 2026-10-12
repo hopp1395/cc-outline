@@ -27,7 +27,7 @@ afterEach(() => {
 describe("Account group in the settings", () => {
   it("has the two settings, automatic and on by default", () => {
     const keys = SETTING_ROWS.filter((r) => r.group === "Account").map((r) => r.key);
-    expect(keys).toEqual(["accountColor", "accountTitle"]);
+    expect(keys).toEqual(["accountColor", "accountTitle", "viewAccounts", "accountsListWidth", "accountsOrder"]);
     expect(DEFAULT_SETTINGS).toMatchObject({ accountTitle: true, accountColor: "auto" });
   });
 
@@ -37,7 +37,7 @@ describe("Account group in the settings", () => {
     const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir };
     const names = settingsEntries(update, state).map((e) => ("key" in e ? e.key : "account" in e ? (`account:${"dir" in e ? e.dir : e.account}` as string) : "other"));
     const at = names.indexOf(`account:${me.dir}`);
-    expect(names.slice(at - 1, at + 5)).toEqual(["updateMode", `account:${me.dir}`, `account:${work.dir}`, "accountColor", "accountTitle", "account:details"]);
+    expect(names.slice(at - 1, at + 8)).toEqual(["updateMode", `account:${me.dir}`, `account:${work.dir}`, "accountColor", "accountTitle", "viewAccounts", "accountsListWidth", "accountsOrder", "account:details"]);
   });
 
   it("reads the former on/off setting accountBadge as the colour off", () => {
@@ -101,5 +101,24 @@ describe("Account group in the settings", () => {
     expect(app.frame()).toContain("active: the account of the Claude Code");
     app.unmount();
     expect(readSettings()).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it("opens the account's menu on Enter, as the Accounts view does", async () => {
+    const me = account(".claude-personal", "me@example.com");
+    const work = account(".claude-work", "work@example.com");
+    const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir };
+    const app = renderInk(
+      <AccountContext.Provider value={state}>
+        <SettingsView cwd={cwd} layout={layout} active select={{ key: `account:${work.dir}`, at: 1 }} noSession="no session here" />
+      </AccountContext.Provider>,
+      layout,
+    );
+    await expect.poll(app.frame, { timeout: 2000 }).toContain("↵ actions…");
+    await app.press("\r");
+    await expect.poll(app.frame).toContain("Continue it in work@example.com…");
+    expect(app.frame()).toContain("What to do in work@example.com?");
+    expect(app.frame()).toContain("no session here");
+    expect(app.frame()).toContain("Open its config folder");
+    app.unmount();
   });
 });

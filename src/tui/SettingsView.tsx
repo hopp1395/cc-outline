@@ -6,7 +6,9 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
-import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, type Account, type AccountColorName } from "../account.js";
+import { claudeBinDir } from "../addAccount.js";
+import { marketplaceSource } from "../accountSetup.js";
+import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
@@ -23,6 +25,8 @@ import { isReloadKey, useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
+import { ownSession, useAccountFlow } from "./useAccountFlow.js";
+import type { PairTarget } from "../viewer.js";
 import { renderMarkdown } from "../render/markdown.js";
 import { codeSpan } from "../render/terminal.js";
 import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repairSteps, reportLines, runRepairs, type DoctorGroup, type Finding, type RepairResult } from "../doctor.js";
@@ -47,6 +51,15 @@ interface Props {
   onRestart?: () => void;
   /** An entry to select, asked for from outside (`releases`: /cco:releases; `update`: a click on the top bar), with `ask` also the update's confirmation (setting update: auto). */
   select?: { key: string; at: number; ask?: boolean };
+  /** The transcript of the viewer's session, which can continue in another account; undefined with `noSession` saying why. */
+  sessionPath?: string;
+  noSession?: string;
+  /** The Claude Code process the viewer belongs to. */
+  claudePid?: number;
+  /** A Claude Code the viewer started runs now `where`: the viewer moves next to it. */
+  onPairStarted?: (target: PairTarget, where: string) => void;
+  /** While true, the viewer stays open when its Claude Code ends (closed on purpose). */
+  onHoldOpen?: (hold: boolean) => void;
 }
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
@@ -394,7 +407,7 @@ export const SETTING_ROWS: Row[] = [
     group: "Account",
     label: "colour in the top bar",
     description:
-      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings, so the viewers of the other accounts still show this account in the colour auto gives it.",
+      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings; the viewers of the other accounts read it from there and show this account in it too.",
     values: [
       ["auto", "a colour from the email"],
       ["off", "the \"cco\" keeps the colour of the bar"],
@@ -409,6 +422,33 @@ export const SETTING_ROWS: Row[] = [
     description:
       "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. It shows only while cco finds two or more accounts.",
     values: ON_OFF("the title ends with the email of the account", "the title is the session's title alone"),
+  },
+  {
+    key: "viewAccounts",
+    group: "Account",
+    label: "accounts view",
+    description:
+      "Whether the Accounts view (the accounts found, their plugin, what runs there and the project's sessions in each) is reachable with `0`, a click on the \"cco\" at the left of the top bar, and `←` `→` / `Tab`. The \"cco\" stays either way, in the account's colour. `/cco:accounts` opens the view also while it is off, as `--view` does for a hidden tab.",
+    values: ON_OFF("`0`, the click on \"cco\" and `Tab` reach it", "`0` and the click do nothing, `Tab` skips it"),
+  },
+  listWidthRow(
+    "accountsListWidth",
+    "Account",
+    "accounts list width",
+    "Accounts",
+    "The Accounts view (`0`, or a click on the \"cco\" at the left of the top bar) lists the accounts by email: a wider list shows long emails in full, a narrower one leaves the details more room.",
+  ),
+  {
+    key: "accountsOrder",
+    group: "Account",
+    label: "accounts order",
+    description: "The order of the Accounts view's list below the active account, which always comes first.",
+    values: [
+      ["email", "by email, e.g. jan@work.com before me@home.de"],
+      ["folder", "by the config folder's name, e.g. .claude before .claude-work"],
+      ["recent", "the account used last first: the latest prompt in its `history.jsonl`, else when its `.claude.json` was written"],
+    ],
+    viewKey: "`s` in Accounts",
   },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
@@ -464,11 +504,17 @@ export const SETTING_ROWS: Row[] = [
   viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
   listWidthRow("sessionsListWidth", "Sessions", "list width", "Sessions", "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room."),
   {
-    key: "allProjects",
+    key: "sessionsScope",
     group: "Sessions",
-    label: "all projects",
-    description: "Whether the Sessions view lists the sessions of all projects or only of this one. All projects helps to find a session started in another folder; the trash follows the same choice.",
-    values: ON_OFF("all projects with sessions in `~/.claude/projects`", (c) => `only this one, ${basename(c.cwd) || c.cwd}`),
+    label: "sessions of",
+    description:
+      "Which sessions the Sessions view lists: of this project or of all, and of this account only or also of the other Claude accounts signed in on this machine (the `~/.claude*` folders). All projects helps to find a session started in another folder; the trash follows that choice, but always shows this account's. With the other accounts, every row starts with a bar in its account's colour (gray for an account whose colour is off), the preview names the account, whether the session runs there and whether it has the cco plugin, and `Enter` offers to continue it there, in a new window under that account. Their sessions can be marked, not deleted, renamed, exported or moved.",
+    values: [
+      ["project", (c) => `only this one, ${basename(c.cwd) || c.cwd}, of this account`],
+      ["all", "all projects with sessions in `~/.claude/projects`, of this account"],
+      ["project-accounts", (c) => `${basename(c.cwd) || c.cwd}, of every account found`],
+      ["all-accounts", "all projects of every account found"],
+    ],
     viewKey: "`a` in Sessions",
   },
   {
@@ -509,7 +555,7 @@ export function nextValue(row: Row, current: string | boolean): string | boolean
   return row.values[(i + 1) % row.values.length][0];
 }
 
-function tilde(path: string): string {
+export function tilde(path: string): string {
   const home = homedir();
   return path.toLowerCase().startsWith(home.toLowerCase()) ? "~" + path.slice(home.length) : path;
 }
@@ -616,7 +662,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
 }
 
 /** A colour's name drawn like the "cco" in the top bar: on the colour, in the text colour readable on it. */
-function colorBadge(name: AccountColorName): string {
+export function colorBadge(name: AccountColorName): string {
   const index = ACCOUNT_COLOR_NAMES.indexOf(name);
   const background = index < 8 ? 40 + index : 100 + index - 8;
   const text = ACCOUNT_COLORS[name] === "black" ? 30 : 97;
@@ -628,7 +674,7 @@ const colorNameOf = (account: Account, state: AccountState, chosen: Settings["ac
 
 /** The label of an Account entry in the list. */
 function accountLabel(e: AccountEntry, state: AccountState): string {
-  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : "no account found";
+  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : e.account === "add" ? "how to add an account" : "no account found";
   const account = state.accounts.find((a) => a.dir === e.dir);
   // The active account is marked; the folder tells accounts with the same email apart.
   return `${e.dir === state.current?.dir ? "● " : "○ "}${account?.email ?? e.dir} (${basename(e.dir)})`;
@@ -639,9 +685,10 @@ const accountOf = (e: AccountEntry, state: AccountState): Account | undefined =>
   "dir" in e ? state.accounts.find((a) => a.dir === e.dir) : undefined;
 
 /** The preview of an Account entry: the account's data, or how the accounts were looked for. */
-function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
+export function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const field = (name: string, value: string | undefined) => (value ? wrap(`${name}: ${value}`) : []);
+  if (e.account === "add") return addAccountLines(width);
   if (e.account === "details") {
     const searched = state.accounts.map((a) => `${tilde(a.dir)}  ${a.email}`);
     return [
@@ -664,7 +711,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
     return wrap("No account found for this Claude Code: its config folder has no `.claude.json` with a signed-in account. Sign in with `/login` in Claude Code; the list updates within 30 seconds, or at once with `F5`.");
   }
   const color = colorNameOf(account, state, settings.accountColor);
-  const fixed = account.dir === state.own && settings.accountColor !== "auto" && settings.accountColor !== "off";
+  const fixed = hasChosenColor(account, state, settings.accountColor);
   return [
     state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
     "",
@@ -683,10 +730,53 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
   ];
 }
 
+/**
+ * The preview of "how to add an account": what an account is to Claude Code, what `Enter` sets up, how to do it by
+ * hand on Windows and elsewhere, and the names a start script must not have.
+ */
+export function addAccountLines(width: number, platform: NodeJS.Platform = process.platform): string[] {
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
+  const code = (lines: string[]) => lines.map((l) => `    ${codeMarks(`\`${l}\``)}`);
+  const bin = tilde(claudeBinDir().dir);
+  const windows = platform === "win32";
+  return [
+    ...wrap("Claude Code keeps its login, sessions, settings and plugins in one config folder: `~/.claude`, or the folder `CLAUDE_CONFIG_DIR` names. A second account is a second folder, started with that variable set. cco finds every `~/.claude*` folder that is signed in."),
+    "",
+    bold("Enter sets one up"),
+    ...wrap("It asks for a command (e.g. `cw`) and a folder (`.claude-cw`), checks the command's name, then:", "  "),
+    ...wrap(`1. creates the folder in your home folder;`, "  "),
+    ...wrap(`2. writes start scripts next to claude, in ${bin}: ${windows ? "`cw.cmd` for cmd and PowerShell and `cw` for Git Bash" : "`cw`, executable"};`, "  "),
+    ...wrap("3. installs the cco plugin there and gives it cco's settings;", "  "),
+    ...wrap("4. runs the script in a new window: sign in there with `/login`. The account then shows here (within 30 s, or at once with `F5`).", "  "),
+    "",
+    bold("By hand"),
+    ...(windows
+      ? [
+          ...wrap("cmd and PowerShell: a file `cw.cmd` in a folder on the PATH:", "  "),
+          ...code(["@echo off", "setlocal", 'set "CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-cw"', "call claude %*"]),
+          ...wrap("Git Bash: a file `cw` (no ending) in the same folder:", "  "),
+          ...code(["#!/usr/bin/env bash", 'export CLAUDE_CONFIG_DIR="$USERPROFILE\\.claude-cw"', 'exec claude "$@"']),
+        ]
+      : [
+          ...wrap("A file `cw` in a folder on the PATH (e.g. `~/.local/bin`), made executable with `chmod +x cw`:", "  "),
+          ...code(["#!/usr/bin/env bash", 'export CLAUDE_CONFIG_DIR="$HOME/.claude-cw"', 'exec claude "$@"']),
+        ]),
+    ...wrap("Then run `cw`, sign in with `/login`, and add cco there:", "  "),
+    ...code([`cw plugin marketplace add ${marketplaceSource()}`, "cw plugin install cco@cc-outline"]),
+    "",
+    bold("Names to avoid"),
+    ...wrap(
+      windows
+        ? "A shell runs its own commands before files on the PATH. In PowerShell aliases win: `cp` runs Copy-Item, not `cp.cmd`; so do `sc` (Set-Content), `r`, `h`, `gc`, `where` and many more. cmd has built-ins such as `copy`, `dir` and `start`, Bash such as `test` and `type`. And a program of the same name earlier on the PATH wins as well. `Get-Command cw -All` in PowerShell (`type -a cw` in Bash) lists what a name runs, the first one wins. Enter checks all of this, asking PowerShell for its aliases, your profile's included."
+        : "A shell runs its built-ins and aliases before files on the PATH (`test`, `type`, …), and a program of the same name earlier on the PATH wins as well. `type -a cw` lists what a name runs, the first one wins. Enter checks the built-ins and the PATH.",
+    ),
+  ];
+}
+
 /** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
 type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
 /** The info entries of the Account group: one per account found (the active one marked), a note while there is none, and how they were found. */
-type AccountEntry = { account: "none" | "details" } | { account: "item"; dir: string };
+export type AccountEntry = { account: "none" | "details" | "add" } | { account: "item"; dir: string };
 type Entry = Row | ReleaseEntry | ResetAction | AccountEntry;
 
 /** The group an entry is listed under. */
@@ -837,13 +927,22 @@ export function settingsEntries(update: Update, accounts: AccountState = { accou
     ...items,
     ...SETTING_ROWS.slice(first, last + 1),
     { account: "details" },
+    { account: "add" },
     ...SETTING_ROWS.slice(last + 1),
     ...RESET_ACTIONS,
     ...releaseEntries(update),
   ];
 }
 
-export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked }: Props) {
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen }: Props) {
+  // Enter on an account: continue the session there, start a new one, open its folder (as in the Accounts view).
+  const [flash, setFlash] = useState<string>();
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(undefined), 3000);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -916,7 +1015,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const doctorBusy = doctorRun?.status === "running" || doctorChecking !== undefined;
   const repairOpen = repairDialog && doctorRun !== undefined && doctorRun.status !== "done";
   // While the update, a check or a repair runs, the app keeps q, p and the other views away from it.
-  const modal = confirmation !== undefined || updating || doctorBusy;
+  const modal = confirmation !== undefined || updating || doctorBusy || flow.open;
   useEffect(() => {
     onModal?.(modal);
   }, [modal]);
@@ -1120,6 +1219,11 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   /** Enter (or a double click) on the selected entry: a reset or the update asks first, a setting takes its next value. */
   const activate = () => {
     if (filter.none) return;
+    if (accountEntry?.account === "add") return flow.askAddAccount(cwd);
+    if (accountEntry && "dir" in accountEntry) {
+      const account = accountState.accounts.find((a) => a.dir === accountEntry.dir);
+      return account && flow.accountMenu(account, cwd, sessionPath ? ownSession(sessionPath, cwd) : undefined, noSession);
+    }
     if (reset) {
       if (reset.id === "settings") return canReset && askResetSettings();
       if (reset.id === "restart") return onRestart !== undefined && restart();
@@ -1150,13 +1254,19 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         return target !== undefined && select(target);
       }
       if (filter.none && (key.return || input === "r" || input === "c")) return;
-      if (key.return && (reset || onUpdate || row)) return activate();
+      if (key.return && (reset || onUpdate || row || accountEntry)) return activate();
+      // d moves an account to the trash (the Accounts view keeps it), u brings back the one moved last.
+      if (input === "d" && accountEntry && "dir" in accountEntry) {
+        const account = accountState.accounts.find((a) => a.dir === accountEntry.dir);
+        return account && flow.askTrash(account);
+      }
+      if (input === "u" && flow.undoTrash()) return;
       if (onUpdate && input === "c") return copyCommands();
       if (input === "r" && row) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined && !progressOpen && !filter.open },
+    { isActive: active && confirmation === undefined && !progressOpen && !filter.open && !flow.open },
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
@@ -1195,7 +1305,17 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           { text: "c copy commands", priority: 3 },
         ]
       : accountEntry
-        ? [{ text: "F5 reload", priority: 2 }]
+        ? [
+            ...("dir" in accountEntry
+              ? [
+                  { text: "↵ actions…", priority: 4 },
+                  { text: "d delete", priority: 2 },
+                ]
+              : accountEntry.account === "add"
+                ? [{ text: "↵ add an account…", priority: 4 }]
+                : []),
+            { text: "F5 reload", priority: 2 },
+          ]
         : release
         ? [{ text: "F5 check", priority: 2 }]
         : [
@@ -1268,7 +1388,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             />
           )
         }
-        footer={[
+        footer={flash ?? [
           { text: "↑↓ setting", priority: 4 },
           ...entryFooter,
           ...markFooter(favorites.isMarked(entryKey), marked),
@@ -1280,6 +1400,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
       )}
+      {flow.element}
       {filter.dialog}
     </>
   );

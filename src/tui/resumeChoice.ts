@@ -11,9 +11,10 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `move`: bring a session whose folder is gone into the viewer's project folder.
  * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
  * - `export`: write it (or the marked sessions) into a zip archive; `import`: read the sessions of one.
+ * - `account`: copy it into another account's config folder and continue it there, in a new window.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -22,6 +23,8 @@ export interface ChoiceOption<T extends string = string> {
   detail: string;
   /** Why it cannot be chosen now; shown instead of the detail. */
   disabled?: string;
+  /** Hard to undo: shown in red, below a "Danger zone" line (above the first such option). */
+  danger?: boolean;
 }
 
 /** The Claude Code a viewer belongs to, as far as continuing a session in it matters. */
@@ -52,6 +55,14 @@ export interface SessionSituation {
   here?: string;
   /** How many sessions are marked: export takes them instead of this one. */
   marked?: number;
+  /** The emails of the other accounts signed in on this machine: the session can continue in one of them. */
+  accounts?: string[];
+  /**
+   * The email of the account the session belongs to, with two or more accounts found: the window option names it.
+   */
+  account?: string;
+  /** The session is another account's: only switching to it, continuing it in a new window there and copying the command can be chosen. */
+  foreign?: boolean;
   /** Windows Terminal or tmux runs the viewer: tabs can be switched and windows opened. */
   terminal: boolean;
   /** The command `copy` copies. */
@@ -69,6 +80,8 @@ const BUSY: Partial<Record<SessionActivity, string>> = {
 };
 
 const NO_TERMINAL = "no Windows Terminal or tmux";
+/** Why the options that work on this account's folder cannot be chosen for another account's session. */
+export const OWN_ONLY = "only for sessions of this account";
 /** A running Claude Code keeps its title and writes it again: only it can rename its session. */
 const RUNS = "it runs: use /rename in its Claude Code";
 
@@ -78,6 +91,7 @@ const RUNS = "it runs: use /rename in its Claude Code";
  */
 export function sessionOptions(s: SessionSituation): { options: ChoiceOption<SessionAction>[]; initial: number } {
   const { paired } = s;
+  const own = s.foreign ? OWN_ONLY : undefined;
   const copy: ChoiceOption<SessionAction> = { id: "copy", label: "Copy the command", detail: s.command };
   const noTerminal = s.terminal ? undefined : NO_TERMINAL;
   let options: ChoiceOption<SessionAction>[];
@@ -92,19 +106,30 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
   } else if (s.state === "active") {
     const switchTo: ChoiceOption<SessionAction> = { id: "switch", label: "Switch to its tab", detail: "it runs in another Claude Code", disabled: noTerminal };
     const attach: ChoiceOption<SessionAction> = paired
-      ? { id: "attach", label: "Attach the viewer there", detail: "it stays here; this Claude Code is left without one", disabled: s.attachBlocked }
-      : { id: "attach", label: "Attach the viewer", detail: "it stays here and follows that Claude Code", disabled: s.attachBlocked };
+      ? { id: "attach", label: "Attach the viewer there", detail: "it stays here; this Claude Code is left without one", disabled: own ?? s.attachBlocked }
+      : { id: "attach", label: "Attach the viewer", detail: "it stays here and follows that Claude Code", disabled: own ?? s.attachBlocked };
     options = paired ? [switchTo, attach] : [attach, switchTo];
     preferred = paired ? ["switch"] : ["attach", "switch"];
   } else {
     const gone = s.folderMissing ? "its folder is gone" : undefined;
-    const window: ChoiceOption<SessionAction> = paired
-      ? { id: "window", label: "Continue it in a new window", detail: "claude --resume in a new terminal window", disabled: gone ?? noTerminal }
-      : { id: "window", label: "Only start it", detail: "in a new window; the viewer stays here, unpaired", disabled: gone ?? noTerminal };
-    const windowAttach: ChoiceOption<SessionAction> = paired
-      ? { id: "window-attach", label: "New window and attach", detail: "the viewer moves next to it", disabled: gone ?? noTerminal }
-      : { id: "window-attach", label: "Start it and attach the viewer", detail: "in a new window; the viewer moves next to it", disabled: gone ?? noTerminal };
-    if (paired) {
+    const as = s.account ? ` as ${s.account}` : "";
+    const window: ChoiceOption<SessionAction> = {
+      id: "window",
+      label: "Continue it in a new window",
+      detail: paired || s.foreign ? `claude --resume${as}` : `claude --resume${as}; the viewer stays here, unpaired`,
+      disabled: gone ?? noTerminal,
+    };
+    const windowAttach: ChoiceOption<SessionAction> = {
+      id: "window-attach",
+      label: "Continue it in a new window and attach",
+      detail: "the viewer moves next to it",
+      disabled: own ?? gone ?? noTerminal,
+    };
+    if (s.foreign) {
+      // /resume in this viewer's Claude Code cannot reach another account's session.
+      options = [{ id: "here", label: "Continue it here", detail: "", disabled: OWN_ONLY }, window, windowAttach];
+      preferred = ["window"];
+    } else if (paired) {
       const how = paired.method === "keys" ? "/resume is typed in" : "/resume is copied for you to paste";
       const here: ChoiceOption<SessionAction> = {
         id: "here",
@@ -121,16 +146,25 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
   }
   const into = s.here ? ` into ${s.here}` : "";
   if (s.state === "inactive" && s.movable !== undefined) {
-    options.unshift({ id: "move", label: "Move it here", detail: `from ${s.movable}${into}` });
-    preferred = ["move"];
+    options.unshift({ id: "move", label: "Move it here", detail: `from ${s.movable}${into}`, disabled: own });
+    if (!own) preferred = ["move"];
   }
   const marked = s.marked ?? 0;
+  // Only offered with a second account signed in on this machine.
+  const accounts = s.accounts ?? [];
+  if (accounts.length > 0)
+    options.push({
+      id: "account",
+      label: accounts.length === 1 ? `Continue it in ${accounts[0]}…` : "Continue it in another account…",
+      detail: accounts.length === 1 ? "a copy, in a new window" : `a copy in one of ${accounts.length} other accounts, in a new window`,
+      disabled: own ?? (s.folderMissing ? "its folder is gone" : undefined),
+    });
   options.push(
-    { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: s.state === "inactive" ? undefined : RUNS },
-    marked > 0
+    { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: own ?? (s.state === "inactive" ? undefined : RUNS) },
+    marked > 0 && !own
       ? { id: "export", label: `Export ${marked} marked session${marked === 1 ? "" : "s"}`, detail: "into a zip archive in the downloads folder" }
-      : { id: "export", label: "Export it", detail: "into a zip archive in the downloads folder" },
-    { id: "import", label: "Import sessions…", detail: `from a cco-session-export zip${into}` },
+      : { id: "export", label: "Export it", detail: "into a zip archive in the downloads folder", disabled: own },
+    { id: "import", label: "Import sessions…", detail: `from a cco-session-export zip${into}`, disabled: own },
     copy,
   );
   const first = preferred.map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
@@ -147,12 +181,13 @@ export function enterLabel(s: SessionSituation): string {
     switch: "switch",
     attach: "attach",
     here: "resume here",
-    window: s.paired ? "new window" : "start",
-    "window-attach": s.paired ? "new window + attach" : "start + attach",
+    window: "new window",
+    "window-attach": "new window + attach",
     move: "move here",
     rename: "rename",
     export: "export",
     import: "import",
+    account: "other account",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;

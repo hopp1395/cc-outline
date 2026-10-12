@@ -23,7 +23,7 @@ beforeEach(() => {
   process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-pinned-sessions-"));
   cwd = mkdtempSync(join(tmpdir(), "cco-pinned-sessions-project-"));
   mkdirSync(projectDir(cwd), { recursive: true });
-  updateSettings({ allProjects: false });
+  updateSettings({ sessionsScope: "project" });
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;

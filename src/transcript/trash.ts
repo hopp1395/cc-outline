@@ -43,6 +43,8 @@ export interface RunningSession {
   activity?: SessionActivity;
   /** The session's name, which Claude Code also shows as the terminal title. */
   name?: string;
+  /** The folder it runs in. */
+  cwd?: string;
   /** `bg` for a session the Claude Code daemon runs, with the `jobId` that `claude attach` takes. */
   kind?: string;
   jobId?: string;
@@ -64,7 +66,7 @@ export function runningSessions(): Map<string, RunningSession> {
       const info = JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>;
       if (typeof info.sessionId !== "string" || typeof info.pid !== "number" || !isAlive(info.pid)) continue;
       const activity = info.status === "busy" || info.status === "waiting" || info.status === "idle" ? info.status : undefined;
-      sessions.set(info.sessionId, { pid: info.pid, activity, name: text(info.name), kind: text(info.kind), jobId: text(info.jobId) });
+      sessions.set(info.sessionId, { pid: info.pid, activity, name: text(info.name), cwd: text(info.cwd), kind: text(info.kind), jobId: text(info.jobId) });
     } catch {
       // Being rewritten or not ours: skip it.
     }

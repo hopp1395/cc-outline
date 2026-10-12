@@ -2,7 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { IncrementalFile } from "./incremental.js";
-import { claudeDir, projectDir } from "./locate.js";
+import { claudeDir, inClaudeDir, projectDir } from "./locate.js";
 import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
 
 /** What the Sessions view shows about one session. */
@@ -30,6 +30,8 @@ export interface SessionSummary {
   continuedIn?: string;
   /** Ids of the sessions merged into this one, which it continued from, oldest first. */
   continues?: string[];
+  /** The config folder of another account the session belongs to; missing for this viewer's own. */
+  account?: string;
 }
 
 /** What the overview keeps of a subagent. */
@@ -259,6 +261,14 @@ const byLastActive = (a: SessionSummary, b: SessionSummary) => (lastActive(a) ??
 export class SessionIndex {
   private readers = new Map<string, SessionReader>();
 
+  /** `account`: the config folder of another account, whose sessions this index reads and marks with it. */
+  constructor(private readonly account?: string) {}
+
+  /** Runs `fn` in the index's config folder. */
+  private inFolder<T>(fn: () => T): T {
+    return this.account ? inClaudeDir(this.account, fn) : fn();
+  }
+
   /**
    * Sessions with work in them (see `hasWork`), by `lastActive` oldest first, of the project
    * `cwd` or, without it, of all projects. Yields between files so a first
@@ -272,11 +282,15 @@ export class SessionIndex {
     onProgress?: (sessions: SessionSummary[], done: number, total: number) => void,
     since?: number,
   ): Promise<SessionSummary[]> {
-    const all = transcriptFiles(cwd);
+    const all = this.inFolder(() => transcriptFiles(cwd));
     const files = writtenSince(all, since);
     const summaries: SessionSummary[] = [];
+    const { account } = this;
     // Continued sessions are merged before the filter: one part alone may hold only slash commands.
-    const sessions = () => mergeContinued(summaries).filter(hasWork).sort(byLastActive);
+    const sessions = () => {
+      const found = mergeContinued(summaries).filter(hasWork).sort(byLastActive);
+      return account ? found.map((s) => ({ ...s, account })) : found;
+    };
     let reported = Date.now();
     for (const [i, path] of files.entries()) {
       let reader = this.readers.get(path);
@@ -290,7 +304,8 @@ export class SessionIndex {
     }
     // Forget transcripts that are gone (deleted, moved to the trash).
     const present = new Set(all);
-    for (const path of this.readers.keys()) if (!present.has(path) && (!cwd || path.startsWith(projectDir(cwd)))) this.readers.delete(path);
+    const scanned = cwd ? this.inFolder(() => projectDir(cwd)) : undefined;
+    for (const path of this.readers.keys()) if (!present.has(path) && (!scanned || path.startsWith(scanned))) this.readers.delete(path);
     return sessions();
   }
 }

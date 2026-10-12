@@ -35,6 +35,20 @@ export function rangeStart(range: ListRange, now = new Date()): number | undefin
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
 }
 
+/** Which sessions the Sessions view lists (a goes round them): this project's or all projects', of this account or of all accounts found. */
+export const SESSIONS_SCOPE_VALUES = ["project", "all", "project-accounts", "all-accounts"] as const;
+export type SessionsScope = (typeof SESSIONS_SCOPE_VALUES)[number];
+/** The scope lists the sessions of every project. */
+export const scopeAllProjects = (scope: SessionsScope) => scope === "all" || scope === "all-accounts";
+/** The scope lists the sessions of the other accounts found too. */
+export const scopeAccounts = (scope: SessionsScope) => scope === "project-accounts" || scope === "all-accounts";
+/** The scope after `scope`, for a in Sessions. */
+export const nextScope = (scope: SessionsScope): SessionsScope => SESSIONS_SCOPE_VALUES[(SESSIONS_SCOPE_VALUES.indexOf(scope) + 1) % SESSIONS_SCOPE_VALUES.length];
+
+/** The order of the other accounts in the Accounts view (s there), below the active one: by email, by folder name, or the one used last first. */
+export const ACCOUNTS_ORDER_VALUES = ["email", "folder", "recent"] as const;
+export type AccountsOrder = (typeof ACCOUNTS_ORDER_VALUES)[number];
+
 /** What the list filter (Ctrl+F) looks at: the entries' rows, their details, or both. */
 export const FILTER_IN_VALUES = ["list", "details", "both"] as const;
 export type FilterIn = (typeof FILTER_IN_VALUES)[number];
@@ -104,8 +118,8 @@ export interface Settings {
   gitNestedRepos: boolean;
   /** Plan: wrap long lines (w). */
   planWrap: boolean;
-  /** Sessions: show the sessions of all projects, not only this one (a). */
-  allProjects: boolean;
+  /** Sessions: the sessions of this project or of all, of this account or of all accounts found (a goes round); formerly the on/off allProjects. */
+  sessionsScope: SessionsScope;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -121,6 +135,11 @@ export interface Settings {
   sessionsListWidth: ListWidth;
   monitorListWidth: ListWidth;
   settingsListWidth: ListWidth;
+  accountsListWidth: ListWidth;
+  /** Accounts: the view is reachable with 0, a click on the "cco" and ←/→; /cco:accounts opens it either way. */
+  viewAccounts: boolean;
+  /** Accounts: the order of the other accounts (s in the view). */
+  accountsOrder: AccountsOrder;
   /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
   viewChat: boolean;
   viewGit: boolean;
@@ -150,7 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wrap: true,
   gitNestedRepos: true,
   planWrap: true,
-  allProjects: true,
+  sessionsScope: "all",
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
@@ -162,6 +181,9 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionsListWidth: "normal",
   monitorListWidth: "normal",
   settingsListWidth: "normal",
+  accountsListWidth: "normal",
+  viewAccounts: true,
+  accountsOrder: "email",
   viewChat: true,
   viewGit: true,
   viewPlan: true,
@@ -169,8 +191,8 @@ export const DEFAULT_SETTINGS: Settings = {
   viewMonitor: true,
 };
 
-/** The setting that shows or hides each view; Settings has none, so the way back is always there. */
-export const VIEW_SETTINGS: Record<Exclude<Mode, "settings">, keyof Settings> = {
+/** The setting that shows or hides each view; Settings has none, so the way back is always there, nor Accounts, which has no tab of its own ("cco"). */
+export const VIEW_SETTINGS: Record<Exclude<Mode, "settings" | "accounts">, keyof Settings> = {
   chat: "viewChat",
   git: "viewGit",
   plan: "viewPlan",
@@ -179,13 +201,17 @@ export const VIEW_SETTINGS: Record<Exclude<Mode, "settings">, keyof Settings> = 
 };
 
 /** The setting of each view's list width. */
-export const LIST_WIDTH_SETTINGS: Record<Mode, "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "settingsListWidth"> = {
+export const LIST_WIDTH_SETTINGS: Record<
+  Mode,
+  "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "settingsListWidth" | "accountsListWidth"
+> = {
   chat: "chatListWidth",
   git: "gitListWidth",
   plan: "planListWidth",
   sessions: "sessionsListWidth",
   monitor: "monitorListWidth",
   settings: "settingsListWidth",
+  accounts: "accountsListWidth",
 };
 
 /** The list width one step narrower (`step` -1) or wider (1) than `width`, stopping at `hidden` and `full`. */
@@ -196,11 +222,12 @@ export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
 
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
+  if (mode === "accounts") return settings.viewAccounts;
   return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
 }
 
 /** The views in tab order. */
-const TAB_ORDER: Mode[] = ["chat", "git", "plan", "sessions", "monitor", "settings"];
+const TAB_ORDER: Mode[] = ["accounts", "chat", "git", "plan", "sessions", "monitor", "settings"];
 
 /** The shown view after (`step` 1) or before (-1) `mode` in tab order, wrapping around; for Tab and Shift+Tab. */
 export function nextShownView(settings: Settings, mode: Mode, step: 1 | -1): Mode {
@@ -215,7 +242,8 @@ export function nextShownView(settings: Settings, mode: Mode, step: 1 | -1): Mod
 
 /** `mode` if it is shown, else the first shown view (Settings always is). */
 export function shownView(settings: Settings, mode: Mode): Mode {
-  return isViewShown(settings, mode) ? mode : (TAB_ORDER.find((m) => isViewShown(settings, m)) ?? "settings");
+  // Accounts is the "cco" before the tabs: never the stand-in for a hidden view.
+  return isViewShown(settings, mode) ? mode : (TAB_ORDER.find((m) => m !== "accounts" && isViewShown(settings, m)) ?? "settings");
 }
 
 /** Allowed values of the settings that are not on/off. */
@@ -228,6 +256,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
+  sessionsScope: SESSIONS_SCOPE_VALUES,
   sessionsRange: RANGE_VALUES,
   monitorRange: RANGE_VALUES,
   chatListWidth: LIST_WIDTH_VALUES,
@@ -236,6 +265,8 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   sessionsListWidth: LIST_WIDTH_VALUES,
   monitorListWidth: LIST_WIDTH_VALUES,
   settingsListWidth: LIST_WIDTH_VALUES,
+  accountsListWidth: LIST_WIDTH_VALUES,
+  accountsOrder: ACCOUNTS_ORDER_VALUES,
 };
 
 export function settingsFile(): string {
@@ -256,6 +287,9 @@ export function readSettings(): Settings {
   // accountColor was the colour of this account alone; the on/off setting accountBadge is its value off now.
   const badge = (stored as { accountBadge?: unknown }).accountBadge;
   if (stored.accountColor === undefined && badge === false) stored.accountColor = "off";
+  // sessionsScope was the on/off setting allProjects before the other accounts could be listed too.
+  const allProjects = (stored as { allProjects?: unknown }).allProjects;
+  if (stored.sessionsScope === undefined && typeof allProjects === "boolean") stored.sessionsScope = allProjects ? "all" : "project";
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];

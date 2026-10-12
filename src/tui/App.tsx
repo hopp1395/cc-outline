@@ -8,7 +8,7 @@ import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
 import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
-import { continueSession } from "../transcript/locate.js";
+import { continueSession, inClaudeDir } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
@@ -28,6 +28,7 @@ import { onCtrlC } from "./ctrlC.js";
 import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
+import { AccountsView } from "./AccountsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
 import { AccountContext, useAccounts } from "./useAccount.js";
@@ -60,7 +61,7 @@ interface Props {
   onDetach?: (cwd: string) => void;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
+const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
 
 /**
  * When the last prompt was typed in Claude Code, if that was after `since`: the
@@ -76,7 +77,7 @@ const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefine
 
 /** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
 const REDRAW = "\u001b[?25l";
-const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
+const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0, accounts: 0 };
 
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach }: Props) {
   const { exit } = useApp();
@@ -143,6 +144,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     sessions: false,
     settings: false,
     monitor: false,
+    accounts: false,
   });
   // |, < and > past the ends fold a view's list away or spread it over the pane (stored as its width);
   // which end | takes next and a detail shown over the pane are kept until the viewer quits.
@@ -153,6 +155,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     sessions: UNFOLDED,
     settings: UNFOLDED,
     monitor: UNFOLDED,
+    accounts: UNFOLDED,
   }));
   const setFold = (m: Mode, state: FoldState) => setFolds((f) => (f[m] === state ? f : { ...f, [m]: state }));
   // What each view reported last, also between renders: a view may report twice before one.
@@ -161,7 +164,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const was = reported.current[m];
     reported.current = { ...reported.current, [m]: open };
     // A detail opened from the full list shows over the whole pane; the trash is a list itself.
-    if (m !== "sessions") setFolds((f) => ({ ...f, [m]: detailFold(readSettings()[LIST_WIDTH_SETTINGS[m]], f[m], open, was) }));
+    if (m !== "sessions" && m !== "accounts") setFolds((f) => ({ ...f, [m]: detailFold(readSettings()[LIST_WIDTH_SETTINGS[m]], f[m], open, was) }));
     setDetailOpen((d) => ({ ...d, [m]: open }));
   };
   const viewLayout = (m: Mode) => layoutOf(m, folds[m].drilled);
@@ -174,13 +177,23 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }
 
   // An entry the Settings view is asked to select: by /cco:releases or a click on the top bar's update.
-  const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() => (initialSelect ? { key: initialSelect, at: Date.now() } : undefined));
+  const [settingsSelect, setSettingsSelect] = useState<{ key: string; at: number; ask?: boolean } | undefined>(() =>
+    initialSelect && initialAction !== "account" ? { key: initialSelect, at: Date.now() } : undefined,
+  );
+  // /cco:account: Sessions asks which account to continue the session in; `query` names one (email or folder).
+  const [accountRequest, setAccountRequest] = useState<{ at: number; query?: string } | undefined>(() =>
+    initialAction === "account" ? { at: Date.now(), query: initialSelect || undefined } : undefined,
+  );
   const showView = (view: Mode | undefined, select?: string, ask?: boolean) => {
     if (view) setMode(view);
     if (select) setSettingsSelect({ key: select, at: Date.now(), ask });
   };
   // Requests of cco open: a view, and /cco:restart and /cco:update.
   const onRequest = (view: Mode | undefined, select?: string, action?: ViewerAction) => {
+    if (action === "account") {
+      setMode("sessions");
+      return setAccountRequest({ at: Date.now(), query: select || undefined });
+    }
     showView(view, select);
     if (action === "restart") restartViewer();
     if (action === "update") checkForUpdate();
@@ -188,7 +201,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // The watcher keeps the first callback; the restart needs the view and session shown now.
   const request = useRef(onRequest);
   request.current = onRequest;
-  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: exit });
+  // The viewer's own session can continue in another account (Accounts view, /cco:account).
+  const continuable = claudePid !== undefined && !sessionId && path !== undefined;
+  const noSession = continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it in Sessions" : "there is no session yet";
+  // While Sessions continues the session in another account, its Claude Code may be closed on purpose: the viewer stays to move along.
+  const holdOpen = useRef(false);
+  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: () => holdOpen.current || exit() });
 
   // The update check runs once at the start, unless the setting is off then.
   const [updateMode] = useState(() => readSettings().updateMode);
@@ -281,8 +299,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    * (`resumeForPairing`): the viewer reopens next to it, paired, in the chat.
    */
   const pairWithStarted = (target: PairTarget, where: string) => {
-    writeTargetSession(target);
-    if (moveViewer(target.cwd, "chat", resolvePlacement(target.cwd, target.sessionId), target.claudePid, undefined, where)) exit();
+    // A session continued in another account: its Claude Code and the viewer from now on run under that account's folder.
+    const { configDir } = target;
+    const inTarget = <T,>(fn: () => T) => (configDir ? inClaudeDir(configDir, fn) : fn());
+    inTarget(() => writeTargetSession(target));
+    const placementThere = inTarget(() => resolvePlacement(target.cwd, target.sessionId));
+    if (moveViewer(target.cwd, "chat", placementThere, target.claudePid, undefined, where, configDir)) return exit();
+    holdOpen.current = false;
   };
   // Reset: restart, and /cco:restart. The viewer says so for a moment, then reopens where it is, running the CLI on disk now.
   const restarting = useRef(false);
@@ -482,6 +505,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             // Any viewer attaches to another Claude Code, leaving its own if it has one.
             onPair={onPair ? pairWith : undefined}
             onPairStarted={onPair ? pairWithStarted : undefined}
+            onHoldOpen={(hold) => (holdOpen.current = hold)}
+            accountRequest={accountRequest}
             onDetach={claudePid !== undefined && !sessionId && onDetach ? detach : undefined}
             // A viewer of its Claude Code's live session can continue another session there (/resume).
             paired={
@@ -505,6 +530,31 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onResetData={resetProjectData}
             onRestart={sessionId ? undefined : restartViewer}
             select={settingsSelect}
+            sessionPath={continuable ? path : undefined}
+            noSession={noSession}
+            claudePid={claudePid}
+            onPairStarted={onPair ? pairWithStarted : undefined}
+            onHoldOpen={(hold) => (holdOpen.current = hold)}
+          />
+          </MouseContext.Provider>
+          </ReloadContext.Provider>
+        </Box>
+        <Box display={mode === "accounts" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("accounts")}>
+          <MouseContext.Provider value={mouseFor("accounts")}>
+          <AccountsView
+            cwd={cwd}
+            layout={viewLayout("accounts")}
+            visible={mode === "accounts"}
+            active={mode === "accounts" && !blocked}
+            onTyping={setTyping}
+            onModal={setModal}
+            sessionPath={continuable ? path : undefined}
+            claudePid={claudePid}
+            onPairStarted={onPair ? pairWithStarted : undefined}
+            onHoldOpen={(hold) => (holdOpen.current = hold)}
+            noSession={noSession}
+            onTrashOpen={setDetail("accounts")}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>

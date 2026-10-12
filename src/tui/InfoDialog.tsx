@@ -103,9 +103,16 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["m", "model"],
     ...COMMON_KEYS,
   ],
+  accounts: [
+    ...LIST_KEYS("account"),
+    ["↵ s", "actions / order: email → folder → last used"],
+    ["d T", "to the trash / trash on, off"],
+    ["u x X", "undo, restore / delete / empty trash"],
+    ...COMMON_KEYS,
+  ],
 };
 
-const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor" };
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor", accounts: "Accounts" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;
