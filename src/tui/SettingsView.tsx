@@ -114,6 +114,8 @@ interface Row {
   description: Text;
   /** The values in the order Enter steps through them, each with what it does, with an example where one helps. */
   values: [value: string | boolean, meaning: Text][];
+  /** How a value's name is drawn where it says enough by itself (the colours): such a value has no meaning, one line each. */
+  look?: (value: string) => string | undefined;
   /** The key that switches it in its own view, e.g. "t in Chat". */
   viewKey?: string;
   notes?: Text[];
@@ -396,8 +398,9 @@ export const SETTING_ROWS: Row[] = [
     values: [
       ["auto", "a colour from the email"],
       ["off", "the \"cco\" keeps the colour of the bar"],
-      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, colorBadge(name)]),
+      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, ""]),
     ],
+    look: (value) => (ACCOUNT_COLOR_NAMES.includes(value as AccountColorName) ? colorBadge(value as AccountColorName) : undefined),
   },
   {
     key: "accountTitle",
@@ -588,10 +591,20 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(textOf(row.description, context)), ""];
   lines.push(bold("Values"));
+  let compact = false;
   for (const [value, meaning] of row.values) {
+    const selected = value === current;
+    const look = typeof value === "string" ? row.look?.(value) : undefined;
+    if (look) {
+      // Drawn as it looks, one per line, below the last value with a meaning.
+      if (!compact) lines.push("");
+      compact = true;
+      lines.push(`${selected ? GREEN("●") : dim("○")} ${look}`);
+      continue;
+    }
+    compact = false;
     // A blank line below the heading and between the values: most take two or three lines with their example.
     lines.push("");
-    const selected = value === current;
     const name = valueName(value) + (value === DEFAULT_SETTINGS[row.key] ? " (default)" : "");
     // The value on a line of its own, what it does indented below it.
     // Names in colour, so they stand out from their descriptions: the current one green, the others gray.
