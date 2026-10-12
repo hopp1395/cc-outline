@@ -5,7 +5,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Account } from "../account.js";
 import { continueInAccount, matchAccount, otherAccounts, type ContinuePlan } from "../accountContinue.js";
 import { pluginSteps } from "../accountSetup.js";
-import { detectTerminal, openInDefaultApp, resumeForPairing, resumeInNewWindow, resumeShellCommand } from "../open.js";
+import { accountsHome, checkNewAccount, claudeBinDir, powershellAliases, writeAccountFiles, type StartScript } from "../addAccount.js";
+import { AddAccountDialog } from "./AddAccountDialog.js";
+import { detectTerminal, openInDefaultApp, resumeForPairing, resumeInNewWindow, resumeShellCommand, scriptInNewWindow } from "../open.js";
 import { prepareConsoleInput, type ConsoleTyper } from "../switchSession.js";
 import { TIMING } from "../timing.js";
 import { inClaudeDir, projectSlug } from "../transcript/locate.js";
@@ -108,6 +110,8 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [run, setRun] = useState<Progress>();
   const [pairing, setPairing] = useState<Pairing>();
+  // Adding an account: where its start scripts go, while the dialog asks for its names.
+  const [adding, setAdding] = useState<{ cwd: string; dir: string; onPath: boolean }>();
   const [, setPairTick] = useState(0);
   const fromEmail = accountState.current?.email;
   const [accountColor] = useSetting("accountColor");
@@ -385,8 +389,53 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     });
   };
 
+  /** Asks for the command and folder of a new account (Settings and Accounts view, "how to add an account"). */
+  const askAddAccount = (cwd: string) => setAdding({ cwd, ...claudeBinDir() });
+
+  /** Checks a new account's names; on Windows PowerShell is asked for its aliases first. */
+  const checkAccount = async (command: string, folder: string) =>
+    checkNewAccount(command, folder, { binDir: adding?.dir ?? claudeBinDir().dir, aliases: process.platform === "win32" ? await powershellAliases() : undefined });
+
+  /** Creates the folder and the start scripts, then prepares cco there and opens a window to sign in. */
+  const addAccount = (command: string, folderName: string) => {
+    if (!adding) return;
+    const { cwd, dir: binDir } = adding;
+    setAdding(undefined);
+    const dir = join(accountsHome.get(), folderName);
+    try {
+      void prepareAdded(command, dir, cwd, writeAccountFiles(command, dir, binDir));
+    } catch (err) {
+      setRun({ title: `Add ${command}`, status: "failed", text: "The account was not added", lines: [(err as Error).message] });
+    }
+  };
+
+  const prepareAdded = async (command: string, dir: string, cwd: string, scripts: StartScript[], skipPlugin = false) => {
+    const title = `Add ${command}`;
+    const account: Account = { dir, file: join(dir, ".claude.json"), email: basename(dir) };
+    const result = await continueInAccount({ account, fromEmail, skipPlugin }, (steps) => setRun(continueProgress(account, steps, tilde(dir), title)));
+    if (result.kind === "plugin-failed")
+      return pluginFailed(result.steps, title, [truncate(`the new account ${command}`, HEAD_WIDTH), truncate(tilde(dir), HEAD_WIDTH)], () => void prepareAdded(command, dir, cwd, scripts, true));
+    if (result.kind === "failed") return setRun({ title, status: "failed", text: "cco could not be prepared there", lines: [result.message] });
+    const written = [truncate(`folder  ${tilde(dir)}`, HEAD_WIDTH), ...scripts.map((s) => truncate(`script  ${tilde(s.file)}`, HEAD_WIDTH))];
+    const started = scriptInNewWindow(scripts[0]!.file, cwd, command);
+    if (started) {
+      notify(started);
+      return setRun({ title, status: "done", text: "Sign in there with /login", lines: [...written, "", "A new window runs it; once signed in, the account shows here."] });
+    }
+    setRun({
+      title,
+      status: "done",
+      text: "Start it by hand",
+      lines: [...written, "", `No Windows Terminal or tmux: run ${command} in a terminal`, "and sign in with /login."],
+      copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
+    });
+  };
+
   const element: ReactNode = (
     <>
+      {adding && (
+        <AddAccountDialog layout={layout} binDir={tilde(adding.dir)} onPath={adding.onPath} check={checkAccount} onAdd={addAccount} onCancel={() => setAdding(undefined)} />
+      )}
       {confirmation && <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />}
       {choice && <ChoiceDialog key={choice.title} layout={layout} choice={choice} onClose={closeChoice} />}
     </>
@@ -395,8 +444,9 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     askAccount,
     askHow,
     accountMenu,
+    askAddAccount,
     startPairing,
-    open: choice !== undefined || confirmation !== undefined || run !== undefined || pairing !== undefined,
+    open: choice !== undefined || confirmation !== undefined || run !== undefined || pairing !== undefined || adding !== undefined,
     element,
   };
 }

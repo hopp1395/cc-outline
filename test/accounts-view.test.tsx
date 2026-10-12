@@ -85,8 +85,8 @@ describe("the Accounts view", () => {
     const a = account("/a", "zed@x");
     const b = account("/b", "amy@x");
     const c = account("/c", "bob@x");
-    expect(accountEntries({ accounts: [b, a, c], current: a }).map((e) => (e.kind === "account" ? e.account.email : e.kind))).toEqual(["zed@x", "amy@x", "bob@x", "details"]);
-    expect(accountEntries({ accounts: [] }).map((e) => e.kind)).toEqual(["none", "details"]);
+    expect(accountEntries({ accounts: [b, a, c], current: a }).map((e) => (e.kind === "account" ? e.account.email : e.kind))).toEqual(["zed@x", "amy@x", "bob@x", "details", "add"]);
+    expect(accountEntries({ accounts: [] }).map((e) => e.kind)).toEqual(["none", "details", "add"]);
   });
 
   it("sorts the other accounts by email, folder or last use, the active one always first", () => {

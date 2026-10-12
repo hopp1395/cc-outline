@@ -6,6 +6,8 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
+import { claudeBinDir } from "../addAccount.js";
+import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
@@ -672,7 +674,7 @@ const colorNameOf = (account: Account, state: AccountState, chosen: Settings["ac
 
 /** The label of an Account entry in the list. */
 function accountLabel(e: AccountEntry, state: AccountState): string {
-  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : "no account found";
+  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : e.account === "add" ? "how to add an account" : "no account found";
   const account = state.accounts.find((a) => a.dir === e.dir);
   // The active account is marked; the folder tells accounts with the same email apart.
   return `${e.dir === state.current?.dir ? "● " : "○ "}${account?.email ?? e.dir} (${basename(e.dir)})`;
@@ -686,6 +688,7 @@ const accountOf = (e: AccountEntry, state: AccountState): Account | undefined =>
 export function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const field = (name: string, value: string | undefined) => (value ? wrap(`${name}: ${value}`) : []);
+  if (e.account === "add") return addAccountLines(width);
   if (e.account === "details") {
     const searched = state.accounts.map((a) => `${tilde(a.dir)}  ${a.email}`);
     return [
@@ -727,10 +730,53 @@ export function accountLines(e: AccountEntry, state: AccountState, settings: Set
   ];
 }
 
+/**
+ * The preview of "how to add an account": what an account is to Claude Code, what `Enter` sets up, how to do it by
+ * hand on Windows and elsewhere, and the names a start script must not have.
+ */
+export function addAccountLines(width: number, platform: NodeJS.Platform = process.platform): string[] {
+  const wrap = (text: string, indent = "") => wrapText(text, width, indent);
+  const code = (lines: string[]) => lines.map((l) => `    ${codeMarks(`\`${l}\``)}`);
+  const bin = tilde(claudeBinDir().dir);
+  const windows = platform === "win32";
+  return [
+    ...wrap("Claude Code keeps its login, sessions, settings and plugins in one config folder: `~/.claude`, or the folder `CLAUDE_CONFIG_DIR` names. A second account is a second folder, started with that variable set. cco finds every `~/.claude*` folder that is signed in."),
+    "",
+    bold("Enter sets one up"),
+    ...wrap("It asks for a command (e.g. `cw`) and a folder (`.claude-cw`), checks the command's name, then:", "  "),
+    ...wrap(`1. creates the folder in your home folder;`, "  "),
+    ...wrap(`2. writes start scripts next to claude, in ${bin}: ${windows ? "`cw.cmd` for cmd and PowerShell and `cw` for Git Bash" : "`cw`, executable"};`, "  "),
+    ...wrap("3. installs the cco plugin there and gives it cco's settings;", "  "),
+    ...wrap("4. runs the script in a new window: sign in there with `/login`. The account then shows here (within 30 s, or at once with `F5`).", "  "),
+    "",
+    bold("By hand"),
+    ...(windows
+      ? [
+          ...wrap("cmd and PowerShell: a file `cw.cmd` in a folder on the PATH:", "  "),
+          ...code(["@echo off", "setlocal", 'set "CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-cw"', "call claude %*"]),
+          ...wrap("Git Bash: a file `cw` (no ending) in the same folder:", "  "),
+          ...code(["#!/usr/bin/env bash", 'export CLAUDE_CONFIG_DIR="$USERPROFILE\\.claude-cw"', 'exec claude "$@"']),
+        ]
+      : [
+          ...wrap("A file `cw` in a folder on the PATH (e.g. `~/.local/bin`), made executable with `chmod +x cw`:", "  "),
+          ...code(["#!/usr/bin/env bash", 'export CLAUDE_CONFIG_DIR="$HOME/.claude-cw"', 'exec claude "$@"']),
+        ]),
+    ...wrap("Then run `cw`, sign in with `/login`, and add cco there:", "  "),
+    ...code([`cw plugin marketplace add ${marketplaceSource()}`, "cw plugin install cco@cc-outline"]),
+    "",
+    bold("Names to avoid"),
+    ...wrap(
+      windows
+        ? "A shell runs its own commands before files on the PATH. In PowerShell aliases win: `cp` runs Copy-Item, not `cp.cmd`; so do `sc` (Set-Content), `r`, `h`, `gc`, `where` and many more. cmd has built-ins such as `copy`, `dir` and `start`, Bash such as `test` and `type`. And a program of the same name earlier on the PATH wins as well. `Get-Command cw -All` in PowerShell (`type -a cw` in Bash) lists what a name runs, the first one wins. Enter checks all of this, asking PowerShell for its aliases, your profile's included."
+        : "A shell runs its built-ins and aliases before files on the PATH (`test`, `type`, …), and a program of the same name earlier on the PATH wins as well. `type -a cw` lists what a name runs, the first one wins. Enter checks the built-ins and the PATH.",
+    ),
+  ];
+}
+
 /** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
 type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
 /** The info entries of the Account group: one per account found (the active one marked), a note while there is none, and how they were found. */
-export type AccountEntry = { account: "none" | "details" } | { account: "item"; dir: string };
+export type AccountEntry = { account: "none" | "details" | "add" } | { account: "item"; dir: string };
 type Entry = Row | ReleaseEntry | ResetAction | AccountEntry;
 
 /** The group an entry is listed under. */
@@ -881,6 +927,7 @@ export function settingsEntries(update: Update, accounts: AccountState = { accou
     ...items,
     ...SETTING_ROWS.slice(first, last + 1),
     { account: "details" },
+    { account: "add" },
     ...SETTING_ROWS.slice(last + 1),
     ...RESET_ACTIONS,
     ...releaseEntries(update),
@@ -1172,6 +1219,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   /** Enter (or a double click) on the selected entry: a reset or the update asks first, a setting takes its next value. */
   const activate = () => {
     if (filter.none) return;
+    if (accountEntry?.account === "add") return flow.askAddAccount(cwd);
     if (accountEntry && "dir" in accountEntry) {
       const account = accountState.accounts.find((a) => a.dir === accountEntry.dir);
       return account && flow.accountMenu(account, cwd, sessionPath ? ownSession(sessionPath, cwd) : undefined, noSession);
@@ -1251,7 +1299,10 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           { text: "c copy commands", priority: 3 },
         ]
       : accountEntry
-        ? [...("dir" in accountEntry ? [{ text: "↵ actions…", priority: 4 }] : []), { text: "F5 reload", priority: 2 }]
+        ? [
+            ...("dir" in accountEntry ? [{ text: "↵ actions…", priority: 4 }] : accountEntry.account === "add" ? [{ text: "↵ add an account…", priority: 4 }] : []),
+            { text: "F5 reload", priority: 2 },
+          ]
         : release
         ? [{ text: "F5 check", priority: 2 }]
         : [

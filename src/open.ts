@@ -100,6 +100,28 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
 }
 
 /**
+ * Runs the start script of an account (`script`, its full path) in a new window, in the folder `dir`, with a shell
+ * kept open afterwards; for its first start and `/login`. The script sets the config folder itself. Returns what
+ * happened, or undefined without Windows Terminal or tmux.
+ */
+export function scriptInNewWindow(script: string, dir: string, title: string): string | undefined {
+  const terminal = detectTerminal();
+  const env = independentEnv();
+  delete env.CLAUDE_CONFIG_DIR;
+  if (terminal === "wt") {
+    // cmd /k runs the .cmd and stays; no windowsHide, see resumeInNewWindow.
+    proc.spawn("wt", ["-w", "new", "new-tab", "--title", title, "-d", dir, "cmd", "/k", script], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
+    return "started in a new Windows Terminal window";
+  }
+  if (terminal === "tmux") {
+    const shell = process.env.SHELL || "sh";
+    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, `unset ${SESSION_BOUND_VARS.join(" ")} CLAUDE_CONFIG_DIR; ${shellQuote(script)}; exec ${shell}`], { stdio: "ignore", detached: true, env }).unref();
+    return "started in a new tmux window";
+  }
+  return undefined;
+}
+
+/**
  * The shell command that continues the session, under the config folder `configDir` if given: POSIX syntax,
  * except on Windows, where it is written for cmd (`set "…" && claude …`).
  */

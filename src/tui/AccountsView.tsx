@@ -42,7 +42,7 @@ interface Props {
 }
 
 /** An entry of the list: an account, a note that there is none, or how they are looked for. */
-type Entry = { kind: "account"; account: Account } | { kind: "none" } | { kind: "details" };
+type Entry = { kind: "account"; account: Account } | { kind: "none" } | { kind: "details" } | { kind: "add" };
 
 const keyOf = (e: Entry) => (e.kind === "account" ? e.account.dir : e.kind);
 
@@ -67,7 +67,7 @@ export function accountEntries(state: Pick<AccountState, "accounts" | "current">
   const current = state.current && state.accounts.find((a) => a.dir === state.current!.dir);
   const others = state.accounts.filter((a) => a !== current).sort(ORDERS[order]);
   const accounts = [...(current ? [current] : []), ...others].map((account): Entry => ({ kind: "account", account }));
-  return [...(accounts.length ? accounts : [{ kind: "none" } as Entry]), { kind: "details" }];
+  return [...(accounts.length ? accounts : [{ kind: "none" } as Entry]), { kind: "details" }, { kind: "add" }];
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -200,6 +200,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
   const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
   useEffect(() => onModal?.(flow.open), [flow.open]);
   const enter = () => {
+    if (entry?.kind === "add") return flow.askAddAccount(cwd);
     if (!account) return;
     flow.accountMenu(account, cwd, sessionPath ? ownSession(sessionPath, cwd) : undefined, noSession);
   };
@@ -254,6 +255,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
             render={(e, isSelected) => {
               if (e.kind === "none") return <Text color="yellow">no account found: /login in Claude Code</Text>;
               if (e.kind === "details") return <Text dimColor={!isSelected}>how accounts are found</Text>;
+              if (e.kind === "add") return <Text dimColor={!isSelected}>how to add an account</Text>;
               const a = e.account;
               const marked = favorites.isMarked(a.dir);
               const color = colorOfAccount(a, state, settings.accountColor);
@@ -276,7 +278,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
             { text: "PgUp/Dn scroll", priority: 1 },
             ...markFooter(favorites.isMarked(account?.dir), markedCount),
             ...filter.footer,
-            ...(account ? [{ text: "↵ actions…", priority: 3 }] : []),
+            ...(account ? [{ text: "↵ actions…", priority: 3 }] : entry?.kind === "add" ? [{ text: "↵ add an account…", priority: 3 }] : []),
             { text: `s order: ${order}`, on: order !== "email", priority: 2 },
             { text: "0-6/tab view", priority: 1 },
           ]
