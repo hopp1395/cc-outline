@@ -17,7 +17,7 @@ import {
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
-import { detectTerminal, resumeForPairing, resumeInNewWindow, resumeShellCommand } from "../open.js";
+import { detectTerminal, resumeInNewWindow } from "../open.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
 import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
@@ -26,20 +26,17 @@ import { ImportDialog } from "./ImportDialog.js";
 import { useProgress, useProgressOpen, type Progress } from "./ProgressDialog.js";
 import type { Placement } from "../settings.js";
 import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
-import { cancelPairing, requestPairing, runningViewer, type PairTarget } from "../viewer.js";
-import type { Account } from "../account.js";
-import { continueInAccount, matchAccount, otherAccounts, type ContinuePlan } from "../accountContinue.js";
-import { pluginSteps } from "../accountSetup.js";
+import { runningViewer, type PairTarget } from "../viewer.js";
+import { otherAccounts } from "../accountContinue.js";
 import { readTransfers, type Transfer } from "../transfers.js";
-import { remainingCommands, type StepResult } from "../update.js";
-import { currentStep, failureLines } from "./ProgressDialog.js";
 import { useAccountState } from "./useAccount.js";
+import { sessionTitle, useAccountFlow } from "./useAccountFlow.js";
 import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { enterLabel, sessionOptions, type SessionAction, type SessionSituation } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
-import { formatMs, isCommand, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
+import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
@@ -68,7 +65,7 @@ import { useOnReload, useReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
-import { inClaudeDir, projectSlug } from "../transcript/locate.js";
+import { projectSlug } from "../transcript/locate.js";
 import { renameSession } from "../transcript/rename.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 import { TIMING } from "../timing.js";
@@ -117,8 +114,7 @@ interface Props {
 
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
 const REFRESH_MS = 3000;
-/** How long a viewer waits for the Claude Code it started to show up, before it stays unpaired. */
-export const PAIR_TIMEOUT_MS = 30_000;
+export { PAIR_TIMEOUT_MS, pairingProgress } from "./useAccountFlow.js";
 
 const STATUS_ICON: Record<PlanStatus, string> = {
   draft: "\u001b[36m✎\u001b[39m",
@@ -163,10 +159,6 @@ function tilde(path: string): string {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** The name shown for a session: its /rename title, else its first prompt that is not a slash or `!` command. */
-function sessionTitle(s: SessionSummary): string {
-  return s.title ?? (s.prompts.find((p) => !isCommand(p.text)) ?? s.prompts[0])?.text ?? s.id;
-}
 
 /** Whether `sessionTitle` falls back to a prompt, since the session has no /rename title. */
 const titleIsPrompt = (s: SessionSummary) => s.title === undefined && s.prompts.length > 0;
@@ -435,42 +427,6 @@ function ImportRow() {
   return <Text>{centredBadge("⤓ import sessions…", area.width || 40)}</Text>;
 }
 
-/** The wait for a started Claude Code to pair with. */
-interface Pairing {
-  sessionId: string;
-  cwd: string;
-  transcript: string;
-  /** The config folder it was started under, when another account's (a session continued there). */
-  configDir?: string;
-  /** The dialog's title; by default `Attach the viewer`. */
-  title?: string;
-  /** Where it runs: a Windows Terminal window name or a tmux pane id; not yet known while it is being started. */
-  where?: string;
-  /** Epoch ms. */
-  started: number;
-  /** It did not start or show up in time: what the dialog says until Esc. */
-  failed?: { text: string; lines: string[] };
-}
-
-/** The pairing's progress dialog: starting Claude Code, waiting for it (Esc cancels), or why it failed. */
-export function pairingProgress(pairing: Pairing, now: number, onCancel: () => void, onClose: () => void, copyCommand?: () => void): Progress {
-  const title = pairing.title ?? "Attach the viewer";
-  if (pairing.failed) return { title, status: "failed", ...pairing.failed, onClose, ...(copyCommand ? { copy: copyCommand } : {}) };
-  if (pairing.where === undefined) return { title, status: "running", text: "Starting Claude Code", onCancel };
-  const total = PAIR_TIMEOUT_MS / 1000;
-  const waited = Math.min(total, Math.floor((now - pairing.started) / 1000));
-  return { title, status: "running", text: "Waiting for Claude Code", detail: `${waited} of ${total} s · the viewer moves next to it once it runs`, onCancel };
-}
-
-const progressSteps = (steps: StepResult[]) => steps.map((r) => ({ label: r.step.label, status: r.status, output: r.output }));
-
-/** Continuing a session in another account, until its Claude Code starts there (then `pairingProgress`). */
-export function continueProgress(account: Account, steps: StepResult[], session: string): Progress {
-  const step = currentStep(progressSteps(steps));
-  const verb = step?.label === "closing Claude Code" ? "Closing" : step?.label === "copying the session" ? "Copying" : "Installing the cco plugin";
-  return { title: `Continue in ${account.email}`, status: "running", text: verb, step, detail: session };
-}
-
 /** The export's progress dialog: the step of the session being exported; the archive, or why it failed. */
 export function exportProgress(count: number, state: { progress?: ExportProgress; title?: string } | { result: ExportResult } | { error: Error }): Progress {
   const title = `Export ${plural(count, "session")}`;
@@ -517,19 +473,26 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [confirmation, setConfirmation] = useState<Confirmation>();
   // Enter on a session that runs nowhere: where to continue it; then, for pairing, the wait for its Claude Code.
   const [choice, setChoice] = useState<Choice>();
-  const [pairing, setPairing] = useState<Pairing>();
   // The session being renamed, while its dialog is open.
   const [renaming, setRenaming] = useState<SessionSummary>();
-  const [, setPairTick] = useState(0);
   // Export (Enter): the sessions to export, while the form is open; import: its dialog; then the run of either.
   const [exporting, setExporting] = useState<{ sessions: SessionSummary[]; opts: ExportOptions; lines: string[] }>();
   // The archive the import dialog proposes ("" for none), while it is open.
   const [importFrom, setImportFrom] = useState<string>();
   const [run, setRun] = useState<Progress>();
+  // Continuing in another account, and the wait for a Claude Code the viewer started to attach to.
+  const flow = useAccountFlow({
+    layout,
+    claudePid: paired?.claudePid,
+    onPairStarted,
+    onHoldOpen,
+    notify: (message) => notify(message),
+    onCopied: () => refresh(),
+  });
   // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
   const progressOpen = useProgressOpen();
   const dialogOpen =
-    confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || pairing !== undefined || progressOpen;
+    confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -764,7 +727,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         setTimeout(refresh, 3000);
         return;
       case "window-attach":
-        return void startPairing(s, sessionTitle(s), dir);
+        return void flow.startPairing(s, sessionTitle(s), dir);
       case "move":
         return askMove(s);
       case "rename":
@@ -774,7 +737,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       case "import":
         return askImport();
       case "account":
-        return askAccount(s, claude, dir);
+        return flow.askAccount(s, claude, dir);
       case "copy":
         return void copy(command).then(
           () => notify(`copied: ${command}`),
@@ -823,80 +786,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     );
   };
 
-  /**
-   * Starts the session in a new window, where Claude Code's hook leaves opening a viewer to this one, then waits for it.
-   * `account`: under another account's config folder (a session copied there), whose hook reads the request there.
-   */
-  const startPairing = async (s: Pick<SessionSummary, "id" | "path">, title: string, dir: string, account?: { dir: string; title: string }) => {
-    const inAccount = <T,>(fn: () => T) => (account ? inClaudeDir(account.dir, fn) : fn());
-    inAccount(() => requestPairing(dir, s.id, Date.now() + 2 * PAIR_TIMEOUT_MS));
-    // Waiting from now on, so a second Enter starts nothing more.
-    const started: Pairing = { sessionId: s.id, cwd: dir, transcript: s.path, configDir: account?.dir, title: account?.title, started: Date.now() };
-    setPairing(started);
-    const { message, target } = await resumeForPairing(s.id, dir, truncate(title, 30), account?.dir);
-    if (!target) {
-      inAccount(() => cancelPairing(dir, s.id));
-      return setPairing((p) => (p === started ? { ...started, failed: { text: "Claude Code did not start", lines: [message] } } : p));
-    }
-    setPairing((p) => (p === started ? { ...started, where: target } : p));
-  };
-  /** Withdraws the pairing's request, in the account it was made in. */
-  const withdraw = (p: Pairing) => (p.configDir ? inClaudeDir(p.configDir, () => cancelPairing(p.cwd, p.sessionId)) : cancelPairing(p.cwd, p.sessionId));
-  /** Esc while it waits: the request is withdrawn; the Claude Code started keeps running. */
-  const cancelWait = () => {
-    if (pairing) withdraw(pairing);
-    setPairing(undefined);
-    onHoldOpen?.(false);
-    notify("pairing cancelled; Claude Code keeps running in its window");
-  };
-  // Waiting: pairs once the session's Claude Code registers itself, gives up after PAIR_TIMEOUT_MS.
-  useEffect(() => {
-    if (!pairing || pairing.failed) return;
-    const timer = setInterval(() => {
-      // A Claude Code of another account registers in that account's folder.
-      const read = () => (pairing.configDir ? inClaudeDir(pairing.configDir, runningSessions) : runningSessions());
-      const claude = pairing.where !== undefined ? read().get(pairing.sessionId) : undefined;
-      if (claude && pairing.where !== undefined) {
-        clearInterval(timer);
-        setPairing(undefined);
-        // The request stays for its hook, which may be still to come; it expires by itself.
-        const target: PairTarget = { cwd: pairing.cwd, claudePid: claude.pid, sessionId: pairing.sessionId, transcript: pairing.transcript, configDir: pairing.configDir };
-        return onPairStarted?.(target, pairing.where);
-      }
-      if (Date.now() - pairing.started >= PAIR_TIMEOUT_MS) {
-        clearInterval(timer);
-        withdraw(pairing);
-        const failed = {
-          text: `Claude Code did not show up within ${PAIR_TIMEOUT_MS / 1000} s`,
-          lines: ["The viewer stays as it was; the Claude Code started keeps running in its window."],
-        };
-        return setPairing((p) => (p === pairing ? { ...pairing, failed } : p));
-      }
-      setPairTick((n) => n + 1);
-    }, TIMING.pairPoll);
-    return () => clearInterval(timer);
-  }, [pairing]);
-  // Without a terminal to start it in, the command that continues it in the other account is what is left.
-  const pairingCommand = pairing?.configDir ? resumeShellCommand(pairing.sessionId, pairing.configDir) : undefined;
   useProgress(
-    pairing
-      ? pairingProgress(
-          pairing,
-          Date.now(),
-          cancelWait,
-          () => {
-            setPairing(undefined);
-            onHoldOpen?.(false);
-          },
-          pairingCommand ? () => void copy(pairingCommand).then(() => notify(`copied: ${pairingCommand}`)) : undefined,
-        )
-      : run && {
-          ...run,
-          onClose: () => {
-            setRun(undefined);
-            run.onClose?.();
-          },
-        },
+    run && {
+      ...run,
+      onClose: () => {
+        setRun(undefined);
+        run.onClose?.();
+      },
+    },
   );
 
   const askDelete = (s: SessionSummary) => {
@@ -974,67 +871,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           setSelectedId(s.id);
         }, "moved here"),
     });
-  /**
-   * Continue in another account: which one (the only other one at once; `query` of /cco:account picks one),
-   * then how (`askHow`).
-   */
-  const askAccount = (s: SessionSummary, claude: RunningSession | undefined, dir: string, query?: string) => {
-    if (others.length === 0) return notify("no other Claude account is signed in here");
-    const named = query ? matchAccount(others, query) : undefined;
-    if (query && !named) notify(`no other account matches “${query}”`);
-    const only = named ?? (others.length === 1 ? others[0] : undefined);
-    if (only) return askHow(s, only, claude, dir);
-    setChoice({
-      title: "Continue in which account?",
-      lines: [truncate(sessionTitle(s), 56), `now in ${accountState.current?.email ?? tilde(accountState.own)}`],
-      options: others.map((a) => ({
-        id: a.dir,
-        label: a.email,
-        detail: truncate(`${tilde(a.dir)}${pluginSteps(a.dir).length ? " · gets the cco plugin" : ""}`, 56),
-      })),
-      initial: 0,
-      onChoose: (id) => {
-        setChoice(undefined);
-        const account = others.find((a) => a.dir === id);
-        if (account) askHow(s, account, claude, dir);
-      },
-    });
-  };
-
-  /** What continuing `s` in `account` does, asked before it starts: for a running session also whether to close it. */
-  const askHow = (s: SessionSummary, account: Account, claude: RunningSession | undefined, dir: string) => {
-    const plugin = pluginSteps(account.dir);
-    const lines = [
-      truncate(sessionTitle(s), 56),
-      truncate(`from ${accountState.current?.email ?? tilde(accountState.own)} to ${account.email}`, 56),
-      ...(plugin.length ? ["installs the cco plugin there first"] : []),
-      "A copy continues there in a new window; this one stays.",
-    ];
-    const plan = (close?: ContinuePlan["close"]): ContinuePlan => ({ session: s, account, fromEmail: accountState.current?.email, close });
-    if (!claude) {
-      return setConfirmation({ title: `Continue in ${truncate(account.email, 44)}?`, lines, onConfirm: () => void runContinue(plan(), dir) });
-    }
-    const busy = claude.activity === "busy" || claude.activity === "waiting" ? `Claude is ${claude.activity === "busy" ? "working" : "waiting for an answer"}; close it once it is idle` : undefined;
-    const closeBlocked = claude.kind === "bg" ? "it runs in the background: there is no console to type /exit into" : busy;
-    // On Windows, PowerShell takes a second or more to start: it does so while the dialog is open.
-    if (!closeBlocked && detectTerminal() !== "tmux") typer.current = prepareConsoleInput(claude.pid);
-    setChoice({
-      title: `Continue in ${truncate(account.email, 44)}?`,
-      lines: [...lines.slice(0, -1), "It runs in a Claude Code now."],
-      options: [
-        { id: "close", label: "Close it and continue there", detail: "/exit is typed into its Claude Code; the copy starts after", disabled: closeBlocked },
-        { id: "keep", label: "Continue there, keep it running", detail: "the two go on apart from here" },
-      ],
-      initial: closeBlocked ? 1 : 0,
-      onChoose: (id) => {
-        const prepared = takeTyper();
-        if (id !== "close") prepared?.cancel();
-        setChoice(undefined);
-        void runContinue(plan(id === "close" ? { pid: claude.pid, typer: prepared } : undefined), dir);
-      },
-    });
-  };
-
   // /cco:account: the active session, once the scan has found it (or has finished without it).
   const handledRequest = useRef<number>(undefined);
   useEffect(() => {
@@ -1045,53 +881,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (!s) return notify("no session here to continue in another account");
     setSelectedId(s.id);
     // Read now: the view may have just been shown, before its first look at the running sessions.
-    askAccount(s, runningSessions().get(s.id), situationOf(s).dir, accountRequest.query);
+    flow.askAccount(s, runningSessions().get(s.id), situationOf(s).dir, accountRequest.query);
   }, [accountRequest, sessions, progress, dialogOpen]);
-
-  /** Runs the steps up to the copy in the progress dialog, then starts the copy in the other account and attaches to it. */
-  const runContinue = async (plan: ContinuePlan, dir: string) => {
-    const { account, session: s } = plan;
-    const title = `Continue in ${account.email}`;
-    const name = truncate(sessionTitle(s), 40);
-    // Closing the viewer's own Claude Code must not close the viewer.
-    const own = plan.close !== undefined && plan.close.pid === paired?.claudePid;
-    if (own) onHoldOpen?.(true);
-    const result = await continueInAccount(plan, (steps) => setRun(continueProgress(account, steps, name)));
-    if (result.kind === "plugin-failed") {
-      plan.close?.typer?.cancel();
-      if (own) onHoldOpen?.(false);
-      // Only the plugin's commands; closing and copying run here.
-      const commands = remainingCommands(result.steps).filter((c) => c.startsWith("claude "));
-      return setRun({
-        title,
-        status: "failed",
-        text: "The cco plugin could not be installed there",
-        lines: [...failureLines(progressSteps(result.steps)), "Nothing was copied or closed. Esc: go on without it, or stop."],
-        copy: () => void copy(commands.join("\n")).then(() => notify("copied the commands")),
-        onClose: () =>
-          setChoice({
-            title: "Go on without the cco plugin?",
-            lines: [truncate(sessionTitle(s), 56), truncate(`in ${account.email}`, 56)],
-            options: [
-              { id: "go", label: "Continue without it", detail: "the viewer there does not follow /clear, /resume or the end" },
-              { id: "stop", label: "Stop here", detail: "nothing has changed" },
-            ],
-            initial: 0,
-            onChoose: (id) => {
-              setChoice(undefined);
-              if (id === "go") void runContinue({ ...plan, skipPlugin: true, close: plan.close && { pid: plan.close.pid } }, dir);
-            },
-          }),
-      });
-    }
-    if (result.kind === "failed") {
-      if (own) onHoldOpen?.(false);
-      return setRun({ title, status: "failed", text: "The session was not continued there", lines: [result.message] });
-    }
-    setRun(undefined);
-    refresh();
-    void startPairing({ id: result.copy.id, path: result.copy.path }, sessionTitle(s), dir, { dir: account.dir, title });
-  };
 
   const exportLines = (targets: SessionSummary[]) => {
     const file = freeName(downloadsDir(), EXPORT_NAME);
@@ -1380,6 +1171,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         />
       )}
       {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} into={tilde(cwd)} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
+      {flow.element}
       {filter.dialog}
     </>
   );

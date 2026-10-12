@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { proc } from "../src/proc.js";
 import { renderInk, until } from "./helpers/ink.js";
 import type { Account } from "../src/account.js";
 import { accountSessions, transcriptTitle } from "../src/accountsInfo.js";
@@ -13,7 +15,20 @@ import { AccountContext, type AccountState } from "../src/tui/useAccount.js";
 
 const layout: Layout = { columns: 120, rows: 30, listWidth: 40, previewWidth: 77, bodyHeight: 26 };
 const cwd = join(tmpdir(), "cco-accounts-project");
+const spawned: { cmd: string; args: string[] }[] = [];
+const real = { ...proc };
+beforeAll(() => {
+  proc.spawn = ((cmd: string, args: string[]) => {
+    spawned.push({ cmd, args });
+    return Object.assign(new EventEmitter(), { unref: () => {} });
+  }) as never;
+});
+afterAll(() => {
+  Object.assign(proc, real);
+});
+
 let saved: string | undefined;
+let savedTerminal: Record<string, string | undefined> = {};
 let own: string;
 let other: string;
 
@@ -22,9 +37,16 @@ beforeEach(() => {
   own = mkdtempSync(join(tmpdir(), "cco-accounts-own-"));
   other = mkdtempSync(join(tmpdir(), "cco-accounts-other-"));
   process.env.CLAUDE_CONFIG_DIR = own;
+  spawned.length = 0;
+  savedTerminal = { TMUX: process.env.TMUX, WT_SESSION: process.env.WT_SESSION, WT_PROFILE_ID: process.env.WT_PROFILE_ID };
+  for (const v of ["TMUX", "WT_SESSION", "WT_PROFILE_ID"]) delete process.env[v];
 });
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
+  for (const [key, value] of Object.entries(savedTerminal)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 const account = (dir: string, email: string): Account => ({ dir, file: join(dir, ".claude.json"), email, organization: "Org" });
@@ -92,27 +114,39 @@ describe("the Accounts view", () => {
     view.unmount();
   });
 
-  it("continues the session in another account on Enter, and says why not without one", async () => {
-    const continued: string[] = [];
-    const view = render({ onContinue: (a) => void continued.push(a.email) });
+  it("opens an account's menu on Enter: continuing is greyed out on the active account and without a session", async () => {
+    const view = render({ noSession: "this viewer follows no Claude Code" });
     await until(() => view.frame().includes("jan@work.com"));
-    // The active account continues nothing.
+    await view.press("g");
     await view.press("\r");
-    await until(() => view.frame().includes("this is the active account"));
+    await until(() => view.frame().includes("Start a new session there"));
+    expect(view.frame()).toContain("it is this session's account");
+    // The first entry that can be chosen is selected: a new session.
+    expect(view.frame()).toMatch(/› +Start a new session there/);
+    await view.press("\u001b");
+    await until(() => !view.frame().includes("Start a new session there"));
     await view.press("\u001b[B");
-    await until(() => view.frame().includes("Enter continues this viewer's session"));
     await view.press("\r");
-    await until(() => continued.length > 0);
-    expect(continued).toEqual(["jan@work.com"]);
+    await until(() => view.frame().includes("Open its config folder"));
+    expect(view.frame()).toContain("this viewer follows no Claude Code");
     view.unmount();
+  });
 
-    const none = render({ noSession: "this viewer follows no Claude Code" });
-    await until(() => none.frame().includes("jan@work.com"));
-    // The selection is kept (jan@work.com): from the first entry, one down.
-    await none.press("g");
-    await none.press("\u001b[B");
-    await none.press("\r");
-    await until(() => none.frame().includes("this viewer follows no Claude Code"));
-    none.unmount();
+  it("starts a new session in the other account, in a new window under its folder", async () => {
+    process.env.WT_SESSION = "x";
+    mkdirSync(join(other, "plugins"), { recursive: true });
+    writeFileSync(join(other, "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "cco@cc-outline": [{ scope: "user" }] } }));
+    const view = render();
+    await until(() => view.frame().includes("jan@work.com"));
+    await view.press("g");
+    await view.press("\u001b[B");
+    await view.press("\r");
+    await until(() => view.frame().includes("Start a new session there"));
+    await view.press("2");
+    await until(() => spawned.some((c) => c.cmd === "wt"));
+    const args = spawned.find((c) => c.cmd === "wt")!.args;
+    expect(args.slice(0, 3)).toEqual(["-w", "new", "new-tab"]);
+    expect(args.slice(-6, -1)).toEqual(["claude", "--config-dir", other, "--", "--session-id"]);
+    view.unmount();
   });
 });

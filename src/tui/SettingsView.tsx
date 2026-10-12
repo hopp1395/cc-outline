@@ -23,6 +23,8 @@ import { isReloadKey, useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
+import { ownSession, useAccountFlow } from "./useAccountFlow.js";
+import type { PairTarget } from "../viewer.js";
 import { renderMarkdown } from "../render/markdown.js";
 import { codeSpan } from "../render/terminal.js";
 import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repairSteps, reportLines, runRepairs, type DoctorGroup, type Finding, type RepairResult } from "../doctor.js";
@@ -47,6 +49,15 @@ interface Props {
   onRestart?: () => void;
   /** An entry to select, asked for from outside (`releases`: /cco:releases; `update`: a click on the top bar), with `ask` also the update's confirmation (setting update: auto). */
   select?: { key: string; at: number; ask?: boolean };
+  /** The transcript of the viewer's session, which can continue in another account; undefined with `noSession` saying why. */
+  sessionPath?: string;
+  noSession?: string;
+  /** The Claude Code process the viewer belongs to. */
+  claudePid?: number;
+  /** A Claude Code the viewer started runs now `where`: the viewer moves next to it. */
+  onPairStarted?: (target: PairTarget, where: string) => void;
+  /** While true, the viewer stays open when its Claude Code ends (closed on purpose). */
+  onHoldOpen?: (hold: boolean) => void;
 }
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
@@ -850,7 +861,15 @@ export function settingsEntries(update: Update, accounts: AccountState = { accou
   ];
 }
 
-export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked }: Props) {
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen }: Props) {
+  // Enter on an account: continue the session there, start a new one, open its folder (as in the Accounts view).
+  const [flash, setFlash] = useState<string>();
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(undefined), 3000);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -923,7 +942,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const doctorBusy = doctorRun?.status === "running" || doctorChecking !== undefined;
   const repairOpen = repairDialog && doctorRun !== undefined && doctorRun.status !== "done";
   // While the update, a check or a repair runs, the app keeps q, p and the other views away from it.
-  const modal = confirmation !== undefined || updating || doctorBusy;
+  const modal = confirmation !== undefined || updating || doctorBusy || flow.open;
   useEffect(() => {
     onModal?.(modal);
   }, [modal]);
@@ -1127,6 +1146,10 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   /** Enter (or a double click) on the selected entry: a reset or the update asks first, a setting takes its next value. */
   const activate = () => {
     if (filter.none) return;
+    if (accountEntry && "dir" in accountEntry) {
+      const account = accountState.accounts.find((a) => a.dir === accountEntry.dir);
+      return account && flow.accountMenu(account, cwd, sessionPath ? ownSession(sessionPath, cwd) : undefined, noSession);
+    }
     if (reset) {
       if (reset.id === "settings") return canReset && askResetSettings();
       if (reset.id === "restart") return onRestart !== undefined && restart();
@@ -1157,13 +1180,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         return target !== undefined && select(target);
       }
       if (filter.none && (key.return || input === "r" || input === "c")) return;
-      if (key.return && (reset || onUpdate || row)) return activate();
+      if (key.return && (reset || onUpdate || row || accountEntry)) return activate();
       if (onUpdate && input === "c") return copyCommands();
       if (input === "r" && row) return set({ [row.key]: DEFAULT_SETTINGS[row.key] });
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined && !progressOpen && !filter.open },
+    { isActive: active && confirmation === undefined && !progressOpen && !filter.open && !flow.open },
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
@@ -1202,7 +1225,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           { text: "c copy commands", priority: 3 },
         ]
       : accountEntry
-        ? [{ text: "F5 reload", priority: 2 }]
+        ? [...("dir" in accountEntry ? [{ text: "↵ actions…", priority: 4 }] : []), { text: "F5 reload", priority: 2 }]
         : release
         ? [{ text: "F5 check", priority: 2 }]
         : [
@@ -1275,7 +1298,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             />
           )
         }
-        footer={[
+        footer={flash ?? [
           { text: "↑↓ setting", priority: 4 },
           ...entryFooter,
           ...markFooter(favorites.isMarked(entryKey), marked),
@@ -1287,6 +1310,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
       )}
+      {flow.element}
       {filter.dialog}
     </>
   );

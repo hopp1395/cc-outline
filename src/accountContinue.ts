@@ -31,9 +31,9 @@ export function matchAccount(accounts: Account[], query: string): Account | unde
   return partial.length === 1 ? partial[0] : undefined;
 }
 
-/** What to do for continuing a session in another account. */
+/** What to do for continuing a session in another account, or (without `session`) only for starting one there. */
 export interface ContinuePlan {
-  session: SessionSummary;
+  session?: SessionSummary;
   account: Account;
   /** The email of the account the session is in now (this viewer's), for the note on the copy. */
   fromEmail?: string;
@@ -47,7 +47,7 @@ export interface ContinuePlan {
 export type ContinueProgress = StepResult[];
 
 export type ContinueResult =
-  | { kind: "done"; copy: AccountCopy }
+  | { kind: "done"; copy?: AccountCopy }
   /** Installing the plugin failed: nothing else happened; the steps say where. */
   | { kind: "plugin-failed"; steps: StepResult[] }
   | { kind: "failed"; message: string; steps: StepResult[] };
@@ -57,7 +57,7 @@ export function continueSteps(plan: ContinuePlan): UpdateStep[] {
   return [
     ...(plan.skipPlugin ? [] : pluginSteps(plan.account.dir)),
     ...(plan.close ? [{ label: "closing Claude Code", command: "/exit" }] : []),
-    { label: "copying the session", command: "" },
+    ...(plan.session ? [{ label: "copying the session", command: "" }] : []),
   ];
 }
 
@@ -119,6 +119,10 @@ export async function continueInAccount(plan: ContinuePlan, onProgress: (steps: 
     const failed = await closeClaude(plan.close);
     if (failed) return fail(closing, failed);
     closing.status = "done";
+  }
+  if (!plan.session) {
+    report();
+    return { kind: "done" };
   }
   const copying = step("copying the session");
   copying.status = "running";

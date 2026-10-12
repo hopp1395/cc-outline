@@ -76,9 +76,9 @@ export function openInDefaultApp(file: string, platform: NodeJS.Platform = proce
  * The new Claude Code must not inherit the variables of the Claude Code this
  * viewer was opened from (see `independentEnv`). `window` names the Windows
  * Terminal window (`resumeForPairing`); by default it is a new one. `configDir` starts it in another
- * account: under that config folder (`withClaudeDir`).
+ * account: under that config folder (`withClaudeDir`). `fresh`: a new session under the id `sessionId` instead.
  */
-export function resumeInNewWindow(sessionId: string, dir: string, title: string, window = "new", configDir?: string): string {
+export function resumeInNewWindow(sessionId: string, dir: string, title: string, window = "new", configDir?: string, fresh = false): string {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     // -w new: without it, wt may add a tab to an open window (its windowingBehavior setting).
@@ -87,40 +87,43 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
     // Windows Terminal does not get the environment of the wt call (a viewer opened from another account's
     // Claude Code ran under the default folder).
     const account = configDir ?? claudeDir();
-    const args = ["-w", window, "new-tab", "--title", title, "-d", dir, process.execPath, CLI, "claude", "--config-dir", account, "--", "--resume", sessionId];
+    const args = ["-w", window, "new-tab", "--title", title, "-d", dir, process.execPath, CLI, "claude", "--config-dir", account, "--", sessionFlag(fresh), sessionId];
     // No windowsHide: wt would apply the hidden start to the new window, which then never shows.
     proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: withClaudeDir(independentEnv(), account) }).unref();
     return "started in a new Windows Terminal window";
   }
   if (terminal === "tmux") {
-    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId, configDir)], { stdio: "ignore", detached: true }).unref();
+    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId, configDir, fresh)], { stdio: "ignore", detached: true }).unref();
     return "started in a new tmux window";
   }
-  return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir)} in ${dir}`;
+  return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir, process.platform, fresh)} in ${dir}`;
 }
 
 /**
  * The shell command that continues the session, under the config folder `configDir` if given: POSIX syntax,
  * except on Windows, where it is written for cmd (`set "…" && claude …`).
  */
-export function resumeShellCommand(sessionId: string, configDir?: string, platform: NodeJS.Platform = process.platform): string {
-  const claude = `claude --resume ${sessionId}`;
+export function resumeShellCommand(sessionId: string, configDir?: string, platform: NodeJS.Platform = process.platform, fresh = false): string {
+  const claude = `claude ${sessionFlag(fresh)} ${sessionId}`;
   if (!configDir) return claude;
   if (platform === "win32") return isDefaultClaudeDir(configDir) ? `set "CLAUDE_CONFIG_DIR=" && ${claude}` : `set "CLAUDE_CONFIG_DIR=${configDir}" && ${claude}`;
   return isDefaultClaudeDir(configDir) ? `env -u CLAUDE_CONFIG_DIR ${claude}` : `CLAUDE_CONFIG_DIR=${shellQuote(configDir)} ${claude}`;
 }
 
+/** How claude takes the session id: one to continue (`--resume`), or the id of a new one (`--session-id`, `fresh`). */
+const sessionFlag = (fresh: boolean) => (fresh ? "--session-id" : "--resume");
+
 /** `s` in single quotes for a POSIX shell. */
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 
 /** The shell command of a tmux window that continues the session and keeps a shell afterwards; under `configDir` if given. */
-function tmuxResume(sessionId: string, configDir?: string): string {
+function tmuxResume(sessionId: string, configDir?: string, fresh = false): string {
   const shell = process.env.SHELL || "sh";
   const id = sessionId.replace(/'/g, "");
   // The window's shell stays in the account it was started for.
   const account = configDir ? (isDefaultClaudeDir(configDir) ? "unset CLAUDE_CONFIG_DIR; " : `export CLAUDE_CONFIG_DIR=${shellQuote(configDir)}; `) : "";
   // tmux takes the environment from its server, which may itself have been started inside Claude Code.
-  return `unset ${SESSION_BOUND_VARS.join(" ")}; ${account}claude --resume '${id}'; exec ${shell}`;
+  return `unset ${SESSION_BOUND_VARS.join(" ")}; ${account}claude ${sessionFlag(fresh)} '${id}'; exec ${shell}`;
 }
 
 /** The name of the Windows Terminal window a session is continued in for pairing. */
@@ -131,15 +134,15 @@ export const pairingWindow = (sessionId: string) => `cco-resume-${sessionId.slic
  * where it runs, for `cco open --target`. In Windows Terminal a window named after the session
  * (`pairingWindow`), in tmux the id of the new pane (`%7`). No target without a supported terminal.
  */
-export async function resumeForPairing(sessionId: string, dir: string, title: string, configDir?: string): Promise<{ message: string; target?: string }> {
+export async function resumeForPairing(sessionId: string, dir: string, title: string, configDir?: string, fresh = false): Promise<{ message: string; target?: string }> {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     const window = pairingWindow(sessionId);
-    return { message: resumeInNewWindow(sessionId, dir, title, window, configDir), target: window };
+    return { message: resumeInNewWindow(sessionId, dir, title, window, configDir, fresh), target: window };
   }
-  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title, "new", configDir) };
+  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title, "new", configDir, fresh) };
   const pane = await new Promise<string | undefined>((resolve) =>
-    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId, configDir)], { timeout: 10_000 }, (err, stdout) =>
+    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId, configDir, fresh)], { timeout: 10_000 }, (err, stdout) =>
       resolve(err ? undefined : String(stdout).trim() || undefined),
     ),
   );

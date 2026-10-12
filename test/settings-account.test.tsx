@@ -102,4 +102,22 @@ describe("Account group in the settings", () => {
     app.unmount();
     expect(readSettings()).toEqual(DEFAULT_SETTINGS);
   });
+
+  it("opens the account's menu on Enter, as the Accounts view does", async () => {
+    const me = account(".claude-personal", "me@example.com");
+    const work = account(".claude-work", "work@example.com");
+    const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir };
+    const app = renderInk(
+      <AccountContext.Provider value={state}>
+        <SettingsView cwd={cwd} layout={layout} active select={{ key: `account:${work.dir}`, at: 1 }} noSession="no session here" />
+      </AccountContext.Provider>,
+      layout,
+    );
+    await expect.poll(app.frame, { timeout: 2000 }).toContain("↵ actions…");
+    await app.press("\r");
+    await expect.poll(app.frame).toContain("Continue this session there");
+    expect(app.frame()).toContain("no session here");
+    expect(app.frame()).toContain("Open its config folder");
+    app.unmount();
+  });
 });

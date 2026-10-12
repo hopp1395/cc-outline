@@ -16,6 +16,8 @@ import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
+import { ownSession, useAccountFlow } from "./useAccountFlow.js";
+import type { PairTarget } from "../viewer.js";
 
 interface Props {
   cwd: string;
@@ -25,12 +27,17 @@ interface Props {
   /** The view takes keys. */
   active: boolean;
   onTyping?: (typing: boolean) => void;
-  /**
-   * Continues the viewer's session in another account (Sessions' flow); undefined when the viewer has no
-   * session to continue, with `noSession` saying why.
-   */
-  onContinue?: (account: Account) => void;
+  /** Reports whether a dialog of the account menu is open; the app then leaves all keys to it. */
+  onModal?: (open: boolean) => void;
+  /** The transcript of the viewer's session, which can continue in another account; undefined with `noSession` saying why. */
+  sessionPath?: string;
   noSession?: string;
+  /** The Claude Code process the viewer belongs to. */
+  claudePid?: number;
+  /** A Claude Code the viewer started runs now `where`: the viewer moves next to it. */
+  onPairStarted?: (target: PairTarget, where: string) => void;
+  /** While true, the viewer stays open when its Claude Code ends (closed on purpose). */
+  onHoldOpen?: (hold: boolean) => void;
 }
 
 /** An entry of the list: an account, a note that there is none, or how they are looked for. */
@@ -62,7 +69,7 @@ const when = (ms: number) => {
 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function AccountsView({ cwd, layout, visible, active, onTyping, onContinue, noSession }: Props) {
+export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -167,9 +174,9 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onContinu
     }
     out.push("");
     if (isCurrent(a)) out.push(dim("This is the account of the Claude Code the viewer follows."));
-    else out.push(dim(onContinue ? "Enter continues this viewer's session in this account, in a new window." : (noSession ?? "There is no session here to continue in this account.")));
+    out.push(dim("Enter: continue this session there, start a new session there (with or without the viewer), or open its config folder."));
     return out;
-  }, [entry, state, settings.accountColor, details, running, previewWidth, onContinue, noSession, cwd]);
+  }, [entry, state, settings.accountColor, details, running, previewWidth, cwd]);
 
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entry && keyOf(entry), lines.length, viewport);
@@ -180,11 +187,12 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onContinu
     return () => clearTimeout(timer);
   }, [flash]);
 
+  // The account menu: continue the session there, start a new one, open its folder.
+  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
+  useEffect(() => onModal?.(flow.open), [flow.open]);
   const enter = () => {
     if (!account) return;
-    if (isCurrent(account)) return setFlash("this is the active account");
-    if (!onContinue) return setFlash(noSession ?? "no session to continue");
-    onContinue(account);
+    flow.accountMenu(account, cwd, sessionPath ? ownSession(sessionPath, cwd) : undefined, noSession);
   };
   const markedCount = state.accounts.filter((a) => favorites.isMarked(a.dir)).length;
 
@@ -204,7 +212,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onContinu
       }
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && !filter.open },
+    { isActive: active && !filter.open && !flow.open },
   );
 
 
@@ -258,11 +266,12 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onContinu
             { text: "PgUp/Dn scroll", priority: 1 },
             ...markFooter(favorites.isMarked(account?.dir), markedCount),
             ...filter.footer,
-            ...(account && !isCurrent(account) && onContinue ? [{ text: "↵ continue there", priority: 3 }] : []),
+            ...(account ? [{ text: "↵ actions…", priority: 3 }] : []),
             { text: "0-6/tab view", priority: 1 },
           ]
         }
       />
+      {flow.element}
       {filter.dialog}
     </>
   );

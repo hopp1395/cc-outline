@@ -203,6 +203,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   request.current = onRequest;
   // The viewer's own session can continue in another account (Accounts view, /cco:account).
   const continuable = claudePid !== undefined && !sessionId && path !== undefined;
+  const noSession = continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it in Sessions" : "there is no session yet";
   // While Sessions continues the session in another account, its Claude Code may be closed on purpose: the viewer stays to move along.
   const holdOpen = useRef(false);
   useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: () => holdOpen.current || exit() });
@@ -529,6 +530,11 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onResetData={resetProjectData}
             onRestart={sessionId ? undefined : restartViewer}
             select={settingsSelect}
+            sessionPath={continuable ? path : undefined}
+            noSession={noSession}
+            claudePid={claudePid}
+            onPairStarted={onPair ? pairWithStarted : undefined}
+            onHoldOpen={(hold) => (holdOpen.current = hold)}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
@@ -542,9 +548,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             visible={mode === "accounts"}
             active={mode === "accounts" && !blocked}
             onTyping={setTyping}
-            // Sessions runs the flow, as for /cco:account, on the viewer's own session.
-            onContinue={continuable ? (a) => (setMode("sessions"), setAccountRequest({ at: Date.now(), query: a.dir })) : undefined}
-            noSession={continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it to one in Sessions" : "there is no session yet"}
+            onModal={setModal}
+            sessionPath={continuable ? path : undefined}
+            claudePid={claudePid}
+            onPairStarted={onPair ? pairWithStarted : undefined}
+            onHoldOpen={(hold) => (holdOpen.current = hold)}
+            noSession={noSession}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
