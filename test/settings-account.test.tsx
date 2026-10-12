@@ -115,7 +115,8 @@ describe("Account group in the settings", () => {
     );
     await expect.poll(app.frame, { timeout: 2000 }).toContain("↵ actions…");
     await app.press("\r");
-    await expect.poll(app.frame).toContain("Continue this session there");
+    await expect.poll(app.frame).toContain("Continue it in work@example.com…");
+    expect(app.frame()).toContain("What to do in work@example.com?");
     expect(app.frame()).toContain("no session here");
     expect(app.frame()).toContain("Open its config folder");
     app.unmount();

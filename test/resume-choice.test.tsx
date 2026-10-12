@@ -139,9 +139,18 @@ describe("sessionOptions", () => {
     expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window window-attach account rename export import copy");
     expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account ✗rename export import copy");
     expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account rename export import ✱copy");
-    const detail = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!.detail;
-    expect(detail(["b@x"])).toBe("as b@x, in a new window");
-    expect(detail(["b@x", "c@x"])).toBe("2 other accounts, in a new window");
+    const option = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!;
+    expect(option(["b@x"])).toMatchObject({ label: "Continue it in b@x…", detail: "a copy, in a new window" });
+    expect(option(["b@x", "c@x"])).toMatchObject({ label: "Continue it in another account…", detail: "a copy in one of 2 other accounts, in a new window" });
+  });
+
+  it("gives another account's session the same list, with what works only here greyed out", () => {
+    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗window-attach ✗account ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✗rename ✗export ✗import ✱copy");
+    const window = sessionOptions({ ...base, foreign: true, account: "c@x" }).options.find((o) => o.id === "window")!;
+    expect(window).toMatchObject({ label: "Continue it in a new window", detail: "claude --resume as c@x" });
+    expect(sessionOptions({ ...base, foreign: true }).options.find((o) => o.id === "rename")!.disabled).toBe("only for sessions of this account");
   });
 
   it("names the selected action in the help line, and detaching for its own session", () => {
@@ -150,7 +159,7 @@ describe("sessionOptions", () => {
     expect(enterLabel({ ...base, state: "active" })).toBe("↵ attach");
     expect(enterLabel({ ...base, paired: idle })).toBe("↵ resume here");
     expect(enterLabel({ ...base, paired: { ...idle, empty: false } })).toBe("↵ new window");
-    expect(enterLabel(base)).toBe("↵ start + attach");
+    expect(enterLabel(base)).toBe("↵ new window + attach");
     expect(enterLabel({ ...base, terminal: false })).toBe("↵ copy");
   });
 });
@@ -263,7 +272,7 @@ describe("continuing a session that runs nowhere", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    expect(view.frame()).toMatch(/› +Start it and attach the viewer/);
+    expect(view.frame()).toMatch(/› +Continue it in a new window and attach/);
     await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     expect(spawned[0]!.args.slice(0, 2)).toEqual(["-w", "cco-resume-s1"]);
@@ -326,11 +335,12 @@ describe("continuing a session in another account", () => {
     );
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue in another account…"));
-    expect(view.frame()).toContain("as b@x, in a new window");
+    await until(() => view.frame().includes("Continue it in b@x…"));
     await view.press("3");
     await until(() => view.frame().includes("Continue in b@x?"));
-    expect(view.frame()).toContain("from a@x to b@x");
+    expect(view.frame()).toContain("A copy continues in b@x");
+    // The head names the session's account, this one.
+    expect(view.frame()).toContain("▌ a@x · this account");
     await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     expect(existsSync(join(other, "projects", projectSlug(cwd), "s1.jsonl"))).toBe(true);
@@ -361,10 +371,10 @@ describe("continuing a session in another account", () => {
     );
     await until(() => view.frame().includes("Prompts (1)") && view.frame().includes("↵ attach"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue in another account…"));
+    await until(() => view.frame().includes("Continue it in b@x…"));
     await view.press("3");
     await until(() => view.frame().includes("Continue in b@x?"));
-    expect(view.frame()).toContain("installs the cco plugin there first");
+    expect(view.frame()).toContain("with the cco plugin installed there first");
     expect(view.frame()).toContain("Claude is working; close it once it is idle");
     expect(view.frame()).toMatch(/› +Continue there, keep it running/);
     view.unmount();

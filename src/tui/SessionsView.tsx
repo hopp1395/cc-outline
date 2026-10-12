@@ -1,6 +1,5 @@
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
@@ -32,11 +31,12 @@ import { barColorOfAccount, type Account, type AccountColorName } from "../accou
 import { pluginState } from "../accountSetup.js";
 import { readTransfers, type Transfer } from "../transfers.js";
 import { useAccountState } from "./useAccount.js";
-import { sessionTitle, useAccountFlow } from "./useAccountFlow.js";
+import { useAccountFlow } from "./useAccountFlow.js";
+import { countHead, fg, plural, sessionHead, sessionTitle, span, tilde, type HeadState } from "./sessionHead.js";
 import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { RenameDialog } from "./RenameDialog.js";
-import { enterLabel, sessionOptions, type SessionAction, type SessionSituation } from "./resumeChoice.js";
+import { enterLabel, OWN_ONLY, sessionOptions, type SessionAction, type SessionSituation } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
@@ -114,9 +114,6 @@ interface Props {
   accountRequest?: { at: number; query?: string };
 }
 
-/** What d says on a session of another account. */
-const OWN_ONLY = "only for sessions of this account";
-
 /** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
 const REFRESH_MS = 3000;
 export { PAIR_TIMEOUT_MS, pairingProgress } from "./useAccountFlow.js";
@@ -145,24 +142,6 @@ function dateTime(ts?: string): string {
   const d = new Date(ts);
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time(ts)}`;
 }
-/** "2026-09-26 20:48–22:53", with the end date only when it differs. */
-function span(start?: string, end?: string): string {
-  if (!start) return "";
-  const s = new Date(start);
-  const date = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  if (!end) return `${date(s)} ${time(start)}`;
-  const e = new Date(end);
-  if (date(e) === date(s) && time(end) === time(start)) return `${date(s)} ${time(start)}`;
-  return `${date(s)} ${time(start)}–${date(e) === date(s) ? "" : date(e) + " "}${time(end)}`;
-}
-
-/** Replaces the home directory with ~. */
-function tilde(path: string): string {
-  const home = homedir();
-  return path.toLowerCase().startsWith(home.toLowerCase()) ? "~" + path.slice(home.length) : path;
-}
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 
 /** Whether `sessionTitle` falls back to a prompt, since the session has no /rename title. */
@@ -186,14 +165,6 @@ const SCOPE_FOOTER: Record<SessionsScope, string> = {
   "project-accounts": "a accounts",
   "all-accounts": "a all · accounts",
 };
-
-/** SGR foreground code of a console colour, by Ink's name. */
-function fg(name: AccountColorName | "gray"): number {
-  const names: AccountColorName[] = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
-  if (name === "gray") return 90;
-  const bright = name.endsWith("Bright");
-  return (bright ? 90 : 30) + names.indexOf(bright ? (name.slice(0, -6) as AccountColorName) : name);
-}
 
 /** The lines the preview's header has about the account of a session, while the list shows every account's. */
 export function sessionAccountLines(account: Account | undefined, color: AccountColorName | "gray", own: boolean): string[] {
@@ -737,7 +708,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const dir = s.cwd ?? cwd;
     const claude = running.get(sessionKey(s));
     const own = paired && [...running.values()].find((r) => r.pid === paired.claudePid);
-    const state: SessionSituation["state"] = paired && s.id === activeId ? "current" : claude ? "active" : "inactive";
+    const state: SessionSituation["state"] = paired && isActive(s) ? "current" : claude ? "active" : "inactive";
     const folderMissing = state === "inactive" && !existsSync(dir);
     const situation: SessionSituation = {
       paired: paired && { empty: paired.empty, activity: own ? own.activity : undefined, method: resumeHereMethod() },
@@ -750,6 +721,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       here: truncate(basename(cwd), 20),
       marked: markedCount,
       accounts: others.map((a) => a.email),
+      account: accountState.accounts.length >= 2 ? accountOf(s)?.email : undefined,
+      foreign: s.account !== undefined,
       terminal: detectTerminal() !== undefined,
       // A session the Claude Code daemon runs is attached to, not resumed.
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
@@ -757,28 +730,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     return { situation, claude, dir };
   };
 
-  /** Where the session stands, below its folder: the dialog's title is the same for all of them. */
-  const STATE_LINES: Record<SessionSituation["state"], string> = {
-    current: "this viewer's session",
-    active: "runs in a Claude Code",
-    inactive: "runs nowhere",
+  /** The head every dialog about `s` starts with; where it stands as Enter sees it, unless `state` says. */
+  const headFor = (s: SessionSummary, state?: HeadState) => {
+    const dir = s.cwd ?? cwd;
+    const stands: HeadState = state ?? (paired && isActive(s) ? "current" : running.has(sessionKey(s)) ? "active" : "inactive");
+    return sessionHead(s, { accounts: accountState, accountColor }, { dir, gone: !existsSync(dir), state: stands });
   };
 
   /** Enter: asks what to do with the session (`sessionOptions`), with the usual choice selected. */
   const start = (s: SessionSummary) => {
-    // Another account's session: continue it there, switch to it, or copy the command.
-    if (s.account) {
-      const account = accountOf(s);
-      if (!account) return notify("its account is no longer signed in here");
-      return flow.foreignMenu(s, account, running.get(sessionKey(s)), s.cwd ?? cwd, !existsSync(s.cwd ?? cwd));
-    }
+    if (s.account && !accountOf(s)) return notify("its account is no longer signed in here");
     const { situation, claude, dir } = situationOf(s);
-    const lines = [
-      truncate(sessionTitle(s), 56),
-      `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
-      truncate(`${situation.folderMissing ? "folder gone:" : "in"} ${tilde(dir)}`, 56),
-      STATE_LINES[situation.state],
-    ];
+    const lines = headFor(s, situation.state);
     const { options, initial } = sessionOptions(situation);
     // On Windows, PowerShell takes a second or more to start: it does so while the dialog is open.
     const here = options.find((o) => o.id === "here");
@@ -815,7 +778,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       case "here":
         return void (paired && continueHere(s.id, paired, prepared));
       case "window":
-        notify(resumeInNewWindow(s.id, dir, truncate(sessionTitle(s), 30)));
+        // Another account's session continues under its config folder.
+        notify(resumeInNewWindow(s.id, dir, truncate(sessionTitle(s), 30), "new", s.account));
         // Show it as running as soon as Claude Code registers it.
         setTimeout(refresh, 3000);
         return;
@@ -894,11 +858,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (blocker) return notify(blocker);
     setConfirmation({
       title: "Move this session to the trash?",
-      lines: [
-        truncate(sessionTitle(s), 56),
-        `${span(s.start, s.end)} · ${plural(s.prompts.length, "prompt")} · ${plural(s.files.length, "file")}`,
-        "You can restore it from the trash (T).",
-      ],
+      lines: [...headFor(s), "", "You can restore it from the trash (T)."],
       onConfirm: () =>
         attempt(() => {
           trashSession(s, activeId);
@@ -920,7 +880,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     setConfirmation({
       title: "Delete this session for good?",
       lines: [
-        truncate(sessionTitle(s), 56),
+        ...headFor(s, { trash: dateTime(new Date(deletedAt.get(s.id) ?? 0).toISOString()) }),
+        "",
         "Transcript, file history and subagent data are removed.",
         "This can't be undone.",
       ],
@@ -935,7 +896,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (trash.length === 0) return;
     setConfirmation({
       title: "Empty the trash?",
-      lines: [`${plural(trash.length, "session")} ${all ? "of all projects" : "of this project"} will be deleted for good.`, "This can't be undone."],
+      lines: [countHead(trash.length, "session", all ? "of all projects" : "of this project"), "", "They will be deleted for good.", "This can't be undone."],
       danger: true,
       onConfirm: () => attempt(() => void emptyTrash(trashScope, cwd), "trash emptied"),
     });
@@ -953,12 +914,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const askMove = (s: SessionSummary) =>
     setConfirmation({
       title: "Move this session here?",
-      lines: [
-        truncate(sessionTitle(s), 56),
-        truncate(`from ${tilde(s.cwd ?? "")}`, 56),
-        truncate(`into ${tilde(cwd)}`, 56),
-        "Its paths are rewritten; claude --resume continues it here.",
-      ],
+      lines: [...headFor(s), "", truncate(`into ${tilde(cwd)}`, 56), "Its paths are rewritten; claude --resume continues it here."],
       onConfirm: () =>
         attempt(() => {
           moveSession(s, cwd);
@@ -983,9 +939,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const dir = tilde(dirname(file));
     const one = targets.length === 1 ? targets[0] : undefined;
     return [
-      ...(one
-        ? [truncate(sessionTitle(one), 56), `${span(one.start, one.end)} · ${plural(one.prompts.length, "prompt")} · ${plural(one.files.length, "file")}`]
-        : [`${plural(targets.length, "marked session")}`]),
+      ...(one ? headFor(one) : [countHead(targets.length, "marked session", all ? "of all projects" : "of this project")]),
+      "",
       `to ${basename(file)}`,
       // The end of the folder's path names it best.
       dir.length > 53 ? `in …${dir.slice(-52)}` : `in ${dir}`,
@@ -1135,13 +1090,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             ? "↵ load more"
             : onImport
               ? "↵ import"
-              : session?.account
-                ? running.has(sessionKey(session))
-                  ? "↵ switch…"
-                  : "↵ continue there…"
-                : session
-                  ? enterLabel(situationOf(session).situation)
-                  : "↵ start",
+              : session
+                ? enterLabel(situationOf(session).situation)
+                : "↵ start",
           priority: 3,
         },
         { text: "c copy resume", priority: 2 },
@@ -1267,7 +1218,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       {renaming && (
         <RenameDialog
           layout={layout}
-          session={truncate(sessionTitle(renaming), 56)}
+          lines={headFor(renaming)}
           title={renaming.title ?? ""}
           onSave={(title) => rename(renaming, title)}
           onCancel={() => setRenaming(undefined)}

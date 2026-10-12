@@ -1,15 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Account } from "../account.js";
 import { continueInAccount, matchAccount, otherAccounts, type ContinuePlan } from "../accountContinue.js";
 import { pluginSteps } from "../accountSetup.js";
 import { detectTerminal, openInDefaultApp, resumeForPairing, resumeInNewWindow, resumeShellCommand } from "../open.js";
-import { prepareConsoleInput, switchToSession, type ConsoleTyper } from "../switchSession.js";
+import { prepareConsoleInput, type ConsoleTyper } from "../switchSession.js";
 import { TIMING } from "../timing.js";
 import { inClaudeDir, projectSlug } from "../transcript/locate.js";
-import { isCommand } from "../transcript/parse.js";
 import { SessionReader, type SessionSummary } from "../transcript/sessions.js";
 import { predecessors } from "../transcript/continuation.js";
 import { runningSessions, type RunningSession } from "../transcript/trash.js";
@@ -21,20 +20,13 @@ import { truncate, type Layout } from "./layout.js";
 import { currentStep, failureLines, useProgress, type Progress } from "./ProgressDialog.js";
 import { useAccountState } from "./useAccount.js";
 import { useClipboard } from "./useClipboard.js";
-
-/** Replaces the home directory with ~. */
-function tilde(path: string): string {
-  const home = homedir();
-  return path.toLowerCase().startsWith(home.toLowerCase()) ? "~" + path.slice(home.length) : path;
-}
+import { useSetting } from "./useSetting.js";
+import { accountBar, HEAD_WIDTH, sessionHead, sessionTitle, tilde, type HeadContext } from "./sessionHead.js";
 
 /** How long a viewer waits for the Claude Code it started to show up, before it stays unpaired. */
 export const PAIR_TIMEOUT_MS = 30_000;
 
-/** The name shown for a session: its /rename title, else its first prompt that is not a slash or `!` command. */
-export function sessionTitle(s: SessionSummary): string {
-  return s.title ?? (s.prompts.find((p) => !isCommand(p.text)) ?? s.prompts[0])?.text ?? s.id;
-}
+export { sessionTitle };
 
 /** The wait for a started Claude Code to pair with. */
 export interface Pairing {
@@ -118,7 +110,11 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
   const [pairing, setPairing] = useState<Pairing>();
   const [, setPairTick] = useState(0);
   const fromEmail = accountState.current?.email;
-  const here = fromEmail ?? tilde(accountState.own);
+  const [accountColor] = useSetting("accountColor");
+  const ctx: HeadContext = { accounts: accountState, accountColor };
+  /** The head of the dialogs about `s`: where it runs is the viewer's own Claude Code, another, or none. */
+  const headOf = (s: SessionSummary, claude: RunningSession | undefined, dir: string) =>
+    sessionHead(s, ctx, { dir, gone: !existsSync(dir), state: claude ? (claude.pid === claudePid ? "current" : "active") : "inactive" });
 
   // The PowerShell started to type /exit, until it is used or the dialog closes.
   const typer = useRef<ConsoleTyper>(undefined);
@@ -222,7 +218,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     if (only) return askHow(s, only, claude, dir);
     setChoice({
       title: "Continue in which account?",
-      lines: [truncate(sessionTitle(s), 56), `now in ${here}`],
+      lines: headOf(s, claude, dir),
       options: others.map((a) => ({
         id: a.dir,
         label: a.email,
@@ -241,10 +237,10 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
   const askHow = (s: SessionSummary, account: Account, claude: RunningSession | undefined, dir: string) => {
     const plugin = pluginSteps(account.dir);
     const lines = [
-      truncate(sessionTitle(s), 56),
-      truncate(`from ${here} to ${account.email}`, 56),
-      ...(plugin.length ? ["installs the cco plugin there first"] : []),
-      "A copy continues there in a new window; this one stays.",
+      ...headOf(s, claude, dir),
+      "",
+      truncate(`A copy continues in ${account.email}`, HEAD_WIDTH),
+      `in a new window${plugin.length ? ", with the cco plugin installed there first" : ""}; this one stays.`,
     ];
     const plan = (close?: ContinuePlan["close"]): ContinuePlan => ({ session: s, account, fromEmail, close });
     if (!claude) {
@@ -256,7 +252,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     if (!closeBlocked && detectTerminal() !== "tmux") typer.current = prepareConsoleInput(claude.pid);
     setChoice({
       title: `Continue in ${truncate(account.email, 44)}?`,
-      lines: [...lines.slice(0, -1), "It runs in a Claude Code now."],
+      lines,
       options: [
         { id: "close", label: "Close it and continue there", detail: "/exit is typed into its Claude Code; the copy starts after", disabled: closeBlocked },
         { id: "keep", label: "Continue there, keep it running", detail: "the two go on apart from here" },
@@ -272,7 +268,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
   };
 
   /** The plugin could not be installed: says why, and on Esc asks whether to go on without it. */
-  const pluginFailed = (steps: StepResult[], title: string, what: string, goOn: () => void) => {
+  const pluginFailed = (steps: StepResult[], title: string, head: string[], goOn: () => void) => {
     // Only the plugin's commands; closing and copying run here.
     const commands = remainingCommands(steps).filter((c) => c.startsWith("claude "));
     setRun({
@@ -284,7 +280,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
       onClose: () =>
         setChoice({
           title: "Go on without the cco plugin?",
-          lines: [truncate(what, 56)],
+          lines: head,
           options: [
             { id: "go", label: "Go on without it", detail: "the viewer there does not follow /clear, /resume or the end" },
             { id: "stop", label: "Stop here", detail: "nothing has changed" },
@@ -311,7 +307,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     if (result.kind === "plugin-failed") {
       plan.close?.typer?.cancel();
       if (own) onHoldOpen?.(false);
-      return pluginFailed(result.steps, title, `${sessionTitle(s)} in ${account.email}`, () =>
+      return pluginFailed(result.steps, title, [...headOf(s, undefined, dir).slice(0, -1), truncate(`to continue in ${account.email}`, HEAD_WIDTH)], () =>
         void runContinue({ ...plan, skipPlugin: true, close: plan.close && { pid: plan.close.pid } }, dir),
       );
     }
@@ -331,7 +327,8 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
   const startNew = async (account: Account, dir: string, attach: boolean, skipPlugin = false) => {
     const title = `New session in ${account.email}`;
     const result = await continueInAccount({ account, fromEmail, skipPlugin }, (steps) => setRun(continueProgress(account, steps, tilde(dir), title)));
-    if (result.kind === "plugin-failed") return pluginFailed(result.steps, title, `a new session in ${account.email}`, () => void startNew(account, dir, attach, true));
+    if (result.kind === "plugin-failed")
+      return pluginFailed(result.steps, title, [truncate(`a new session in ${account.email}`, HEAD_WIDTH), truncate(`in ${tilde(dir)}`, HEAD_WIDTH)], () => void startNew(account, dir, attach, true));
     if (result.kind === "failed") return setRun({ title, status: "failed", text: "No session was started", lines: [result.message] });
     setRun(undefined);
     const id = randomUUID();
@@ -357,18 +354,22 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     const active = account.dir === accountState.current?.dir;
     const plugin = pluginSteps(account.dir).length > 0 ? " · gets the cco plugin" : "";
     setChoice({
-      title: truncate(account.email, 56),
-      lines: [truncate(tilde(account.dir), 56), active ? "the account of the Claude Code this viewer follows" : "another account"],
+      title: `What to do in ${truncate(account.email, 40)}?`,
+      lines: [
+        `${accountBar(account, accountState, accountColor)} ${truncate(`${account.email} · ${tilde(account.dir)}`, HEAD_WIDTH - 2)}`,
+        active ? "the account of the Claude Code this viewer follows" : "another account",
+        ...(own ? ["", ...headOf(own.summary, own.claude, own.dir)] : []),
+      ],
       options: [
         {
           id: "continue",
-          label: "Continue this session there",
-          detail: own ? truncate(`${sessionTitle(own.summary)}: a copy, in a new window${plugin}`, 56) : "",
+          label: truncate(`Continue it in ${account.email}…`, HEAD_WIDTH - 4),
+          detail: `a copy, in a new window${plugin}`,
           disabled: active ? "it is this session's account" : own ? undefined : (noSession ?? "there is no session to continue"),
         },
-        { id: "new", label: "Start a new session there", detail: truncate(`in ${tilde(cwd)}, in a new window${plugin}`, 56) },
+        { id: "new", label: "Start a new session there", detail: truncate(`in ${tilde(cwd)}, in a new window${plugin}`, HEAD_WIDTH) },
         { id: "new-attach", label: "Start a new session and attach the viewer", detail: "the viewer moves next to it, into that account" },
-        { id: "folder", label: "Open its config folder", detail: truncate(tilde(account.dir), 56) },
+        { id: "folder", label: "Open its config folder", detail: truncate(tilde(account.dir), HEAD_WIDTH) },
       ],
       initial: !active && own ? 0 : 1,
       onChoose: (id) => {
@@ -384,56 +385,6 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     });
   };
 
-  /**
-   * Enter on a session of another account (Sessions listing every account's): switch to the Claude Code it runs in
-   * there, continue it in a new window under that account's folder, or copy the command that does.
-   */
-  const foreignMenu = (s: SessionSummary, account: Account, claude: RunningSession | undefined, dir: string, folderGone: boolean) => {
-    const command = resumeShellCommand(s.id, account.dir);
-    const terminal = detectTerminal() !== undefined;
-    const title = sessionTitle(s);
-    const options = [
-      ...(claude ? [{ id: "switch", label: "Switch to its tab", detail: "it runs in a Claude Code of that account", disabled: terminal ? undefined : "no Windows Terminal or tmux here" }] : []),
-      {
-        id: "window",
-        label: "Continue it there",
-        detail: truncate(`claude --resume in a new window, as ${account.email}`, 56),
-        disabled: claude ? "it runs there already" : folderGone ? "its folder is gone" : undefined,
-      },
-      { id: "copy", label: "Copy the command", detail: truncate(command, 56) },
-    ];
-    const usual = options.findIndex((o) => !o.disabled && (terminal || o.id === "copy"));
-    setChoice({
-      title: "What to do with this session?",
-      lines: [
-        truncate(title, 56),
-        truncate(`of ${account.email}`, 56),
-        truncate(`${folderGone ? "folder gone:" : "in"} ${tilde(dir)}`, 56),
-        claude ? "runs in a Claude Code of that account" : "runs nowhere",
-      ],
-      options,
-      initial: Math.max(0, usual),
-      onChoose: (id) => {
-        setChoice(undefined);
-        if (id === "switch" && claude) {
-          notify("looking for its tab…");
-          return void switchToSession(claude, s.title ? [s.title] : []).then(notify);
-        }
-        if (id === "copy") return void copy(command).then(() => notify(`copied: ${command}`), (err: Error) => notify(`copy failed: ${err.message}`));
-        if (id !== "window") return;
-        if (!terminal)
-          return setRun({
-            title: `Continue in ${account.email}`,
-            status: "done",
-            text: "Start it by hand",
-            lines: ["No Windows Terminal or tmux to open a window in. Run in a terminal:", `  ${command}`, `in ${tilde(dir)}`],
-            copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
-          });
-        notify(resumeInNewWindow(s.id, dir, truncate(title, 30), "new", account.dir));
-      },
-    });
-  };
-
   const element: ReactNode = (
     <>
       {confirmation && <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />}
@@ -444,7 +395,6 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, n
     askAccount,
     askHow,
     accountMenu,
-    foreignMenu,
     startPairing,
     open: choice !== undefined || confirmation !== undefined || run !== undefined || pairing !== undefined,
     element,

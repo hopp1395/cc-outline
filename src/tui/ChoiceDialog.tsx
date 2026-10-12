@@ -48,8 +48,11 @@ export function ChoiceDialog<T extends string>({
   });
 
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
-  // Title, blank, lines, blank, two rows per option, blank, keys, plus the border.
-  const height = choice.lines.length + options.length * 2 + 7;
+  // Title, blank, lines, blank, two rows per option, blank, keys, plus the border. Where that is taller than
+  // the pane, only the selected option keeps its detail row.
+  const full = choice.lines.length + options.length * 2 + 7;
+  const compact = full > layout.rows - 1;
+  const height = compact ? choice.lines.length + options.length + 8 : full;
   return (
     <Dialog layout={layout} width={width} height={height}>
       <Text bold color="cyan" wrap="truncate">
@@ -64,11 +67,15 @@ export function ChoiceDialog<T extends string>({
       <Text> </Text>
       {options.map((o, i) => {
         const isSelected = i === selected;
-        return [
+        const label = (
           <Text key={`${o.id}-label`} wrap="truncate" dimColor={o.disabled !== undefined}>
             <Text color="yellow">{i + 1}</Text> <Text color="cyan">{isSelected ? "›" : " "}</Text>{" "}
             <Text bold={isSelected} inverse={isSelected}>{` ${o.label} `}</Text>
-          </Text>,
+          </Text>
+        );
+        if (compact && !isSelected) return label;
+        return [
+          label,
           <Text key={`${o.id}-detail`} wrap="truncate" dimColor color={o.disabled ? "yellow" : undefined}>
             {"     "}
             {o.disabled ?? o.detail}

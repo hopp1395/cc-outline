@@ -108,8 +108,11 @@ describe("Sessions with the other accounts", () => {
     await view.press("d");
     await until(() => view.frame().includes("only for sessions of this account"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue it there"));
-    expect(view.frame()).toContain("of jan@work.com");
+    await until(() => view.frame().includes("Continue it in a new window"));
+    // The same head as for this account's sessions, naming its account; what works only here is greyed out.
+    expect(view.frame()).toContain("▌ jan@work.com");
+    expect(view.frame()).toContain("runs nowhere");
+    expect(view.frame()).toContain("Rename it");
     // Without a terminal, copying the command is selected.
     expect(view.frame()).toMatch(/› +Copy the command/);
     view.unmount();
