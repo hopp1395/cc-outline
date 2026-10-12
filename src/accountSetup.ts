@@ -34,10 +34,14 @@ export function pluginState(dir: string): PluginState {
  * from (a folder, e.g. the npm package, or a GitHub repository), else the repository.
  */
 export function marketplaceSource(own = claudeDir()): string {
-  const entry = readJson<Record<string, { source?: Record<string, unknown> }>>(join(own, "plugins", "known_marketplaces.json"))?.[MARKETPLACE]?.source;
+  return knownMarketplaceSource(own) ?? DEFAULT_SOURCE;
+}
+
+/** Where the account of `dir` added the cc-outline marketplace from (a folder, a repository, a URL); none if it did not. */
+export function knownMarketplaceSource(dir: string): string | undefined {
+  const entry = readJson<Record<string, { source?: Record<string, unknown> }>>(join(dir, "plugins", "known_marketplaces.json"))?.[MARKETPLACE]?.source;
   const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
-  const source = text(entry?.path) ?? text(entry?.repo) ?? text(entry?.url);
-  return source ?? DEFAULT_SOURCE;
+  return text(entry?.path) ?? text(entry?.repo) ?? text(entry?.url);
 }
 
 const quote = (s: string) => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);

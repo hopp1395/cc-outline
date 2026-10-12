@@ -5,13 +5,14 @@
 [![npm downloads](https://img.shields.io/npm/dm/cc-outline)](https://www.npmjs.com/package/cc-outline)
 [![License: MIT](https://img.shields.io/github/license/hopp1395/cc-outline)](LICENSE)
 
-`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has six views:
+`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has seven views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository, and in the repositories in the folders below, and shows their diffs with syntax highlighting.
 - **Plan** shows the plans Claude presented in plan mode, with their status and what changed between versions.
 - **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, is exported (Markdown, JSON and a backup to import elsewhere), or goes to the trash.
 - **Monitor** charts how fast Claude answered over the day: output tokens per second, the wait for the first block and the number of responses, compared with the usual values at that time, plus errors such as usage limits.
+- **Accounts** (`0`, or a click on the "cco" at the left of the top bar) lists the Claude accounts on this machine (config folders `~/.claude*`) with their details: organization, plan, colour, whether the cco plugin runs there, the Claude Codes running with them and their sessions of this project. `Enter` continues the current session in another one.
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
@@ -104,12 +105,12 @@ To load the plugin for a single session without installing it, run `claude --plu
 
 ## Usage
 
-- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`**, **`/cco:settings`** or **`/cco:monitor`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane. **`/cco:open`** opens it in the view the session was shown in last (with the setting *view per session*, else the chat) and leaves a running viewer as it is. **`/cco:releases`** opens the Settings view on the release notes and the update, if one is out. **`/cco:update`** checks for a new version right away, also with the setting *update* off, and asks in the Settings view whether to install it. **`/cco:restart`** closes the viewer and opens it again in the same place and view with the version installed now; if none runs, it opens one. **`/cco:account`** continues the session in another Claude account (see *Continue in another account…* in the [Sessions view](#sessions-view)); `/cco:account work` or `/cco:account jan@work.com` names the account by its config folder or email.
+- **`/cco:chat`**, **`/cco:git`**, **`/cco:plan`**, **`/cco:session`**, **`/cco:settings`** or **`/cco:monitor`** in Claude Code opens the viewer in a split pane (Windows Terminal or tmux), starting in that view. If a viewer is already running for the project, the command switches it to that view instead of opening a second pane. **`/cco:open`** opens it in the view the session was shown in last (with the setting *view per session*, else the chat) and leaves a running viewer as it is. **`/cco:releases`** opens the Settings view on the release notes and the update, if one is out. **`/cco:update`** checks for a new version right away, also with the setting *update* off, and asks in the Settings view whether to install it. **`/cco:restart`** closes the viewer and opens it again in the same place and view with the version installed now; if none runs, it opens one. **`/cco:accounts`** opens the Accounts view. **`/cco:account`** continues the session in another Claude account (see *Continue in another account…* in the [Sessions view](#sessions-view)); `/cco:account work` or `/cco:account jan@work.com` names the account by its config folder or email.
 - **Where it opens:** docked right of Claude Code (default), docked left, or in a window of its own, as the *placement* setting says. `p` in the viewer moves it: `1` right, `2` left, `3` window. The viewer closes and reopens there, keeping its selection and scroll positions, and the session remembers the place for the next time it opens (on start, `/resume` in a new Claude Code, `/cco:…`). A window takes the keyboard focus from Claude Code, also when it opens on start, since Windows Terminal cannot hand the focus back to another window. In tmux, *window* is a tmux window. A `/cco:…` command typed while Claude is working only runs when the turn ends; by then you may be in another tab, and Windows Terminal can only split the tab that is active then, so in that case the viewer opens in a window of its own (tmux still splits Claude Code's pane), and `p` docks it. A viewer that already runs stays where it is when you change the setting or `/resume` another session.
 - **`cco`** (or `cco watch`) in a project directory starts the viewer by hand, in any terminal:
   - `--cwd <dir>`: the project whose session is shown
   - `--session <id>`: show this session instead of the active one
-  - `--view chat|git|plan|sessions|settings|monitor`: view to start with (default: the session's last view, see *view per session*, else `chat`)
+  - `--view chat|git|plan|sessions|settings|monitor|accounts`: view to start with (default: the session's last view, see *view per session*, else `chat`)
 
   A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ attach`), see [Sessions](#sessions-view).
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
@@ -358,6 +359,12 @@ Below the chart: the day's overall index, median speed and wait against the usua
 
 **Limits.** It measures only your own sessions, so it shows how fast Claude answered you, not the load of the service as a whole. Speed depends on the model, the effort and how much Claude thinks. Transient API errors (overloaded, rate limits, retries) appear only briefly in Claude Code and are not written to transcripts, so they are missing here.
 
+## Accounts view
+
+The Accounts view (`0`, a click on the "cco" at the left of the top bar, or `/cco:accounts`) has no tab of its own: the "cco", in the account's colour, is its tab and shows inverted while the view is open. The list holds the active account (the one of the Claude Code the viewer follows, `●`) first, then the other accounts found by email (`○`, each in its colour), then *how accounts are found*; without any account, a note says to sign in with `/login`. The details of an account show its email, name, organization, billing, seat and rate limit tier, the `.claude.json` they come from and its colour (chosen in that folder's settings, or from the email); whether the cco plugin is installed and enabled in its config folder and where its marketplace comes from; the Claude Codes running with it now (project, working / waiting / idle, every 3 seconds); and the sessions of this project in its folder (how many, when the last was written and its title, and how many went on in another account `⇢` or came from one `⇠`). The rest is read again every 30 seconds and with `F5`.
+
+`Enter` (or a double click) on another account continues the viewer's session there, as *Continue in another account…* in the Sessions view does: the viewer switches to Sessions for its dialogs. On the active account, or without a session to continue (a viewer that follows no Claude Code, or one of `--session`), it says so. `Space` marks an account ★ (for all projects), `Ctrl+F` filters, and the list keeps its selection and scroll positions; its width is the setting *accounts list width*. The account entries and settings stay in the Settings view as well.
+
 ## Settings view
 
 The Settings view (`6`, or `/cco:settings`) lists every option under a line with its group (`── Chat ──`), with its value at the right end of the row; a name too long for the list is cut, never the value. The preview shows what it does, all possible values (the current one marked `●`, the default named) and the key that switches it in its own view. Values that differ from the default are yellow, and the top bar counts them.
@@ -437,7 +444,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
-| `1` – `6` | switch view | switch view | switch view | switch view |
+| `0` – `6` | switch view (`0`: Accounts) | switch view | switch view | switch view |
 | `Tab` / `Shift+Tab`, `→` / `←` | next / previous view | next / previous view | next / previous view | next / previous view |
 | `↑` / `↓` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |

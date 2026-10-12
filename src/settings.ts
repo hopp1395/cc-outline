@@ -121,6 +121,7 @@ export interface Settings {
   sessionsListWidth: ListWidth;
   monitorListWidth: ListWidth;
   settingsListWidth: ListWidth;
+  accountsListWidth: ListWidth;
   /** Views in the tab bar; a hidden one has no tab and its number key does nothing. Settings is always shown. */
   viewChat: boolean;
   viewGit: boolean;
@@ -162,6 +163,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionsListWidth: "normal",
   monitorListWidth: "normal",
   settingsListWidth: "normal",
+  accountsListWidth: "normal",
   viewChat: true,
   viewGit: true,
   viewPlan: true,
@@ -169,8 +171,8 @@ export const DEFAULT_SETTINGS: Settings = {
   viewMonitor: true,
 };
 
-/** The setting that shows or hides each view; Settings has none, so the way back is always there. */
-export const VIEW_SETTINGS: Record<Exclude<Mode, "settings">, keyof Settings> = {
+/** The setting that shows or hides each view; Settings has none, so the way back is always there, nor Accounts, which has no tab of its own ("cco"). */
+export const VIEW_SETTINGS: Record<Exclude<Mode, "settings" | "accounts">, keyof Settings> = {
   chat: "viewChat",
   git: "viewGit",
   plan: "viewPlan",
@@ -179,13 +181,17 @@ export const VIEW_SETTINGS: Record<Exclude<Mode, "settings">, keyof Settings> = 
 };
 
 /** The setting of each view's list width. */
-export const LIST_WIDTH_SETTINGS: Record<Mode, "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "settingsListWidth"> = {
+export const LIST_WIDTH_SETTINGS: Record<
+  Mode,
+  "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "settingsListWidth" | "accountsListWidth"
+> = {
   chat: "chatListWidth",
   git: "gitListWidth",
   plan: "planListWidth",
   sessions: "sessionsListWidth",
   monitor: "monitorListWidth",
   settings: "settingsListWidth",
+  accounts: "accountsListWidth",
 };
 
 /** The list width one step narrower (`step` -1) or wider (1) than `width`, stopping at `hidden` and `full`. */
@@ -196,11 +202,11 @@ export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
 
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
-  return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
+  return mode === "settings" || mode === "accounts" || settings[VIEW_SETTINGS[mode]] === true;
 }
 
 /** The views in tab order. */
-const TAB_ORDER: Mode[] = ["chat", "git", "plan", "sessions", "monitor", "settings"];
+const TAB_ORDER: Mode[] = ["accounts", "chat", "git", "plan", "sessions", "monitor", "settings"];
 
 /** The shown view after (`step` 1) or before (-1) `mode` in tab order, wrapping around; for Tab and Shift+Tab. */
 export function nextShownView(settings: Settings, mode: Mode, step: 1 | -1): Mode {
@@ -215,7 +221,8 @@ export function nextShownView(settings: Settings, mode: Mode, step: 1 | -1): Mod
 
 /** `mode` if it is shown, else the first shown view (Settings always is). */
 export function shownView(settings: Settings, mode: Mode): Mode {
-  return isViewShown(settings, mode) ? mode : (TAB_ORDER.find((m) => isViewShown(settings, m)) ?? "settings");
+  // Accounts is the "cco" before the tabs: never the stand-in for a hidden view.
+  return isViewShown(settings, mode) ? mode : (TAB_ORDER.find((m) => m !== "accounts" && isViewShown(settings, m)) ?? "settings");
 }
 
 /** Allowed values of the settings that are not on/off. */
@@ -236,6 +243,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   sessionsListWidth: LIST_WIDTH_VALUES,
   monitorListWidth: LIST_WIDTH_VALUES,
   settingsListWidth: LIST_WIDTH_VALUES,
+  accountsListWidth: LIST_WIDTH_VALUES,
 };
 
 export function settingsFile(): string {

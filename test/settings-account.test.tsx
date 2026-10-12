@@ -27,7 +27,7 @@ afterEach(() => {
 describe("Account group in the settings", () => {
   it("has the two settings, automatic and on by default", () => {
     const keys = SETTING_ROWS.filter((r) => r.group === "Account").map((r) => r.key);
-    expect(keys).toEqual(["accountColor", "accountTitle"]);
+    expect(keys).toEqual(["accountColor", "accountTitle", "accountsListWidth"]);
     expect(DEFAULT_SETTINGS).toMatchObject({ accountTitle: true, accountColor: "auto" });
   });
 
@@ -37,7 +37,7 @@ describe("Account group in the settings", () => {
     const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir };
     const names = settingsEntries(update, state).map((e) => ("key" in e ? e.key : "account" in e ? (`account:${"dir" in e ? e.dir : e.account}` as string) : "other"));
     const at = names.indexOf(`account:${me.dir}`);
-    expect(names.slice(at - 1, at + 5)).toEqual(["updateMode", `account:${me.dir}`, `account:${work.dir}`, "accountColor", "accountTitle", "account:details"]);
+    expect(names.slice(at - 1, at + 6)).toEqual(["updateMode", `account:${me.dir}`, `account:${work.dir}`, "accountColor", "accountTitle", "accountsListWidth", "account:details"]);
   });
 
   it("reads the former on/off setting accountBadge as the colour off", () => {

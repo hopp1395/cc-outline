@@ -8,7 +8,7 @@ import { VERSION } from "./version.js";
 import { PLACEMENT_VALUES, type Placement } from "./settings.js";
 import { isAlive, registerViewer, runningViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
 
-const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor"];
+const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor", "accounts"];
 
 const pidOption = (flags: string, description: string) => new Option(flags, description).argParser(Number).hideHelp();
 const validPid = (pid: number | undefined) => (pid && Number.isInteger(pid) ? pid : undefined);

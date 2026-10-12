@@ -26,9 +26,12 @@ describe("← and → in the viewer", () => {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
     await expect.poll(view.frame).toContain("auto open");
-    // Past the last view comes the first.
+    // Past the last view comes the first: Accounts, whose tab is the "cco" before the others, then the chat.
+    await view.press("\u001b[C");
+    await expect.poll(view.frame).toContain("how accounts are found");
     await view.press("\u001b[C");
     await expect.poll(view.frame).toContain("Waiting for prompts");
+    await view.press("\u001b[D");
     await view.press("\u001b[D");
     await expect.poll(view.frame).toContain("auto open");
     // The hidden Monitor is skipped.

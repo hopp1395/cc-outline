@@ -28,6 +28,7 @@ import { onCtrlC } from "./ctrlC.js";
 import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
+import { AccountsView } from "./AccountsView.js";
 import { SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
 import { AccountContext, useAccounts } from "./useAccount.js";
@@ -60,7 +61,7 @@ interface Props {
   onDetach?: (cwd: string) => void;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
+const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
 
 /**
  * When the last prompt was typed in Claude Code, if that was after `since`: the
@@ -76,7 +77,7 @@ const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefine
 
 /** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
 const REDRAW = "\u001b[?25l";
-const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0 };
+const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0, accounts: 0 };
 
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach }: Props) {
   const { exit } = useApp();
@@ -143,6 +144,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     sessions: false,
     settings: false,
     monitor: false,
+    accounts: false,
   });
   // |, < and > past the ends fold a view's list away or spread it over the pane (stored as its width);
   // which end | takes next and a detail shown over the pane are kept until the viewer quits.
@@ -153,6 +155,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     sessions: UNFOLDED,
     settings: UNFOLDED,
     monitor: UNFOLDED,
+    accounts: UNFOLDED,
   }));
   const setFold = (m: Mode, state: FoldState) => setFolds((f) => (f[m] === state ? f : { ...f, [m]: state }));
   // What each view reported last, also between renders: a view may report twice before one.
@@ -198,6 +201,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // The watcher keeps the first callback; the restart needs the view and session shown now.
   const request = useRef(onRequest);
   request.current = onRequest;
+  // The viewer's own session can continue in another account (Accounts view, /cco:account).
+  const continuable = claudePid !== undefined && !sessionId && path !== undefined;
   // While Sessions continues the session in another account, its Claude Code may be closed on purpose: the viewer stays to move along.
   const holdOpen = useRef(false);
   useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: () => holdOpen.current || exit() });
@@ -524,6 +529,22 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onResetData={resetProjectData}
             onRestart={sessionId ? undefined : restartViewer}
             select={settingsSelect}
+          />
+          </MouseContext.Provider>
+          </ReloadContext.Provider>
+        </Box>
+        <Box display={mode === "accounts" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("accounts")}>
+          <MouseContext.Provider value={mouseFor("accounts")}>
+          <AccountsView
+            cwd={cwd}
+            layout={viewLayout("accounts")}
+            visible={mode === "accounts"}
+            active={mode === "accounts" && !blocked}
+            onTyping={setTyping}
+            // Sessions runs the flow, as for /cco:account, on the viewer's own session.
+            onContinue={continuable ? (a) => (setMode("sessions"), setAccountRequest({ at: Date.now(), query: a.dir })) : undefined}
+            noSession={continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it to one in Sessions" : "there is no session yet"}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>

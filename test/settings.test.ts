@@ -209,8 +209,10 @@ describe("hidden views", () => {
     const settings = hide("viewGit", "viewMonitor");
     expect(nextShownView(settings, "chat", 1)).toBe("plan");
     expect(nextShownView(settings, "sessions", 1)).toBe("settings");
-    expect(nextShownView(settings, "settings", 1)).toBe("chat");
-    expect(nextShownView(settings, "chat", -1)).toBe("settings");
+    // Accounts, the "cco" before the tabs, comes first.
+    expect(nextShownView(settings, "settings", 1)).toBe("accounts");
+    expect(nextShownView(settings, "accounts", 1)).toBe("chat");
+    expect(nextShownView(settings, "chat", -1)).toBe("accounts");
     // From a hidden view opened by a command, to its shown neighbour.
     expect(nextShownView(settings, "git", 1)).toBe("plan");
   });

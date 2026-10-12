@@ -8,7 +8,7 @@ import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
 
-const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor" };
+const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor", accounts: "accounts" };
 
 /**
  * The CLI to start the viewer and `cco open` with. This module can end up in a

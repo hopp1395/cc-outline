@@ -250,7 +250,9 @@ describe("scrollPosition", () => {
 describe("tabAt", () => {
   it("finds the tab under a column of the top bar", () => {
     // "cco  1 Chat  2 Changes  3 Plan …"
-    expect(tabAt(0, DEFAULT_SETTINGS, "chat")).toBeUndefined();
+    // The "cco" is the Accounts view's tab, the space after it nobody's.
+    expect(tabAt(0, DEFAULT_SETTINGS, "chat")).toBe("accounts");
+    expect(tabAt(3, DEFAULT_SETTINGS, "chat")).toBeUndefined();
     expect(tabAt(4, DEFAULT_SETTINGS, "chat")).toBe("chat");
     expect(tabAt(11, DEFAULT_SETTINGS, "chat")).toBe("chat");
     expect(tabAt(12, DEFAULT_SETTINGS, "chat")).toBe("git");

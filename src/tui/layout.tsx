@@ -30,7 +30,7 @@ const padColumns = (text: string, width: number) => text + " ".repeat(Math.max(0
 /** A short message of the app for the preview's bottom row, like "copied" (the list width after < or >). */
 export const ScreenNoticeContext = createContext<string | undefined>(undefined);
 
-export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor";
+export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor" | "accounts";
 
 export interface Layout {
   columns: number;
@@ -397,8 +397,9 @@ function shownTabs(settings: Settings, mode: Mode) {
   return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
 }
 
-/** The view whose tab is at column `x` of the top bar, or undefined. */
+/** The view whose tab is at column `x` of the top bar, or undefined; the "cco" at its start is the Accounts view's (0). */
 export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefined {
+  if (x >= 0 && x < TABS_LEAD.length - 1) return "accounts";
   let start = TABS_LEAD.length;
   for (const tab of shownTabs(settings, mode)) {
     const end = start + tabText(tab).length;
@@ -414,9 +415,11 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
-      <Text bold color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
-        {TABS_LEAD}
+      {/* The "cco" is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
+      <Text bold inverse={mode === "accounts"} color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
+        {TABS_LEAD.trimEnd()}
       </Text>
+      <Text> </Text>
       {shownTabs(settings, mode).map((tab) =>
         tab.mode === mode ? (
           <Text key={tab.mode} inverse bold>

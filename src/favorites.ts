@@ -8,22 +8,25 @@ import { claudeDir, favoritesFile, readJson, writeJson } from "./transcript/loca
  * which copy the turns into a new session, so marks are kept per project; the
  * settings are global, and so are their marks.
  */
-export type FavoriteKind = "turns" | "files" | "plans" | "sessions" | "days" | "settings";
+export type FavoriteKind = "turns" | "files" | "plans" | "sessions" | "days" | "settings" | "accounts";
 
 type Stored = Partial<Record<FavoriteKind, string[]>>;
 
-const KINDS: FavoriteKind[] = ["turns", "files", "plans", "sessions", "days", "settings"];
+const KINDS: FavoriteKind[] = ["turns", "files", "plans", "sessions", "days", "settings", "accounts"];
+/** The lists kept for all projects: the settings' and the accounts' (config folders). */
+const GLOBAL_KINDS: FavoriteKind[] = ["settings", "accounts"];
+const isGlobal = (kind: FavoriteKind) => GLOBAL_KINDS.includes(kind);
 
-/** The marks of the settings, next to settings.json. */
+/** The marks of the settings and the accounts, next to settings.json. */
 export function globalFavoritesFile(): string {
   return join(claudeDir(), "cco", "favorites.json");
 }
 
-const fileFor = (cwd: string, kind: FavoriteKind) => (kind === "settings" ? globalFavoritesFile() : favoritesFile(cwd));
+const fileFor = (cwd: string, kind: FavoriteKind) => (isGlobal(kind) ? globalFavoritesFile() : favoritesFile(cwd));
 
-/** Writes the lists that belong in `kind`'s file: the settings' alone, or all the others. */
+/** Writes the lists that belong in `kind`'s file: the global ones, or all the others. */
 function writeAll(file: string, kind: FavoriteKind, all: Record<FavoriteKind, string[]>): void {
-  const kinds = KINDS.filter((k) => (k === "settings") === (kind === "settings"));
+  const kinds = KINDS.filter((k) => isGlobal(k) === isGlobal(kind));
   writeJson(file, Object.fromEntries(kinds.map((k) => [k, all[k]])) satisfies Stored);
 }
 
@@ -31,7 +34,7 @@ const strings = (list: unknown): string[] => (Array.isArray(list) ? list.filter(
 
 function readAll(file: string): Record<FavoriteKind, string[]> {
   const stored = readJson<unknown>(file);
-  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [], sessions: [], days: [], settings: [] };
+  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [], sessions: [], days: [], settings: [], accounts: [] };
   if (!stored || typeof stored !== "object") return all;
   const record = stored as Record<string, unknown>;
   if (KINDS.some((kind) => kind in record)) {

@@ -410,6 +410,13 @@ export const SETTING_ROWS: Row[] = [
       "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. It shows only while cco finds two or more accounts.",
     values: ON_OFF("the title ends with the email of the account", "the title is the session's title alone"),
   },
+  listWidthRow(
+    "accountsListWidth",
+    "Account",
+    "accounts list width",
+    "Accounts",
+    "The Accounts view (`0`, or a click on the \"cco\" at the left of the top bar) lists the accounts by email: a wider list shows long emails in full, a narrower one leaves the details more room.",
+  ),
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
   {
@@ -509,7 +516,7 @@ export function nextValue(row: Row, current: string | boolean): string | boolean
   return row.values[(i + 1) % row.values.length][0];
 }
 
-function tilde(path: string): string {
+export function tilde(path: string): string {
   const home = homedir();
   return path.toLowerCase().startsWith(home.toLowerCase()) ? "~" + path.slice(home.length) : path;
 }
@@ -616,7 +623,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
 }
 
 /** A colour's name drawn like the "cco" in the top bar: on the colour, in the text colour readable on it. */
-function colorBadge(name: AccountColorName): string {
+export function colorBadge(name: AccountColorName): string {
   const index = ACCOUNT_COLOR_NAMES.indexOf(name);
   const background = index < 8 ? 40 + index : 100 + index - 8;
   const text = ACCOUNT_COLORS[name] === "black" ? 30 : 97;
@@ -639,7 +646,7 @@ const accountOf = (e: AccountEntry, state: AccountState): Account | undefined =>
   "dir" in e ? state.accounts.find((a) => a.dir === e.dir) : undefined;
 
 /** The preview of an Account entry: the account's data, or how the accounts were looked for. */
-function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
+export function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const field = (name: string, value: string | undefined) => (value ? wrap(`${name}: ${value}`) : []);
   if (e.account === "details") {
@@ -686,7 +693,7 @@ function accountLines(e: AccountEntry, state: AccountState, settings: Settings, 
 /** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
 type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
 /** The info entries of the Account group: one per account found (the active one marked), a note while there is none, and how they were found. */
-type AccountEntry = { account: "none" | "details" } | { account: "item"; dir: string };
+export type AccountEntry = { account: "none" | "details" } | { account: "item"; dir: string };
 type Entry = Row | ReleaseEntry | ResetAction | AccountEntry;
 
 /** The group an entry is listed under. */
