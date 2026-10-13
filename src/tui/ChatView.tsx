@@ -506,7 +506,7 @@ function time(ts?: string): string {
 export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
 
   const [selected, setSelected] = useState(0);
   const [follow, setFollow] = useState(true);
@@ -575,8 +575,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     if (!current) return [];
     if (current.continuation) return continuationHeader(current.prompt, current.continuation, previewWidth, stats);
     if (current.compacted) return [...previewHeader(current.prompt, previewWidth, { marker: blue("⟳ "), style: bold }).slice(0, -1), ...statsRows(stats), rule(previewWidth)];
-    return promptHeader(current.prompt, previewWidth, bodyHeight, current.attachments, stats);
-  }, [current, version, previewWidth, bodyHeight, statsKey]);
+    return promptHeader(current.prompt, previewWidth, headerHeight, current.attachments, stats);
+  }, [current, version, previewWidth, headerHeight, statsKey]);
   const answerBody = useMemo(() => {
     if (!current) return [];
     const body = answerLines(current, { tools: showTools, thinking: showThinking, agents: showAgents }, previewWidth, wrap);

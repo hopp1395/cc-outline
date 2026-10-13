@@ -100,7 +100,7 @@ const when = (ms: number) => {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onTrashOpen }: Props) {
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const state = useAccountState();
@@ -178,7 +178,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
           style: bold,
           details: [red(`in the trash since ${when(trashed.deletedAt)} · u restores it`), tilde(trashed.folder.from)],
         }),
-        bodyHeight,
+        headerHeight,
       );
     if (!account) return [];
     const marker = isCurrent(account) ? "● " : "○ ";
@@ -188,9 +188,9 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
         style: bold,
         details: [isCurrent(account) ? green("active: the account of the Claude Code this viewer follows") : dim("another account"), tilde(account.dir)],
       }),
-      bodyHeight,
+      headerHeight,
     );
-  }, [account, trashed, state.current?.dir, previewWidth, bodyHeight]);
+  }, [account, trashed, state.current?.dir, previewWidth, headerHeight]);
 
   const lines = useMemo(() => {
     if (!entry) return [dim(trashOpen ? "The trash is empty." : "No account matches the filter")];

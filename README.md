@@ -410,6 +410,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | Start: auto open | `remember` / `always` / `never` | `always` | – |
 | Start: placement | `right` / `left` / `window` | `right` | `p` in any view |
 | General: confirm quit | on / off | on | – |
+| General: compact (one column for small screens) | off / single | off | – |
 | General: marquee (long list entries scroll) | on / off | on | – |
 | General: date separators (a line per day in lists) | on / off | on | – |
 | General: pinned favorites (marked entries at the top) | on / off | off | – |
@@ -454,6 +455,7 @@ What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
 - **placement** is where the viewer opens for sessions that have no place of their own: docked right or left of Claude Code, or in a window. `p` in the viewer moves it and remembers the place for the session (see [Usage](#usage)).
 - **confirm quit** makes `q` and `Esc` ask before the viewer closes, and *restart the viewer* in the Reset group ask before it restarts.
+- **compact** `single` is for a small screen or a narrow pane: one column that shows the list, and `Enter` (a detail) or `|` (in every view) shows the preview over the whole pane, `Esc` or `|` goes back. The help line, the status and the version are left out (`i` lists the keys), the tabs are shortened to their number and the preview's header takes one line. `<` and `>` do nothing then; the list widths you chose apply again with `off`.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
 - **date separators** puts a line with the date above each day's entries in Chat, Plan, Sessions and the trash, and one per year in the Monitor; off, Sessions and the trash show the date in each row again.
 - **pinned favorites** moves the marked entries of every list (Chat, Changes, Plan, Sessions, Monitor, Settings) once more to the top, under `── ★ Pinned ──`, in the list's order, above the whole list; see [Lists](#usage).

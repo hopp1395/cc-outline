@@ -145,7 +145,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const draft = draftPlan(planMode, planFile, presented);
   // The plan being written comes last, after the ones already presented.
   const plans = useMemo(() => (draft ? [...presented, draft] : presented), [presented, draft?.text, draft?.timestamp]);
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const newest = plans.length - 1;
@@ -203,10 +203,10 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const header = useMemo(() => {
     if (!plan) return [];
     const full = planHeader(plan, index + 1, previewWidth, diffOpen, previous !== undefined);
-    const fitted = fitHeader(full, bodyHeight);
+    const fitted = fitHeader(full, headerHeight);
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
-  }, [plan, index, previewWidth, bodyHeight, diffOpen, previous]);
+  }, [plan, index, previewWidth, headerHeight, diffOpen, previous]);
   const rendered = useMemo(() => {
     const none = { lines: [] as string[], hunkStarts: [] as number[], gutterWidth: 0 };
     if (!plan) return none;

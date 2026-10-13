@@ -39,6 +39,10 @@ export interface Layout {
   listWidth: number;
   previewWidth: number;
   bodyHeight: number;
+  /** The compact view: no help line below, and previews keep their header to one line. */
+  compact?: boolean;
+  /** The height previews fit their sticky header to (`fitHeader`): the body's, or in the compact view one that allows a line and the rule. */
+  headerHeight?: number;
   /** `|`, `<` and `>` past the ends: the list or the preview takes the whole pane. */
   fold?: ListFold;
 }
@@ -65,7 +69,9 @@ export function listColumns(columns: number, width: ColumnWidth): number {
  * The layout of a list of `width`. At `hidden` the preview takes the pane, at `full` the list does; a detail
  * opened from the full list (`drilled`) shows like `hidden`. The side out of sight keeps the normal width.
  */
-export function layoutOf(columns: number, rows: number, width: ListWidth = "normal", drilled = false): Layout {
+export function layoutOf(columns: number, rows: number, width: ListWidth = "normal", drilled = false, compact = false): Layout {
+  // The compact view shows the list over the whole pane, the preview in its place when drilled; the stored width is not used.
+  if (compact) width = "full";
   const fold = drilled ? "hidden" : isListFold(width) ? width : undefined;
   const listWidth = listColumns(columns, isListFold(width) ? "normal" : width);
   // list + border + padding
@@ -76,7 +82,10 @@ export function layoutOf(columns: number, rows: number, width: ListWidth = "norm
     listWidth: fold === "full" ? columns : listWidth,
     // Only the scroll bar's column beside it.
     previewWidth: fold === "hidden" ? Math.max(MIN_PREVIEW, columns - 1) : previewWidth,
-    bodyHeight: Math.max(3, rows - 2),
+    // The top bar, and the help line below unless compact.
+    bodyHeight: Math.max(3, rows - (compact ? 1 : 2)),
+    compact,
+    headerHeight: compact ? 4 : Math.max(3, rows - 2),
     fold,
   };
 }
@@ -85,7 +94,8 @@ export function layoutOf(columns: number, rows: number, width: ListWidth = "norm
 export function useLayouts(): (mode?: Mode, drilled?: boolean) => Layout {
   const { columns, rows } = useWindowSize();
   const settings = useSettings();
-  return (mode, drilled) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", drilled);
+  const compact = settings.compactView !== "off";
+  return (mode, drilled) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", drilled, compact && mode !== undefined);
 }
 
 export interface Scroll {
@@ -392,7 +402,8 @@ const TABS: { key: string; label: string; mode: Mode }[] = [
   { key: "5", label: "Monitor", mode: "monitor" },
   { key: "6", label: "Settings", mode: "settings" },
 ];
-const tabText = (tab: (typeof TABS)[number]) => ` ${tab.key} ${tab.label} `;
+/** A tab's text; in the compact view only the open one has its name, the others just their number. */
+const tabText = (tab: (typeof TABS)[number], short = false) => (short ? ` ${tab.key} ` : ` ${tab.key} ${tab.label} `);
 
 /** The tabs shown while `mode` is open: a hidden view shows its tab only while it is open (opened by a /cco:… command). */
 function shownTabs(settings: Settings, mode: Mode) {
@@ -408,7 +419,7 @@ export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string
   if (x >= 0 && x < lead) return isViewShown(settings, "accounts") ? "accounts" : undefined;
   let start = lead + 1;
   for (const tab of shownTabs(settings, mode)) {
-    const end = start + tabText(tab).length;
+    const end = start + tabText(tab, settings.compactView !== "off" && tab.mode !== mode).length;
     if (x >= start && x < end) return tab.mode;
     start = end;
   }
@@ -419,6 +430,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const settings = useSettings();
   const badge = useContext(AccountBadgeContext);
   const avatar = useContext(AccountAvatarContext);
+  const compact = settings.compactView !== "off";
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
@@ -434,7 +446,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
           </Text>
         ) : (
           <Text key={tab.mode} dimColor={!focused}>
-            {tabText(tab)}
+            {tabText(tab, compact)}
           </Text>
         ),
       )}
@@ -579,7 +591,8 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
     const now = measureElement(barRef.current).width + labels.full.length <= layout.columns;
     if (now !== fits) setFits(now);
   });
-  const label = fits ? labels.full : labels.short;
+  // The compact view leaves out the version; an update on offer still shows.
+  const label = layout.compact && !labels.short ? undefined : fits ? labels.full : labels.short;
   // A click on the update opens it in Settings.
   useMouse((e) => {
     if (e.kind === "click" && e.y === 0 && label && e.x >= layout.columns - label.length) update.open();
@@ -599,7 +612,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
               <Text> </Text>
               {update.notice && <Text color="green">{`updated to v${update.notice} · restart Claude Code for the plugin · `}</Text>}
               <ReloadStatus />
-              {status}
+              {!layout.compact && status}
             </Text>
           </Box>
         </Box>
@@ -649,9 +662,11 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
           </AreaContext.Provider>
         </Box>
       </Box>
-      <Text wrap="truncate">
-        <Footer items={help} />
-      </Text>
+      {!layout.compact && (
+        <Text wrap="truncate">
+          <Footer items={help} />
+        </Text>
+      )}
     </Box>
   );
 }

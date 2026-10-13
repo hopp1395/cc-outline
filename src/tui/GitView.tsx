@@ -322,7 +322,7 @@ async function readRepo(repo: Repo, repos: Repo[]): Promise<RepoState> {
 }
 
 export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
   const [nested] = useSetting("gitNestedRepos");
   // The repositories found (null: none), the folder they were searched from, and what was read of each.
   const [repos, setRepos] = useState<Repo[] | null>();
@@ -555,10 +555,10 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     const full = currentFile
       ? fileHeader(currentFile, current.key, previewWidth, showFile)
       : repoHeader(current.repo, currentState, repoRead?.live, previewWidth);
-    const fitted = fitHeader(full, bodyHeight);
+    const fitted = fitHeader(full, headerHeight);
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
-  }, [current, currentFile, currentState, repoRead?.live, previewWidth, bodyHeight, showFile]);
+  }, [current, currentFile, currentState, repoRead?.live, previewWidth, headerHeight, showFile]);
   const rendered = useMemo(() => {
     if (onLoadMore && repos) return { ...message(""), lines: loadMoreLines(repos.length, base, loadAll) };
     if (!current) return message("");

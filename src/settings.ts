@@ -67,6 +67,10 @@ export type FilterIn = (typeof FILTER_IN_VALUES)[number];
 export const UPDATE_VALUES = ["on", "off", "auto"] as const;
 export type UpdateMode = (typeof UPDATE_VALUES)[number];
 
+/** The compact view for small screens: `single` shows one column (list or preview), no help line and a shortened top bar. */
+export const COMPACT_VIEW_VALUES = ["off", "single"] as const;
+export type CompactView = (typeof COMPACT_VIEW_VALUES)[number];
+
 /** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
 export type Placement = (typeof PLACEMENT_VALUES)[number];
@@ -110,6 +114,8 @@ export interface Settings {
   filterIn: FilterIn;
   /** Ask npm and GitHub for a newer version and the release notes when the viewer starts; `auto` also offers to install it. */
   updateMode: UpdateMode;
+  /** Small screens: `single` shows list or preview in one column, without help line, status and version. The list widths are kept but not used. */
+  compactView: CompactView;
   /** The terminal title ends with the account's avatar, where one is chosen. */
   accountTitle: boolean;
   /** With two or more accounts, the "cco" in the top bar takes the account's colour as its background: `auto` from the email, a fixed one for this folder's account, or `off`. */
@@ -176,6 +182,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mouse: true,
   filterIn: "list",
   updateMode: "auto",
+  compactView: "off",
   accountTitle: true,
   accountColor: "auto",
   accountAvatar: "",
@@ -271,6 +278,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   placement: PLACEMENT_VALUES,
   filterIn: FILTER_IN_VALUES,
   updateMode: UPDATE_VALUES,
+  compactView: COMPACT_VIEW_VALUES,
   accountColor: ACCOUNT_COLOR_VALUES,
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
