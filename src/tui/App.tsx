@@ -164,9 +164,17 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const was = reported.current[m];
     reported.current = { ...reported.current, [m]: open };
     // A detail opened from the full list shows over the whole pane; the trash is a list itself.
-    if (m !== "sessions" && m !== "accounts") setFolds((f) => ({ ...f, [m]: detailFold(readSettings()[LIST_WIDTH_SETTINGS[m]], f[m], open, was) }));
+    if (m !== "sessions" && m !== "accounts") {
+      const width = readSettings().compactView !== "off" ? "full" : readSettings()[LIST_WIDTH_SETTINGS[m]];
+      setFolds((f) => ({ ...f, [m]: detailFold(width, f[m], open, was) }));
+    }
     setDetailOpen((d) => ({ ...d, [m]: open }));
   };
+  // Turning the compact view on or off starts every view on its list again.
+  const [compactView] = useSetting("compactView");
+  useEffect(() => {
+    setFolds((f) => (Object.values(f).some((x) => x.drilled) ? (Object.fromEntries(Object.entries(f).map(([m, x]) => [m, { ...x, drilled: false }])) as Record<Mode, FoldState>) : f));
+  }, [compactView]);
   const viewLayout = (m: Mode) => layoutOf(m, folds[m].drilled);
   // The width each view showed before it went to an end, where | goes back to; unknown after a restart.
   const settings = useSettings();
@@ -365,6 +373,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }, [notice]);
   // Past narrow the list folds away, past wider it takes the pane.
   const stepWidth = (step: 1 | -1) => {
+    if (readSettings().compactView !== "off") return;
     const key = LIST_WIDTH_SETTINGS[mode];
     const width = readSettings()[key];
     const next = stepFold(width, folds[mode], step);
@@ -374,6 +383,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
   // | goes to an end and back to the width before, to the other end next time.
   const toggleWidth = () => {
+    // The compact view has one column: | swaps list and preview.
+    if (readSettings().compactView !== "off") return setFold(mode, { ...folds[mode], drilled: !folds[mode].drilled });
     const key = LIST_WIDTH_SETTINGS[mode];
     const width = readSettings()[key];
     const next = toggleFold(width, folds[mode], before.current[mode]);

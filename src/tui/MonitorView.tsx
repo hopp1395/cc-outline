@@ -265,7 +265,7 @@ function responseTable(data: Measurements, day: string, model: string | undefine
 type Entry = ReturnType<typeof daysWithData>[number] | LoadMore;
 
 export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTyping }: Props) {
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const range = useListRange("monitorRange");
@@ -346,8 +346,8 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
     });
     // The column headings stay above the scrolled rows.
     const separator = rule(previewWidth, table ? "↵ chart" : "↵ table");
-    return fitHeader([...lines.slice(0, -1), ...(rows ? [bold(rows.heading)] : []), separator], bodyHeight);
-  }, [selected?.day, value, model, minutes, previewWidth, bodyHeight, table, stats, rows]);
+    return fitHeader([...lines.slice(0, -1), ...(rows ? [bold(rows.heading)] : []), separator], headerHeight);
+  }, [selected?.day, value, model, minutes, previewWidth, headerHeight, table, stats, rows]);
   const viewport = bodyHeightBelow(header, bodyHeight);
   const lines = useMemo(() => {
     if (data && filter.none) return [dim("No day matches the filter")];

@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
@@ -159,6 +159,12 @@ const UPDATE_MEANINGS: Record<UpdateMode, Text> = {
   on: "ask npm and GitHub when the viewer starts; a newer version shows in the top bar (v0.7.0 → 0.8.0), and you update when you like",
   off: "no network requests; `F5` here still checks once",
   auto: "as on, and once the check finds a newer version, the viewer opens it here and asks whether to install it, once per start",
+};
+
+const COMPACT_MEANINGS: Record<CompactView, Text> = {
+  off: "list and preview side by side, with the help line and the status; the widths of `<`, `>` and `|` apply",
+  single:
+    "one column: the list, and `Enter` (or `|`, in every view) shows the preview over the whole pane, `Esc` (or `|`) goes back; no help line, no status, the tabs shortened to their number, the preview's header one line",
 };
 
 const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], Text> = {
@@ -328,6 +334,14 @@ export const SETTING_ROWS: Row[] = [
     description:
       "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether restart the viewer (Reset, below) asks before it restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
     values: ON_OFF("ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no", "close at the first `q` or `Esc`; restart the viewer restarts without asking"),
+  },
+  {
+    key: "compactView",
+    group: "General",
+    label: "compact",
+    description:
+      "A layout for small screens or a narrow pane next to Claude Code, where list and preview side by side leave both too narrow. The list widths you chose (`<`, `>`) are kept and apply again with off; `i` still lists the keys that the help line shows otherwise.",
+    values: COMPACT_VIEW_VALUES.map((v) => [v, COMPACT_MEANINGS[v]]),
   },
   {
     key: "marquee",
@@ -1038,7 +1052,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     return () => clearTimeout(timer);
   }, [flash]);
   const flow = useAccountFlow({ layout, claudePid, notify: setFlash });
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const settings = useSettings();
@@ -1199,9 +1213,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
                 style: bold,
                 details: [`${valueName(current!)} · default ${valueName(DEFAULT_SETTINGS[row!.key])}`],
               }),
-        bodyHeight,
+        headerHeight,
       ),
-    [entry, update, current, changed.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, bodyHeight, accountState],
+    [entry, update, current, changed.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, headerHeight, accountState],
   );
   const lines = useMemo(
     () =>

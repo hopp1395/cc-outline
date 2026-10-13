@@ -501,7 +501,7 @@ export function exportProgress(count: number, state: { progress?: ExportProgress
 }
 
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach, accountRequest }: Props) {
-  const { listWidth, previewWidth, bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const copy = useClipboard();
@@ -721,9 +721,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         account,
         backgroundLine(backgroundOf(session, running.get(sessionKey(session))), running.get(sessionKey(session))),
       ),
-      bodyHeight,
+      headerHeight,
     );
-  }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight, transfers, withAccounts, accountState, accountColor]);
+  }, [session, activeId, running, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
   const lines = useMemo(
     () => (session ? sessionLines(session, cwd, previewWidth, separators) : []),
     [session, cwd, previewWidth, separators],
