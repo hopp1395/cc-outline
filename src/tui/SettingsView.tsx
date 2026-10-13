@@ -177,9 +177,11 @@ const COLUMNS_MEANINGS: Record<(typeof COMPACT_COLUMNS_VALUES)[number], Text> = 
 };
 
 const SPLIT_MEANINGS: Record<(typeof COMPACT_SPLIT_VALUES)[number], Text> = {
-  "1/4": "a quarter of the height for the list, the most for the preview",
-  "1/3": "a third for the list, two thirds for the preview",
-  "1/2": "half and half; for long lists, such as the sessions of a month",
+  "10%": "the list is a few rows high (at least three), the preview gets nearly everything",
+  "20%": "a fifth of the height for the list; about six rows in a pane of 30",
+  "30%": "a good third for the list, e.g. with two or three columns of longer entries",
+  "40%": "the list gets more rows, the preview a bit less than two thirds",
+  "50%": "half and half; for long lists, such as the sessions of a month",
 };
 
 const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], Text> = {

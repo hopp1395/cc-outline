@@ -78,8 +78,8 @@ export type CompactView = (typeof COMPACT_VIEW_VALUES)[number];
 export const COMPACT_COLUMNS_VALUES = ["1", "2", "3", "4"] as const;
 export type CompactColumns = (typeof COMPACT_COLUMNS_VALUES)[number];
 
-/** The share of the pane's height the stacked list takes. */
-export const COMPACT_SPLIT_VALUES = ["1/4", "1/3", "1/2"] as const;
+/** The share of the pane's height the stacked list takes (the rows below the top bar). */
+export const COMPACT_SPLIT_VALUES = ["10%", "20%", "30%", "40%", "50%"] as const;
 export type CompactSplit = (typeof COMPACT_SPLIT_VALUES)[number];
 
 /** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
@@ -199,7 +199,7 @@ export const DEFAULT_SETTINGS: Settings = {
   updateMode: "auto",
   compactView: "off",
   compactColumns: "2",
-  compactSplit: "1/4",
+  compactSplit: "20%",
   accountTitle: true,
   accountColor: "auto",
   accountAvatar: "",

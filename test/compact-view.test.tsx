@@ -65,23 +65,23 @@ describe("compact view", () => {
 
 describe("compact view stacked", () => {
   it("shares the rows below the top bar between list, a rule and preview", () => {
-    const third = stackedLayout(80, 31, "1", "1/3");
-    // 30 rows: 10 for the list, 1 for the rule, 19 for the preview.
-    expect(third).toMatchObject({ listHeight: 10, bodyHeight: 19, listColumns: 1, listWidth: 80, previewWidth: 79, stacked: true });
+    const third = stackedLayout(80, 31, "1", "30%");
+    // 30 rows: 9 for the list, 1 for the rule, 20 for the preview.
+    expect(third).toMatchObject({ listHeight: 9, bodyHeight: 20, listColumns: 1, listWidth: 80, previewWidth: 79, stacked: true });
     expect(third.listHeight! + 1 + third.bodyHeight).toBe(30);
-    expect(stackedLayout(80, 31, "1", "1/2").listHeight).toBe(15);
-    expect(stackedLayout(80, 31, "1", "1/4").listHeight).toBe(8);
+    expect(stackedLayout(80, 31, "1", "50%").listHeight).toBe(15);
+    expect(stackedLayout(80, 31, "1", "20%").listHeight).toBe(6);
   });
 
   it("splits the width between the columns, one column between them", () => {
-    const two = stackedLayout(81, 31, "2", "1/3");
+    const two = stackedLayout(81, 31, "2", "30%");
     expect(two.listColumns).toBe(2);
     expect(two.listWidth * 2 + 1).toBeLessThanOrEqual(81);
-    expect(stackedLayout(80, 31, "4", "1/3").listWidth).toBe(19);
+    expect(stackedLayout(80, 31, "4", "30%").listWidth).toBe(19);
   });
 
   it("keeps a few rows for the list and the preview in a low pane", () => {
-    const low = stackedLayout(80, 8, "1", "1/2");
+    const low = stackedLayout(80, 8, "1", "50%");
     expect(low.listHeight).toBeGreaterThanOrEqual(3);
     expect(low.bodyHeight).toBeGreaterThanOrEqual(3);
   });
@@ -106,7 +106,7 @@ describe("compact view stacked", () => {
 
   it("shows the list above the preview with the rule between", async () => {
     updateSettings({ compactView: "stacked" });
-    const layout = stackedLayout(40, 12, "1", "1/3");
+    const layout = stackedLayout(40, 12, "1", "30%");
     const app = renderInk(
       <Screen layout={layout} mode="git" status={null} list={<Text>LIST</Text>} preview={<Text>PREVIEW</Text>} footer="FOOTER" />,
       layout,
