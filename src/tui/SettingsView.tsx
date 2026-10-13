@@ -4,15 +4,19 @@ import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { ALL_AVATAR_PRESETS, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
 import { AvatarDialog } from "./AvatarDialog.js";
+import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
+import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
+import { filterSettings, sessionFilter } from "../sessionFilter.js";
+import { otherAccounts } from "../accountContinue.js";
 import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
-import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
+import { claudeDir, positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
@@ -130,7 +134,12 @@ interface Row {
   viewKey?: string;
   notes?: Text[];
   /** Enter opens this dialog instead of stepping through the values (which then are the ones on offer). */
-  dialog?: "avatar";
+  dialog?: "avatar" | "sessions";
+  /** How a value of one's own (none of `values`) is named, and what it means; else as it is, "your own". */
+  ownName?: (value: string) => string;
+  ownMeaning?: (value: string) => string;
+  /** The details end with the marks of the Sessions list. */
+  legend?: boolean;
   /** Short values with short meanings: one line each, the meaning after the value. */
   inline?: boolean;
 }
@@ -512,20 +521,53 @@ export const SETTING_ROWS: Row[] = [
   listWidthRow("planListWidth", "Plan", "list width", "Plan", "A wider list shows more of each plan's title; a narrower one leaves the plan text more room."),
   wrapRow("planWrap", "Plan", "of plans", "useful for wide tables and code blocks"),
   listOrder("planOrder", "Plan", "plans"),
-  viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
+  { ...viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"), legend: true },
   listWidthRow("sessionsListWidth", "Sessions", "list width", "Sessions", "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room."),
   {
-    key: "sessionsScope",
+    key: "sessionsFolders",
     group: "Sessions",
-    label: "sessions of",
+    label: "folders",
     description:
-      "Which sessions the Sessions view lists: of this project or of all, and of this account only or also of the other Claude accounts signed in on this machine (the `~/.claude*` folders). All projects helps to find a session started in another folder; the trash follows that choice, but always shows this account's. With the other accounts, every row starts with a bar in its account's colour (gray for an account whose colour is off), the preview names the account, whether the session runs there and whether it has the cco plugin, and `Enter` offers to continue it there, in a new window under that account. Their sessions can be marked, not deleted, renamed, exported or moved.",
+      "The project folders whose sessions the Sessions view lists: this one, the others, or all with sessions in `~/.claude/projects`. Other folders help to find a session started elsewhere; each row then names its project. The trash follows this choice. The active session always shows. `Enter` here or `a` in Sessions opens the filter with this setting, the accounts and the background sessions.",
     values: [
-      ["project", (c) => `only this one, ${basename(c.cwd) || c.cwd}, of this account`],
-      ["all", "all projects with sessions in `~/.claude/projects`, of this account"],
-      ["project-accounts", (c) => `${basename(c.cwd) || c.cwd}, of every account found`],
-      ["all-accounts", "all projects of every account found"],
+      ["this", (c) => `only this one, ${basename(c.cwd) || c.cwd}`],
+      ["other", (c) => `every folder but ${basename(c.cwd) || c.cwd}`],
+      ["all", "all project folders"],
     ],
+    dialog: "sessions",
+    legend: true,
+    viewKey: "`a` in Sessions",
+  },
+  {
+    key: "sessionsAccounts",
+    group: "Sessions",
+    label: "accounts",
+    description:
+      "The Claude accounts whose sessions the Sessions view lists, of those signed in on this machine (the `~/.claude*` folders): this one, all, or those checked in the filter. With other accounts, every row starts with a bar in its account's colour (gray for an account whose colour is off), the preview names the account, whether the session runs there and whether it has the cco plugin, and `Enter` offers to continue it there, in a new window under that account. Their sessions can be marked, not deleted, renamed, exported or moved. The trash always shows this account's.",
+    values: [
+      ["current", "this account's only"],
+      ["all", "every account found, also one signed in later"],
+    ],
+    ownName: (value) => `${value.split(ACCOUNT_DIRS_SEPARATOR).length} chosen`,
+    ownMeaning: (value) => value.split(ACCOUNT_DIRS_SEPARATOR).map(tilde).join(", "),
+    dialog: "sessions",
+    legend: true,
+    viewKey: "`a` in Sessions",
+  },
+  {
+    key: "sessionsBackground",
+    group: "Sessions",
+    label: "background",
+    description:
+      "Whether the Sessions view lists the sessions that ran in the background: started with `claude -p` or the Agent SDK (a script, a CI run), or run by the Claude Code daemon. They are marked ◌ before their title, and the preview says how they ran (for a session the daemon runs, with `claude attach`).",
+    values: [
+      ["show", "with the others, marked ◌"],
+      ["only", "only them, e.g. to follow the runs of a script"],
+      ["hide", "leave them out: only the sessions typed in a terminal"],
+    ],
+    dialog: "sessions",
+    legend: true,
+    inline: true,
     viewKey: "`a` in Sessions",
   },
   {
@@ -553,6 +595,10 @@ const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" :
 
 /** A value as the list shows it: the order values without "-first", so the labels keep their room. */
 export const shortValueName = (v: string | boolean) => (v === "newest-first" ? "newest" : v === "oldest-first" ? "oldest" : valueName(v));
+
+/** A row's value as the list shows it; one of one's own by the row's `ownName`. */
+const rowValueName = (row: Row, v: string | boolean) =>
+  typeof v === "string" && row.ownName && !row.values.some(([value]) => value === v) ? row.ownName(v) : shortValueName(v);
 
 /** The value after `current` in the row's order, wrapping around. */
 /** Whether `key` is the setting of the only view besides Settings that is still shown. */
@@ -653,7 +699,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   if (row.inline) {
     // One line each, the meaning after the value, the meanings in a column.
     const entries: [string, string, boolean][] = [
-      ...(own ? [[current as string, "your own", true] as [string, string, boolean]] : []),
+      ...(own ? [[row.ownName?.(current as string) ?? (current as string), row.ownMeaning?.(current as string) ?? "your own", true] as [string, string, boolean]] : []),
       ...row.values.map(([value, meaning]): [string, string, boolean] => [
         valueName(value) + (value === DEFAULT_SETTINGS[row.key] ? " (default)" : ""),
         textOf(meaning, context),
@@ -666,7 +712,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
       const padded = name + " ".repeat(column - stringWidth(name));
       lines.push(selected ? `\u001b[32m● ${padded}\u001b[39m  ${meaning}` : `${dim("○")} \u001b[90m${padded}\u001b[39m  ${dim(meaning)}`);
     }
-  } else if (own) lines.push("", `\u001b[32m● ${current}\u001b[39m`, ...wrap("your own", "  "));
+  } else if (own) lines.push("", `\u001b[32m● ${row.ownName?.(current as string) ?? current}\u001b[39m`, ...wrap(row.ownMeaning?.(current as string) ?? "your own", "  "));
   let compact = false;
   for (const [value, meaning] of row.inline ? [] : row.values) {
     const selected = value === current;
@@ -688,6 +734,16 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   }
   if (row.viewKey) lines.push("", dim(codeMarks(`Also ${row.viewKey}.`)));
   for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
+  if (row.legend) {
+    // The marks in a column, what each says wrapped beside it.
+    const column = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
+    lines.push("", bold("Marks in the Sessions list"));
+    for (const m of SESSION_LEGEND) {
+      const [first = "", ...rest] = wrapText(m.text, width - column - 4);
+      const pad = " ".repeat(column - stringWidth(m.mark));
+      lines.push(`  ${legendMark(m)}${pad}  ${first}`, ...rest.map((l) => " ".repeat(column + 4) + l));
+    }
+  }
   return lines;
 }
 
@@ -994,6 +1050,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const [copied, setCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [avatarOpen, setAvatarOpen] = useState(false);
+  // The Sessions view's filter, opened from one of its three settings.
+  const [sessionsFilterOpen, setSessionsFilterOpen] = useState(false);
   // The app's progress dialog takes the keys while it is open.
   const progressOpen = useProgressOpen();
   const positions = usePositions(cwd, "settings");
@@ -1008,6 +1066,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const [updateDialog, setUpdateDialog] = useState(false);
   const [repairDialog, setRepairDialog] = useState(false);
   const accountState = useAccountState();
+  const otherDirs = otherAccounts(accountState.accounts).map((a) => a.dir);
   const listEntries = settingsEntries(update, accountState);
   const entries = listEntries.map(keyOf);
   // Kept by key: the releases arrive after the start and move the entries below them.
@@ -1033,7 +1092,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     items: listEntries,
     text: (e) =>
       "key" in e
-        ? { list: haystack([valueName(settings[e.key]), e.group, e.label]), details: plainMarks(textOf(e.description, context)) }
+        ? { list: haystack([rowValueName(e, settings[e.key]), e.group, e.label]), details: plainMarks(textOf(e.description, context)) }
         : "account" in e
           ? { list: haystack(["Account", accountLabel(e, accountState)]), details: accountLines(e, accountState, settings, 80).join("\n") }
         : "id" in e
@@ -1055,7 +1114,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const doctorBusy = doctorRun?.status === "running" || doctorChecking !== undefined;
   const repairOpen = repairDialog && doctorRun !== undefined && doctorRun.status !== "done";
   // While the update, a check or a repair runs, the app keeps q, p and the other views away from it.
-  const modal = confirmation !== undefined || avatarOpen || updating || doctorBusy || flow.open;
+  const modal = confirmation !== undefined || avatarOpen || sessionsFilterOpen || updating || doctorBusy || flow.open;
   useEffect(() => {
     onModal?.(modal);
   }, [modal]);
@@ -1276,6 +1335,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       return canUpdate && askUpdate();
     }
     if (row?.dialog === "avatar") return setAvatarOpen(true);
+    if (row?.dialog === "sessions") return setSessionsFilterOpen(true);
     // The last view besides Settings stays: hiding it would leave only this one.
     if (row && !isLastView(settings, row.key)) set({ [row.key]: nextValue(row, current!) });
   };
@@ -1307,14 +1367,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined && !avatarOpen && !progressOpen && !filter.open && !flow.open },
+    { isActive: active && confirmation === undefined && !avatarOpen && !sessionsFilterOpen && !progressOpen && !filter.open && !flow.open },
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
   const rowParts = (e: Entry): { value: string; color?: string; background?: string; label: string } => {
     if ("key" in e) {
       const value = settings[e.key];
-      return { value: shortValueName(value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
+      return { value: rowValueName(e, value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
     }
     if ("account" in e) {
       const account = accountOf(e, accountState);
@@ -1451,6 +1511,19 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             setAvatarOpen(false);
           }}
           onCancel={() => setAvatarOpen(false)}
+        />
+      )}
+      {sessionsFilterOpen && (
+        <SessionFilterDialog
+          layout={layout}
+          initial={sessionFilter(settings, claudeDir(), otherDirs)}
+          folderName={basename(cwd) || cwd}
+          accounts={filterAccounts(accountState.accounts, claudeDir())}
+          onApply={(next) => {
+            set(filterSettings(next, claudeDir(), otherDirs));
+            setSessionsFilterOpen(false);
+          }}
+          onClose={() => setSessionsFilterOpen(false)}
         />
       )}
       {flow.element}

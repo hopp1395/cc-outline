@@ -68,8 +68,7 @@ describe("Sessions with the other accounts", () => {
     expect(await new SessionIndex().scan(cwd)).toEqual([]);
   });
 
-  it("goes round the four scopes with a, listing the other account's sessions with a bar from the third on", async () => {
-    updateSettings({ sessionsScope: "project" });
+  it("chooses the accounts in the filter dialog (a), listing the other account's sessions with a bar", async () => {
     session(own, "a1", "work here", 10);
     session(other, "b1", "work there", 5);
     const view = render();
@@ -77,27 +76,44 @@ describe("Sessions with the other accounts", () => {
     expect(view.frame()).not.toContain("work there");
     expect(view.frame()).not.toContain("▌");
     await view.press("a");
-    await expect.poll(() => readSettings().sessionsScope).toBe("all");
-    await view.press("a");
+    await until(() => view.frame().includes("Show sessions"));
+    expect(view.frame()).toContain("me@home.de");
+    expect(view.frame()).toContain("jan@work.com");
+    // Folders: this, other; accounts: own, other; then the background.
+    for (let i = 0; i < 3; i++) await view.press("\u001b[B");
+    await view.press(" ");
+    await view.press("\r");
+    await expect.poll(() => readSettings().sessionsAccounts).toBe("all");
     await until(() => view.frame().includes("work there"));
-    await expect.poll(() => readSettings().sessionsScope).toBe("project-accounts");
     // Every row gets a bar, the own sessions too; the newest, the other account's, is selected and named in the header.
     expect(view.frame().split("\n").filter((l) => l.includes("▌ ")).length).toBeGreaterThanOrEqual(3);
     expect(view.frame()).toContain("jan@work.com (Org)");
     // The selected row (the newest, at the top) keeps its bar: drawn before the selection, outside its style.
     expect(view.frame().split("\n")[1]).toMatch(/^▌ \d\d:\d\d „work there“/);
     expect(view.frame()).toContain("cco plugin ✗ not installed");
-    expect(view.frame()).toContain("a accounts");
+    expect(view.frame()).toContain("a filter");
+    // The own account unchecked: only the other's sessions.
     await view.press("a");
-    await expect.poll(() => readSettings().sessionsScope).toBe("all-accounts");
+    await until(() => view.frame().includes("Show sessions"));
+    for (let i = 0; i < 2; i++) await view.press("\u001b[B");
+    await view.press(" ");
+    await view.press("\r");
+    await expect.poll(() => readSettings().sessionsAccounts).toBe(other);
+    await until(() => !view.frame().includes("work here"));
+    // The last account checked stays checked.
     await view.press("a");
-    await until(() => !view.frame().includes("work there"));
-    await expect.poll(() => readSettings().sessionsScope).toBe("project");
+    await until(() => view.frame().includes("Show sessions"));
+    for (let i = 0; i < 3; i++) await view.press("\u001b[B");
+    await view.press(" ");
+    await until(() => view.frame().includes("one account stays checked"));
+    await view.press("\u001b");
+    await until(() => !view.frame().includes("Show sessions"));
+    expect(readSettings().sessionsAccounts).toBe(other);
     view.unmount();
   });
 
   it("starts the rows with the accounts' avatars instead of the bar, padded to the widest", async () => {
-    updateSettings({ sessionsScope: "project-accounts", accountAvatar: "🦊" });
+    updateSettings({ sessionsAccounts: "all", accountAvatar: "🦊" });
     session(own, "a1", "work here", 10);
     session(other, "b1", "work there", 5);
     const state = stateOf();
@@ -111,7 +127,7 @@ describe("Sessions with the other accounts", () => {
   });
 
   it("marks another account's session under its folder, refuses to delete it, and offers to continue it there", async () => {
-    updateSettings({ sessionsScope: "project-accounts" });
+    updateSettings({ sessionsAccounts: "all" });
     session(own, "s1", "work here", 10);
     // The same id in both accounts: a session continued there kept it.
     session(other, "s1", "work there", 5);

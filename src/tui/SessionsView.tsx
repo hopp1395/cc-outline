@@ -3,10 +3,9 @@ import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
-import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
+import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionBackground, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
-  emptyTrash,
   listTrash,
   purgeSession,
   restoreSession,
@@ -24,7 +23,9 @@ import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
 import { ExportDialog } from "./ExportDialog.js";
 import { ImportDialog } from "./ImportDialog.js";
 import { useProgress, useProgressOpen, type Progress } from "./ProgressDialog.js";
-import { nextScope, scopeAccounts, scopeAllProjects, type Placement, type SessionsScope } from "../settings.js";
+import { updateSettings, type Placement } from "../settings.js";
+import { filterIsSet, filterSettings, passesFilter, sessionFilter, type SessionFilter } from "../sessionFilter.js";
+import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
 import { runningViewer, type PairTarget } from "../viewer.js";
 import { otherAccounts } from "../accountContinue.js";
@@ -68,7 +69,7 @@ import { useOnReload, useReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
-import { inClaudeDir, projectSlug } from "../transcript/locate.js";
+import { claudeDir, inClaudeDir, projectSlug } from "../transcript/locate.js";
 import { renameSession } from "../transcript/rename.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 import { TIMING } from "../timing.js";
@@ -154,13 +155,23 @@ export function resumeCommand(s: SessionSummary): string {
  */
 export const sessionKey = (s: Pick<SessionSummary, "id" | "account">) => (s.account ? `${s.account}|${s.id}` : s.id);
 
-/** What `a` shows in the help line for each scope. */
-const SCOPE_FOOTER: Record<SessionsScope, string> = {
-  project: "a all",
-  all: "a all",
-  "project-accounts": "a accounts",
-  "all-accounts": "a all · accounts",
-};
+/** The mark of a background session in the list, before its title. */
+const BACKGROUND_MARK = "◌";
+
+/** How a background session ran, as the header and the filter's details name it. */
+const BACKGROUND_TEXT: Record<SessionBackground, string> = { sdk: "claude -p / SDK", daemon: "daemon" };
+
+/** How a session ran in the background, if it did: from its transcript, else from the daemon running it now. */
+export function backgroundOf(s: SessionSummary, running?: RunningSession): SessionBackground | undefined {
+  return s.background ?? (running?.kind === "bg" ? "daemon" : undefined);
+}
+
+/** The header's line about a background session: how it ran, and while the daemon runs it, the command that attaches to it. */
+export function backgroundLine(background: SessionBackground | undefined, running?: RunningSession): string | undefined {
+  if (!background) return undefined;
+  const attach = background === "daemon" && running?.kind === "bg" && running.jobId ? ` · claude attach ${running.jobId}` : "";
+  return dim(`${BACKGROUND_MARK} background: ${BACKGROUND_TEXT[background]}${attach}`);
+}
 
 /** The lines the preview's header has about the account of a session, while the list shows every account's. */
 export function sessionAccountLines(account: Account | undefined, color: AccountColorName | "gray", own: boolean): string[] {
@@ -252,6 +263,7 @@ function sessionHeader(
   gone?: boolean,
   transfer?: Transfer,
   account: string[] = [],
+  background?: string,
 ): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
   const counts = [
@@ -269,7 +281,16 @@ function sessionHeader(
   return previewHeader(sessionTitle(s), width, {
     marker: state === "active" || state === "running" ? (activity === "waiting" ? yellow : green)(state === "active" ? "● " : "▶ ") : "  ",
     style: bold,
-    details: [when, counts.join(" · "), ...account, ...(s.cwd ? [gone ? red(`folder gone: ${tilde(s.cwd)}`) : `in ${tilde(s.cwd)}`] : []), ...continues, ...transferLines(transfer), last],
+    details: [
+      when,
+      counts.join(" · "),
+      ...account,
+      ...(s.cwd ? [gone ? red(`folder gone: ${tilde(s.cwd)}`) : `in ${tilde(s.cwd)}`] : []),
+      ...(background ? [background] : []),
+      ...continues,
+      ...transferLines(transfer),
+      last,
+    ],
   });
 }
 
@@ -281,9 +302,10 @@ function sessionHeader(
  * transcripts read so far. `refresh` rescans at once. A reload of the view
  * (F5) reads every transcript again with new indexes; the list stays until
  * that scan is done. With `since`, only transcripts written since then are
- * read; when it changes (load more), the list also stays until the scan is done.
+ * read; when it changes (load more), the list also stays until the scan is done. `ownAll` is `all` for this
+ * viewer's own folder, which is always read: the active session shows whatever the filter says.
  */
-function useSessions(cwd: string, visible: boolean, all: boolean, since: number | undefined, accounts: string[]) {
+function useSessions(cwd: string, visible: boolean, all: boolean, since: number | undefined, accounts: string[], ownAll = all) {
   // One index per config folder, "" for this viewer's own.
   const indexes = useRef(new Map<string, SessionIndex>());
   const reload = useReload();
@@ -325,8 +347,8 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
       busy = true;
       try {
         const found: SessionSummary[] = [];
-        for (const index of current) {
-          const result = await index.scan(all ? undefined : cwd, (partial, done, total) => {
+        for (const [i, index] of current.entries()) {
+          const result = await index.scan((i === 0 ? ownAll : all) ? undefined : cwd, (partial, done, total) => {
             // Only the first scan shows partial lists; later ones just update the finished list.
             // A reload keeps the list and shows only the progress.
             if (cancelled || !first) return;
@@ -353,7 +375,7 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
       clearInterval(timer);
       finish();
     };
-  }, [cwd, visible, all, reload.count, since, folders]);
+  }, [cwd, visible, all, ownAll, reload.count, since, folders]);
 
   return { sessions, progress, complete, refresh: () => void scanRef.current() };
 }
@@ -424,12 +446,13 @@ function projectName(s: SessionSummary): string {
 }
 
 /** What a session is found by in the filter: in the list its title and project; in the details where and on which branch it ran, its prompts, files, plans and agents. */
-function sessionText(s: SessionSummary, gone: boolean, email?: string): FilterText {
+function sessionText(s: SessionSummary, gone: boolean, email?: string, background?: SessionBackground): FilterText {
   return {
     list: haystack([sessionTitle(s), projectName(s), email]),
     details: haystack([
       s.cwd,
       gone ? "folder gone" : undefined,
+      background ? `background ${BACKGROUND_TEXT[background]}` : undefined,
       s.branch,
       s.id,
       ...(s.continues ?? []),
@@ -482,8 +505,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const copy = useClipboard();
-  const [scope, setScope] = useSetting("sessionsScope");
-  const all = scopeAllProjects(scope);
+  const [sessionsFolders] = useSetting("sessionsFolders");
+  const [sessionsAccounts] = useSetting("sessionsAccounts");
+  const [sessionsBackground] = useSetting("sessionsBackground");
   const [separators] = useSetting("dateSeparators");
   const [pinnedSessions] = useSetting("pinnedSessions");
   const [accountColor] = useSetting("accountColor");
@@ -494,10 +518,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const others = otherAccounts(accountState.accounts);
   const ownAccount = accountState.accounts.find((a) => otherAccounts([a], accountState.own).length === 0);
   // With the other accounts, every row gets a bar in its account's colour and the header names the account.
-  const withAccounts = scopeAccounts(scope) && others.length > 0;
-  const foreignKey = withAccounts ? others.map((a) => a.dir).join("\n") : "";
+  // What the list shows (a opens the dialog): the project folders, the accounts, the background sessions.
+  const ownDir = claudeDir();
+  const shownFilter = sessionFilter({ sessionsFolders, sessionsAccounts, sessionsBackground }, ownDir, others.map((a) => a.dir));
+  const [filterOpen, setFilterOpen] = useState(false);
+  const all = shownFilter.folders !== "this";
+  const ownChosen = shownFilter.accounts[0] === ownDir;
+  const foreignKey = shownFilter.accounts.filter((dir) => dir !== ownDir).join("\n");
+  const withAccounts = foreignKey !== "";
   const foreign = useMemo(() => (foreignKey ? foreignKey.split("\n") : []), [foreignKey]);
-  const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since, foreign);
+  // The own folder is read for the active session also while its account is not chosen, then only this project's.
+  const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since, foreign, ownChosen && all);
   const running = useRunning(visible, foreign);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   /** The viewer's own session; another account's never is, even under the same id. */
@@ -535,16 +566,25 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     );
   };
   // The sessions last worked in during the range (see lastActive); the active and running ones also when that was before it.
+  // Of those, the ones the filter chooses; the active session always.
+  const filterKey = JSON.stringify(shownFilter);
   const sessions = useMemo(() => {
     const since = range.since;
-    if (!read || since === undefined) return read;
+    if (!read) return read;
     return read.filter((s) => {
+      if (isActive(s)) return true;
+      if (!passesFilter(s, shownFilter, ownDir, cwd, backgroundOf(s, running.get(sessionKey(s))))) return false;
       const at = lastActive(s);
-      return !at || Date.parse(at) >= since || isActive(s) || running.has(sessionKey(s));
+      return since === undefined || !at || Date.parse(at) >= since || running.has(sessionKey(s));
     });
-  }, [read, range.since, activeId, running]);
+  }, [read, range.since, activeId, running, filterKey]);
   const [trashOpen, setTrashOpen] = useState(false);
-  const [trash, setTrash] = useState<TrashEntry[]>([]);
+  const [trashRead, setTrash] = useState<TrashEntry[]>([]);
+  // The trash holds this account's sessions: the filter's folders and background sessions apply, its accounts do not.
+  const trash = useMemo(
+    () => trashRead.filter((e) => passesFilter(e.summary, { ...shownFilter, accounts: [ownDir] }, ownDir, cwd, e.summary.background)),
+    [trashRead, filterKey],
+  );
   // The session moved to the trash last, for u (undo) in the list.
   const [lastTrashed, setLastTrashed] = useState<SessionSummary>();
   const [confirmation, setConfirmation] = useState<Confirmation>();
@@ -568,7 +608,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
   const progressOpen = useProgressOpen();
   const dialogOpen =
-    confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen;
+    confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen || filterOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -626,7 +666,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   if (!restoredShown.current && sessionFound >= 0 && selectedId === storedId.current) restoredShown.current = true;
   const filter = useListFilter({
     items: sessionList,
-    text: (e) => (isSession(e) ? sessionText(e, folderGone(e), withAccounts ? accountOf(e)?.email : undefined) : { list: "", details: "" }),
+    text: (e) => (isSession(e) ? sessionText(e, folderGone(e), withAccounts ? accountOf(e)?.email : undefined, backgroundOf(e, running.get(sessionKey(e)))) : { list: "", details: "" }),
     selected: sessionFound >= 0 ? sessionFound : sessionList.length - 1,
     select: (i) => select(i),
     reversed: true,
@@ -670,7 +710,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const activity = state === "active" || state === "running" ? running.get(sessionKey(session))?.activity : undefined;
     const account = withAccounts && !trashOpen ? sessionAccountLines(accountOf(session), barColor(session), !session.account) : [];
     return fitHeader(
-      sessionHeader(session, state, previewWidth, entry?.deletedAt, activity, folderGone(session), trashOpen ? undefined : transferOf(session), account),
+      sessionHeader(
+        session,
+        state,
+        previewWidth,
+        entry?.deletedAt,
+        activity,
+        folderGone(session),
+        trashOpen ? undefined : transferOf(session),
+        account,
+        backgroundLine(backgroundOf(session, running.get(sessionKey(session))), running.get(sessionKey(session))),
+      ),
       bodyHeight,
     );
   }, [session, activeId, running, trashOpen, entry, previewWidth, bodyHeight, transfers, withAccounts, accountState, accountColor]);
@@ -890,8 +940,20 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         }, "moved to the trash · u undo · T trash"),
     });
   };
-  /** The trash shows the same scope as the list: this project or all. */
+  /** The trash is read for the list's folders: this project's, or all (other folders: the filter leaves this one out). */
   const trashScope = all ? undefined : projectSlug(cwd);
+  const folderText = { this: "of this project", other: "of the other projects", all: "of all projects" }[shownFilter.folders];
+  // The trash follows a change of the folders right away; the list with the next scan.
+  const trashFolders = useRef(all);
+  useEffect(() => {
+    if (trashFolders.current === all) return;
+    trashFolders.current = all;
+    if (trashOpen) setTrash(listTrash(trashScope));
+  }, [all]);
+  const applyFilter = (next: SessionFilter) => {
+    setFilterOpen(false);
+    updateSettings(filterSettings(next, ownDir, others.map((a) => a.dir)));
+  };
   const slugOf = (s: SessionSummary) => basename(dirname(s.path));
   const restore = (s: SessionSummary, after?: () => void) =>
     attempt(() => {
@@ -919,9 +981,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (trash.length === 0) return;
     setConfirmation({
       title: "Empty the trash?",
-      lines: [countHead(trash.length, "session", all ? "of all projects" : "of this project"), "", "They will be deleted for good.", "This can't be undone."],
+      lines: [countHead(trash.length, "session", folderText), "", "They will be deleted for good.", "This can't be undone."],
       danger: true,
-      onConfirm: () => attempt(() => void emptyTrash(trashScope, cwd), "trash emptied"),
+      // Only those shown: the filter may hide some of the trash.
+      onConfirm: () => attempt(() => trash.forEach((e) => purgeSession(e.slug, e.id, cwd)), "trash emptied"),
     });
   };
 
@@ -962,7 +1025,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const dir = tilde(dirname(file));
     const one = targets.length === 1 ? targets[0] : undefined;
     return [
-      ...(one ? headFor(one) : [countHead(targets.length, "marked session", all ? "of all projects" : "of this project")]),
+      ...(one ? headFor(one) : [countHead(targets.length, "marked session", folderText)]),
       "",
       `to ${basename(file)}`,
       // The end of the folder's path names it best.
@@ -1008,13 +1071,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     (input, key) => {
       if (filter.handleKey(input, key)) return;
       if (input === "T") return toggleTrash(!trashOpen);
-      if (input === "a") {
-        const next = nextScope(scope);
-        setScope(next);
-        // The trash follows the scope right away; the list follows with the next scan.
-        if (trashOpen) setTrash(listTrash(scopeAllProjects(next) ? undefined : projectSlug(cwd)));
-        return;
-      }
+      if (input === "a") return setFilterOpen(true);
       if (trashOpen) {
         if (key.escape) return toggleTrash(false);
         if (input === "u" && session) return restore(session, selectNeighbour);
@@ -1100,7 +1157,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "u restore", priority: 4 },
         { text: "x delete", priority: 3 },
         { text: "X empty", priority: 2 },
-        { text: SCOPE_FOOTER[scope], on: scope !== "project", priority: 2 },
+        { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
         { text: "T trash", on: true },
       ]
     : [
@@ -1121,7 +1178,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         { text: "c copy resume", priority: 2 },
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
-        { text: SCOPE_FOOTER[scope], on: scope !== "project", priority: 2 },
+        { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
         { text: "T trash", priority: 2 },
         { text: "1-6/tab view", priority: 1 },
       ];
@@ -1179,6 +1236,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
               // Went on in another account (⇢), or is the copy of one from another (⇠).
               const transfer = state === "trash" ? undefined : transferOf(s);
               const moved = transfer?.to ? "⇢ " : transfer?.from ? "⇠ " : "";
+              // Ran with claude -p, the SDK or the daemon.
+              const background = backgroundOf(s, running.get(sessionKey(s))) !== undefined;
               // A /rename title is bright, a first prompt standing in for it dim and quoted.
               // The quotes go around the cut text, so the closing one is never cut off.
               const quoted = titleIsPrompt(s);
@@ -1192,6 +1251,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {badge && <SessionMarker symbol={badge} activity={running.get(sessionKey(s))?.activity} />}
                   {gone && <Text dimColor>∅ </Text>}
                   {moved && <Text color="magenta">{moved}</Text>}
+                  {/* Ran in the background: before the project name. */}
+                  {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&
                     (gone ? (
                       <>
@@ -1216,6 +1277,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                           (marked ? 2 : 0) -
                           (badge || gone ? 2 : 0) -
                           (moved ? 2 : 0) -
+                          (background ? 2 : 0) -
                           (all ? Math.min(12, projectName(s).length) + 1 : 0) -
                           (quoted ? 2 : 0),
                       )}
@@ -1260,6 +1322,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} into={tilde(cwd)} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
       {flow.element}
       {filter.dialog}
+      {filterOpen && (
+        <SessionFilterDialog
+          layout={layout}
+          initial={shownFilter}
+          folderName={basename(cwd) || cwd}
+          // The trash holds this account's sessions only.
+          accounts={trashOpen ? [] : filterAccounts(accountState.accounts, ownDir)}
+          onApply={applyFilter}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
     </>
   );
 }
