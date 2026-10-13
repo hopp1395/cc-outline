@@ -8,7 +8,9 @@ import { AUTO_OPEN_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES,
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
-import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
+import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
+import { ALL_AVATAR_PRESETS, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
+import { AvatarDialog } from "./AvatarDialog.js";
 import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
 import { positionsFile, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
@@ -132,6 +134,10 @@ interface Row {
   /** The key that switches it in its own view, e.g. "t in Chat". */
   viewKey?: string;
   notes?: Text[];
+  /** Enter opens this dialog instead of stepping through the values (which then are the ones on offer). */
+  dialog?: "avatar";
+  /** Short values with short meanings: one line each, the meaning after the value. */
+  inline?: boolean;
 }
 
 const ON_OFF = (on: Text, off: Text): Row["values"] => [
@@ -416,12 +422,22 @@ export const SETTING_ROWS: Row[] = [
     look: (value) => (ACCOUNT_COLOR_NAMES.includes(value as AccountColorName) ? colorBadge(value as AccountColorName) : undefined),
   },
   {
+    key: "accountAvatar",
+    group: "Account",
+    label: "avatar",
+    description:
+      "What stands at the left of the top bar instead of \"cco\", on the account's colour, so you tell the accounts apart by more than colour: up to six columns of letters, symbols or emojis (an emoji takes two). It also stands in the account's entries here and in the Accounts view, before the sessions of the account in the Sessions view (with the other accounts listed) and at the end of the terminal title. `Enter` opens a list of avatars, each with what it shows, and a field for your own. Like the colour, it is stored in this folder's settings; the viewers of the other accounts read it from there.",
+    values: [["", 'the "cco"'], ...ALL_AVATAR_PRESETS.map((p): [string, string] => [p.avatar, p.meaning])],
+    dialog: "avatar",
+    inline: true,
+    notes: [() => `Emojis: ${emojiInputHint()}. Emojis joined from several (a person with a laptop, a flag) are not offered: some terminals draw their parts apart.`],
+  },
+  {
     key: "accountTitle",
     group: "Account",
-    label: "email in the title",
-    description:
-      "Whether the terminal's window and tab title ends with the account's email, e.g. `✳ orders · work@example.com`. It shows only while cco finds two or more accounts.",
-    values: ON_OFF("the title ends with the email of the account", "the title is the session's title alone"),
+    label: "avatar in the title",
+    description: "Whether the terminal's window and tab title ends with the account's avatar, e.g. `✳ orders · 🦊`. Without an avatar it is the session's title alone.",
+    values: ON_OFF("the title ends with the avatar of the account", "the title is the session's title alone"),
   },
   {
     key: "viewAccounts",
@@ -538,7 +554,7 @@ export const SETTING_ROWS: Row[] = [
   listWidthRow("settingsListWidth", "Settings", "list width", "Settings", "A wider list cuts fewer labels; a narrower one leaves the descriptions more room."),
 ];
 
-const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v in RANGE_NAMES ? RANGE_NAMES[v as keyof typeof RANGE_NAMES] : v);
+const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v === "" ? DEFAULT_AVATAR : v in RANGE_NAMES ? RANGE_NAMES[v as keyof typeof RANGE_NAMES] : v);
 
 /** A value as the list shows it: the order values without "-first", so the labels keep their room. */
 export const shortValueName = (v: string | boolean) => (v === "newest-first" ? "newest" : v === "oldest-first" ? "oldest" : valueName(v));
@@ -637,8 +653,27 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(textOf(row.description, context)), ""];
   lines.push(bold("Values"));
+  // A text of one's own (the avatar) is none of the values on offer.
+  const own = typeof current === "string" && !row.values.some(([v]) => v === current);
+  if (row.inline) {
+    // One line each, the meaning after the value, the meanings in a column.
+    const entries: [string, string, boolean][] = [
+      ...(own ? [[current as string, "your own", true] as [string, string, boolean]] : []),
+      ...row.values.map(([value, meaning]): [string, string, boolean] => [
+        valueName(value) + (value === DEFAULT_SETTINGS[row.key] ? " (default)" : ""),
+        textOf(meaning, context),
+        value === current,
+      ]),
+    ];
+    const column = Math.max(...entries.map(([name]) => stringWidth(name)));
+    lines.push("");
+    for (const [name, meaning, selected] of entries) {
+      const padded = name + " ".repeat(column - stringWidth(name));
+      lines.push(selected ? `\u001b[32m● ${padded}\u001b[39m  ${meaning}` : `${dim("○")} \u001b[90m${padded}\u001b[39m  ${dim(meaning)}`);
+    }
+  } else if (own) lines.push("", `\u001b[32m● ${current}\u001b[39m`, ...wrap("your own", "  "));
   let compact = false;
-  for (const [value, meaning] of row.values) {
+  for (const [value, meaning] of row.inline ? [] : row.values) {
     const selected = value === current;
     const look = typeof value === "string" ? row.look?.(value) : undefined;
     if (look) {
@@ -667,6 +702,14 @@ export function colorBadge(name: AccountColorName): string {
   const background = index < 8 ? 40 + index : 100 + index - 8;
   const text = ACCOUNT_COLORS[name] === "black" ? 30 : 97;
   return `\u001b[${background};${text}m ${name} \u001b[39;49m`;
+}
+
+/** An avatar drawn on the account's colour, as in the top bar. */
+export function avatarBadge(avatar: string, name: AccountColorName): string {
+  const index = ACCOUNT_COLOR_NAMES.indexOf(name);
+  const background = index < 8 ? 40 + index : 100 + index - 8;
+  const text = ACCOUNT_COLORS[name] === "black" ? 30 : 97;
+  return `\u001b[${background};${text}m ${avatar} \u001b[39;49m`;
 }
 
 /** The colour name of `account` as this viewer shows it. */
@@ -702,7 +745,6 @@ export function accountLines(e: AccountEntry, state: AccountState, settings: Set
       bold(`Accounts found (${state.accounts.length})`),
       ...(searched.length > 0 ? searched.flatMap((l) => wrap(l, "  ")) : wrap("none", "  ")),
       "",
-      ...wrap(dim(codeMarks(state.multiple ? "With two or more accounts the email also ends the title." : "With a single account only the colour shows in the top bar; the email joins the title once there is a second one, started with its own `CLAUDE_CONFIG_DIR`."))),
       ...wrap(dim("The account of a Claude Code you attach to is looked up through the file `sessions/<pid>.json` in these folders.")),
     ];
   }
@@ -712,6 +754,7 @@ export function accountLines(e: AccountEntry, state: AccountState, settings: Set
   }
   const color = colorNameOf(account, state, settings.accountColor);
   const fixed = hasChosenColor(account, state, settings.accountColor);
+  const avatar = avatarOfAccount(account, state, settings.accountAvatar);
   return [
     state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
     "",
@@ -725,8 +768,9 @@ export function accountLines(e: AccountEntry, state: AccountState, settings: Set
     ...field("config folder", tilde(account.dir)),
     ...field("read from", tilde(account.file)),
     `colour: ${colorBadge(color)}${fixed ? ", chosen" : ", from the email"}`,
+    `avatar: ${avatar ? avatarBadge(avatar, color) : dim(`none, "${DEFAULT_AVATAR}"`)}`,
     "",
-    ...wrap(dim(codeMarks(state.multiple ? "The colour shows in the top bar and the email in the title while this is the active account." : "The colour shows in the top bar; the email joins the title once cco finds a second account."))),
+    ...wrap(dim("The colour and the avatar show in the top bar, the avatar also in the title, while this is the active account.")),
   ];
 }
 
@@ -954,6 +998,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const copy = useClipboard();
   const [copied, setCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
+  const [avatarOpen, setAvatarOpen] = useState(false);
   // The app's progress dialog takes the keys while it is open.
   const progressOpen = useProgressOpen();
   const positions = usePositions(cwd, "settings");
@@ -1015,7 +1060,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const doctorBusy = doctorRun?.status === "running" || doctorChecking !== undefined;
   const repairOpen = repairDialog && doctorRun !== undefined && doctorRun.status !== "done";
   // While the update, a check or a repair runs, the app keeps q, p and the other views away from it.
-  const modal = confirmation !== undefined || updating || doctorBusy || flow.open;
+  const modal = confirmation !== undefined || avatarOpen || updating || doctorBusy || flow.open;
   useEffect(() => {
     onModal?.(modal);
   }, [modal]);
@@ -1235,6 +1280,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       if (state.kind === "restart") return update.restart();
       return canUpdate && askUpdate();
     }
+    if (row?.dialog === "avatar") return setAvatarOpen(true);
     // The last view besides Settings stays: hiding it would leave only this one.
     if (row && !isLastView(settings, row.key)) set({ [row.key]: nextValue(row, current!) });
   };
@@ -1266,7 +1312,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       if (input === "R" && canReset) return askResetSettings();
       handleNavigation(input, key, { ...filter.nav, scroll, page: viewport - 2 });
     },
-    { isActive: active && confirmation === undefined && !progressOpen && !filter.open && !flow.open },
+    { isActive: active && confirmation === undefined && !avatarOpen && !progressOpen && !filter.open && !flow.open },
   );
 
   /** What a row shows: the label, and at its right end the value (or mark); the group is the separator above it. */
@@ -1278,8 +1324,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if ("account" in e) {
       const account = accountOf(e, accountState);
       const color = account ? colorNameOf(account, accountState, settings.accountColor) : undefined;
-      // A badge like the "cco" in the top bar, readable on any colour, also black on a black pane.
-      return { value: color ? ` ${color} ` : "", color: color && ACCOUNT_COLORS[color], background: color, label: accountLabel(e, accountState) };
+      const avatar = account && avatarOfAccount(account, accountState, settings.accountAvatar);
+      // A badge like the "cco" in the top bar, readable on any colour, also black on a black pane: the avatar, else the colour's name.
+      return { value: color ? ` ${avatar ?? color} ` : "", color: color && ACCOUNT_COLORS[color], background: color, label: accountLabel(e, accountState) };
     }
     if ("id" in e) return { value: e.id === "doctor" ? "✚" : "↺", label: e.label };
     if (e.kind === "release") {
@@ -1319,7 +1366,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         : release
         ? [{ text: "F5 check", priority: 2 }]
         : [
-            { text: "↵ change", priority: 4 },
+            { text: row?.dialog ? "↵ choose…" : "↵ change", priority: 4 },
             { text: "r default", priority: 3 },
           ];
   return (
@@ -1399,6 +1446,17 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       />
       {confirmation && (
         <ConfirmDialog layout={layout} confirmation={confirmation} onClose={() => setConfirmation(undefined)} />
+      )}
+      {avatarOpen && (
+        <AvatarDialog
+          layout={layout}
+          value={settings.accountAvatar}
+          onSave={(avatar) => {
+            set({ accountAvatar: avatar });
+            setAvatarOpen(false);
+          }}
+          onCancel={() => setAvatarOpen(false)}
+        />
       )}
       {flow.element}
       {filter.dialog}

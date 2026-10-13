@@ -122,9 +122,9 @@ describe("the other account's setup", () => {
     expect(pluginSteps(b)).toEqual([]);
   });
 
-  it("takes over the CLI path and the settings, without the account colour, only where there are none", () => {
+  it("takes over the CLI path and the settings, without the account colour and avatar, only where there are none", () => {
     writeJson(cliFile(), { cli: "/x/cli.js" });
-    writeJson(settingsFile(), { showTools: "full", accountColor: "red" });
+    writeJson(settingsFile(), { showTools: "full", accountColor: "red", accountAvatar: "🦊" });
     prepareAccount(b);
     expect(JSON.parse(readFileSync(join(b, "cco", "cli.json"), "utf8"))).toEqual({ cli: "/x/cli.js" });
     expect(JSON.parse(readFileSync(join(b, "cco", "settings.json"), "utf8"))).toEqual({ showTools: "full" });

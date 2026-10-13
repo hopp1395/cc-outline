@@ -3,7 +3,7 @@ import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
 import type { AccountColorName } from "../src/account.js";
-import { AccountBadgeContext, Screen, type Layout } from "../src/tui/layout.js";
+import { AccountAvatarContext, AccountBadgeContext, Screen, type Layout } from "../src/tui/layout.js";
 import { VERSION } from "../src/version.js";
 
 async function topBar(columns: number, status: string): Promise<string> {
@@ -69,5 +69,24 @@ describe("Screen top bar", () => {
     } finally {
       chalk.level = level;
     }
+  });
+
+  it("shows the account's avatar in place of the cco, the tabs moved along", async () => {
+    const layout: Layout = { columns: 100, rows: 10, listWidth: 20, previewWidth: 77, bodyHeight: 8 };
+    const bar = async (avatar: string | undefined) => {
+      const app = renderInk(
+        <AccountAvatarContext.Provider value={avatar}>
+          <Screen layout={layout} mode="chat" status={<Text>x</Text>} list={null} preview={null} footer="" />
+        </AccountAvatarContext.Provider>,
+        layout,
+        { interactive: true },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      app.unmount();
+      return app.frame().split("\n")[0]!;
+    };
+    expect(await bar("🦊")).toMatch(/^ 🦊   1 Chat/);
+    expect(await bar("👾👾👾")).toMatch(/^ 👾👾👾   1 Chat/);
+    expect(await bar(undefined)).toMatch(/^cco  1 Chat/);
   });
 });

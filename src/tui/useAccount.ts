@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { accountInfo, colorOfAccount, type AccountColorName, type AccountInfo } from "../account.js";
+import { accountInfo, avatarOfAccount, colorOfAccount, type AccountColorName, type AccountInfo } from "../account.js";
 import { useSetting } from "./useSetting.js";
 
 /** How often the account folders are read again (a login in another terminal shows up). */
@@ -9,6 +9,8 @@ const REFRESH_MS = 30_000;
 export interface AccountState extends AccountInfo {
   /** The shown account's colour; undefined without an account. */
   color?: AccountColorName;
+  /** The shown account's avatar; undefined keeps "cco". */
+  avatar?: string;
   /** Reads the folders again at once (an account moved to the trash or back). */
   refresh?: () => void;
 }
@@ -23,10 +25,16 @@ export const useAccountState = () => useContext(AccountContext);
 export function useAccounts(pid?: number): AccountState {
   const [tick, setTick] = useState(0);
   const [chosen] = useSetting("accountColor");
+  const [avatar] = useSetting("accountAvatar");
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), REFRESH_MS);
     return () => clearInterval(timer);
   }, []);
   const info = useMemo(() => accountInfo(pid), [pid, tick]);
-  return { ...info, color: info.current && colorOfAccount(info.current, info, chosen), refresh: () => setTick((t) => t + 1) };
+  return {
+    ...info,
+    color: info.current && colorOfAccount(info.current, info, chosen),
+    avatar: info.current && avatarOfAccount(info.current, info, avatar),
+    refresh: () => setTick((t) => t + 1),
+  };
 }

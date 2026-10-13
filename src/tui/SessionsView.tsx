@@ -2,6 +2,7 @@ import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import stringWidth from "string-width";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
@@ -27,7 +28,7 @@ import { nextScope, scopeAccounts, scopeAllProjects, type Placement, type Sessio
 import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
 import { runningViewer, type PairTarget } from "../viewer.js";
 import { otherAccounts } from "../accountContinue.js";
-import { barColorOfAccount, type Account, type AccountColorName } from "../account.js";
+import { ACCOUNT_COLORS, avatarOfAccount, barColorOfAccount, type Account, type AccountColorName } from "../account.js";
 import { pluginState } from "../accountSetup.js";
 import { readTransfers, type Transfer } from "../transfers.js";
 import { useAccountState } from "./useAccount.js";
@@ -491,6 +492,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [separators] = useSetting("dateSeparators");
   const [pinnedSessions] = useSetting("pinnedSessions");
   const [accountColor] = useSetting("accountColor");
+  const [accountAvatar] = useSetting("accountAvatar");
   const range = useListRange("sessionsRange");
   // The other accounts signed in here: a session can continue in one of them, and the list may show theirs.
   const accountState = useAccountState();
@@ -509,6 +511,33 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const barColor = (s: SessionSummary): AccountColorName | "gray" => {
     const account = accountOf(s);
     return account ? barColorOfAccount(account, accountState, accountColor) : "gray";
+  };
+  const avatarOf = (s: SessionSummary): string | undefined => {
+    const account = accountOf(s);
+    return account && avatarOfAccount(account, accountState, accountAvatar);
+  };
+  // With an avatar for any of the accounts listed, the rows start with the avatar instead of the bar, all as wide as the widest.
+  const leadWidth = withAccounts
+    ? Math.max(1, ...[ownAccount, ...others].map((a) => (a ? (avatarOfAccount(a, accountState, accountAvatar) ?? "") : "")).map((t) => (t ? stringWidth(t) + 2 : 0)))
+    : 0;
+  const accountLead = (s: SessionSummary) => {
+    const color = barColor(s);
+    const avatar = avatarOf(s);
+    if (leadWidth === 1) return <Text color={color}>▌</Text>;
+    if (!avatar) return <Text color={color}>{"▌".padEnd(leadWidth)}</Text>;
+    const text = ` ${avatar} `;
+    const pad = " ".repeat(Math.max(0, leadWidth - stringWidth(text)));
+    // On the account's colour as in the top bar; where its colour is off, in gray.
+    return color === "gray" ? (
+      <Text color="gray">{text + pad}</Text>
+    ) : (
+      <Text>
+        <Text color={ACCOUNT_COLORS[color]} backgroundColor={color}>
+          {text}
+        </Text>
+        {pad}
+      </Text>
+    );
   };
   // The sessions last worked in during the range (see lastActive); the active and running ones also when that was before it.
   const sessions = useMemo(() => {
@@ -1145,7 +1174,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             itemKey={entryId}
             time={listedAt}
             // The account's bar stays in its colour on the selected row too.
-            lead={withAccounts ? (s) => (isSession(s) ? <Text color={barColor(s)}>▌</Text> : undefined) : undefined}
+            lead={withAccounts ? (s) => (isSession(s) ? accountLead(s) : undefined) : undefined}
             render={(s, isSelected) => {
               if (isLoadMore(s)) return <LoadMoreRow progress={range.requested ? progress : undefined} />;
               if (isImport(s)) return <ImportRow />;
@@ -1189,7 +1218,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                         4,
                         listWidth -
                           (separators ? 7 : 13) -
-                          (withAccounts ? 2 : 0) -
+                          (withAccounts ? leadWidth + 1 : 0) -
                           (marked ? 2 : 0) -
                           (badge || gone ? 2 : 0) -
                           (moved ? 2 : 0) -
