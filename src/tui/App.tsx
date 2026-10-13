@@ -8,7 +8,7 @@ import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
 import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
 import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
-import { continueSession, inClaudeDir } from "../transcript/locate.js";
+import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
@@ -204,9 +204,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // The viewer's own session can continue in another account (Accounts view, /cco:account).
   const continuable = claudePid !== undefined && !sessionId && path !== undefined;
   const noSession = continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it in Sessions" : "there is no session yet";
-  // While Sessions continues the session in another account, its Claude Code may be closed on purpose: the viewer stays to move along.
-  const holdOpen = useRef(false);
-  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: () => holdOpen.current || exit() });
+  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: exit });
 
   // The update check runs once at the start, unless the setting is off then.
   const [updateMode] = useState(() => readSettings().updateMode);
@@ -299,13 +297,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
    * (`resumeForPairing`): the viewer reopens next to it, paired, in the chat.
    */
   const pairWithStarted = (target: PairTarget, where: string) => {
-    // A session continued in another account: its Claude Code and the viewer from now on run under that account's folder.
-    const { configDir } = target;
-    const inTarget = <T,>(fn: () => T) => (configDir ? inClaudeDir(configDir, fn) : fn());
-    inTarget(() => writeTargetSession(target));
-    const placementThere = inTarget(() => resolvePlacement(target.cwd, target.sessionId));
-    if (moveViewer(target.cwd, "chat", placementThere, target.claudePid, undefined, where, configDir)) return exit();
-    holdOpen.current = false;
+    writeTargetSession(target);
+    if (moveViewer(target.cwd, "chat", resolvePlacement(target.cwd, target.sessionId), target.claudePid, undefined, where)) exit();
   };
   // Reset: restart, and /cco:restart. The viewer says so for a moment, then reopens where it is, running the CLI on disk now.
   const restarting = useRef(false);
@@ -506,7 +499,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             // Any viewer attaches to another Claude Code, leaving its own if it has one.
             onPair={onPair ? pairWith : undefined}
             onPairStarted={onPair ? pairWithStarted : undefined}
-            onHoldOpen={(hold) => (holdOpen.current = hold)}
             accountRequest={accountRequest}
             onDetach={claudePid !== undefined && !sessionId && onDetach ? detach : undefined}
             // A viewer of its Claude Code's live session can continue another session there (/resume).
@@ -534,8 +526,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             sessionPath={continuable ? path : undefined}
             noSession={noSession}
             claudePid={claudePid}
-            onPairStarted={onPair ? pairWithStarted : undefined}
-            onHoldOpen={(hold) => (holdOpen.current = hold)}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
@@ -552,8 +542,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onModal={setModal}
             sessionPath={continuable ? path : undefined}
             claudePid={claudePid}
-            onPairStarted={onPair ? pairWithStarted : undefined}
-            onHoldOpen={(hold) => (holdOpen.current = hold)}
             noSession={noSession}
             onTrashOpen={setDetail("accounts")}
           />

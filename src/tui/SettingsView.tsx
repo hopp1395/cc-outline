@@ -28,7 +28,6 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
 import { ownSession, useAccountFlow } from "./useAccountFlow.js";
-import type { PairTarget } from "../viewer.js";
 import { renderMarkdown } from "../render/markdown.js";
 import { codeSpan } from "../render/terminal.js";
 import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repairSteps, reportLines, runRepairs, type DoctorGroup, type Finding, type RepairResult } from "../doctor.js";
@@ -58,10 +57,6 @@ interface Props {
   noSession?: string;
   /** The Claude Code process the viewer belongs to. */
   claudePid?: number;
-  /** A Claude Code the viewer started runs now `where`: the viewer moves next to it. */
-  onPairStarted?: (target: PairTarget, where: string) => void;
-  /** While true, the viewer stays open when its Claude Code ends (closed on purpose). */
-  onHoldOpen?: (hold: boolean) => void;
 }
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
@@ -978,7 +973,7 @@ export function settingsEntries(update: Update, accounts: AccountState = { accou
   ];
 }
 
-export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen }: Props) {
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked, sessionPath, noSession, claudePid }: Props) {
   // Enter on an account: continue the session there, start a new one, open its folder (as in the Accounts view).
   const [flash, setFlash] = useState<string>();
   useEffect(() => {
@@ -986,7 +981,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     const timer = setTimeout(() => setFlash(undefined), 3000);
     return () => clearTimeout(timer);
   }, [flash]);
-  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
+  const flow = useAccountFlow({ layout, claudePid, notify: setFlash });
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());

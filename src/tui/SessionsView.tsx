@@ -106,11 +106,6 @@ interface Props {
   onPairStarted?: (target: PairTarget, where: string) => void;
   /** Detaches the viewer from its Claude Code; it then follows the project's newest session. */
   onDetach?: () => void;
-  /**
-   * Continuing the session in another account closes its Claude Code on purpose: while `hold` is true, the
-   * viewer stays open when the Claude Code it belongs to ends, to move next to the new one.
-   */
-  onHoldOpen?: (hold: boolean) => void;
   /** /cco:account: asks which account to continue the active session in (`query` may name it); once per `at`. */
   accountRequest?: { at: number; query?: string };
 }
@@ -482,7 +477,7 @@ export function exportProgress(count: number, state: { progress?: ExportProgress
   };
 }
 
-export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach, onHoldOpen, accountRequest }: Props) {
+export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach, accountRequest }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -567,7 +562,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     layout,
     claudePid: paired?.claudePid,
     onPairStarted,
-    onHoldOpen,
     notify: (message) => notify(message),
     onCopied: () => refresh(),
   });
