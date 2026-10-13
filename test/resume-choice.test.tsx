@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { updateSettings } from "../src/settings.js";
 import { renderInk, tick, until } from "./helpers/ink.js";
 import { proc } from "../src/proc.js";
 import { prepareConsoleInput } from "../src/switchSession.js";
@@ -305,6 +306,7 @@ describe("continuing a session that runs nowhere", () => {
   });
 
   it("cannot continue a session of another project folder here", async () => {
+    updateSettings({ sessionsFolders: "all" });
     pastSession("s1", join(tmpdir(), "cco-resume-elsewhere"));
     const view = renderView({ paired: { claudePid: process.pid, empty: true } });
     await until(() => view.frame().includes("Prompts (1)"));

@@ -36,15 +36,24 @@ export function rangeStart(range: ListRange, now = new Date()): number | undefin
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
 }
 
-/** Which sessions the Sessions view lists (a goes round them): this project's or all projects', of this account or of all accounts found. */
-export const SESSIONS_SCOPE_VALUES = ["project", "all", "project-accounts", "all-accounts"] as const;
-export type SessionsScope = (typeof SESSIONS_SCOPE_VALUES)[number];
-/** The scope lists the sessions of every project. */
-export const scopeAllProjects = (scope: SessionsScope) => scope === "all" || scope === "all-accounts";
-/** The scope lists the sessions of the other accounts found too. */
-export const scopeAccounts = (scope: SessionsScope) => scope === "project-accounts" || scope === "all-accounts";
-/** The scope after `scope`, for a in Sessions. */
-export const nextScope = (scope: SessionsScope): SessionsScope => SESSIONS_SCOPE_VALUES[(SESSIONS_SCOPE_VALUES.indexOf(scope) + 1) % SESSIONS_SCOPE_VALUES.length];
+/** The project folders whose sessions the Sessions view lists: this one's, the others', or all. */
+export const SESSIONS_FOLDERS_VALUES = ["this", "other", "all"] as const;
+export type SessionsFolders = (typeof SESSIONS_FOLDERS_VALUES)[number];
+/** The Sessions view's background sessions (`claude -p`, the SDK, the daemon): listed with the others, alone, or left out. */
+export const SESSIONS_BACKGROUND_VALUES = ["show", "only", "hide"] as const;
+export type SessionsBackground = (typeof SESSIONS_BACKGROUND_VALUES)[number];
+/** The accounts value naming the chosen config folders, joined by this. */
+export const ACCOUNT_DIRS_SEPARATOR = "|";
+/** A value of `sessionsAccounts`: `current`, `all`, or config folders joined by `|`. */
+export const isAccountsSetting = (value: unknown): value is string =>
+  typeof value === "string" && value.split(ACCOUNT_DIRS_SEPARATOR).every((dir) => dir.trim() !== "");
+/** The former `sessionsScope`, which the filter's three settings replaced. */
+const LEGACY_SCOPES: Record<string, { sessionsFolders: SessionsFolders; sessionsAccounts: string }> = {
+  project: { sessionsFolders: "this", sessionsAccounts: "current" },
+  all: { sessionsFolders: "all", sessionsAccounts: "current" },
+  "project-accounts": { sessionsFolders: "this", sessionsAccounts: "all" },
+  "all-accounts": { sessionsFolders: "all", sessionsAccounts: "all" },
+};
 
 /** The order of the other accounts in the Accounts view (s there), below the active one: by email, by folder name, or the one used last first. */
 export const ACCOUNTS_ORDER_VALUES = ["email", "folder", "recent"] as const;
@@ -121,8 +130,12 @@ export interface Settings {
   gitNestedRepos: boolean;
   /** Plan: wrap long lines (w). */
   planWrap: boolean;
-  /** Sessions: the sessions of this project or of all, of this account or of all accounts found (a goes round); formerly the on/off allProjects. */
-  sessionsScope: SessionsScope;
+  /** Sessions: the sessions of this project folder, of the others, or of all (the filter dialog, a); with the two below formerly sessionsScope. */
+  sessionsFolders: SessionsFolders;
+  /** Sessions: the sessions of this account (`current`), of all found (`all`), or of the config folders named, joined by `|`. */
+  sessionsAccounts: string;
+  /** Sessions: the background sessions (`claude -p`, SDK, daemon) listed with the others, alone, or not at all. */
+  sessionsBackground: SessionsBackground;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -173,7 +186,9 @@ export const DEFAULT_SETTINGS: Settings = {
   wrap: true,
   gitNestedRepos: true,
   planWrap: true,
-  sessionsScope: "all",
+  sessionsFolders: "this",
+  sessionsAccounts: "current",
+  sessionsBackground: "show",
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
@@ -260,7 +275,8 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
-  sessionsScope: SESSIONS_SCOPE_VALUES,
+  sessionsFolders: SESSIONS_FOLDERS_VALUES,
+  sessionsBackground: SESSIONS_BACKGROUND_VALUES,
   sessionsRange: RANGE_VALUES,
   monitorRange: RANGE_VALUES,
   chatListWidth: LIST_WIDTH_VALUES,
@@ -291,9 +307,11 @@ export function readSettings(): Settings {
   // accountColor was the colour of this account alone; the on/off setting accountBadge is its value off now.
   const badge = (stored as { accountBadge?: unknown }).accountBadge;
   if (stored.accountColor === undefined && badge === false) stored.accountColor = "off";
-  // sessionsScope was the on/off setting allProjects before the other accounts could be listed too.
+  // sessionsFolders and sessionsAccounts were sessionsScope (a went round four values), which was the on/off setting allProjects before.
   const allProjects = (stored as { allProjects?: unknown }).allProjects;
-  if (stored.sessionsScope === undefined && typeof allProjects === "boolean") stored.sessionsScope = allProjects ? "all" : "project";
+  const scope = (stored as { sessionsScope?: unknown }).sessionsScope ?? (typeof allProjects === "boolean" ? (allProjects ? "all" : "project") : undefined);
+  const legacyScope = typeof scope === "string" ? LEGACY_SCOPES[scope] : undefined;
+  if (legacyScope && stored.sessionsFolders === undefined && stored.sessionsAccounts === undefined) Object.assign(stored, legacyScope);
   const result: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const value = stored[key];
@@ -301,6 +319,7 @@ export function readSettings(): Settings {
     const choices = CHOICES[key];
     if (choices && !choices.includes(value as string)) continue;
     if (key === "accountAvatar" && !isAvatarSetting(value)) continue;
+    if (key === "sessionsAccounts" && !isAccountsSetting(value)) continue;
     result[key] = value;
   }
   return result as unknown as Settings;

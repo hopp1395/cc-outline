@@ -32,7 +32,12 @@ export interface SessionSummary {
   continues?: string[];
   /** The config folder of another account the session belongs to; missing for this viewer's own. */
   account?: string;
+  /** Ran in the background: started with `claude -p` or the SDK (`sdk`), or by the Claude Code daemon (`daemon`). */
+  background?: SessionBackground;
 }
+
+/** How a background session was run: `claude -p` or the SDK (`entrypoint` `sdk-cli`), or the daemon (`sessionKind` `bg`). */
+export type SessionBackground = "sdk" | "daemon";
 
 /** What the overview keeps of a subagent. */
 export interface SessionAgent {
@@ -58,6 +63,8 @@ interface RawEntry {
   cwd?: string;
   customTitle?: string;
   isSidechain?: boolean;
+  entrypoint?: string;
+  sessionKind?: string;
 }
 
 /**
@@ -73,6 +80,7 @@ export class SessionReader {
   private start?: string;
   private end?: string;
   private files: string[] = [];
+  private background?: SessionBackground;
   private summary?: SessionSummary;
 
   constructor(readonly path: string) {
@@ -94,7 +102,7 @@ export class SessionReader {
 
   private reset(): void {
     this.parser = new TranscriptParser();
-    this.title = this.branch = this.cwd = this.start = this.end = undefined;
+    this.title = this.branch = this.cwd = this.start = this.end = this.background = undefined;
     this.files = [];
   }
 
@@ -109,6 +117,9 @@ export class SessionReader {
     if (!entry.isSidechain) {
       if (entry.gitBranch) this.branch = entry.gitBranch;
       if (entry.cwd) this.cwd ??= entry.cwd;
+      // The daemon may run a session started interactively (sent to the background): it counts from then on.
+      if (entry.sessionKind === "bg") this.background = "daemon";
+      else if (entry.entrypoint === "sdk-cli") this.background ??= "sdk";
       if (entry.timestamp) {
         this.start ??= entry.timestamp;
         this.end = entry.timestamp;
@@ -162,6 +173,7 @@ export class SessionReader {
       end: this.end,
       modified: this.file.modified !== undefined ? new Date(this.file.modified).toISOString() : undefined,
       continuedIn: this.parser.continuedIn,
+      ...(this.background && { background: this.background }),
     };
   }
 }
@@ -184,6 +196,7 @@ function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionS
     agents: [...(earlier.agents ?? []), ...(later.agents ?? []).filter((a) => !agents.has(agentKey(a)))],
     branch: later.branch ?? earlier.branch,
     cwd: earlier.cwd ?? later.cwd,
+    background: later.background ?? earlier.background,
     start: earlier.start ?? later.start,
     end: later.end ?? earlier.end,
     modified: [earlier.modified, later.modified].filter((m): m is string => m !== undefined).sort().at(-1),

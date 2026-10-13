@@ -453,7 +453,7 @@ export function createDemo(root) {
   mkdirSync(projectDir, { recursive: true });
   // The fixture's days are fixed, so the lists reach back to them whenever the demo is recorded.
   mkdirSync(join(configDir, "cco"), { recursive: true });
-  writeFileSync(join(configDir, "cco", "settings.json"), JSON.stringify({ sessionsRange: "all", monitorRange: "all" }));
+  writeFileSync(join(configDir, "cco", "settings.json"), JSON.stringify({ sessionsRange: "all", monitorRange: "all", sessionsFolders: "all" }));
   // Claude Code records the folder and branch on every entry; the Sessions view shows them.
   const current = [
     { type: "custom-title", customTitle: "order-validation", sessionId: SESSION },

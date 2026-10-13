@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { updateSettings } from "../src/settings.js";
 import { renderInk, tick, until } from "./helpers/ink.js";
 import { readExportOptions } from "../src/export/archive.js";
 import { readZip } from "../src/export/zip.js";
@@ -120,6 +121,7 @@ describe("export in the Sessions view", () => {
   });
 
   it("marks a session whose folder is gone and moves it here", async () => {
+    updateSettings({ sessionsFolders: "all" });
     const gone = join(tmpdir(), "cco-sessions-export-gone");
     mkdirSync(projectDir(gone), { recursive: true });
     writeFileSync(

@@ -74,7 +74,8 @@ await shot(1200, ["esc"]);
 await shot(4000, ["end"]); // how to add an account
 await shot(3000, ["enter", "cw2"]); // Enter sets one up: command and folder
 await shot(1200, ["esc"]);
-await shot(3000, ["4", "a"], 1800); // Sessions with the other accounts' sessions, a bar in each account's colour
+await shot(3000, ["4", "a"], 1800); // Sessions' filter: folders, the accounts found, background sessions
+await shot(3000, ["down", "down", "down", " ", "down", " ", "enter"], 1800); // the other accounts' sessions too, a bar in each account's colour
 await shot(3500, ["down"]); // a session of another account: its account in the header
 await shot(4000, ["enter"]); // what can be done with it
 await shot(1500, ["esc"]);

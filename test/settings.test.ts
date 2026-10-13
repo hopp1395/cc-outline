@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, isViewShown, nextScope, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
+import { DEFAULT_SETTINGS, isViewShown, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
 import { codeMarks, isLastView, nextValue, plainMarks, RESET_ACTIONS, SETTING_ROWS, settingLines, textOf } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
@@ -54,17 +54,21 @@ describe("settings", () => {
     expect(readSettings().updateMode).toBe("auto");
   });
 
-  it("takes the former all projects over as the sessions' scope, and goes round the four", () => {
+  it("takes the former scope (and all projects before it) over as the sessions' folders and accounts", () => {
     mkdirSync(dirname(settingsFile()), { recursive: true });
-    writeFileSync(settingsFile(), JSON.stringify({ allProjects: false }));
-    expect(readSettings().sessionsScope).toBe("project");
-    writeFileSync(settingsFile(), JSON.stringify({ allProjects: true }));
-    expect(readSettings().sessionsScope).toBe("all");
-    writeFileSync(settingsFile(), JSON.stringify({ allProjects: false, sessionsScope: "all-accounts" }));
-    expect(readSettings().sessionsScope).toBe("all-accounts");
-    const seen = [readSettings().sessionsScope];
-    for (let i = 0; i < 4; i++) seen.push(nextScope(seen.at(-1)!));
-    expect(seen).toEqual(["all-accounts", "project", "all", "project-accounts", "all-accounts"]);
+    const read = (stored: object) => {
+      writeFileSync(settingsFile(), JSON.stringify(stored));
+      const s = readSettings();
+      return [s.sessionsFolders, s.sessionsAccounts, s.sessionsBackground];
+    };
+    expect(read({ allProjects: false })).toEqual(["this", "current", "show"]);
+    expect(read({ allProjects: true })).toEqual(["all", "current", "show"]);
+    expect(read({ sessionsScope: "project-accounts" })).toEqual(["this", "all", "show"]);
+    expect(read({ allProjects: false, sessionsScope: "all-accounts" })).toEqual(["all", "all", "show"]);
+    // The new settings win over the former one.
+    expect(read({ sessionsScope: "all", sessionsFolders: "other" })).toEqual(["other", "current", "show"]);
+    expect(read({ sessionsAccounts: "a|b", sessionsBackground: "only" })).toEqual(["this", "a|b", "only"]);
+    expect(read({ sessionsAccounts: "a||b", sessionsBackground: "never" })).toEqual(["this", "current", "show"]);
   });
 
   it("takes over the former pinned group as pinned favorites", () => {
@@ -198,8 +202,8 @@ describe("settings view", () => {
   });
 
   it("names this project and the terminal found", () => {
-    expect(details("sessionsScope")).toContain("only this one, my-app, of this account");
-    expect(details("sessionsScope")).toContain("my-app, of every account found");
+    expect(details("sessionsFolders")).toContain("only this one, my-app");
+    expect(details("sessionsFolders")).toContain("every folder but my-app");
     expect(details("placement", "wt")).toContain("Alt+Tab");
     expect(details("placement", "tmux")).toContain("tmux window");
     expect(details("placement", "tmux")).not.toContain("Windows Terminal cannot");
