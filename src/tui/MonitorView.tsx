@@ -265,7 +265,7 @@ function responseTable(data: Measurements, day: string, model: string | undefine
 type Entry = ReturnType<typeof daysWithData>[number] | LoadMore;
 
 export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTyping }: Props) {
-  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const range = useListRange("monitorRange");
@@ -421,7 +421,7 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
           pinned={filter.pinned}
           filter={filter.banner}
           selected={current}
-          height={bodyHeight}
+          height={listHeight}
           empty={filter.empty ?? (data ? "No responses" : "Reading…")}
           itemKey={(d) => (isLoadMore(d) ? "load-more" : d.day)}
           time={(d) => (isLoadMore(d) ? undefined : d.day)}

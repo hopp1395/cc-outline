@@ -100,7 +100,7 @@ const when = (ms: number) => {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onTrashOpen }: Props) {
-  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const state = useAccountState();
@@ -304,7 +304,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
             filter={filter.banner}
             selected={index}
             centre={true}
-            height={bodyHeight}
+            height={listHeight}
             empty={trashOpen ? "The trash is empty" : (filter.empty ?? "No accounts")}
             itemKey={keyOf}
             render={(e, isSelected) => {

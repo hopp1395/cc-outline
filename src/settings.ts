@@ -67,9 +67,20 @@ export type FilterIn = (typeof FILTER_IN_VALUES)[number];
 export const UPDATE_VALUES = ["on", "off", "auto"] as const;
 export type UpdateMode = (typeof UPDATE_VALUES)[number];
 
-/** The compact view for small screens: `single` shows one column (list or preview), no help line and a shortened top bar. */
-export const COMPACT_VIEW_VALUES = ["off", "single"] as const;
+/**
+ * The compact view for small screens, with no help line and a shortened top bar: `single` shows one column (list or
+ * preview), `stacked` the list above the preview, both as wide as the pane.
+ */
+export const COMPACT_VIEW_VALUES = ["off", "single", "stacked"] as const;
 export type CompactView = (typeof COMPACT_VIEW_VALUES)[number];
+
+/** How many columns the stacked list has (`<` and `>` change it), kept as text like the other choices. */
+export const COMPACT_COLUMNS_VALUES = ["1", "2", "3", "4"] as const;
+export type CompactColumns = (typeof COMPACT_COLUMNS_VALUES)[number];
+
+/** The share of the pane's height the stacked list takes. */
+export const COMPACT_SPLIT_VALUES = ["1/4", "1/3", "1/2"] as const;
+export type CompactSplit = (typeof COMPACT_SPLIT_VALUES)[number];
 
 /** Where the viewer opens: docked right or left of Claude Code, or in a window of its own. */
 export const PLACEMENT_VALUES = ["right", "left", "window"] as const;
@@ -116,6 +127,10 @@ export interface Settings {
   updateMode: UpdateMode;
   /** Small screens: `single` shows list or preview in one column, without help line, status and version. The list widths are kept but not used. */
   compactView: CompactView;
+  /** Compact `stacked`: the list's columns, filled one after the other like a newspaper. */
+  compactColumns: CompactColumns;
+  /** Compact `stacked`: the list's share of the height. */
+  compactSplit: CompactSplit;
   /** The terminal title ends with the account's avatar, where one is chosen. */
   accountTitle: boolean;
   /** With two or more accounts, the "cco" in the top bar takes the account's colour as its background: `auto` from the email, a fixed one for this folder's account, or `off`. */
@@ -183,6 +198,8 @@ export const DEFAULT_SETTINGS: Settings = {
   filterIn: "list",
   updateMode: "auto",
   compactView: "off",
+  compactColumns: "1",
+  compactSplit: "1/3",
   accountTitle: true,
   accountColor: "auto",
   accountAvatar: "",
@@ -279,6 +296,8 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   filterIn: FILTER_IN_VALUES,
   updateMode: UPDATE_VALUES,
   compactView: COMPACT_VIEW_VALUES,
+  compactColumns: COMPACT_COLUMNS_VALUES,
+  compactSplit: COMPACT_SPLIT_VALUES,
   accountColor: ACCOUNT_COLOR_VALUES,
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,

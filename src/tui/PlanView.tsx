@@ -145,7 +145,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   const draft = draftPlan(planMode, planFile, presented);
   // The plan being written comes last, after the ones already presented.
   const plans = useMemo(() => (draft ? [...presented, draft] : presented), [presented, draft?.text, draft?.timestamp]);
-  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const newest = plans.length - 1;
@@ -353,7 +353,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           pinned={filter.pinned}
           filter={filter.banner}
           selected={index}
-          height={bodyHeight}
+          height={listHeight}
           empty={filter.empty ?? "No plans yet"}
           itemKey={(p) => p.id}
           time={(p) => p.timestamp}

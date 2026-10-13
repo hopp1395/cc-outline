@@ -506,7 +506,7 @@ function time(ts?: string): string {
 export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
-  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
 
   const [selected, setSelected] = useState(0);
   const [follow, setFollow] = useState(true);
@@ -870,7 +870,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           pinned={filter.pinned}
           filter={filter.banner}
           selected={selected}
-          height={bodyHeight}
+          height={listHeight}
           empty={filter.empty ?? "Waiting for prompts…"}
           itemKey={(t, i) => t.id + i}
           time={(t) => t.timestamp}

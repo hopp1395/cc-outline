@@ -6,7 +6,7 @@ import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
+import { COMPACT_COLUMNS_VALUES, isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
 import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
@@ -165,7 +165,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     reported.current = { ...reported.current, [m]: open };
     // A detail opened from the full list shows over the whole pane; the trash is a list itself.
     if (m !== "sessions" && m !== "accounts") {
-      const width = readSettings().compactView !== "off" ? "full" : readSettings()[LIST_WIDTH_SETTINGS[m]];
+      // Stacked shows list and preview together: nothing to open over the pane.
+      const { compactView: view } = readSettings();
+      const width = view === "single" ? "full" : view === "stacked" ? "normal" : readSettings()[LIST_WIDTH_SETTINGS[m]];
       setFolds((f) => ({ ...f, [m]: detailFold(width, f[m], open, was) }));
     }
     setDetailOpen((d) => ({ ...d, [m]: open }));
@@ -373,7 +375,14 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }, [notice]);
   // Past narrow the list folds away, past wider it takes the pane.
   const stepWidth = (step: 1 | -1) => {
-    if (readSettings().compactView !== "off") return;
+    const { compactView: view, compactColumns } = readSettings();
+    // Stacked: the list's columns, up to four; single has one column.
+    if (view === "stacked") {
+      const next = COMPACT_COLUMNS_VALUES[Math.max(0, Math.min(COMPACT_COLUMNS_VALUES.length - 1, COMPACT_COLUMNS_VALUES.indexOf(compactColumns) + step))]!;
+      if (next !== compactColumns) updateSettings({ compactColumns: next });
+      return setNotice({ text: `columns: ${next}` });
+    }
+    if (view !== "off") return;
     const key = LIST_WIDTH_SETTINGS[mode];
     const width = readSettings()[key];
     const next = stepFold(width, folds[mode], step);
@@ -384,7 +393,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // | goes to an end and back to the width before, to the other end next time.
   const toggleWidth = () => {
     // The compact view has one column: | swaps list and preview.
-    if (readSettings().compactView !== "off") return setFold(mode, { ...folds[mode], drilled: !folds[mode].drilled });
+    const { compactView: view } = readSettings();
+    if (view === "stacked") return;
+    if (view === "single") return setFold(mode, { ...folds[mode], drilled: !folds[mode].drilled });
     const key = LIST_WIDTH_SETTINGS[mode];
     const width = readSettings()[key];
     const next = toggleFold(width, folds[mode], before.current[mode]);

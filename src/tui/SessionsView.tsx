@@ -46,6 +46,7 @@ import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
 import {
   AreaContext,
+  columnWidthOf,
   bold,
   dim,
   handleNavigation,
@@ -479,7 +480,7 @@ const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : isImport(e) ? IMPO
 /** The row of the import entry, a badge like load more. */
 function ImportRow() {
   const area = useContext(AreaContext);
-  return <Text>{centredBadge("⤓ import sessions…", area.width || 40)}</Text>;
+  return <Text>{centredBadge("⤓ import sessions…", columnWidthOf(area))}</Text>;
 }
 
 /** The export's progress dialog: the step of the session being exported; the archive, or why it failed. */
@@ -501,7 +502,7 @@ export function exportProgress(count: number, state: { progress?: ExportProgress
 }
 
 export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach, accountRequest }: Props) {
-  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
   const copy = useClipboard();
@@ -1220,7 +1221,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             filter={filter.banner}
             selected={index}
             centre={trashOpen ? "trash" : restoredShown.current}
-            height={bodyHeight}
+            height={listHeight}
             empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
             itemKey={entryId}
             time={listedAt}
