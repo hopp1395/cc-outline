@@ -11,6 +11,7 @@ import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { ALL_AVATAR_PRESETS, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
 import { AvatarDialog } from "./AvatarDialog.js";
+import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
 import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { filterSettings, sessionFilter } from "../sessionFilter.js";
 import { otherAccounts } from "../accountContinue.js";
@@ -137,6 +138,8 @@ interface Row {
   /** How a value of one's own (none of `values`) is named, and what it means; else as it is, "your own". */
   ownName?: (value: string) => string;
   ownMeaning?: (value: string) => string;
+  /** The details end with the marks of the Sessions list. */
+  legend?: boolean;
   /** Short values with short meanings: one line each, the meaning after the value. */
   inline?: boolean;
 }
@@ -518,7 +521,7 @@ export const SETTING_ROWS: Row[] = [
   listWidthRow("planListWidth", "Plan", "list width", "Plan", "A wider list shows more of each plan's title; a narrower one leaves the plan text more room."),
   wrapRow("planWrap", "Plan", "of plans", "useful for wide tables and code blocks"),
   listOrder("planOrder", "Plan", "plans"),
-  viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"),
+  { ...viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"), legend: true },
   listWidthRow("sessionsListWidth", "Sessions", "list width", "Sessions", "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room."),
   {
     key: "sessionsFolders",
@@ -532,6 +535,7 @@ export const SETTING_ROWS: Row[] = [
       ["all", "all project folders"],
     ],
     dialog: "sessions",
+    legend: true,
     viewKey: "`a` in Sessions",
   },
   {
@@ -547,6 +551,7 @@ export const SETTING_ROWS: Row[] = [
     ownName: (value) => `${value.split(ACCOUNT_DIRS_SEPARATOR).length} chosen`,
     ownMeaning: (value) => value.split(ACCOUNT_DIRS_SEPARATOR).map(tilde).join(", "),
     dialog: "sessions",
+    legend: true,
     viewKey: "`a` in Sessions",
   },
   {
@@ -561,6 +566,7 @@ export const SETTING_ROWS: Row[] = [
       ["hide", "leave them out: only the sessions typed in a terminal"],
     ],
     dialog: "sessions",
+    legend: true,
     inline: true,
     viewKey: "`a` in Sessions",
   },
@@ -728,6 +734,16 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   }
   if (row.viewKey) lines.push("", dim(codeMarks(`Also ${row.viewKey}.`)));
   for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
+  if (row.legend) {
+    // The marks in a column, what each says wrapped beside it.
+    const column = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
+    lines.push("", bold("Marks in the Sessions list"));
+    for (const m of SESSION_LEGEND) {
+      const [first = "", ...rest] = wrapText(m.text, width - column - 4);
+      const pad = " ".repeat(column - stringWidth(m.mark));
+      lines.push(`  ${legendMark(m)}${pad}  ${first}`, ...rest.map((l) => " ".repeat(column + 4) + l));
+    }
+  }
   return lines;
 }
 

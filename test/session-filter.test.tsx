@@ -8,6 +8,7 @@ import { readSettings, updateSettings } from "../src/settings.js";
 import { projectDir } from "../src/transcript/locate.js";
 import { SessionReader } from "../src/transcript/sessions.js";
 import type { Layout } from "../src/tui/layout.js";
+import { legendLines } from "../src/tui/SessionFilterDialog.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 
 const layout: Layout = { columns: 120, rows: 26, listWidth: 40, previewWidth: 77, bodyHeight: 22 };
@@ -25,6 +26,16 @@ describe("background sessions in the transcript", () => {
     // A session sent to the background counts as the daemon's from then on.
     const sent = prompt("c", "typed", { entrypoint: "cli" }) + prompt("d", "later", { entrypoint: "cli", sessionKind: "bg" });
     expect(new SessionReader("c.jsonl").push(sent).background).toBe("daemon");
+  });
+});
+
+describe("the legend", () => {
+  it("packs the marks into lines of the width given", () => {
+    const plain = (l: string) => l.replace(/\u001b\[[0-9;]*m/g, "");
+    const lines = legendLines(40).map(plain);
+    expect(lines.length).toBeGreaterThan(2);
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(40);
+    expect(lines.join("  ")).toContain("◌ background");
   });
 });
 
@@ -95,6 +106,10 @@ describe("the filter dialog in Sessions", () => {
     expect(view.frame()).toContain("◌ background: claude -p / SDK");
     await view.press("a");
     await until(() => view.frame().includes("Show sessions"));
+    // The marks of the list, explained below the rows.
+    expect(view.frame()).toContain("Marks in the list");
+    expect(view.frame()).toContain("◌ background");
+    expect(view.frame()).toContain("∅ folder gone");
     // One account: no accounts group, the background row follows the folders.
     expect(view.frame()).not.toContain("Accounts");
     await view.press(DOWN);

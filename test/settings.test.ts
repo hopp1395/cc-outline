@@ -204,6 +204,9 @@ describe("settings view", () => {
   it("names this project and the terminal found", () => {
     expect(details("sessionsFolders")).toContain("only this one, my-app");
     expect(details("sessionsFolders")).toContain("every folder but my-app");
+    // The Sessions rows end with the marks of its list.
+    expect(details("sessionsBackground")).toContain("Marks in the Sessions list");
+    expect(details("sessionsBackground")).toMatch(/∅ +its folder is gone/);
     expect(details("placement", "wt")).toContain("Alt+Tab");
     expect(details("placement", "tmux")).toContain("tmux window");
     expect(details("placement", "tmux")).not.toContain("Windows Terminal cannot");

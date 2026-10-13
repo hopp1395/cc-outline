@@ -1,11 +1,13 @@
 import { Text, useInput } from "ink";
 import { basename } from "node:path";
 import { useState, type ReactNode } from "react";
+import stringWidth from "string-width";
 import type { Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
 import { SESSIONS_BACKGROUND_VALUES, type SessionsBackground, type SessionsFolders } from "../settings.js";
 import { accountChosen, type SessionFilter } from "../sessionFilter.js";
 import { Dialog, type Layout } from "./layout.js";
+import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
 
 const MAX_WIDTH = 60;
 
@@ -23,6 +25,25 @@ export function filterAccounts(accounts: Account[], own: string): FilterAccount[
     { dir: own, label: `${mine?.email ?? "this account"} (${basename(own)}) · this account` },
     ...others.map((a) => ({ dir: a.dir, label: `${a.email} (${basename(a.dir)})` })),
   ];
+}
+
+/** The marks of the list in short, as many to a line as fit in `width` columns. */
+export function legendLines(width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  let used = 0;
+  for (const m of SESSION_LEGEND) {
+    const size = stringWidth(`${m.mark} ${m.short}`);
+    if (used > 0 && used + 2 + size > width) {
+      lines.push(line);
+      line = "";
+      used = 0;
+    }
+    line += `${used > 0 ? "  " : ""}${legendMark(m)} ${m.short}`;
+    used += (used > 0 ? 2 : 0) + size;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 type Row ={ kind: "folder"; which: "this" | "other" } | { kind: "account"; dir: string } | { kind: "background" };
@@ -109,8 +130,9 @@ export function SessionFilterDialog({
     );
   };
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
-  // Title, blank, three headings, the rows, blank, notice, keys, plus the border.
-  const height = 2 + (withAccounts ? 3 : 2) + rows.length + 3 + 2;
+  const legend = legendLines(width - 4);
+  // Title, blank, three headings, the rows, blank, the legend's heading and lines, blank, notice, keys, plus the border.
+  const height = 2 + (withAccounts ? 3 : 2) + rows.length + 2 + legend.length + 3 + 2;
   const accountsAt = 2;
   const backgroundAt = rows.length - 1;
   return (
@@ -136,6 +158,13 @@ export function SessionFilterDialog({
           ))}
         </>,
       )}
+      <Text> </Text>
+      <Text dimColor>Marks in the list</Text>
+      {legend.map((l, i) => (
+        <Text key={`legend-${i}`} wrap="truncate">
+          {l}
+        </Text>
+      ))}
       <Text> </Text>
       <Text color="yellow" wrap="truncate">
         {notice ?? " "}
