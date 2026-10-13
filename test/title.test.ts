@@ -28,6 +28,7 @@ describe("session title", () => {
 
   it("ends with the account's email when it is given, without control characters", () => {
     expect(titleWithStatus("orders", "idle", 0, "work@example.com")).toBe("✳ orders · work@example.com");
+    expect(titleWithStatus("orders", "working", 1, "🦊")).toBe("◑ orders · 🦊");
     expect(titleWithStatus("orders", undefined, 0, "work@\u0007example.com")).toBe("orders · work@ example.com");
     expect(titleWithStatus("", "idle", 0, "work@example.com")).toBe("✳ cco · work@example.com");
     expect(titleWithStatus("orders", "idle", 0, undefined)).toBe("✳ orders");

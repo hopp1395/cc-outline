@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { avatarOf } from "./avatar.js";
 import { claudeDir, readJson } from "./transcript/locate.js";
 
 /** The Claude account a Claude Code config folder is signed in to, from its `.claude.json`. */
@@ -18,6 +19,8 @@ export interface Account {
   rateLimitTier?: string;
   /** The colour chosen in that folder's cco settings (`<dir>/cco/settings.json`); `auto` without one. */
   chosenColor?: AccountColorSetting;
+  /** The avatar chosen in that folder's cco settings; none keeps "cco". */
+  avatar?: string;
 }
 
 /**
@@ -90,6 +93,7 @@ export function readAccount(dir: string, home = homedir()): Account | undefined 
       seat: text(stored.seatTier),
       rateLimitTier: text(stored.organizationRateLimitTier),
       chosenColor: chosenColorOf(dir),
+      avatar: chosenAvatarOf(dir),
     };
   }
   return undefined;
@@ -104,6 +108,11 @@ export function chosenColorOf(dir: string): AccountColorSetting {
   const value = stored?.accountColor;
   if ((ACCOUNT_COLOR_VALUES as readonly unknown[]).includes(value)) return value as AccountColorSetting;
   return value === undefined && stored?.accountBadge === false ? "off" : "auto";
+}
+
+/** The avatar chosen for the account of `dir` in its own cco settings; none where it keeps "cco" or the value is not one. */
+export function chosenAvatarOf(dir: string): string | undefined {
+  return avatarOf(readJson<{ accountAvatar?: unknown }>(join(dir, "cco", "settings.json"))?.accountAvatar);
 }
 
 /** The folders that may hold an account: this viewer's own, the default one and every `~/.claude*` folder. */
@@ -182,6 +191,14 @@ export function accountUsedAt(account: Pick<Account, "dir" | "file">): number {
 export function barColorOfAccount(account: Account, info: Pick<AccountInfo, "own">, chosen: AccountColorSetting): AccountColorName | "gray" {
   const value = same(account.dir, info.own) ? chosen : (account.chosenColor ?? "auto");
   return value === "off" ? "gray" : accountColorName(account.email, value);
+}
+
+/**
+ * The avatar of `account`: for this viewer's own folder the one in its settings (`chosen`, the live setting), for
+ * another the one in that folder's settings; undefined keeps "cco".
+ */
+export function avatarOfAccount(account: Account, info: Pick<AccountInfo, "own">, chosen: string): string | undefined {
+  return same(account.dir, info.own) ? avatarOf(chosen) : account.avatar;
 }
 
 /** Whether the colour of `account` is a fixed one rather than taken from the email. */

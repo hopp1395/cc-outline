@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCOUNT_COLOR_NAMES, AUTO_COLORS, accountColorName, accountDirs, accountInfo, accountOfProcess, chosenColorOf, colorOfAccount, findAccounts, hasChosenColor, readAccount } from "../src/account.js";
+import { ACCOUNT_COLOR_NAMES, AUTO_COLORS, accountColorName, accountDirs, accountInfo, accountOfProcess, avatarOfAccount, chosenAvatarOf, chosenColorOf, colorOfAccount, findAccounts, hasChosenColor, readAccount } from "../src/account.js";
 
 /** A home folder with the given config folders; a value is the email its `.claude.json` names, undefined: no such file. */
 function homeWith(folders: Record<string, string | undefined>, homeFile?: string): string {
@@ -95,5 +95,21 @@ describe("accounts", () => {
     // An unknown value counts as auto.
     writeFileSync(join(home, ".claude-work", "cco", "settings.json"), JSON.stringify({ accountColor: "teal" }));
     expect(chosenColorOf(join(home, ".claude-work"))).toBe("auto");
+  });
+
+  it("takes this viewer's avatar from its live setting and the others' from their folders", () => {
+    const home = homeWith({ ".claude-work": "work@example.com", ".claude-personal": "me@example.com" });
+    const own = join(home, ".claude-personal");
+    mkdirSync(join(home, ".claude-work", "cco"), { recursive: true });
+    writeFileSync(join(home, ".claude-work", "cco", "settings.json"), JSON.stringify({ accountAvatar: "🐙" }));
+    const info = accountInfo(undefined, home, own);
+    const mine = info.accounts.find((a) => a.dir === own)!;
+    const work = info.accounts.find((a) => a.email === "work@example.com")!;
+    expect(avatarOfAccount(mine, info, "🦊")).toBe("🦊");
+    expect(avatarOfAccount(mine, info, "")).toBeUndefined();
+    expect(avatarOfAccount(work, info, "🦊")).toBe("🐙");
+    // Not one: too wide.
+    writeFileSync(join(home, ".claude-work", "cco", "settings.json"), JSON.stringify({ accountAvatar: "toolong" }));
+    expect(chosenAvatarOf(join(home, ".claude-work"))).toBeUndefined();
   });
 });

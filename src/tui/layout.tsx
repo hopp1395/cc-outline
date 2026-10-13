@@ -20,6 +20,7 @@ import { useReload } from "./reload.js";
 import { useUpdateInfo } from "./useUpdate.js";
 import { VERSION } from "../version.js";
 import { ACCOUNT_COLORS, type AccountColorName } from "../account.js";
+import { avatarLead } from "../avatar.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
 import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
 import { centredBadge } from "./Preview.js";
@@ -370,6 +371,8 @@ export const SessionColorContext = createContext<string | undefined>(undefined);
 
 /** The account's colour for the "cco" in the top bar; undefined for none (no account, or the badge off). */
 export const AccountBadgeContext = createContext<AccountColorName | undefined>(undefined);
+/** The account's avatar in place of the "cco"; undefined keeps "cco". */
+export const AccountAvatarContext = createContext<string | undefined>(undefined);
 
 /** The top bar's background: the session colour's, else the blue focus bar while focused. */
 export function barBackground(color: string | undefined, focused: boolean): string | undefined {
@@ -389,7 +392,6 @@ const TABS: { key: string; label: string; mode: Mode }[] = [
   { key: "5", label: "Monitor", mode: "monitor" },
   { key: "6", label: "Settings", mode: "settings" },
 ];
-const TABS_LEAD = "cco ";
 const tabText = (tab: (typeof TABS)[number]) => ` ${tab.key} ${tab.label} `;
 
 /** The tabs shown while `mode` is open: a hidden view shows its tab only while it is open (opened by a /cco:… command). */
@@ -397,10 +399,14 @@ function shownTabs(settings: Settings, mode: Mode) {
   return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
 }
 
-/** The view whose tab is at column `x` of the top bar, or undefined; the "cco" at its start is the Accounts view's (0), unless that is off. */
-export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefined {
-  if (x >= 0 && x < TABS_LEAD.length - 1) return isViewShown(settings, "accounts") ? "accounts" : undefined;
-  let start = TABS_LEAD.length;
+/**
+ * The view whose tab is at column `x` of the top bar, or undefined; the "cco" (or the account's `avatar`) at its
+ * start is the Accounts view's (0), unless that is off.
+ */
+export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string): Mode | undefined {
+  const lead = stringWidth(avatarLead(avatar));
+  if (x >= 0 && x < lead) return isViewShown(settings, "accounts") ? "accounts" : undefined;
+  let start = lead + 1;
   for (const tab of shownTabs(settings, mode)) {
     const end = start + tabText(tab).length;
     if (x >= start && x < end) return tab.mode;
@@ -412,12 +418,13 @@ export function tabAt(x: number, settings: Settings, mode: Mode): Mode | undefin
 function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const settings = useSettings();
   const badge = useContext(AccountBadgeContext);
+  const avatar = useContext(AccountAvatarContext);
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
-      {/* The "cco" is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
+      {/* The "cco" (or the avatar) is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
       <Text bold inverse={mode === "accounts"} color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
-        {TABS_LEAD.trimEnd()}
+        {avatarLead(avatar)}
       </Text>
       <Text> </Text>
       {shownTabs(settings, mode).map((tab) =>

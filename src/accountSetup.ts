@@ -62,7 +62,7 @@ export const runInAccount = (dir: string): RunCommand => runCommandWith(withClau
 /**
  * Gives the account of `dir` what cco needs besides the plugin: the CLI's path for the plugin's launcher (else it
  * starts cco through the slow shell) and, if it has none yet, this account's settings, so the viewer looks the
- * same there. The account colour is chosen per folder and stays out.
+ * same there. The account colour and avatar are chosen per folder and stay out.
  */
 export function prepareAccount(dir: string): void {
   const cli = readJson<{ cli?: unknown }>(cliFile());
@@ -70,7 +70,7 @@ export function prepareAccount(dir: string): void {
   inClaudeDir(dir, () => {
     if (cli && typeof cli.cli === "string" && !readJson(cliFile())) writeJson(cliFile(), { cli: cli.cli });
     if (settings && !existsSync(settingsFile())) {
-      const { accountColor: _colour, ...rest } = settings;
+      const { accountColor: _colour, accountAvatar: _avatar, ...rest } = settings;
       writeJson(settingsFile(), rest);
     }
   });

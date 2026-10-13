@@ -1,6 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import stringWidth from "string-width";
-import { editLine, insertable, toggleFilterIn, type LineState } from "../filter.js";
+import { editLine, insertable, nextBoundary, toggleFilterIn, type LineState } from "../filter.js";
 import type { FilterIn } from "../settings.js";
 import { Dialog, type Layout } from "./layout.js";
 
@@ -91,10 +91,12 @@ export function LineField({ line, width }: { line: LineState; width: number }) {
   const room = width - 4 - 2;
   const { text, cursor, selected } = line;
   let start = 0;
-  while (stringWidth(text.slice(start, cursor)) > room) start++;
+  while (stringWidth(text.slice(start, cursor)) > room) start = nextBoundary(text, start);
   const before = text.slice(start, cursor);
-  const at = text.slice(cursor, cursor + 1);
-  const after = text.slice(cursor + 1);
+  // The character under the cursor whole: an emoji takes two code units.
+  const end = nextBoundary(text, cursor);
+  const at = text.slice(cursor, end);
+  const after = text.slice(end);
   return (
     <Text wrap="truncate">
       <Text color="yellow">› </Text>

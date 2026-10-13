@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -101,14 +101,14 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; a viewer of a --session shows no status.
   const lastTurn = transcript.turns.at(-1);
   const working = lastTurn !== undefined && !lastTurn.done && !lastTurn.interrupted;
-  // With two or more accounts the title ends with the shown account's email and the "cco" takes its colour.
+  // The title ends with the shown account's avatar, if one is chosen; the "cco" (or the avatar) takes its colour.
   const account = useAccounts(claudePid);
   const [accountTitle] = useSetting("accountTitle");
   const [accountColor] = useSetting("accountColor");
   useTerminalTitle(
     transcript.title ?? basename(cwd),
     sessionId ? undefined : working ? "working" : "idle",
-    account.multiple && accountTitle ? account.current?.email : undefined,
+    accountTitle ? account.avatar : undefined,
   );
   const [rememberView] = useSetting("rememberView");
   // An explicit --view opens its view even when hidden; a remembered or default one only if shown.
@@ -414,7 +414,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (input.startsWith("[<")) {
       if (!mouse) return;
       const click = parseMouse(input).find((e) => e.kind === "click" && e.y === 0);
-      const view = click && tabAt(click.x, readSettings(), mode);
+      const view = click && tabAt(click.x, readSettings(), mode, account.avatar);
       if (view && view !== mode) setMode(view);
       return;
     }
@@ -439,6 +439,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <ProgressHostProvider host={progress.host}>
     <AccountContext.Provider value={account}>
     <AccountBadgeContext.Provider value={accountColor !== "off" ? account.color : undefined}>
+    <AccountAvatarContext.Provider value={account.avatar}>
     <SessionColorContext.Provider value={transcript.color}>
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
@@ -601,6 +602,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     </CopySelectionContext.Provider>
     </ScreenNoticeContext.Provider>
     </SessionColorContext.Provider>
+    </AccountAvatarContext.Provider>
     </AccountBadgeContext.Provider>
     </AccountContext.Provider>
     </ProgressHostProvider>

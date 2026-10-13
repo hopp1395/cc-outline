@@ -260,6 +260,17 @@ describe("tabAt", () => {
     expect(tabAt(200, DEFAULT_SETTINGS, "chat")).toBeUndefined();
   });
 
+  it("makes room for the account's avatar instead of the cco", () => {
+    // The avatar is a badge with a space on each side: " 🦊 " takes four columns, " 👾👾👾 " eight.
+    expect(tabAt(3, DEFAULT_SETTINGS, "chat", "🦊")).toBe("accounts");
+    expect(tabAt(4, DEFAULT_SETTINGS, "chat", "🦊")).toBeUndefined();
+    expect(tabAt(5, DEFAULT_SETTINGS, "chat", "🦊")).toBe("chat");
+    expect(tabAt(7, DEFAULT_SETTINGS, "chat", "👾👾👾")).toBe("accounts");
+    expect(tabAt(8, DEFAULT_SETTINGS, "chat", "👾👾👾")).toBeUndefined();
+    expect(tabAt(9, DEFAULT_SETTINGS, "chat", "👾👾👾")).toBe("chat");
+    expect(tabAt(17, DEFAULT_SETTINGS, "chat", "👾👾👾")).toBe("git");
+  });
+
   it("skips hidden views, unless it is the open one", () => {
     const settings = { ...DEFAULT_SETTINGS, viewGit: false };
     expect(tabAt(12, settings, "chat")).toBe("plan");

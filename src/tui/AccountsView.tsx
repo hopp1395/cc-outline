@@ -1,7 +1,9 @@
 import { Text, useInput } from "ink";
 import { basename } from "node:path";
 import { useEffect, useMemo, useState } from "react";
-import { accountUsedAt, colorOfAccount, hasChosenColor, type Account } from "../account.js";
+import stringWidth from "string-width";
+import { ACCOUNT_COLORS, accountUsedAt, avatarOfAccount, colorOfAccount, hasChosenColor, type Account } from "../account.js";
+import { DEFAULT_AVATAR } from "../avatar.js";
 import { ACCOUNTS_ORDER_VALUES, type AccountsOrder } from "../settings.js";
 import { accountPlugin, accountRunning, accountSessions } from "../accountsInfo.js";
 import { listAccountTrash, sizeText, type AccountTrashEntry } from "../accountTrash.js";
@@ -12,7 +14,7 @@ import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, pre
 import { doubleClicks } from "./openKey.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useOnReload } from "./reload.js";
-import { accountLines, colorBadge, tilde } from "./SettingsView.js";
+import { accountLines, avatarBadge, colorBadge, tilde } from "./SettingsView.js";
 import { useAccountState, type AccountState } from "./useAccount.js";
 import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
@@ -210,6 +212,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
       ...field("rate limit tier", a.rateLimitTier),
       ...field("read from", tilde(a.file)),
       `  ${dim("colour:")} ${colorBadge(colorOfAccount(a, state, settings.accountColor))}${hasChosenColor(a, state, settings.accountColor) ? " chosen" : dim(" from the email")}`,
+      `  ${dim("avatar:")} ${avatarOfAccount(a, state, settings.accountAvatar) ? avatarBadge(avatarOfAccount(a, state, settings.accountAvatar)!, colorOfAccount(a, state, settings.accountColor)) : dim(`none, "${DEFAULT_AVATAR}"`)}`,
     );
     out.push("", heading("cco plugin"));
     if (details) {
@@ -238,7 +241,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     if (isCurrent(a)) out.push(dim("This is the account of the Claude Code the viewer follows."));
     out.push(dim("Enter: continue this session there, start a new session there (with or without the viewer), or open its config folder. d: move it to the trash (T shows the trash)."));
     return out;
-  }, [entry, trashOpen, state, settings.accountColor, details, running, previewWidth, cwd]);
+  }, [entry, trashOpen, state, settings.accountColor, settings.accountAvatar, details, running, previewWidth, cwd]);
 
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entry && keyOf(entry), lines.length, viewport);
@@ -327,13 +330,29 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
               const a = e.account;
               const marked = favorites.isMarked(a.dir);
               const color = colorOfAccount(a, state, settings.accountColor);
+              const avatar = avatarOfAccount(a, state, settings.accountAvatar);
               const folder = basename(a.dir);
+              // The avatar at the right end, on the account's colour as in the top bar.
+              const badge = avatar ? ` ${avatar} ` : "";
               return (
                 <>
                   {marked && <Star />}
                   <Text color={color}>{isCurrent(a) ? "● " : "○ "}</Text>
-                  <EntryText text={a.email} width={Math.max(4, listWidth - 3 - (marked ? 2 : 0) - Math.min(folder.length, 16) - 1)} selected={isSelected} active={active} />
+                  <EntryText
+                    text={a.email}
+                    width={Math.max(4, listWidth - 3 - (marked ? 2 : 0) - Math.min(folder.length, 16) - 1 - (badge ? stringWidth(badge) + 1 : 0))}
+                    selected={isSelected}
+                    active={active}
+                  />
                   <Text dimColor> {folder.length > 16 ? `${folder.slice(0, 15)}…` : folder}</Text>
+                  {badge && (
+                    <Text>
+                      {" "}
+                      <Text color={ACCOUNT_COLORS[color]} backgroundColor={color}>
+                        {badge}
+                      </Text>
+                    </Text>
+                  )}
                 </>
               );
             }}

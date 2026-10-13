@@ -96,6 +96,20 @@ describe("Sessions with the other accounts", () => {
     view.unmount();
   });
 
+  it("starts the rows with the accounts' avatars instead of the bar, padded to the widest", async () => {
+    updateSettings({ sessionsScope: "project-accounts", accountAvatar: "🦊" });
+    session(own, "a1", "work here", 10);
+    session(other, "b1", "work there", 5);
+    const state = stateOf();
+    state.accounts[1] = { ...state.accounts[1]!, avatar: "👾👾" };
+    const view = render(state);
+    await until(() => view.frame().includes("work there") && view.frame().includes("work here"));
+    const lines = view.frame().split("\n");
+    expect(lines.find((l) => l.includes("work there"))).toMatch(/^ 👾👾  \d\d:\d\d/);
+    expect(lines.find((l) => l.includes("work here"))).toMatch(/^ 🦊    \d\d:\d\d/);
+    view.unmount();
+  });
+
   it("marks another account's session under its folder, refuses to delete it, and offers to continue it there", async () => {
     updateSettings({ sessionsScope: "project-accounts" });
     session(own, "s1", "work here", 10);

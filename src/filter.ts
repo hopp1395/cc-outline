@@ -111,6 +111,19 @@ export const lineOf = (text: string): LineState => ({ text, cursor: text.length,
 /** Text to insert: line breaks and other control characters become spaces. */
 export const insertable = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ");
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Where the characters of `text` start (as one sees them: an emoji is one, though it takes two code units), and its end. */
+function boundaries(text: string): number[] {
+  return [...[...graphemes.segment(text)].map((s) => s.index), text.length];
+}
+
+/** The start of the character before `cursor`. */
+export const previousBoundary = (text: string, cursor: number) => boundaries(text).filter((b) => b < cursor).at(-1) ?? 0;
+
+/** The end of the character at `cursor`. */
+export const nextBoundary = (text: string, cursor: number) => boundaries(text).find((b) => b > cursor) ?? text.length;
+
 /**
  * Edits the line for one key: characters (also a pasted string) insert at the
  * cursor or replace the selected text, Backspace/Delete remove one character or the
@@ -121,11 +134,14 @@ export function editLine(state: LineState, input: string, key: LineKey): LineSta
   if (key.ctrl && input === "u") return { text: "", cursor: 0, selected: false };
   if (key.backspace || key.delete) {
     if (selected) return { text: "", cursor: 0, selected: false };
-    if (key.backspace) return cursor > 0 ? { text: text.slice(0, cursor - 1) + text.slice(cursor), cursor: cursor - 1, selected: false } : state;
-    return cursor < text.length ? { text: text.slice(0, cursor) + text.slice(cursor + 1), cursor, selected: false } : state;
+    if (key.backspace) {
+      const at = previousBoundary(text, cursor);
+      return cursor > 0 ? { text: text.slice(0, at) + text.slice(cursor), cursor: at, selected: false } : state;
+    }
+    return cursor < text.length ? { text: text.slice(0, cursor) + text.slice(nextBoundary(text, cursor)), cursor, selected: false } : state;
   }
-  if (key.leftArrow) return { text, cursor: selected ? 0 : Math.max(0, cursor - 1), selected: false };
-  if (key.rightArrow) return { text, cursor: selected ? text.length : Math.min(text.length, cursor + 1), selected: false };
+  if (key.leftArrow) return { text, cursor: selected ? 0 : previousBoundary(text, cursor), selected: false };
+  if (key.rightArrow) return { text, cursor: selected ? text.length : nextBoundary(text, cursor), selected: false };
   if (key.home) return { text, cursor: 0, selected: false };
   if (key.end) return { text, cursor: text.length, selected: false };
   if (key.ctrl || key.meta || !input) return state;

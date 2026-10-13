@@ -14,7 +14,7 @@ export const IDLE_MARK = "✳";
 /** How long each half circle shows, as in Claude Code. */
 export const WORKING_FRAME_MS = 960;
 
-/** The title with Claude Code's status mark: `frame` of the working marks, or the idle one; none without a status. A `suffix` (the account's email) follows after a dot. */
+/** The title with Claude Code's status mark: `frame` of the working marks, or the idle one; none without a status. A `suffix` (the account's avatar) follows after a dot. */
 export function titleWithStatus(title: string, status: "working" | "idle" | undefined, frame = 0, suffix?: string): string {
   const base = terminalTitle(title);
   const extra = suffix ? terminalTitle(suffix) : "";
@@ -28,7 +28,7 @@ export function titleWithStatus(title: string, status: "working" | "idle" | unde
  * Sets the terminal's window and tab title (OSC 0) to `title`, so the
  * viewer's tab and a window of its own show the session instead of "cco".
  * With a `status`, it starts with Claude Code's mark: ◐/◑ in turn while the
- * session's last turn runs, ✳ otherwise. A `suffix` ends it: the account's email. Windows Terminal takes it over the
+ * session's last turn runs, ✳ otherwise. A `suffix` ends it: the account's avatar. Windows Terminal takes it over the
  * `--title` of the tab unless the profile sets `suppressApplicationTitle`.
  */
 export function useTerminalTitle(title: string, status?: "working" | "idle", suffix?: string): void {
@@ -40,6 +40,6 @@ export function useTerminalTitle(title: string, status?: "working" | "idle", suf
     return () => clearInterval(timer);
   }, [status]);
   useEffect(() => {
-    stdout.write(`\u001b]0;${titleWithStatus(title, status, frame)}\u0007`);
-  }, [stdout, title, status, frame]);
+    stdout.write(`\u001b]0;${titleWithStatus(title, status, frame, suffix)}\u0007`);
+  }, [stdout, title, status, frame, suffix]);
 }

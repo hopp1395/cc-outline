@@ -82,6 +82,14 @@ describe("stepShown", () => {
 describe("editLine", () => {
   const at = (text: string, cursor: number): LineState => ({ text, cursor, selected: false });
 
+  it("steps over and removes an emoji as one character", () => {
+    const fox = "a🦊b";
+    expect(editLine(at(fox, 3), "", { leftArrow: true })).toEqual(at(fox, 1));
+    expect(editLine(at(fox, 1), "", { rightArrow: true })).toEqual(at(fox, 3));
+    expect(editLine(at(fox, 3), "", { backspace: true })).toEqual(at("ab", 1));
+    expect(editLine(at(fox, 1), "", { delete: true })).toEqual(at("ab", 1));
+  });
+
   it("replaces the selected text with the first character typed", () => {
     expect(editLine(lineOf("old"), "n", {})).toEqual(at("n", 1));
   });
