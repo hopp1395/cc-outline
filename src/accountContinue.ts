@@ -2,13 +2,10 @@ import { basename, resolve } from "node:path";
 import type { Account } from "./account.js";
 import { pluginSteps, prepareAccount, runInAccount } from "./accountSetup.js";
 import { copyToAccount, type AccountCopy } from "./export/toAccount.js";
-import { typeInClaude, type ConsoleTyper } from "./switchSession.js";
-import { TIMING } from "./timing.js";
 import { claudeDir } from "./transcript/locate.js";
 import type { SessionSummary } from "./transcript/sessions.js";
 import { recordTransfer } from "./transfers.js";
 import { runUpdate, type StepResult, type UpdateStep } from "./update.js";
-import { isAlive } from "./viewer.js";
 
 const same = (a: string, b: string) => (process.platform === "win32" ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b));
 
@@ -37,13 +34,11 @@ export interface ContinuePlan {
   account: Account;
   /** The email of the account the session is in now (this viewer's), for the note on the copy. */
   fromEmail?: string;
-  /** The Claude Code the session runs in now, to be closed first (`/exit`); none to leave it running. */
-  close?: { pid: number; typer?: ConsoleTyper };
   /** Leave out installing the plugin there (it failed, and the user goes on without hooks). */
   skipPlugin?: boolean;
 }
 
-/** How far it is: the steps (installing the plugin, closing, copying) and their state. */
+/** How far it is: the steps (installing the plugin, copying) and their state. */
 export type ContinueProgress = StepResult[];
 
 export type ContinueResult =
@@ -56,36 +51,19 @@ export type ContinueResult =
 export function continueSteps(plan: ContinuePlan): UpdateStep[] {
   return [
     ...(plan.skipPlugin ? [] : pluginSteps(plan.account.dir)),
-    ...(plan.close ? [{ label: "closing Claude Code", command: "/exit" }] : []),
     ...(plan.session ? [{ label: "copying the session", command: "" }] : []),
   ];
-}
-
-/** How long a Claude Code may take to exit after `/exit`. */
-export const EXIT_TIMEOUT_MS = 20_000;
-
-/** Types /exit into the Claude Code `pid` and waits until it has gone; the reason if it did not. */
-async function closeClaude(close: NonNullable<ContinuePlan["close"]>): Promise<string | undefined> {
-  if (!isAlive(close.pid)) return undefined;
-  const typed = await typeInClaude(close.pid, "/exit", close.typer);
-  if (!typed.typed) return typed.message;
-  const until = Date.now() + EXIT_TIMEOUT_MS;
-  while (isAlive(close.pid)) {
-    if (Date.now() >= until) return `Claude Code did not exit within ${EXIT_TIMEOUT_MS / 1000} s`;
-    await new Promise((r) => setTimeout(r, TIMING.pairPoll));
-  }
-  return undefined;
 }
 
 /**
  * Continues the session of `plan` in another account, up to the point where it can start there: installs the
  * cco plugin in that account if it lacks it (stopping if that fails, with nothing else done), gives that account
- * cco's CLI path and settings, closes the Claude Code the session runs in if asked to, copies the session into
- * that account's config folder and records the move on both sides. The caller then starts it there.
+ * cco's CLI path and settings, copies the session into that account's config folder and records the move on both
+ * sides. The session where it is now stays as it is. The caller then starts the copy there.
  */
 export async function continueInAccount(plan: ContinuePlan, onProgress: (steps: ContinueProgress) => void): Promise<ContinueResult> {
   const steps = continueSteps(plan);
-  const commands = steps.filter((s) => s.command && s.command !== "/exit");
+  const commands = steps.filter((s) => s.command);
   const results: StepResult[] = steps.map((step) => ({ step, status: "pending", output: "" }));
   const report = () => onProgress(results.map((r) => ({ ...r })));
   report();
@@ -111,14 +89,6 @@ export async function continueInAccount(plan: ContinuePlan, onProgress: (steps: 
     prepareAccount(plan.account.dir);
   } catch {
     // The plugin then starts cco through the shell, and the viewer there has the default settings.
-  }
-  if (plan.close) {
-    const closing = step("closing Claude Code");
-    closing.status = "running";
-    report();
-    const failed = await closeClaude(plan.close);
-    if (failed) return fail(closing, failed);
-    closing.status = "done";
   }
   if (!plan.session) {
     report();

@@ -60,8 +60,6 @@ export interface PairTarget {
   claudePid: number;
   sessionId: string;
   transcript: string;
-  /** The config folder the Claude Code runs under, when it is another account's than the viewer's (a session continued there). */
-  configDir?: string;
 }
 
 /**

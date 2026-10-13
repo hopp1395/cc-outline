@@ -108,21 +108,22 @@ describe("sessionOptions", () => {
   });
 
   it("continues a session that runs nowhere here when the viewer's Claude Code has no prompt yet, else in a new window", () => {
-    expect(shown({ paired: idle })).toBe("✱here window window-attach rename export import copy");
-    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window window-attach rename export import copy");
+    expect(shown({ paired: idle })).toBe("✱here window rename export import copy");
+    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window rename export import copy");
     // Versions without a status count as free.
-    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window window-attach rename export import copy");
+    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window rename export import copy");
+    // Only a viewer without a Claude Code moves along: a session started elsewhere gets a viewer of its own.
     expect(shown({})).toBe("✱window-attach window rename export import copy");
   });
 
   it("greys out continuing here while Claude works or waits, and for another project folder", () => {
-    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window window-attach rename export import copy");
+    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window rename export import copy");
     const { options } = sessionOptions({ ...base, paired: idle, otherFolder: "other" });
     expect(options[0]!.disabled).toBe("ran in other, not in this folder");
   });
 
   it("falls back to copying the command when nothing else can be done", () => {
-    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window ✗window-attach rename export import ✱copy");
+    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window rename export import ✱copy");
     expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window rename export import ✱copy");
     expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✗rename export import ✱copy");
   });
@@ -136,7 +137,7 @@ describe("sessionOptions", () => {
   });
 
   it("offers another account only when one is signed in, for every state, but not for a session whose folder is gone", () => {
-    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window window-attach account rename export import copy");
+    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window account rename export import copy");
     expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account ✗rename export import copy");
     expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account rename export import ✱copy");
     const option = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!;
@@ -145,7 +146,7 @@ describe("sessionOptions", () => {
   });
 
   it("gives another account's session the same list, with what works only here greyed out", () => {
-    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗window-attach ✗account ✗rename ✗export ✗import copy");
+    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account ✗rename ✗export ✗import copy");
     expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch ✗rename ✗export ✗import copy");
     expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✗rename ✗export ✗import ✱copy");
     const window = sessionOptions({ ...base, foreign: true, account: "c@x" }).options.find((o) => o.id === "window")!;
@@ -317,7 +318,7 @@ describe("continuing a session that runs nowhere", () => {
 });
 
 describe("continuing a session in another account", () => {
-  it("copies it there after asking, starts it under that account's folder and pairs with it there", async () => {
+  it("copies it there after asking and starts it under that account's folder, in a new window of its own", async () => {
     pastSession("s1");
     const own = claudeDir();
     const other = mkdtempSync(join(tmpdir(), "cco-resume-other-"));
@@ -342,21 +343,23 @@ describe("continuing a session in another account", () => {
     // The head names the session's account, this one.
     expect(view.frame()).toContain("▌ a@x · this account");
     await view.press("\r");
-    await until(() => view.frame().includes("Waiting for Claude Code…"));
+    await until(() => spawned.some((c) => c.cmd === "wt"));
     expect(existsSync(join(other, "projects", projectSlug(cwd), "s1.jsonl"))).toBe(true);
     const wt = spawned.find((c) => c.cmd === "wt")!;
-    expect(wt.args.slice(0, 2)).toEqual(["-w", "cco-resume-s1"]);
-    expect(wt.env?.CLAUDE_CONFIG_DIR).toBe(other);
-    // The other account's hook reads the pairing request in its own folder.
-    expect(inClaudeDir(other, () => readJson<{ sessionId: string }>(pairingFile(cwd)))?.sessionId).toBe("s1");
+    expect(wt.args.slice(0, 2)).toEqual(["-w", "new"]);
+    expect(wt.args).toContain("--resume");
+    expect(wt.args.slice(wt.args.indexOf("--config-dir"), wt.args.indexOf("--config-dir") + 2)).toEqual(["--config-dir", other]);
+    // Its hook opens a viewer of its own there; this one stays where it is.
+    expect(inClaudeDir(other, () => existsSync(pairingFile(cwd)))).toBe(false);
     expect(readTransfers(cwd).s1?.to?.[0]?.email).toBe("b@x");
     inClaudeDir(other, () => runs("s1"));
-    await until(() => started.length > 0);
-    expect(started[0]![0]).toMatchObject({ cwd, claudePid: process.pid, sessionId: "s1", configDir: other });
+    await tick(100);
+    expect(started).toEqual([]);
+    expect(view.frame()).not.toContain("Waiting for Claude Code");
     view.unmount();
   });
 
-  it("asks for a running session whether to close it, which waits while Claude works", async () => {
+  it("leaves a running session as it is: no question of closing it", async () => {
     pastSession("s1");
     runs("s1", "busy");
     const own = claudeDir();
@@ -375,8 +378,9 @@ describe("continuing a session in another account", () => {
     await view.press("3");
     await until(() => view.frame().includes("Continue in b@x?"));
     expect(view.frame()).toContain("with the cco plugin installed there first");
-    expect(view.frame()).toContain("Claude is working; close it once it is idle");
-    expect(view.frame()).toMatch(/› +Continue there, keep it running/);
+    expect(view.frame()).toContain("This session and its viewer stay as they are.");
+    expect(view.frame()).not.toContain("Close it and continue there");
+    expect(view.frame()).not.toContain("keep it running");
     view.unmount();
   });
 });

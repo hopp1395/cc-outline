@@ -21,7 +21,6 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { ownSession, useAccountFlow } from "./useAccountFlow.js";
-import type { PairTarget } from "../viewer.js";
 
 interface Props {
   cwd: string;
@@ -38,10 +37,6 @@ interface Props {
   noSession?: string;
   /** The Claude Code process the viewer belongs to. */
   claudePid?: number;
-  /** A Claude Code the viewer started runs now `where`: the viewer moves next to it. */
-  onPairStarted?: (target: PairTarget, where: string) => void;
-  /** While true, the viewer stays open when its Claude Code ends (closed on purpose). */
-  onHoldOpen?: (hold: boolean) => void;
   /** Reports whether the trash is shown, so Esc leaves it instead of quitting. */
   onTrashOpen?: (open: boolean) => void;
 }
@@ -104,7 +99,7 @@ const when = (ms: number) => {
 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onPairStarted, onHoldOpen, onTrashOpen }: Props) {
+export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onTrashOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -120,7 +115,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     return () => clearTimeout(timer);
   }, [flash]);
   // The account menu: continue the session there, start a new one, open its folder, move it to the trash.
-  const flow = useAccountFlow({ layout, claudePid, onPairStarted, onHoldOpen, notify: setFlash });
+  const flow = useAccountFlow({ layout, claudePid, notify: setFlash });
   useEffect(() => onModal?.(flow.open), [flow.open]);
   // Plugin and sessions are read with the account list (every 30 s) and on F5; the running Claude Codes every few seconds.
   const [reads, setReads] = useState(0);

@@ -164,15 +164,15 @@ export const pairingWindow = (sessionId: string) => `cco-resume-${sessionId.slic
  * where it runs, for `cco open --target`. In Windows Terminal a window named after the session
  * (`pairingWindow`), in tmux the id of the new pane (`%7`). No target without a supported terminal.
  */
-export async function resumeForPairing(sessionId: string, dir: string, title: string, configDir?: string, fresh = false): Promise<{ message: string; target?: string }> {
+export async function resumeForPairing(sessionId: string, dir: string, title: string): Promise<{ message: string; target?: string }> {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     const window = pairingWindow(sessionId);
-    return { message: resumeInNewWindow(sessionId, dir, title, window, configDir, fresh), target: window };
+    return { message: resumeInNewWindow(sessionId, dir, title, window), target: window };
   }
-  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title, "new", configDir, fresh) };
+  if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title, "new") };
   const pane = await new Promise<string | undefined>((resolve) =>
-    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId, configDir, fresh)], { timeout: 10_000 }, (err, stdout) =>
+    proc.execFile("tmux", ["new-window", "-P", "-F", "#{pane_id}", "-n", title, "-c", dir, tmuxResume(sessionId)], { timeout: 10_000 }, (err, stdout) =>
       resolve(err ? undefined : String(stdout).trim() || undefined),
     ),
   );
@@ -301,15 +301,14 @@ export function openedFromQueue(cwd: string, claudePid: number | undefined): boo
  * detached, which waits until this process has exited and then opens the
  * viewer there. The caller quits right after. False without a supported terminal.
  * After an update (`updatedTo`), the CLI started is the new one. `target` names where the
- * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`). `configDir`: the viewer
- * goes on under another account's config folder (a session continued there), with that folder's state.
+ * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`).
  */
-export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string, configDir?: string): boolean {
+export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string): boolean {
   if (!detectTerminal()) return false;
   const args = [CLI, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
   if (claudePid) args.push("--claude-pid", String(claudePid));
   if (updatedTo) args.push("--updated-to", updatedTo);
   if (target) args.push("--target", target);
-  proc.spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true, ...(configDir ? { env: withClaudeDir(process.env, configDir) } : {}) }).unref();
+  proc.spawn(process.execPath, args, { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
 }

@@ -7,7 +7,8 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `switch`: bring the tab of the Claude Code the session runs in to the front.
  * - `attach`: pair the viewer with that Claude Code, staying where it is.
  * - `here`: continue it in the viewer's own Claude Code (`/resume`).
- * - `window`: continue it in a new window; `window-attach`: and move the viewer next to it, paired.
+ * - `window`: continue it in a new window, where its hook opens a viewer of its own; `window-attach` (only for a
+ *   viewer without a Claude Code): and move this viewer next to it, paired.
  * - `move`: bring a session whose folder is gone into the viewer's project folder.
  * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
  * - `export`: write it (or the marked sessions) into a zip archive; `import`: read the sessions of one.
@@ -127,7 +128,7 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     };
     if (s.foreign) {
       // /resume in this viewer's Claude Code cannot reach another account's session.
-      options = [{ id: "here", label: "Continue it here", detail: "", disabled: OWN_ONLY }, window, windowAttach];
+      options = [{ id: "here", label: "Continue it here", detail: "", disabled: OWN_ONLY }, window, ...(paired ? [] : [windowAttach])];
       preferred = ["window"];
     } else if (paired) {
       const how = paired.method === "keys" ? "/resume is typed in" : "/resume is copied for you to paste";
@@ -137,7 +138,7 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
         detail: paired.empty ? `in this Claude Code, which has no prompt yet: ${how}` : `in this Claude Code, which leaves its session: ${how}`,
         disabled: gone ?? (s.otherFolder !== undefined ? `ran in ${s.otherFolder}, not in this folder` : paired.activity ? BUSY[paired.activity] : undefined),
       };
-      options = [here, window, windowAttach];
+      options = [here, window];
       preferred = paired.empty ? ["here", "window"] : ["window"];
     } else {
       options = [windowAttach, window];
