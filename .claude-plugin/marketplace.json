@@ -1,6 +1,7 @@
 {
   "name": "cc-outline",
   "owner": { "name": "Jan Hoppe" },
+  "description": "cc-outline: a split-pane terminal viewer for Claude Code in Windows Terminal or tmux, with the chat as Markdown, git diffs, plans and a session browser",
   "plugins": [
     {
       "name": "cco",
