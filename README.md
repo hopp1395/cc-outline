@@ -81,6 +81,16 @@ cc-outline manages your sessions and your Claude accounts from the pane next to 
 - **Add an account.** *How to add an account* explains the setup and does it with `Enter`: config folder, start scripts next to `claude` (`cw.cmd` and `cw`), cco plugin, and a window to sign in with `/login`. Names that a shell would run something else for are refused (PowerShell aliases such as `cp` or `sc`, built-ins of cmd and Bash, programs on the PATH).
 - **Clean up.** Sessions go to a trash with `d` (`T` shows it, `u` restores). Accounts too: `d` on an account, or the menu's *Danger zone*, moves its folder and start scripts to the accounts trash after asking twice (the second time with the folder's name typed in). The default `~/.claude`, the active account and accounts in use are refused.
 
+## Small screens
+
+![cc-outline in a narrow pane: the stacked layout with the list in two columns above the answer, the list in three columns and in one, the Changes and Sessions views, then the single column with the list, the full prompt and the preview](docs/compact.gif)
+
+On a small screen, or in a narrow pane next to Claude Code, list and preview side by side leave both too narrow. The setting *compact* (Settings › General) switches the layout:
+
+- **stacked.** The list is above the preview, both as wide as the pane. The list takes *compact split* of the height (10% to 50%, default 20%) and has *compact columns* columns (1 to 4, default 2), filled one after the other like a newspaper; `<` and `>` change the columns.
+- **single.** One column: the list, and `Enter` (a detail) or `|` shows the preview over the whole pane, `Esc` or `|` goes back.
+- Both leave out the help line (`i` still lists the keys), the status and the version, shorten the tabs to their number and keep the preview's header to one line.
+
 ## Installation
 
 Requirements:
@@ -584,6 +594,7 @@ npm run dev         # tsup --watch
 npm test            # vitest
 npm run typecheck
 npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg, plan.svg, sessions.svg and monitor.svg
+npm run demo:compact # re-record docs/compact.gif (the compact view in a narrow pane)
 ```
 
 The demo runs the viewer headlessly on a made-up project with a few older sessions, also of a second project, and a month of responses for the Monitor (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
