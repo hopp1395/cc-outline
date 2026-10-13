@@ -1,4 +1,4 @@
-# cc-outline
+# cc-outline: a viewer for Claude Code in a split pane
 
 [![CI](https://github.com/hopp1395/cc-outline/actions/workflows/ci.yml/badge.svg)](https://github.com/hopp1395/cc-outline/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/cc-outline)](https://www.npmjs.com/package/cc-outline)
