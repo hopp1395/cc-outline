@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -77,10 +77,10 @@ describe("the filter dialog in Sessions", () => {
   function session(folder: string, id: string, text: string, minutes: number, extra: object = {}) {
     mkdirSync(projectDir(folder), { recursive: true });
     const ts = new Date(Date.now() - minutes * 60_000).toISOString();
-    writeFileSync(
-      join(projectDir(folder), `${id}.jsonl`),
-      line({ type: "user", uuid: `${id}-u`, timestamp: ts, cwd: folder, message: { role: "user", content: text }, ...extra }),
-    );
+    const file = join(projectDir(folder), `${id}.jsonl`);
+    writeFileSync(file, line({ type: "user", uuid: `${id}-u`, timestamp: ts, cwd: folder, message: { role: "user", content: text }, ...extra }));
+    // The list goes by the last write: written at once, the files' times would not tell the newest.
+    utimesSync(file, new Date(ts), new Date(ts));
   }
 
   it("marks the background sessions and shows them alone, then leaves them out", async () => {
@@ -88,6 +88,7 @@ describe("the filter dialog in Sessions", () => {
     session(cwd, "script", "scripted run", 5, { entrypoint: "sdk-cli" });
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
     await until(() => view.frame().includes("typed here") && view.frame().includes("scripted run"));
+    // Before the name, where all folders put the project's.
     expect(view.frame()).toMatch(/◌ „scripted run/);
     expect(view.frame()).not.toMatch(/◌ „typed here/);
     // The newest, the background one, is selected: its header says how it ran.
@@ -115,7 +116,7 @@ describe("the filter dialog in Sessions", () => {
 
   it("lists the other folders without this one, and keeps one folder checked", async () => {
     session(cwd, "here", "work here", 10);
-    session(elsewhere, "there", "work elsewhere", 5);
+    session(elsewhere, "there", "work elsewhere", 5, { entrypoint: "sdk-cli" });
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
     await until(() => view.frame().includes("work here"));
     expect(view.frame()).not.toContain("work elsewhere");
@@ -131,6 +132,8 @@ describe("the filter dialog in Sessions", () => {
     await view.press("\r");
     await expect.poll(() => readSettings().sessionsFolders).toBe("other");
     await until(() => view.frame().includes("work elsewhere") && !view.frame().includes("work here"));
+    // The background mark comes before the project's name.
+    expect(view.frame()).toMatch(/◌ cco-session/);
     view.unmount();
   });
 

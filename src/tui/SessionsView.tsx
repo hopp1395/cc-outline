@@ -1251,6 +1251,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {badge && <SessionMarker symbol={badge} activity={running.get(sessionKey(s))?.activity} />}
                   {gone && <Text dimColor>∅ </Text>}
                   {moved && <Text color="magenta">{moved}</Text>}
+                  {/* Ran in the background: before the project name. */}
+                  {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&
                     (gone ? (
                       <>
@@ -1262,7 +1264,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                     ) : (
                       <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>
                     ))}
-                  {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
                   <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
                     {quoted && "„"}
