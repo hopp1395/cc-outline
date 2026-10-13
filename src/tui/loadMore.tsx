@@ -3,7 +3,7 @@ import { useContext, useState } from "react";
 import { RANGE_NAMES, rangeStart } from "../settings.js";
 import { dayKey } from "../monitor/responses.js";
 import { dayLabel } from "./days.js";
-import { AreaContext } from "./layout.js";
+import { AreaContext, columnWidthOf } from "./layout.js";
 import { centredBadge } from "./Preview.js";
 import { useSetting } from "./useSetting.js";
 
@@ -50,7 +50,7 @@ export const showsLoadMore = (range: RangeState, complete: boolean) => range.mor
 export function LoadMoreRow({ progress }: { progress?: { done: number; total: number } }) {
   const area = useContext(AreaContext);
   const label = progress ? `↓ loading… ${progress.done}/${progress.total} ↓` : "↓ more ↓";
-  return <Text>{centredBadge(label, area.width || 40)}</Text>;
+  return <Text>{centredBadge(label, columnWidthOf(area))}</Text>;
 }
 
 /** The preview of the load more entry: what the list shows and what Enter does. */

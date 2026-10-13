@@ -13,7 +13,7 @@ import {
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { paneSwitchKey, useFocused } from "./focus.js";
-import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, type ColumnWidth, type ListFold, type ListOrder, type ListWidth, type Settings } from "../settings.js";
+import { isListFold, isViewShown, LIST_WIDTH_SETTINGS, type ColumnWidth, type CompactColumns, type CompactSplit, type CompactView, type ListFold, type ListOrder, type ListWidth, type Settings } from "../settings.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useMouse } from "./mouse.js";
 import { useReload } from "./reload.js";
@@ -41,6 +41,12 @@ export interface Layout {
   bodyHeight: number;
   /** The compact view: no help line below, and previews keep their header to one line. */
   compact?: boolean;
+  /** Compact `stacked`: the list is above the preview (`bodyHeight` is the preview's), `listWidth` is one column's. */
+  stacked?: boolean;
+  /** The rows of the list, where they differ from `bodyHeight` (stacked). */
+  listHeight?: number;
+  /** The list's columns (stacked), `listWidth` wide each with a column between. */
+  listColumns?: number;
   /** The height previews fit their sticky header to (`fitHeader`): the body's, or in the compact view one that allows a line and the rule. */
   headerHeight?: number;
   /** `|`, `<` and `>` past the ends: the list or the preview takes the whole pane. */
@@ -69,9 +75,17 @@ export function listColumns(columns: number, width: ColumnWidth): number {
  * The layout of a list of `width`. At `hidden` the preview takes the pane, at `full` the list does; a detail
  * opened from the full list (`drilled`) shows like `hidden`. The side out of sight keeps the normal width.
  */
-export function layoutOf(columns: number, rows: number, width: ListWidth = "normal", drilled = false, compact = false): Layout {
+export function layoutOf(
+  columns: number,
+  rows: number,
+  width: ListWidth = "normal",
+  drilled = false,
+  compact: CompactView = "off",
+  stack: { columns: CompactColumns; split: CompactSplit } = { columns: "2", split: "20%" },
+): Layout {
+  if (compact === "stacked") return stackedLayout(columns, rows, stack.columns, stack.split);
   // The compact view shows the list over the whole pane, the preview in its place when drilled; the stored width is not used.
-  if (compact) width = "full";
+  if (compact === "single") width = "full";
   const fold = drilled ? "hidden" : isListFold(width) ? width : undefined;
   const listWidth = listColumns(columns, isListFold(width) ? "normal" : width);
   // list + border + padding
@@ -83,10 +97,35 @@ export function layoutOf(columns: number, rows: number, width: ListWidth = "norm
     // Only the scroll bar's column beside it.
     previewWidth: fold === "hidden" ? Math.max(MIN_PREVIEW, columns - 1) : previewWidth,
     // The top bar, and the help line below unless compact.
-    bodyHeight: Math.max(3, rows - (compact ? 1 : 2)),
-    compact,
-    headerHeight: compact ? 4 : Math.max(3, rows - 2),
+    bodyHeight: Math.max(3, rows - (compact !== "off" ? 1 : 2)),
+    compact: compact !== "off",
+    headerHeight: compact !== "off" ? 4 : Math.max(3, rows - 2),
     fold,
+  };
+}
+
+/** The list's share of the stacked pane's height. */
+const SPLIT_SHARES: Record<CompactSplit, number> = { "10%": 0.1, "20%": 0.2, "30%": 0.3, "40%": 0.4, "50%": 0.5 };
+
+/**
+ * The stacked layout: the list above the preview, a rule between them, both as wide as the pane. The list has
+ * `listColumns` columns of `listWidth` with a column between; the rows below the top bar are shared by `split`.
+ */
+export function stackedLayout(columns: number, rows: number, listColumns: CompactColumns, split: CompactSplit): Layout {
+  const count = Number(listColumns);
+  const total = Math.max(5, rows - 1);
+  const listHeight = Math.min(total - 3, Math.max(3, Math.round(total * SPLIT_SHARES[split])));
+  return {
+    columns,
+    rows,
+    listWidth: Math.max(8, Math.floor((columns - (count - 1)) / count)),
+    previewWidth: Math.max(MIN_PREVIEW, columns - 1),
+    bodyHeight: Math.max(3, total - listHeight - 1),
+    listHeight,
+    listColumns: count,
+    compact: true,
+    stacked: true,
+    headerHeight: 4,
   };
 }
 
@@ -94,8 +133,8 @@ export function layoutOf(columns: number, rows: number, width: ListWidth = "norm
 export function useLayouts(): (mode?: Mode, drilled?: boolean) => Layout {
   const { columns, rows } = useWindowSize();
   const settings = useSettings();
-  const compact = settings.compactView !== "off";
-  return (mode, drilled) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", drilled, compact && mode !== undefined);
+  const stack = { columns: settings.compactColumns, split: settings.compactSplit };
+  return (mode, drilled) => layoutOf(columns, rows, mode ? settings[LIST_WIDTH_SETTINGS[mode]] : "normal", drilled, mode ? settings.compactView : "off", stack);
 }
 
 export interface Scroll {
@@ -625,6 +664,24 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
             <Text dimColor={!focused}>{label}</Text>
           ))}
       </Box>
+      {layout.stacked ? (
+        <>
+          <Box flexDirection="column" width={layout.columns} height={layout.listHeight} flexShrink={0}>
+            <AreaContext.Provider value={{ x: 0, y: 1, width: layout.columns, height: layout.listHeight!, columns: layout.listColumns }}>
+              {list}
+            </AreaContext.Provider>
+          </Box>
+          <Text wrap="truncate" dimColor>
+            {"─".repeat(layout.columns)}
+          </Text>
+          <Box height={layout.bodyHeight} width={layout.columns} flexShrink={0}>
+            <AreaContext.Provider value={{ x: 0, y: 2 + layout.listHeight!, width: layout.previewWidth, height: layout.bodyHeight }}>
+              {/* Filled to the scroll bar's column. */}
+              {withNotice(preview, notice, layout.previewWidth, layout.bodyHeight, layout.previewWidth + 1)}
+            </AreaContext.Provider>
+          </Box>
+        </>
+      ) : (
       <Box height={layout.bodyHeight}>
         {/* Not shrunk by a preview of plain text, whose width Yoga counts in full (Plan's "No plan in this session yet…"). */}
         {/* The side folded away stays rendered, out of sight and out of the mouse's reach, so it keeps its state. */}
@@ -662,6 +719,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
           </AreaContext.Provider>
         </Box>
       </Box>
+      )}
       {!layout.compact && (
         <Text wrap="truncate">
           <Footer items={help} />
@@ -714,8 +772,16 @@ export interface Area {
   y: number;
   width: number;
   height: number;
+  /** A list with several columns (stacked): `width` is all of them. */
+  columns?: number;
 }
 export const AreaContext = createContext<Area>({ x: 0, y: 0, width: 0, height: 0 });
+
+/** The width of one column of the list in `area` (the whole width with one column), with a column between the columns. */
+export function columnWidthOf(area: Area): number {
+  const columns = area.columns ?? 1;
+  return columns > 1 ? Math.max(4, Math.floor((area.width - (columns - 1)) / columns)) : area.width || 40;
+}
 
 /** The position of a mouse event inside `area`, or undefined when it is outside. */
 export function inArea(area: Area, x: number, y: number): { col: number; row: number } | undefined {
@@ -986,9 +1052,13 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, on
   const key = items[selected] === undefined ? undefined : itemKey(items[selected], selected);
   // The window is kept from render to render, but only while the list is longer than its rows.
   const kept = useRef<WindowState | undefined>(undefined);
-  const { start, from, to } = nextWindow(kept.current, rows.length, selectedRow, height, key, centre);
+  // Columns (stacked) are filled one after the other, like one list of `columns * height` rows cut into pieces.
+  const columns = area.columns ?? 1;
+  const columnWidth = columnWidthOf(area);
+  const capacity = columns * height;
+  const { start, from, to } = nextWindow(kept.current, rows.length, selectedRow, capacity, key, centre);
   const clicked = key !== undefined && key === kept.current?.clicked ? key : undefined;
-  kept.current = rows.length > height ? { start, key, row: selectedRow, clicked, centre } : undefined;
+  kept.current = rows.length > capacity ? { start, key, row: selectedRow, clicked, centre } : undefined;
   const itemsIn = (part: ListRow[]) => part.filter((r) => "item" in r).length;
   const above = itemsIn(rows.slice(0, from));
   const below = itemsIn(rows.slice(to));
@@ -999,10 +1069,14 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, on
     const at = inArea(area, e.x, e.y);
     if (!at || !onPick || items.length === 0 || (e.kind !== "click" && e.kind !== "wheel")) return;
     if (e.kind === "wheel") return onPick(Math.max(0, Math.min(items.length - 1, selected + e.delta)));
+    // The place in the list's own order: a column's rows follow the one before it; the column between them picks nothing.
+    const column = Math.floor(at.col / (columnWidth + 1));
+    if (column >= columns || at.col - column * (columnWidth + 1) >= columnWidth) return;
+    const place = column * height + at.row;
     // The ▲/▼ rows jump to the far end, like Home and End.
-    if (from > 0 && at.row === 0) return onPick(0);
-    const index = from + at.row - (from > 0 ? 1 : 0);
-    if (index >= to) return to < rows.length && at.row === height - 1 ? onPick(items.length - 1) : undefined;
+    if (from > 0 && place === 0) return onPick(0);
+    const index = from + place - (from > 0 ? 1 : 0);
+    if (index >= to) return to < rows.length && place === capacity - 1 ? onPick(items.length - 1) : undefined;
     // A separator picks the first entry of its group.
     const row = rows[index];
     const picked = "item" in row ? row.item : row.before;
@@ -1012,11 +1086,10 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, on
     if ("item" in row && e.kind === "click") onClick?.(row.item);
   });
   if (items.length === 0) return <Text dimColor>{empty}</Text>;
-  const width = area.width || 40;
-  return (
-    <>
-      {from > 0 && <MoreRow arrow="▲" count={above} jumpKey="Home" group={topGroup} />}
-      {rows.slice(from, to).map((row) => {
+  const width = columnWidth;
+  const cells = [
+    ...(from > 0 ? [<MoreRow key="more-up" arrow="▲" count={above} jumpKey="Home" group={topGroup} />] : []),
+    ...rows.slice(from, to).map((row) => {
         if ("group" in row)
           return (
             // Keyed by the item below it: a day could come twice in an unordered list.
@@ -1056,9 +1129,29 @@ function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, on
             </Box>
           </Box>
         );
-      })}
-      {to < rows.length && <MoreRow arrow="▼" count={below} jumpKey="End" />}
-    </>
+    }),
+    ...(to < rows.length ? [<MoreRow key="more-down" arrow="▼" count={below} jumpKey="End" />] : []),
+  ];
+  if (columns === 1) return <>{cells}</>;
+  return (
+    <Box height={height} width={area.width}>
+      {Array.from({ length: columns }, (_, c) => (
+        <Box key={c} flexShrink={0}>
+          {c > 0 && (
+            <Box flexDirection="column" width={1}>
+              {Array.from({ length: height }, (_, r) => (
+                <Text key={r} dimColor>
+                  │
+                </Text>
+              ))}
+            </Box>
+          )}
+          <Box flexDirection="column" width={columnWidth} height={height} overflow="hidden">
+            {cells.slice(c * height, (c + 1) * height)}
+          </Box>
+        </Box>
+      ))}
+    </Box>
   );
 }
 

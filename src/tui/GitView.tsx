@@ -322,7 +322,7 @@ async function readRepo(repo: Repo, repos: Repo[]): Promise<RepoState> {
 }
 
 export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
-  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight } = layout;
+  const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const [nested] = useSetting("gitNestedRepos");
   // The repositories found (null: none), the folder they were searched from, and what was read of each.
   const [repos, setRepos] = useState<Repo[] | null>();
@@ -715,7 +715,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
           pinned={filter.pinned}
           filter={filter.banner}
           selected={selectedIndex}
-          height={bodyHeight}
+          height={listHeight}
           empty={filter.empty ?? (repos === undefined || !ready ? "Loading…" : "No changes")}
           itemKey={keyOf}
           render={(e, isSelected, pinnedCopy) => {
