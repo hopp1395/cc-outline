@@ -60,7 +60,7 @@ describe("compact view in the app", () => {
   });
 
   it("stacked: list and preview together, > and < set the list's columns, stopping at the ends", async () => {
-    updateSettings({ compactView: "stacked" });
+    updateSettings({ compactView: "stacked", compactColumns: "1" });
     const view = render(session());
     await expect.poll(view.frame).toContain("The answer text");
     expect(view.frame()).toContain("first question");

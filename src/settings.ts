@@ -198,7 +198,7 @@ export const DEFAULT_SETTINGS: Settings = {
   filterIn: "list",
   updateMode: "auto",
   compactView: "off",
-  compactColumns: "1",
+  compactColumns: "2",
   compactSplit: "1/3",
   accountTitle: true,
   accountColor: "auto",
