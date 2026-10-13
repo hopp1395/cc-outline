@@ -81,7 +81,7 @@ export function layoutOf(
   width: ListWidth = "normal",
   drilled = false,
   compact: CompactView = "off",
-  stack: { columns: CompactColumns; split: CompactSplit } = { columns: "1", split: "1/3" },
+  stack: { columns: CompactColumns; split: CompactSplit } = { columns: "2", split: "1/4" },
 ): Layout {
   if (compact === "stacked") return stackedLayout(columns, rows, stack.columns, stack.split);
   // The compact view shows the list over the whole pane, the preview in its place when drilled; the stored width is not used.

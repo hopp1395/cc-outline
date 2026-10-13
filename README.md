@@ -412,7 +412,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | General: confirm quit | on / off | on | – |
 | General: compact (layout for small screens) | off / single / stacked | off | – |
 | General: compact columns (stacked list) | 1 / 2 / 3 / 4 | 2 | `<` `>` with compact stacked |
-| General: compact split (stacked list height) | 1/4 / 1/3 / 1/2 | 1/3 | – |
+| General: compact split (stacked list height) | 1/4 / 1/3 / 1/2 | 1/4 | – |
 | General: marquee (long list entries scroll) | on / off | on | – |
 | General: date separators (a line per day in lists) | on / off | on | – |
 | General: pinned favorites (marked entries at the top) | on / off | off | – |

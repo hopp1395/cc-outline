@@ -199,7 +199,7 @@ export const DEFAULT_SETTINGS: Settings = {
   updateMode: "auto",
   compactView: "off",
   compactColumns: "2",
-  compactSplit: "1/3",
+  compactSplit: "1/4",
   accountTitle: true,
   accountColor: "auto",
   accountAvatar: "",
