@@ -21,7 +21,12 @@
     "windows-terminal",
     "subagents",
     "transcript",
-    "viewer"
+    "viewer",
+    "cco",
+    "claude-code-viewer",
+    "claude-code-tui",
+    "session-viewer",
+    "git-diff-viewer"
   ],
   "license": "MIT",
   "homepage": "https://github.com/hopp1395/cc-outline#readme",
