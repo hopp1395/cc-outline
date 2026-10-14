@@ -62,9 +62,19 @@ program
   .addOption(new Option("--action <action>").choices(["update", "account"]).hideHelp())
   // The config folder (account) of the Claude Code that opened it: a terminal pane does not get its environment.
   .addOption(new Option("--config-dir <dir>").hideHelp())
-  .action(async (opts: { cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
+  // A Remote Control session from claude.ai (Sessions: open it in its own viewer), in the chat only.
+  .addOption(new Option("--remote <id>", "show this Remote Control session from claude.ai (experimental, setting remote API)"))
+  .action(async (opts: { remote?: string; cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
     // First: every state file and setting is read from the config folder.
     if (opts.configDir) setClaudeDir(opts.configDir);
+    if (opts.remote) {
+      // One window per remote session; it belongs to no project or Claude Code here.
+      const { registerRemoteViewer } = await import("./remote/viewer.js");
+      registerRemoteViewer(opts.remote);
+      const { runViewer } = await importProduction(() => import("./watch.js"));
+      await runViewer({ cwd: opts.cwd, remoteId: opts.remote, initialMode: opts.view ?? "chat" });
+      process.exit(0);
+    }
     const claudePid = validPid(opts.claudePid);
     // One viewer per Claude Code: a second one would share its state files and its /cco:… requests.
     const other = claudePid ? runningViewer(opts.cwd, claudePid) : undefined;

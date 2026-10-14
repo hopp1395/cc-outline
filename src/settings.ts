@@ -164,6 +164,8 @@ export interface Settings {
   sessionsRemote: SessionsRemote;
   /** Experimental: reads the Remote Control sessions of this account through the unofficial claude.ai API, with Claude Code's login. */
   remoteApi: boolean;
+  /** Experimental, with remoteApi: sends prompts to Remote Control sessions and interrupts them, as the Claude app does. */
+  remoteControl: boolean;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -222,6 +224,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionsBackground: "show",
   sessionsRemote: "show",
   remoteApi: false,
+  remoteControl: false,
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
@@ -272,8 +275,15 @@ export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
   return LIST_WIDTH_VALUES[Math.max(0, Math.min(LIST_WIDTH_VALUES.length - 1, at + step))];
 }
 
+/** The only views this process shows, whatever the settings say: a remote viewer has only the chat. */
+let viewLimit: readonly Mode[] | undefined;
+export function setViewLimit(views: readonly Mode[] | undefined): void {
+  viewLimit = views;
+}
+
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
+  if (viewLimit && !viewLimit.includes(mode)) return false;
   if (mode === "accounts") return settings.viewAccounts;
   return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
 }

@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
 import tls from "node:tls";
 import { readLogin, RemoteError, type RemoteLogin } from "./credentials.js";
+import type { PendingRequest } from "./pending.js";
 
 /**
  * The unofficial interface of claude.ai that lists Remote Control sessions and their events (reverse-engineered,
  * see https://github.com/ThatCrispyToast/claude-rc-api). Anthropic does not document it and may change it at any
- * time, so everything read here is checked and a surprise becomes a `format` error. Only GET is ever used.
+ * time, so everything read here is checked and a surprise becomes a `format` error. Reading is GET; with the
+ * remoteControl setting, `sendPrompt` and `sendInterrupt` POST events the way the Claude app does.
  */
 const BASE = "https://api.anthropic.com";
 
@@ -26,12 +29,16 @@ export interface RemoteSession {
   userMessageCount?: number;
   /** Ids named anywhere in the session's data (`external_metadata`, `config`, …): a local session's id may be among them. */
   refs: string[];
+  /** What the worker waits for while `requires_action` (`external_metadata.pending_action`), so the list can answer it. */
+  pending?: PendingRequest;
 }
 
 /** One event of a session: its place in the stream and the SDK message it carries. */
 export interface RemoteEvent {
   sequence: number;
   createdAt?: string;
+  /** Who wrote it: `worker` (the Claude Code running the session) or `client` (the app, claude.ai, cco). */
+  source?: string;
   payload: Record<string, unknown>;
 }
 
@@ -57,6 +64,29 @@ export function parseSession(raw: unknown): RemoteSession | undefined {
     lastEventAt: text(raw.last_event_at),
     userMessageCount: typeof raw.user_message_count === "number" ? raw.user_message_count : undefined,
     refs,
+    pending: text(raw.worker_status) === "requires_action" && isObject(raw.external_metadata) ? pendingAction(raw.external_metadata.pending_action) : undefined,
+  };
+}
+
+/**
+ * The request a listed session waits for. Its id was in `suppressed_request_id` (with `request_id` empty) when the
+ * app was connected; either one names the worker's `control_request`.
+ */
+function pendingAction(raw: unknown): PendingRequest | undefined {
+  if (!isObject(raw)) return undefined;
+  const requestId = text(raw.request_id) ?? text(raw.suppressed_request_id);
+  const toolName = text(raw.tool_name);
+  if (!requestId || !toolName) return undefined;
+  return {
+    requestId,
+    toolName,
+    toolUseId: text(raw.tool_use_id),
+    input: isObject(raw.input) ? raw.input : {},
+    suggestions: Array.isArray(raw.permission_suggestions) ? raw.permission_suggestions : [],
+    displayName: text(raw.display_tool_name),
+    description: text(raw.action_description),
+    needsInteraction: true,
+    sequence: -1,
   };
 }
 
@@ -81,19 +111,22 @@ function networkError(err: unknown): RemoteError {
   return new RemoteError("offline", "claude.ai cannot be reached");
 }
 
-async function get(path: string, login: RemoteLogin): Promise<unknown> {
+async function get(path: string, login: RemoteLogin, body?: unknown): Promise<unknown> {
   trustSystemCertificates();
   let response: Response;
   try {
     response = await remote.fetch(BASE + path, {
-      method: "GET",
+      method: body === undefined ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${login.token}`,
         "anthropic-version": "2023-06-01",
+        // As the web and the app: another platform makes the worker take a prompt as a peer's message, which starts no turn.
         "anthropic-client-platform": "web_claude_ai",
         "x-organization-uuid": login.org,
         "anthropic-beta": "ccr-byoc-2025-07-29",
+        ...(body !== undefined && { "content-type": "application/json" }),
       },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
     });
   } catch (err) {
     throw networkError(err);
@@ -110,6 +143,8 @@ async function get(path: string, login: RemoteLogin): Promise<unknown> {
   try {
     return await response.json();
   } catch {
+    // A write needs no answer: what it did shows in the events.
+    if (body !== undefined) return undefined;
     throw new RemoteError("format", "claude.ai sent no JSON");
   }
 }
@@ -135,9 +170,32 @@ export async function listEvents(id: string, dir?: string): Promise<{ events: Re
     if (!isObject(raw) || !isObject(raw.payload)) continue;
     const sequence = Number(raw.sequence_num);
     if (!Number.isFinite(sequence)) continue;
-    events.push({ sequence, createdAt: text(raw.created_at), payload: raw.payload });
+    events.push({ sequence, createdAt: text(raw.created_at), source: text(raw.source), payload: raw.payload });
   }
   // The API sends the newest first; the transcript is read oldest first, each event once.
   const unique = [...new Map(events.map((e) => [e.sequence, e])).values()].sort((a, b) => a.sequence - b.sequence);
   return { events: unique, truncated: data.length >= EVENT_LIMIT };
+}
+
+/** Writes `payloads` into session `id` as the client's events, the way the Claude app sends them. */
+async function postEvents(id: string, payloads: Record<string, unknown>[], dir?: string): Promise<void> {
+  await get(`/v1/code/sessions/${encodeURIComponent(id)}/events`, readLogin(dir), { events: payloads.map((payload) => ({ payload })) });
+}
+
+/** Sends `text` as a prompt to session `id`; mid-turn, Claude Code queues it like a prompt typed while it works. */
+export async function sendPrompt(id: string, text: string, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "user", uuid: randomUUID(), message: { role: "user", content: text } }], dir);
+}
+
+/** Stops what Claude does in session `id`, as Esc in the terminal or the stop button of the app. */
+export async function sendInterrupt(id: string, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } }], dir);
+}
+
+/**
+ * Answers the worker's request `requestId` in session `id` (a tool to allow, a question), as the app does: a
+ * `control_response` whose `response` the worker hands Claude Code (`behavior`, `updatedInput`, …).
+ */
+export async function sendResponse(id: string, requestId: string, response: Record<string, unknown>, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "control_response", uuid: randomUUID(), response: { subtype: "success", request_id: requestId, response } }], dir);
 }

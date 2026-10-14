@@ -73,6 +73,8 @@ interface Props {
   onTyping?: (typing: boolean) => void;
   /** The screenshot dialog opened or closed: App ignores its keys meanwhile. */
   onModal?: (open: boolean) => void;
+  /** The prompt line below has the keys (a remote viewer): the chat only scrolls, with PgUp/PgDn, as Claude Code's does. */
+  scrollOnly?: boolean;
 }
 
 /** t steps through the tool levels: off → compact → full → off. */
@@ -503,7 +505,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, scrollOnly = false }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
@@ -783,6 +785,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
 
   useInput(
     (input, key) => {
+      // While the prompt line has the keys, only paging reaches the chat.
+      if (scrollOnly && !key.pageUp && !key.pageDown) return;
       if (filter.handleKey(input, key)) return;
       // a / A step through the turn's subagents and, past the last / first, back to the answer.
       if (input === "a" || input === "A") {
@@ -955,6 +959,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "↑↓ turn", priority: 4 },
           { text: "PgUp/Dn scroll", priority: 1 },
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
+          // On a remote session's last turn, Enter sends to it.
           { text: "↵ prompt", on: promptOpen },
           { text: "f follow", on: follow },
           ...filter.footer,

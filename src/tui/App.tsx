@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode, type Layout } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -35,6 +35,9 @@ import { AccountContext, useAccounts } from "./useAccount.js";
 import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
+import { useRemoteTranscript } from "./useRemoteTranscript.js";
+import { RemoteComposer } from "./RemoteComposer.js";
+import { remotePath } from "../remote/index.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { TIMING } from "../timing.js";
 
@@ -59,7 +62,18 @@ interface Props {
   onPair?: (cwd: string, claudePid: number) => void;
   /** Detaches the viewer from its Claude Code (Sessions); it then follows the project's newest session. */
   onDetach?: (cwd: string) => void;
+  /** A remote viewer (`--remote`): the Remote Control session of this id, read from claude.ai, in the chat only. */
+  remoteId?: string;
 }
+
+/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a remote viewer's prompt line). */
+function shorter(layout: Layout, rows: number): Layout {
+  const less = (n: number | undefined) => (n === undefined ? undefined : Math.max(1, n - rows));
+  return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
+}
+
+/** The views of a remote viewer: only the chat; the other views belong to this machine, not to the session. */
+export const REMOTE_VIEWS: readonly Mode[] = ["chat"];
 
 const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
 
@@ -79,7 +93,7 @@ const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefine
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0, accounts: 0 };
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach, remoteId }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   // Each view's list has its own width (< and >); the dialogs take the normal one.
@@ -92,10 +106,14 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // The chat and the plan view share the transcript: a reload of either reads it afresh.
   const transcriptReload = reloads.chat + reloads.plan;
   const opened = useSessionPath(cwd, sessionId, claudePid, transcriptReload);
-  // Parsed once for the chat and the plan view.
-  const transcript = useTranscript(opened, transcriptReload);
+  // Parsed once for the chat and the plan view; a remote viewer's from the session's events on claude.ai.
+  const local = useTranscript(remoteId ? undefined : opened, transcriptReload);
+  const remote = useRemoteTranscript(remoteId, transcriptReload);
+  const transcript = remoteId ? remote : local;
   // The transcript read now: the session may have continued in another one.
-  const path = transcript.file ?? opened;
+  const path = remoteId ? remotePath(remoteId) : (transcript.file ?? opened);
+  // A viewer of one session (--session, --remote) stays where it is: it does not move, restart or follow another.
+  const fixed = sessionId !== undefined || remoteId !== undefined;
   const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
   // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
   // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; a viewer of a --session shows no status.
@@ -106,7 +124,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [accountTitle] = useSetting("accountTitle");
   const [accountColor] = useSetting("accountColor");
   useTerminalTitle(
-    transcript.title ?? basename(cwd),
+    remoteId ? `◈ ${transcript.title ?? remoteId}` : (transcript.title ?? basename(cwd)),
     sessionId ? undefined : working ? "working" : "idle",
     accountTitle ? account.avatar : undefined,
   );
@@ -217,7 +235,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // The viewer's own session can continue in another account (Accounts view, /cco:account).
   const continuable = claudePid !== undefined && !sessionId && path !== undefined;
   const noSession = continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it in Sessions" : "there is no session yet";
-  useViewerControl({ cwd, claudePid, followActive: !sessionId, onView: (...args) => request.current(...args), onSessionEnd: exit });
+  useViewerControl({ cwd, claudePid, followActive: !fixed, onView: (...args) => request.current(...args), onSessionEnd: exit });
 
   // The update check runs once at the start, unless the setting is off then.
   const [updateMode] = useState(() => readSettings().updateMode);
@@ -237,6 +255,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
+  // A remote viewer with remote control has a prompt line below the chat, as Claude Code does; it has the keys
+  // at first, Esc or Tab hand them to the chat, Tab or i back. The chat leaves it the rows it takes.
+  const [remoteControl] = useSetting("remoteControl");
+  const composer = remoteId !== undefined && remoteControl;
+  const [composing, setComposing] = useState(true);
+  const [composerRows, setComposerRows] = useState(3);
+  const typingInComposer = composer && composing;
   const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
@@ -281,7 +306,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       // Recorded on the next run, with the view switched.
       if (view && view !== mode) return setMode(view);
     }
-    if (rememberView && id) saveSessionView(cwd, id, mode);
+    if (rememberView && id && !remoteId) saveSessionView(cwd, id, mode);
   }, [cwd, path, mode, rememberView]);
 
   useEffect(() => {
@@ -317,7 +342,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const restarting = useRef(false);
   const restartViewer = () => {
     // A viewer of one session (--session) was not opened by cco open, which cannot reopen it.
-    if (sessionId || restarting.current) return;
+    if (fixed || restarting.current) return;
     restarting.current = true;
     const title = "Restart the viewer";
     progress.host.set("restart", { title, status: "running", text: "Restarting" });
@@ -371,6 +396,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
 
   // < and > make the shown view's list narrower or wider, stopping at the ends; the preview says how wide for a moment.
   const [notice, setNotice] = useState<{ text: string }>();
+  // A remote viewer says why claude.ai could not be read; the turns read so far stay.
+  useEffect(() => {
+    if (remoteId && remote.error) setNotice({ text: remote.error });
+  }, [remote.error]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(undefined), COPIED_MS);
@@ -421,13 +450,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open) return;
+    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
       else if (input === "q") quit();
       return;
     }
+    // A remote viewer's chat: Tab and i go back to the prompt line (it shows the chat alone, so Tab switches no view).
+    if (composer && (key.tab || input === "i")) return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {
       if (!mouse) return;
@@ -441,9 +472,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     else if (input === "<" || input === ">") stepWidth(input === "<" ? -1 : 1);
     else if (input === "|") toggleWidth();
     // Only a viewer that follows the live session moves; one started with --session stays.
-    else if (input === "p" && !sessionId) setPlacementOpen(true);
+    else if (input === "p" && !fixed) setPlacementOpen(true);
     // r restarts like Reset's entry (Settings keeps r for back to the default); Ctrl+R reloads.
-    else if (input === "r" && !key.ctrl && mode !== "settings" && !sessionId) restart();
+    else if (input === "r" && !key.ctrl && mode !== "settings" && !fixed) restart();
     // Tab and Shift+Tab step through the shown views, wrapping around.
     else if (key.tab) setMode(nextShownView(readSettings(), mode, key.shift ? -1 : 1));
     // ← and → do the same; with Ctrl they scroll sideways in the views.
@@ -472,12 +503,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             cwd={cwd}
             path={path}
             transcript={transcript}
-            layout={viewLayout("chat")}
+            layout={composer ? shorter(viewLayout("chat"), composerRows) : viewLayout("chat")}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
             onTyping={setTyping}
             onModal={setModal}
             liveSession={!sessionId}
+            scrollOnly={typingInComposer}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
@@ -548,7 +580,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onModal={setModal}
             onTyping={setTyping}
             onResetData={resetProjectData}
-            onRestart={sessionId ? undefined : restartViewer}
+            onRestart={fixed ? undefined : restartViewer}
             select={settingsSelect}
             sessionPath={continuable ? path : undefined}
             noSession={noSession}
@@ -592,6 +624,19 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         </Fragment>
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
+        {composer && mode === "chat" && (
+          <RemoteComposer
+            layout={layout}
+            sessionId={remoteId}
+            title={transcript.title ?? remoteId}
+            working={working || remote.session?.workerStatus === "running"}
+            pending={remote.pending[0] ?? remote.session?.pending}
+            focused={typingInComposer && !blocked}
+            onFocus={setComposing}
+            notify={(text) => setNotice({ text })}
+            onHeight={setComposerRows}
+          />
+        )}
         {placementOpen && (
           <PlacementDialog
             layout={layout}

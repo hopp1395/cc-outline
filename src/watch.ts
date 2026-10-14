@@ -1,7 +1,7 @@
 import { render } from "ink";
 import { createElement, useState } from "react";
-import type { Placement } from "./settings.js";
-import { App } from "./tui/App.js";
+import { setViewLimit, type Placement } from "./settings.js";
+import { App, REMOTE_VIEWS } from "./tui/App.js";
 import { withoutCtrlC } from "./tui/ctrlC.js";
 import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
@@ -20,6 +20,8 @@ export interface WatchOptions {
   updatedTo?: string;
   /** Started by /cco:update: check for an update at once and offer it. */
   action?: ViewerAction;
+  /** A remote viewer: the Remote Control session of this id, in the chat only. */
+  remoteId?: string;
 }
 
 /**
@@ -45,6 +47,7 @@ export function Viewer(opts: WatchOptions) {
  * `cco hook` runs on every prompt, before Claude Code writes it down.
  */
 export async function runViewer(opts: WatchOptions): Promise<void> {
+  if (opts.remoteId) setViewLimit(REMOTE_VIEWS);
   const app = render(createElement(Viewer, opts), {
     // Only changed lines, in one write: no flicker under load. CCO_FRAME_BUFFER=0 turns it off.
     stdout: process.stdout.isTTY && process.env.CCO_FRAME_BUFFER !== "0" ? frameBufferedStdout(process.stdout) : process.stdout,
