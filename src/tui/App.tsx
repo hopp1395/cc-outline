@@ -36,7 +36,7 @@ import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
-import { remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
+import { answerable, remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
 import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { remotePath } from "../remote/index.js";
 import { useViewerControl } from "./useViewerControl.js";
@@ -252,11 +252,16 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Views take no keys while a dialog of the app is open.
   // A remote viewer with remote control: Enter on the last turn sends a prompt, or asks what to do while Claude works or waits.
   const [remoteControl] = useSetting("remoteControl");
-  const remoteCtl = useRemoteControl(layout, (message) => setNotice({ text: message }));
+  // Answered elsewhere once the events have its answer; before the first read, not known.
+  const remoteCtl = useRemoteControl(layout, (message) => setNotice({ text: message }), (_id, requestId) =>
+    remote.version > 0 ? remote.pending.some((p) => p.requestId === requestId) : undefined,
+  );
   const [remoteChoice, setRemoteChoice] = useState<Choice<RemoteAction>>();
   const onEnterLast = () => {
-    const target = { id: remoteId!, title: transcript.title ?? remoteId!, workerStatus: remote.session?.workerStatus };
-    const options = remoteOptions(target.workerStatus);
+    const target = { id: remoteId!, title: transcript.title ?? remoteId!, workerStatus: remote.session?.workerStatus, pending: remote.pending[0] ?? remote.session?.pending };
+    // A question waits: Enter answers it at once, as the app opens it.
+    if (answerable(target.pending)) return remoteCtl.act("answer", target);
+    const options = remoteOptions(target.workerStatus, target.pending);
     // Idle, there is one thing to do: the prompt window opens at once.
     if (options.length === 1) return remoteCtl.act(options[0]!.id, target);
     setRemoteChoice({

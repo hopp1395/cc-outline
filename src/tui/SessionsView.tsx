@@ -416,7 +416,7 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
 
 /** Whether two reads of the remote sessions show the same, so the list is not rebuilt for nothing. */
 const sameRemote = (a: SessionSummary[], b: SessionSummary[]) =>
-  a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.title === b[i]!.title && s.modified === b[i]!.modified && s.remote?.workerStatus === b[i]!.remote?.workerStatus && s.remote?.connectionStatus === b[i]!.remote?.connectionStatus);
+  a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.title === b[i]!.title && s.modified === b[i]!.modified && s.remote?.workerStatus === b[i]!.remote?.workerStatus && s.remote?.connectionStatus === b[i]!.remote?.connectionStatus && s.remote?.pending?.requestId === b[i]!.remote?.pending?.requestId);
 
 const NO_REMOTE: { sessions: SessionSummary[]; error?: string } = { sessions: [] };
 
@@ -510,7 +510,7 @@ function useRunning(visible: boolean, accounts: string[]): Map<string, RunningSe
  * for the user, green otherwise, turning bright and dim while it works. Owns its timer so only it
  * re-renders; the phase comes from the clock, so all working sessions blink together.
  */
-function SessionMarker({ symbol, activity }: { symbol: string; activity?: SessionActivity }) {
+function SessionMarker({ symbol, activity, color = "green" }: { symbol: string; activity?: SessionActivity; color?: string }) {
   const busy = activity === "busy";
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -527,7 +527,7 @@ function SessionMarker({ symbol, activity }: { symbol: string; activity?: Sessio
   }, [busy]);
   const dimmed = busy && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
   return (
-    <Text color={activity === "waiting" ? "yellow" : "green"} dimColor={dimmed}>
+    <Text color={activity === "waiting" ? "yellow" : color} dimColor={dimmed}>
       {symbol}
     </Text>
   );
@@ -717,7 +717,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
   const progressOpen = useProgressOpen();
   // Prompts and interrupts for remote sessions (setting remoteControl).
-  const remoteCtl = useRemoteControl(layout, (message) => notify(message));
+  // A request that the list no longer names was answered elsewhere.
+  const remoteCtl = useRemoteControl(layout, (message) => notify(message), (id, requestId) => {
+    const s = remoteRead.sessions.find((r) => r.id === id);
+    return s ? s.remote?.pending?.requestId === requestId : undefined;
+  });
   const dialogOpen =
     remoteCtl.open || confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen || filterOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
@@ -786,7 +790,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     onTyping,
     keep: (e) => !isSession(e),
     marked: (e) => isSession(e) && favorites.isMarked(sessionKey(e)),
-    pin: pinnedSessions ? (e) => isSession(e) && (isActive(e) || running.has(sessionKey(e))) : undefined,
+    pin: pinnedSessions ? (e) => isSession(e) && (isActive(e) || running.has(sessionKey(e)) || e.remote?.workerStatus === "requires_action") : undefined,
     restoreCopy: positions.pinned ? (e) => isSession(e) && sessionKey(e) === storedId.current : undefined,
   });
   // Only a selection made (or restored) counts; the default "newest" of a half-read list is not stored.
@@ -955,7 +959,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
    * a viewer of its own and its address.
    */
   const startRemote = (s: SessionSummary) => {
-    const control = remoteControl ? remoteOptions(s.remote?.workerStatus) : [];
+    const control = remoteControl ? remoteOptions(s.remote?.workerStatus, s.remote?.pending) : [];
     const options: ChoiceOption[] = [
       ...control,
       { id: "open", label: "Open it in a viewer of its own", detail: "the whole session live in a chat, in a window of its own" },
@@ -970,7 +974,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         setChoice(undefined);
         if (id === "open") return notify(openRemoteViewer(s.id, truncate(`◈ ${sessionTitle(s)}`, 30)));
         if (id === "copy") return act("copy", s, cwd, undefined, remoteUrl(s.id));
-        remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus });
+        remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus, pending: s.remote?.pending });
       },
     });
   };
@@ -1383,6 +1387,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
               // Ran with claude -p, the SDK or the daemon.
               const background = backgroundOf(s, running.get(sessionKey(s))) !== undefined;
               // Read from claude.ai (◈), or of this machine and connected to it (⇄).
+              const waits = s.remote?.workerStatus === "requires_action";
               const remoteMark = s.remote ? `${REMOTE_MARK} ` : connected.has(s.id) ? `${CONNECTED_MARK} ` : "";
               // A /rename title is bright, a first prompt standing in for it dim and quoted.
               // The quotes go around the cut text, so the closing one is never cut off.
@@ -1397,7 +1402,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {badge && <SessionMarker symbol={badge} activity={running.get(sessionKey(s))?.activity} />}
                   {gone && <Text dimColor>∅ </Text>}
                   {moved && <Text color="magenta">{moved}</Text>}
-                  {remoteMark && <Text color="cyan">{remoteMark}</Text>}
+                  {/* A remote session waits for an answer (⚠), its ◈ blinks while Claude works there. */}
+                  {waits && <Text color="yellow">{"⚠ "}</Text>}
+                  {remoteMark &&
+                    (s.remote?.workerStatus === "running" ? (
+                      <SessionMarker symbol={remoteMark} activity="busy" color="cyan" />
+                    ) : (
+                      <Text color="cyan">{remoteMark}</Text>
+                    ))}
                   {/* Ran in the background: before the project name. */}
                   {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&
@@ -1425,6 +1437,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                           (badge || gone ? 2 : 0) -
                           (moved ? 2 : 0) -
                           (remoteMark ? 2 : 0) -
+                          (waits ? 2 : 0) -
                           (background ? 2 : 0) -
                           (all ? Math.min(12, projectName(s).length) + 1 : 0) -
                           (quoted ? 2 : 0),

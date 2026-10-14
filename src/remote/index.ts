@@ -21,7 +21,7 @@ export function remoteSummary(s: RemoteSession): SessionSummary {
     start: s.createdAt,
     end: s.lastEventAt ?? s.createdAt,
     modified: s.lastEventAt ?? s.createdAt,
-    remote: { workerStatus: s.workerStatus, connectionStatus: s.connectionStatus, kind: s.environmentKind, userMessages: s.userMessageCount, loaded: false, refs: s.refs.filter((r) => r !== s.id) },
+    remote: { workerStatus: s.workerStatus, connectionStatus: s.connectionStatus, kind: s.environmentKind, userMessages: s.userMessageCount, loaded: false, refs: s.refs.filter((r) => r !== s.id), pending: s.pending },
   };
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import tls from "node:tls";
 import { readLogin, RemoteError, type RemoteLogin } from "./credentials.js";
+import type { PendingRequest } from "./pending.js";
 
 /**
  * The unofficial interface of claude.ai that lists Remote Control sessions and their events (reverse-engineered,
@@ -28,6 +29,8 @@ export interface RemoteSession {
   userMessageCount?: number;
   /** Ids named anywhere in the session's data (`external_metadata`, `config`, …): a local session's id may be among them. */
   refs: string[];
+  /** What the worker waits for while `requires_action` (`external_metadata.pending_action`), so the list can answer it. */
+  pending?: PendingRequest;
 }
 
 /** One event of a session: its place in the stream and the SDK message it carries. */
@@ -61,6 +64,29 @@ export function parseSession(raw: unknown): RemoteSession | undefined {
     lastEventAt: text(raw.last_event_at),
     userMessageCount: typeof raw.user_message_count === "number" ? raw.user_message_count : undefined,
     refs,
+    pending: text(raw.worker_status) === "requires_action" && isObject(raw.external_metadata) ? pendingAction(raw.external_metadata.pending_action) : undefined,
+  };
+}
+
+/**
+ * The request a listed session waits for. Its id was in `suppressed_request_id` (with `request_id` empty) when the
+ * app was connected; either one names the worker's `control_request`.
+ */
+function pendingAction(raw: unknown): PendingRequest | undefined {
+  if (!isObject(raw)) return undefined;
+  const requestId = text(raw.request_id) ?? text(raw.suppressed_request_id);
+  const toolName = text(raw.tool_name);
+  if (!requestId || !toolName) return undefined;
+  return {
+    requestId,
+    toolName,
+    toolUseId: text(raw.tool_use_id),
+    input: isObject(raw.input) ? raw.input : {},
+    suggestions: Array.isArray(raw.permission_suggestions) ? raw.permission_suggestions : [],
+    displayName: text(raw.display_tool_name),
+    description: text(raw.action_description),
+    needsInteraction: true,
+    sequence: -1,
   };
 }
 
@@ -164,4 +190,12 @@ export async function sendPrompt(id: string, text: string, dir?: string): Promis
 /** Stops what Claude does in session `id`, as Esc in the terminal or the stop button of the app. */
 export async function sendInterrupt(id: string, dir?: string): Promise<void> {
   await postEvents(id, [{ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } }], dir);
+}
+
+/**
+ * Answers the worker's request `requestId` in session `id` (a tool to allow, a question), as the app does: a
+ * `control_response` whose `response` the worker hands Claude Code (`behavior`, `updatedInput`, …).
+ */
+export async function sendResponse(id: string, requestId: string, response: Record<string, unknown>, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "control_response", uuid: randomUUID(), response: { subtype: "success", request_id: requestId, response } }], dir);
 }

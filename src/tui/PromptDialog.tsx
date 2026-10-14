@@ -54,6 +54,7 @@ export function PromptDialog({
   draftKey,
   onSend,
   onCancel,
+  onTyped,
 }: {
   layout: Layout;
   title: string;
@@ -63,6 +64,8 @@ export function PromptDialog({
   draftKey: string;
   onSend: (text: string) => void;
   onCancel: () => void;
+  /** Hears the text as it is typed. */
+  onTyped?: (text: string) => void;
 }) {
   const [line, setLine] = useState<LineState>(() => {
     const text = drafts.get(draftKey) ?? "";
@@ -71,6 +74,7 @@ export function PromptDialog({
   const change = (next: LineState) => {
     setLine(next);
     drafts.set(draftKey, next.text);
+    onTyped?.(next.text);
   };
   const insert = (text: string) => change({ text: line.text.slice(0, line.cursor) + text + line.text.slice(line.cursor), cursor: line.cursor + text.length, selected: false });
   useInput((input, key) => {

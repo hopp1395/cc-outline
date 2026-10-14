@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import type { PendingRequest } from "../remote/pending.js";
 import { IncrementalFile } from "./incremental.js";
 import { claudeDir, inClaudeDir, projectDir } from "./locate.js";
 import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
@@ -56,6 +57,8 @@ export interface RemoteInfo {
   unknown?: Record<string, number>;
   /** Ids named in the session's data: a session of this machine with one of them is the same. */
   refs?: string[];
+  /** What the worker waits for, while `requires_action`: the list answers it from here. */
+  pending?: PendingRequest;
 }
 
 /** How a background session was run: `claude -p` or the SDK (`entrypoint` `sdk-cli`), or the daemon (`sessionKind` `bg`). */
