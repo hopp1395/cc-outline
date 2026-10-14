@@ -17,4 +17,6 @@ export const TIMING = {
   reloaded: 1500,
   /** How often a `FileTail` stats its file, besides the watcher. */
   tailStat: 1000,
+  /** How often a remote viewer asks claude.ai for the session's new events. */
+  remotePoll: 1000,
 };

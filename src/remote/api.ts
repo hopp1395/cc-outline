@@ -32,6 +32,8 @@ export interface RemoteSession {
 export interface RemoteEvent {
   sequence: number;
   createdAt?: string;
+  /** Who wrote it: `worker` (the Claude Code running the session) or `client` (the app, claude.ai, cco). */
+  source?: string;
   payload: Record<string, unknown>;
 }
 
@@ -135,7 +137,7 @@ export async function listEvents(id: string, dir?: string): Promise<{ events: Re
     if (!isObject(raw) || !isObject(raw.payload)) continue;
     const sequence = Number(raw.sequence_num);
     if (!Number.isFinite(sequence)) continue;
-    events.push({ sequence, createdAt: text(raw.created_at), payload: raw.payload });
+    events.push({ sequence, createdAt: text(raw.created_at), source: text(raw.source), payload: raw.payload });
   }
   // The API sends the newest first; the transcript is read oldest first, each event once.
   const unique = [...new Map(events.map((e) => [e.sequence, e])).values()].sort((a, b) => a.sequence - b.sequence);

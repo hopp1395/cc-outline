@@ -17,7 +17,7 @@ import {
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
-import { detectTerminal, resumeInNewWindow, resumeShellCommand } from "../open.js";
+import { detectTerminal, openRemoteViewer, resumeInNewWindow, resumeShellCommand } from "../open.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
 import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
@@ -951,10 +951,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     setChoice({
       title: "What to do with this session?",
       lines: [truncate(sessionTitle(s), 56), span(s.start, s.end), "remote: it runs on another machine, read from claude.ai"].filter(Boolean),
-      options: [{ id: "copy", label: "Copy its address", detail: remoteUrl(s.id) }],
+      options: [
+        { id: "open", label: "Open it in a viewer of its own", detail: "the whole session live in a chat, in a window of its own" },
+        { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
+      ],
       initial: 0,
-      onChoose: () => {
+      onChoose: (id: string) => {
         setChoice(undefined);
+        if (id === "open") return notify(openRemoteViewer(s.id, truncate(`◈ ${sessionTitle(s)}`, 30)));
         act("copy", s, cwd, undefined, remoteUrl(s.id));
       },
     });
@@ -1296,7 +1300,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             : onImport
               ? "↵ import"
               : session?.remote
-                ? "↵ address"
+                ? "↵ open…"
                 : session
                 ? enterLabel(situationOf(session).situation)
                 : "↵ start",

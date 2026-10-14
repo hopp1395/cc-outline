@@ -20,4 +20,5 @@ Object.assign(TIMING, {
   blink: 100,
   reloaded: 300,
   tailStat: 100,
+  remotePoll: 50,
 } satisfies typeof TIMING);

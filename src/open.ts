@@ -8,6 +8,7 @@ import { claudeDir, claudeFile, isDefaultClaudeDir, readActive, readJson, withCl
 import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
+import { remoteWindow, runningRemoteViewer } from "./remote/viewer.js";
 
 const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor", accounts: "accounts" };
 
@@ -98,6 +99,31 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
     return "started in a new tmux window";
   }
   return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir, process.platform, fresh)} in ${dir}`;
+}
+
+/**
+ * Opens a viewer of the remote session `id` (`cco watch --remote`) in a window of its own, named after the session
+ * (`remoteWindow`), or brings the one that runs to the front. Returns what happened, for the help line.
+ */
+export function openRemoteViewer(id: string, title: string): string {
+  const terminal = detectTerminal();
+  const running = runningRemoteViewer(id);
+  const window = remoteWindow(id);
+  if (terminal === "wt") {
+    // focus-tab on the named window raises it; new-tab there opens it the first time. No windowsHide, see resumeInNewWindow.
+    const args = running
+      ? ["-w", window, "focus-tab", "-t", "0"]
+      : ["-w", window, "new-tab", "--title", title, process.execPath, CLI, "watch", "--remote", id, "--config-dir", claudeDir()];
+    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
+    return running ? "its viewer is in front" : "opened in a window of its own";
+  }
+  if (terminal === "tmux") {
+    const command = [process.execPath, CLI, "watch", "--remote", id, "--config-dir", claudeDir()].map(shellQuote).join(" ");
+    const args = running ? ["select-window", "-t", window] : ["new-window", "-n", window, command];
+    proc.spawn("tmux", args, { stdio: "ignore", detached: true, env: independentEnv() }).unref();
+    return running ? "its viewer is in front" : "opened in a tmux window";
+  }
+  return `no Windows Terminal or tmux: run cco watch --remote ${id}`;
 }
 
 /**
