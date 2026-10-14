@@ -97,8 +97,8 @@ describe("remote sessions in Sessions", () => {
     status = 401;
     local("mine", "my local work", 30);
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
-    await until(() => view.frame().includes("claude.ai refused the login"));
-    expect(view.frame()).toContain("my local work");
+    // The answer can come before the local scan: the list stays this machine's.
+    await until(() => view.frame().includes("claude.ai refused the login") && view.frame().includes("my local work"));
     view.unmount();
   });
 
