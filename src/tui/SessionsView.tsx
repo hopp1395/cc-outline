@@ -37,9 +37,10 @@ import { useAccountState } from "./useAccount.js";
 import { useAccountFlow } from "./useAccountFlow.js";
 import { countHead, fg, plural, sessionHead, sessionTitle, span, tilde, type HeadState } from "./sessionHead.js";
 import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
+import { remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { RenameDialog } from "./RenameDialog.js";
-import { enterLabel, OWN_ONLY, sessionOptions, type SessionAction, type SessionSituation } from "./resumeChoice.js";
+import { enterLabel, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
@@ -602,6 +603,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [sessionsBackground] = useSetting("sessionsBackground");
   const [sessionsRemote] = useSetting("sessionsRemote");
   const [remoteApi] = useSetting("remoteApi");
+  const [remoteControl] = useSetting("remoteControl");
   const [separators] = useSetting("dateSeparators");
   const [pinnedSessions] = useSetting("pinnedSessions");
   const [accountColor] = useSetting("accountColor");
@@ -714,8 +716,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   });
   // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
   const progressOpen = useProgressOpen();
+  // Prompts and interrupts for remote sessions (setting remoteControl).
+  const remoteCtl = useRemoteControl(layout, (message) => notify(message));
   const dialogOpen =
-    confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen || filterOpen;
+    remoteCtl.open || confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen || filterOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
   // Selected by id, so the selection stays when sessions are added; none yet means the newest.
@@ -946,22 +950,30 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     });
   };
 
-  /** Enter on a remote session: it can only be seen here; the Claude app or claude.ai continue it, so its address is offered. */
-  const startRemote = (s: SessionSummary) =>
+  /**
+   * Enter on a remote session: with remote control, what fits what it does first (a prompt, interrupting it), then
+   * a viewer of its own and its address.
+   */
+  const startRemote = (s: SessionSummary) => {
+    const control = remoteControl ? remoteOptions(s.remote?.workerStatus) : [];
+    const options: ChoiceOption[] = [
+      ...control,
+      { id: "open", label: "Open it in a viewer of its own", detail: "the whole session live in a chat, in a window of its own" },
+      { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
+    ];
     setChoice({
       title: "What to do with this session?",
       lines: [truncate(sessionTitle(s), 56), span(s.start, s.end), "remote: it runs on another machine, read from claude.ai"].filter(Boolean),
-      options: [
-        { id: "open", label: "Open it in a viewer of its own", detail: "the whole session live in a chat, in a window of its own" },
-        { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
-      ],
-      initial: 0,
+      options,
+      initial: Math.max(0, options.findIndex((o) => !o.disabled)),
       onChoose: (id: string) => {
         setChoice(undefined);
         if (id === "open") return notify(openRemoteViewer(s.id, truncate(`◈ ${sessionTitle(s)}`, 30)));
-        act("copy", s, cwd, undefined, remoteUrl(s.id));
+        if (id === "copy") return act("copy", s, cwd, undefined, remoteUrl(s.id));
+        remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus });
       },
     });
+  };
 
   const act = (id: SessionAction, s: SessionSummary, dir: string, claude: RunningSession | undefined, command: string, prepared?: ConsoleTyper) => {
     switch (id) {
@@ -1457,6 +1469,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       )}
       {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} into={tilde(cwd)} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
       {flow.element}
+      {remoteCtl.element}
       {filter.dialog}
       {filterOpen && (
         <SessionFilterDialog

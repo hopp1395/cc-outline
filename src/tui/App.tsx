@@ -36,6 +36,8 @@ import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
+import { remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
+import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { remotePath } from "../remote/index.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { TIMING } from "../timing.js";
@@ -248,7 +250,27 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
-  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
+  // A remote viewer with remote control: Enter on the last turn sends a prompt, or asks what to do while Claude works or waits.
+  const [remoteControl] = useSetting("remoteControl");
+  const remoteCtl = useRemoteControl(layout, (message) => setNotice({ text: message }));
+  const [remoteChoice, setRemoteChoice] = useState<Choice<RemoteAction>>();
+  const onEnterLast = () => {
+    const target = { id: remoteId!, title: transcript.title ?? remoteId!, workerStatus: remote.session?.workerStatus };
+    const options = remoteOptions(target.workerStatus);
+    // Idle, there is one thing to do: the prompt window opens at once.
+    if (options.length === 1) return remoteCtl.act(options[0]!.id, target);
+    setRemoteChoice({
+      title: target.workerStatus === "requires_action" ? "Claude waits for an answer" : "Claude is working",
+      lines: [`◈ ${target.title}`],
+      options,
+      initial: Math.max(0, options.findIndex((o) => !o.disabled)),
+      onChoose: (action) => {
+        setRemoteChoice(undefined);
+        remoteCtl.act(action, target);
+      },
+    });
+  };
+  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || remoteChoice !== undefined || remoteCtl.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
@@ -436,7 +458,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open) return;
+    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || remoteChoice || remoteCtl.open) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -493,6 +515,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onTyping={setTyping}
             onModal={setModal}
             liveSession={!sessionId}
+            onEnterLast={remoteId && remoteControl ? onEnterLast : undefined}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
@@ -607,6 +630,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         </Fragment>
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
+        {remoteChoice && <ChoiceDialog key={remoteChoice.title} layout={layout} choice={remoteChoice} onClose={() => setRemoteChoice(undefined)} />}
+        {remoteCtl.element}
         {placementOpen && (
           <PlacementDialog
             layout={layout}

@@ -635,8 +635,16 @@ export const SETTING_ROWS: Row[] = [
     group: "Sessions",
     label: "remote API",
     description:
-      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: nothing is sent or changed on claude.ai.",
+      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the remote control setting.",
     values: ON_OFF("Remote Control sessions are listed in Sessions, and the preview shows their prompts", "nothing is asked of claude.ai"),
+  },
+  {
+    key: "remoteControl",
+    group: "Sessions",
+    label: "remote control",
+    description:
+      "Experimental, with the remote API on. Lets cco steer a Remote Control session like the Claude app: send it a prompt and stop what Claude does, from the `Enter` dialog in Sessions or with `Enter` on the last turn of a remote session's own viewer. It writes to claude.ai through the same undocumented interface, so a change there can make a prompt go nowhere; what was sent shows in the chat once the session has it.",
+    values: ON_OFF("`Enter` on a remote session offers to send a prompt or to interrupt it", "remote sessions are only shown, nothing is sent"),
   },
   {
     key: "pinnedSessions",

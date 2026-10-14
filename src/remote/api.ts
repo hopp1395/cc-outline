@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import tls from "node:tls";
 import { readLogin, RemoteError, type RemoteLogin } from "./credentials.js";
 
 /**
  * The unofficial interface of claude.ai that lists Remote Control sessions and their events (reverse-engineered,
  * see https://github.com/ThatCrispyToast/claude-rc-api). Anthropic does not document it and may change it at any
- * time, so everything read here is checked and a surprise becomes a `format` error. Only GET is ever used.
+ * time, so everything read here is checked and a surprise becomes a `format` error. Reading is GET; with the
+ * remoteControl setting, `sendPrompt` and `sendInterrupt` POST events the way the Claude app does.
  */
 const BASE = "https://api.anthropic.com";
 
@@ -83,19 +85,22 @@ function networkError(err: unknown): RemoteError {
   return new RemoteError("offline", "claude.ai cannot be reached");
 }
 
-async function get(path: string, login: RemoteLogin): Promise<unknown> {
+async function get(path: string, login: RemoteLogin, body?: unknown): Promise<unknown> {
   trustSystemCertificates();
   let response: Response;
   try {
     response = await remote.fetch(BASE + path, {
-      method: "GET",
+      method: body === undefined ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${login.token}`,
         "anthropic-version": "2023-06-01",
+        // As the web and the app: another platform makes the worker take a prompt as a peer's message, which starts no turn.
         "anthropic-client-platform": "web_claude_ai",
         "x-organization-uuid": login.org,
         "anthropic-beta": "ccr-byoc-2025-07-29",
+        ...(body !== undefined && { "content-type": "application/json" }),
       },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
     });
   } catch (err) {
     throw networkError(err);
@@ -112,6 +117,8 @@ async function get(path: string, login: RemoteLogin): Promise<unknown> {
   try {
     return await response.json();
   } catch {
+    // A write needs no answer: what it did shows in the events.
+    if (body !== undefined) return undefined;
     throw new RemoteError("format", "claude.ai sent no JSON");
   }
 }
@@ -142,4 +149,19 @@ export async function listEvents(id: string, dir?: string): Promise<{ events: Re
   // The API sends the newest first; the transcript is read oldest first, each event once.
   const unique = [...new Map(events.map((e) => [e.sequence, e])).values()].sort((a, b) => a.sequence - b.sequence);
   return { events: unique, truncated: data.length >= EVENT_LIMIT };
+}
+
+/** Writes `payloads` into session `id` as the client's events, the way the Claude app sends them. */
+async function postEvents(id: string, payloads: Record<string, unknown>[], dir?: string): Promise<void> {
+  await get(`/v1/code/sessions/${encodeURIComponent(id)}/events`, readLogin(dir), { events: payloads.map((payload) => ({ payload })) });
+}
+
+/** Sends `text` as a prompt to session `id`; mid-turn, Claude Code queues it like a prompt typed while it works. */
+export async function sendPrompt(id: string, text: string, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "user", uuid: randomUUID(), message: { role: "user", content: text } }], dir);
+}
+
+/** Stops what Claude does in session `id`, as Esc in the terminal or the stop button of the app. */
+export async function sendInterrupt(id: string, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } }], dir);
 }

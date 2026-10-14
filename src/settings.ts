@@ -164,6 +164,8 @@ export interface Settings {
   sessionsRemote: SessionsRemote;
   /** Experimental: reads the Remote Control sessions of this account through the unofficial claude.ai API, with Claude Code's login. */
   remoteApi: boolean;
+  /** Experimental, with remoteApi: sends prompts to Remote Control sessions and interrupts them, as the Claude app does. */
+  remoteControl: boolean;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -222,6 +224,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionsBackground: "show",
   sessionsRemote: "show",
   remoteApi: false,
+  remoteControl: false,
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",

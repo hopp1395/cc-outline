@@ -73,6 +73,8 @@ interface Props {
   onTyping?: (typing: boolean) => void;
   /** The screenshot dialog opened or closed: App ignores its keys meanwhile. */
   onModal?: (open: boolean) => void;
+  /** A remote viewer with remote control: Enter on the last turn sends a prompt or interrupts (App's dialogs) instead of showing the full prompt. */
+  onEnterLast?: () => void;
 }
 
 /** t steps through the tool levels: off → compact → full → off. */
@@ -503,7 +505,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, onEnterLast }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
@@ -819,6 +821,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       }
       const nav = { ...filter.nav, scroll, page };
       if (handleNavigation(input, key, nav)) return;
+      if (key.return && onEnterLast && !promptOpen && (selected === last || !current)) return onEnterLast();
       if (key.return && current) return togglePrompt(!promptOpen);
       if (key.escape && promptOpen) return togglePrompt(false);
       if (input === "f") {
@@ -955,7 +958,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "↑↓ turn", priority: 4 },
           { text: "PgUp/Dn scroll", priority: 1 },
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
-          { text: "↵ prompt", on: promptOpen },
+          // On a remote session's last turn, Enter sends to it.
+          { text: onEnterLast && !promptOpen && selected === last ? "↵ send…" : "↵ prompt", on: promptOpen, priority: onEnterLast ? 4 : undefined },
           { text: "f follow", on: follow },
           ...filter.footer,
           orderFooter(order, "oldest-first"),
