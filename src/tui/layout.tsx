@@ -367,11 +367,11 @@ export function rule(width: number, label?: string): string {
   return dim(text + "─".repeat(Math.max(0, width - stringWidth(text))));
 }
 
-/** Wraps a file path after "/" separators, splitting a segment only when it alone is too wide. */
+/** Wraps a file path after "/" or "\" separators, splitting a segment only when it alone is too wide. */
 export function wrapPath(path: string, width: number): string[] {
   const lines: string[] = [];
   let line = "";
-  for (const segment of path.split(/(?<=\/)/)) {
+  for (const segment of path.split(/(?<=[/\\])/)) {
     if (line && stringWidth(line + segment) > width) {
       lines.push(line);
       line = "";
