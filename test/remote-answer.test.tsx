@@ -133,10 +133,8 @@ describe("answering a remote session", () => {
     });
   };
 
-  it("opens the question on Enter in the session's viewer and sends the answer as the app does", async () => {
+  it("shows the question in place of the prompt line in the session's viewer and sends the answer as the app does", async () => {
     const app = viewer();
-    await until(() => app.frame().includes("frag mich mit askuserquestion") && app.frame().includes("↵ send…"));
-    await app.press("\r");
     await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
     await app.press(" ");
     await app.press("\r");
@@ -153,14 +151,13 @@ describe("answering a remote session", () => {
     app.unmount();
   });
 
-  it("closes the question when the app answered it first", async () => {
+  it("puts the prompt line back when the app answered the question first", async () => {
     const app = viewer();
-    await until(() => app.frame().includes("frag mich mit askuserquestion") && app.frame().includes("↵ send…"));
-    await app.press("\r");
     await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
     answered = true;
     await until(() => app.frame().includes("already answered in another app"));
     expect(app.frame()).not.toContain("Space choose");
+    await until(() => app.frame().includes("Enter send"));
     expect(posted).toEqual([]);
     app.unmount();
   });

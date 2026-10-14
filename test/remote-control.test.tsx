@@ -109,47 +109,59 @@ describe("the prompt dialog", () => {
 });
 
 describe("remote control in the viewers", () => {
-  it("opens the prompt dialog on the last turn of a remote viewer and sends what was typed", async () => {
-    updateSettings({ remoteApi: true, remoteControl: true });
+  const viewer = () => {
     setViewLimit(REMOTE_VIEWS);
-    const app = renderInk(<App cwd={tmpdir()} remoteId="cse_1" initialMode="chat" />, layout, {
+    return renderInk(<App cwd={tmpdir()} remoteId="cse_1" initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
-    await until(() => app.frame().includes("lege die datei a.txt"));
-    await until(() => app.frame().includes("↵ send…"));
-    await app.press("\r");
-    await until(() => app.frame().includes("Send a prompt"));
-    await app.press("go on");
+  };
+
+  it("types into the prompt line below the chat at once, as in Claude Code, and sends on Enter", async () => {
+    updateSettings({ remoteApi: true, remoteControl: true });
+    const app = viewer();
+    await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("Enter send"));
+    // The prompt line is the last thing on the screen, below the chat.
+    const rows = app.frame().split("\n");
+    expect(rows.findIndex((r) => r.includes("Enter send"))).toBeGreaterThan(rows.findIndex((r) => r.includes("lege die datei a.txt")));
+    // Keys of the chat (q quits, t tools) are text here.
+    await app.press("quit it");
+    await until(() => app.frame().includes("› quit it"));
+    await app.press("\n");
+    await app.press("and go on");
     await app.press("\r");
     await expect.poll(() => posted.length).toBe(1);
-    expect(posted[0]!.body.events[0]!.payload.message).toEqual({ role: "user", content: "go on" });
-    await until(() => app.frame().includes("prompt sent"));
+    expect(posted[0]!.body.events[0]!.payload.message).toEqual({ role: "user", content: "quit it\nand go on" });
+    await until(() => !app.frame().includes("and go on"));
     app.unmount();
   });
 
-  it("asks whether to interrupt while Claude works", async () => {
+  it("hands the keys to the chat with Esc and takes them back with Tab", async () => {
+    updateSettings({ remoteApi: true, remoteControl: true });
+    const app = viewer();
+    await until(() => app.frame().includes("Enter send"));
+    await app.press("\u001b");
+    await until(() => app.frame().includes("Tab write a prompt"));
+    await app.press("\t");
+    await until(() => app.frame().includes("Enter send"));
+    app.unmount();
+  });
+
+  it("stops Claude with Esc while it works", async () => {
     updateSettings({ remoteApi: true, remoteControl: true });
     status = "running";
-    setViewLimit(REMOTE_VIEWS);
-    const app = renderInk(<App cwd={tmpdir()} remoteId="cse_1" initialMode="chat" />, layout, {
-      wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
-    });
-    await until(() => app.frame().includes("lege die datei a.txt"));
-    await app.press("\r");
-    await until(() => app.frame().includes("Claude is working"));
-    await app.press("\r");
+    const app = viewer();
+    await until(() => app.frame().includes("Esc stop Claude"));
+    await app.press("\u001b");
     await expect.poll(() => posted[0]?.body.events[0]?.payload.type).toBe("control_request");
+    expect(posted[0]!.body.events[0]!.payload).toMatchObject({ request: { subtype: "interrupt" } });
     app.unmount();
   });
 
-  it("leaves Enter as it was without the setting", async () => {
+  it("has no prompt line without the setting", async () => {
     updateSettings({ remoteApi: true, remoteControl: false });
-    setViewLimit(REMOTE_VIEWS);
-    const app = renderInk(<App cwd={tmpdir()} remoteId="cse_1" initialMode="chat" />, layout, {
-      wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
-    });
+    const app = viewer();
     await until(() => app.frame().includes("lege die datei a.txt"));
-    expect(app.frame()).not.toContain("↵ send…");
+    expect(app.frame()).not.toContain("Enter send");
     app.unmount();
   });
 

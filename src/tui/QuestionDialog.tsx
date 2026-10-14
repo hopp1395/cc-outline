@@ -1,5 +1,5 @@
-import { Text, useInput, usePaste } from "ink";
-import { useState } from "react";
+import { Box, Text, useInput, usePaste } from "ink";
+import { useState, type ReactNode } from "react";
 import { editLine, insertable, type LineState } from "../filter.js";
 import { LineField } from "./FilterDialog.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -61,6 +61,8 @@ export function QuestionDialog({
   onSend,
   onCancel,
   onTyped,
+  inline = false,
+  active = true,
 }: {
   layout: Layout;
   title: string;
@@ -69,6 +71,10 @@ export function QuestionDialog({
   onCancel: () => void;
   /** Hears what is typed into the "Other…" fields, joined: kept if the dialog closes because another app answered. */
   onTyped?: (text: string) => void;
+  /** Drawn in place of a remote viewer's prompt line, as wide as the pane, instead of over the view. */
+  inline?: boolean;
+  /** It takes the keys (the prompt line has the focus). */
+  active?: boolean;
 }) {
   const rows: Row[] = questions.flatMap((q, i) => [...q.options.map((_, option): Row => ({ q: i, option })), { q: i, other: true } as Row]);
   const [at, setAt] = useState(0);
@@ -114,10 +120,10 @@ export function QuestionDialog({
       return;
     }
     if (input === " ") return toggle(row);
-  });
+  }, { isActive: active });
   usePaste((text) => row && "other" in row && type(row, editLine(field[row.q]!, insertable(text), {})));
 
-  const width = Math.min(MAX_WIDTH, layout.columns - 4);
+  const width = inline ? layout.columns : Math.min(MAX_WIDTH, layout.columns - 4);
   let index = 0;
   const body = questions.flatMap((q, qi) => {
     const a = answers[qi]!;
@@ -149,9 +155,8 @@ export function QuestionDialog({
     lines.push(<Text key={`b${qi}`}> </Text>);
     return lines;
   });
-  // Title, blank, the questions, notice, keys, plus the border.
-  return (
-    <Dialog layout={layout} width={width} height={2 + body.length + 2 + 2}>
+  const content: ReactNode = (
+    <>
       <Text bold color="cyan" wrap="truncate">
         {title}
       </Text>
@@ -164,8 +169,21 @@ export function QuestionDialog({
         <Text color="yellow">↑↓</Text> row{"  "}
         <Text color="yellow">Space</Text> choose{"  "}
         <Text color="yellow">Enter</Text> send{"  "}
-        <Text color="yellow">Esc</Text> later
+        <Text color="yellow">Esc</Text> {inline ? "chat" : "later"}
       </Text>
+    </>
+  );
+  // In place of the prompt line: framed, as tall as it needs.
+  if (inline)
+    return (
+      <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
+        {content}
+      </Box>
+    );
+  // Title, blank, the questions, notice, keys, plus the border.
+  return (
+    <Dialog layout={layout} width={width} height={2 + body.length + 2 + 2}>
+      {content}
     </Dialog>
   );
 }

@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, useLayouts, type Mode, type Layout } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -36,8 +36,7 @@ import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
-import { answerable, remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
-import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
+import { RemoteComposer } from "./RemoteComposer.js";
 import { remotePath } from "../remote/index.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { TIMING } from "../timing.js";
@@ -65,6 +64,12 @@ interface Props {
   onDetach?: (cwd: string) => void;
   /** A remote viewer (`--remote`): the Remote Control session of this id, read from claude.ai, in the chat only. */
   remoteId?: string;
+}
+
+/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a remote viewer's prompt line). */
+function shorter(layout: Layout, rows: number): Layout {
+  const less = (n: number | undefined) => (n === undefined ? undefined : Math.max(1, n - rows));
+  return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
 }
 
 /** The views of a remote viewer: only the chat; the other views belong to this machine, not to the session. */
@@ -250,32 +255,14 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
-  // A remote viewer with remote control: Enter on the last turn sends a prompt, or asks what to do while Claude works or waits.
+  // A remote viewer with remote control has a prompt line below the chat, as Claude Code does; it has the keys
+  // at first, Esc or Tab hand them to the chat, Tab or i back. The chat leaves it the rows it takes.
   const [remoteControl] = useSetting("remoteControl");
-  // Answered elsewhere once the events have its answer; before the first read, not known.
-  const remoteCtl = useRemoteControl(layout, (message) => setNotice({ text: message }), (_id, requestId) =>
-    remote.version > 0 ? remote.pending.some((p) => p.requestId === requestId) : undefined,
-  );
-  const [remoteChoice, setRemoteChoice] = useState<Choice<RemoteAction>>();
-  const onEnterLast = () => {
-    const target = { id: remoteId!, title: transcript.title ?? remoteId!, workerStatus: remote.session?.workerStatus, pending: remote.pending[0] ?? remote.session?.pending };
-    // A question waits: Enter answers it at once, as the app opens it.
-    if (answerable(target.pending)) return remoteCtl.act("answer", target);
-    const options = remoteOptions(target.workerStatus, target.pending);
-    // Idle, there is one thing to do: the prompt window opens at once.
-    if (options.length === 1) return remoteCtl.act(options[0]!.id, target);
-    setRemoteChoice({
-      title: target.workerStatus === "requires_action" ? "Claude waits for an answer" : "Claude is working",
-      lines: [`◈ ${target.title}`],
-      options,
-      initial: Math.max(0, options.findIndex((o) => !o.disabled)),
-      onChoose: (action) => {
-        setRemoteChoice(undefined);
-        remoteCtl.act(action, target);
-      },
-    });
-  };
-  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || remoteChoice !== undefined || remoteCtl.open;
+  const composer = remoteId !== undefined && remoteControl;
+  const [composing, setComposing] = useState(true);
+  const [composerRows, setComposerRows] = useState(3);
+  const typingInComposer = composer && composing;
+  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
@@ -463,13 +450,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || remoteChoice || remoteCtl.open) return;
+    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
       else if (input === "q") quit();
       return;
     }
+    // A remote viewer's chat: Tab and i go back to the prompt line (it shows the chat alone, so Tab switches no view).
+    if (composer && (key.tab || input === "i")) return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {
       if (!mouse) return;
@@ -514,13 +503,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             cwd={cwd}
             path={path}
             transcript={transcript}
-            layout={viewLayout("chat")}
+            layout={composer ? shorter(viewLayout("chat"), composerRows) : viewLayout("chat")}
             active={mode === "chat" && !blocked}
             onPromptOpen={setDetail("chat")}
             onTyping={setTyping}
             onModal={setModal}
             liveSession={!sessionId}
-            onEnterLast={remoteId && remoteControl ? onEnterLast : undefined}
+            scrollOnly={typingInComposer}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
@@ -635,8 +624,19 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         </Fragment>
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} />}
-        {remoteChoice && <ChoiceDialog key={remoteChoice.title} layout={layout} choice={remoteChoice} onClose={() => setRemoteChoice(undefined)} />}
-        {remoteCtl.element}
+        {composer && mode === "chat" && (
+          <RemoteComposer
+            layout={layout}
+            sessionId={remoteId}
+            title={transcript.title ?? remoteId}
+            working={working || remote.session?.workerStatus === "running"}
+            pending={remote.pending[0] ?? remote.session?.pending}
+            focused={typingInComposer && !blocked}
+            onFocus={setComposing}
+            notify={(text) => setNotice({ text })}
+            onHeight={setComposerRows}
+          />
+        )}
         {placementOpen && (
           <PlacementDialog
             layout={layout}
