@@ -36,6 +36,7 @@ const COMMON_KEYS: [string, string][] = [
   ["click wheel", "select, open a link / scroll"],
   ["F5 ^R", "reload this view"],
   ["p", "move: right / left / window"],
+  ["r", "restart the viewer"],
   ["i", "this info"],
   ["q", "quit"],
 ];
@@ -93,7 +94,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["↵", "next value / update"],
     ["r", "back to the default"],
     ["R", "reset all"],
-    ...COMMON_KEYS,
+    ...COMMON_KEYS.filter(([k]) => k !== "r"),
   ],
   monitor: [
     ...LIST_KEYS("day"),

@@ -75,7 +75,7 @@ export const RESET_ACTIONS: ResetAction[] = [
     id: "restart",
     label: "restart the viewer",
     description:
-      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (`npm install -g`, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. Asks first unless confirm quit is off.",
+      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (`npm install -g`, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. `r` in the other views does the same. Asks first unless confirm quit is off.",
   },
   {
     id: "doctor",
@@ -349,7 +349,7 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "confirm quit",
     description:
-      "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether restart the viewer (Reset, below) asks before it restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
+      "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether `r` (in the other views) and restart the viewer (Reset, below) ask before the viewer restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
     values: ON_OFF("ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no", "close at the first `q` or `Esc`; restart the viewer restarts without asking"),
   },
   {
@@ -1079,7 +1079,7 @@ function releasesNote(update: Update, width: number): string[] {
 }
 
 /** What a restart runs: the version on disk, which differs from the running one after an update. */
-function restartDetail(root: string): string {
+export function restartDetail(root: string): string {
   const installed = root ? installedVersion(root) : undefined;
   return installed && installed !== VERSION ? `v${installed} (running v${VERSION})` : `v${installed ?? VERSION}`;
 }
