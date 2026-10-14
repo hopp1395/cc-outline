@@ -216,8 +216,16 @@ const AGENT_ICON: Record<AgentStatus, string> = {
   killed: red("■"),
 };
 
-/** Plans, agents, changed files and prompts of a session, as lines of `width` columns. */
-export function sessionLines(s: SessionSummary, viewerCwd: string, width: number, separators = true): string[] {
+/**
+ * The transcript's place in the details: the chain's latest (`SessionSummary.path`), in the trash where it
+ * went (`TrashEntry.items`).
+ */
+function transcriptLocation(s: SessionSummary, trashed?: TrashEntry): string | undefined {
+  return trashed?.items.find((i) => i.from === s.path)?.to ?? s.path;
+}
+
+/** Transcript, plans, agents, changed files and prompts of a session, as lines of `width` columns. */
+export function sessionLines(s: SessionSummary, viewerCwd: string, width: number, separators = true, location?: string): string[] {
   // Paths are shown relative to the folder the session ran in.
   const cwd = s.cwd ?? viewerCwd;
   const lines: string[] = [];
@@ -225,6 +233,7 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
   const severalDays = separators && dayOf(s.start) !== dayOf(s.end ?? s.start);
   const timed = <T,>(items: T[], at: (item: T) => string | undefined, line: (item: T) => string) =>
     severalDays ? linesByDay(items, at, line, width) : items.map(line);
+  if (location) lines.push(heading("Transcript"), ...wrapPath(location, width - 2).map((l) => `  ${l}`));
   const section = (title: string, count: number, body: string[]) => {
     if (lines.length) lines.push("");
     lines.push(heading(`${title} (${count})`));
@@ -826,8 +835,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     );
   }, [viewed, activeId, running, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
   const lines = useMemo(
-    () => (viewed ? sessionLines(viewed, cwd, previewWidth, separators) : []),
-    [viewed, cwd, previewWidth, separators],
+    // A remote session has no transcript on this machine.
+    () => (viewed ? sessionLines(viewed, cwd, previewWidth, separators, viewed.remote ? undefined : transcriptLocation(viewed, entry)) : []),
+    [viewed, cwd, previewWidth, separators, entry],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(session && sessionKey(session), lines.length, viewport);
