@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { EVENT_LIMIT, listEvents, listSessions, parseSession, remote } from "../src/remote/api.js";
 import { readLogin, RemoteError, SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { describeRemoteError, RemoteSessions, remoteSummary, remoteUrl } from "../src/remote/index.js";
@@ -174,17 +174,10 @@ describe("the filter for remote sessions", () => {
   const own = join(tmpdir(), "own");
   const filter = (remote: SessionFilter["remote"]): SessionFilter => ({ folders: "this", accounts: [own], background: "show", remote });
   const remoteSession = remoteSummary({ id: "cse_1", refs: [] });
-  const local = { id: "a", path: join(tmpdir(), "x", "a.jsonl"), prompts: [], plans: [], files: [] };
 
   it("lets them through unless hidden, whatever the folder", () => {
     expect(passesFilter(remoteSession, filter("show"), own, tmpdir(), undefined)).toBe(true);
-    expect(passesFilter(remoteSession, filter("only"), own, tmpdir(), undefined)).toBe(true);
     expect(passesFilter(remoteSession, filter("hide"), own, tmpdir(), undefined)).toBe(false);
-  });
-
-  it("leaves the sessions of this machine out when only the remote ones are wanted", () => {
-    mkdirSync(join(tmpdir(), "x"), { recursive: true });
-    expect(passesFilter(local, filter("only"), own, tmpdir(), undefined)).toBe(false);
   });
 });
 
@@ -200,6 +193,11 @@ describe("the settings and the doctor", () => {
 
   it("checks the login only while the remote API is on", () => {
     const environment = () => diagnoseGroup("Environment", { cwd: tmpdir() }).filter((f) => f.text.startsWith("remote API"));
+    const saved = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-remote-doctor-"));
+    onTestFinished(() => {
+      process.env.CLAUDE_CONFIG_DIR = saved;
+    });
     updateSettings({ remoteApi: false });
     expect(environment()).toEqual([]);
     updateSettings({ remoteApi: true });

@@ -12,7 +12,6 @@ import { renderInk, until } from "./helpers/ink.js";
 
 const layout: Layout = { columns: 120, rows: 26, listWidth: 40, previewWidth: 77, bodyHeight: 22 };
 const DOWN = "\u001b[B";
-const RIGHT = "\u001b[C";
 
 const realFetch = remote.fetch;
 afterAll(() => {
@@ -117,13 +116,13 @@ describe("remote sessions in Sessions", () => {
     await until(() => view.frame().includes("Build on the server"));
     await view.press("a");
     await until(() => view.frame().includes("Remote Control, claude.ai"));
-    // Folders (2 rows), background, then remote: step to it and choose `only`.
+    // Folders (2 rows), background, then remote: step to it and uncheck it.
     for (let i = 0; i < 3; i++) await view.press(DOWN);
-    await view.press(RIGHT);
+    await view.press(" ");
     await view.press("\r");
-    await expect.poll(() => readSettings().sessionsRemote).toBe("only");
-    await until(() => !view.frame().includes("my local work"));
-    expect(view.frame()).toContain("Build on the server");
+    await expect.poll(() => readSettings().sessionsRemote).toBe("hide");
+    await until(() => !view.frame().includes("Build on the server"));
+    expect(view.frame()).toContain("my local work");
     view.unmount();
   });
 

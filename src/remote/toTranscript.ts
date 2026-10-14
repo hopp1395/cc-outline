@@ -25,7 +25,7 @@ export function toTranscript(events: RemoteEvent[]): Translated {
       isSidechain: false,
     };
     if (type === "user" || type === "assistant") {
-      lines.push(JSON.stringify({ ...payload, ...base }));
+      lines.push(JSON.stringify({ ...payload, ...withAttachmentLabel(payload), ...base }));
     } else if (type === "system" && payload.subtype === "compact_boundary") {
       lines.push(JSON.stringify({ ...payload, ...base }));
     } else if (type === "system" && payload.subtype === "init") {
@@ -38,4 +38,12 @@ export function toTranscript(events: RemoteEvent[]): Translated {
     }
   }
   return { lines, unknown };
+}
+
+/** A prompt of attachments only has an empty text, which would start no turn: it gets a label like a local prompt of images. */
+function withAttachmentLabel(payload: Record<string, unknown>): Record<string, unknown> {
+  const message = payload.message as { content?: unknown } | undefined;
+  const files = payload.file_attachments;
+  if (payload.type !== "user" || message?.content !== "" || !Array.isArray(files) || files.length === 0) return {};
+  return { message: { ...message, content: files.length === 1 ? "[Attachment]" : `[${files.length} attachments]` } };
 }

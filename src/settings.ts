@@ -40,10 +40,10 @@ export function rangeStart(range: ListRange, now = new Date()): number | undefin
 export const SESSIONS_FOLDERS_VALUES = ["this", "other", "all"] as const;
 export type SessionsFolders = (typeof SESSIONS_FOLDERS_VALUES)[number];
 /** The Sessions view's background sessions (`claude -p`, the SDK, the daemon): listed with the others, alone, or left out. */
-export const SESSIONS_BACKGROUND_VALUES = ["show", "only", "hide"] as const;
+export const SESSIONS_BACKGROUND_VALUES = ["show", "hide"] as const;
 export type SessionsBackground = (typeof SESSIONS_BACKGROUND_VALUES)[number];
 /** The Sessions view's remote sessions (Remote Control sessions that run on another machine, from claude.ai): listed with the others, alone, or left out. */
-export const SESSIONS_REMOTE_VALUES = ["show", "only", "hide"] as const;
+export const SESSIONS_REMOTE_VALUES = ["show", "hide"] as const;
 export type SessionsRemote = (typeof SESSIONS_REMOTE_VALUES)[number];
 /** The accounts value naming the chosen config folders, joined by this. */
 export const ACCOUNT_DIRS_SEPARATOR = "|";
@@ -375,8 +375,14 @@ export function reloadSettings(): void {
   for (const listener of listeners) listener();
 }
 
+/** Keys of former formats, which `readSettings` takes over and a write leaves out. */
+const FORMER_KEYS = new Set(["updateCheck", "pinnedGroup", "accountBadge", "sessionsScope", "allProjects"]);
+
 /** Merges `changes` into the stored settings, re-reading first so other viewers' changes survive. */
 export function updateSettings(changes: Partial<Settings>): void {
-  writeJson(settingsFile(), { ...readSettings(), ...changes });
+  // A key this version does not know is a newer one's: a viewer still running older code must not drop it.
+  const stored = readJson<Record<string, unknown>>(settingsFile()) ?? {};
+  const newer = Object.fromEntries(Object.entries(stored).filter(([key]) => !(key in DEFAULT_SETTINGS) && !FORMER_KEYS.has(key)));
+  writeJson(settingsFile(), { ...newer, ...readSettings(), ...changes });
   for (const listener of listeners) listener();
 }

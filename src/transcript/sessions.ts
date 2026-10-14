@@ -48,6 +48,8 @@ export interface RemoteInfo {
   /** How many prompts claude.ai counts; the summary holds them only once its events are `loaded`. */
   userMessages?: number;
   loaded: boolean;
+  /** Why its events could not be read. */
+  error?: string;
   /** Older events were left out of what was read. */
   truncated?: boolean;
   /** Kinds of event with no counterpart in a transcript, by count. */

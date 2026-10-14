@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import stringWidth from "string-width";
 import type { Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
-import { SESSIONS_BACKGROUND_VALUES, SESSIONS_REMOTE_VALUES, type SessionsBackground, type SessionsFolders } from "../settings.js";
+import type { SessionsFolders } from "../settings.js";
 import { accountChosen, type SessionFilter } from "../sessionFilter.js";
 import { Dialog, type Layout } from "./layout.js";
 import { legendCell, legendCellWidth, SESSION_LEGEND, type LegendMark } from "./sessionLegend.js";
@@ -46,7 +46,6 @@ export function legendLines(width: number): string[] {
 
 type Row = { kind: "folder"; which: "this" | "other" } | { kind: "account"; dir: string } | { kind: "background" } | { kind: "remote" };
 
-const BACKGROUND_NAMES: Record<SessionsBackground, string> = { show: "show", only: "only", hide: "hide" };
 
 /** The folders value with `which` switched on or off. */
 function toggleFolder(folders: SessionsFolders, which: "this" | "other"): SessionsFolders | undefined {
@@ -58,8 +57,8 @@ function toggleFolder(folders: SessionsFolders, which: "this" | "other"): Sessio
 
 /**
  * What the Sessions view lists, as check boxes: the project folders (this one, the others), the accounts found
- * (`accounts`, the own one first; left out with one alone or in the trash) and the background sessions (show,
- * only, hide). ↑↓ pick a row, Space switches it (←→ step the background), Enter applies, Esc cancels. The last
+ * (`accounts`, the own one first; left out with one alone or in the trash), whether the background sessions show
+ * and, with the remote API, the remote ones. ↑↓ pick a row, Space switches it, Enter applies, Esc cancels. The last
  * box of a group stays checked, so the list is never empty by choice.
  */
 export function SessionFilterDialog({
@@ -94,17 +93,9 @@ export function SessionFilterDialog({
     ...(remote ? [{ kind: "remote" } as Row] : []),
   ];
 
-  const toggle = (row: Row, step: 1 | -1) => {
-    if (row.kind === "remote") {
-      const i = SESSIONS_REMOTE_VALUES.indexOf(filter.remote);
-      const n = SESSIONS_REMOTE_VALUES.length;
-      return setFilter({ ...filter, remote: SESSIONS_REMOTE_VALUES[(i + step + n) % n]! });
-    }
-    if (row.kind === "background") {
-      const i = SESSIONS_BACKGROUND_VALUES.indexOf(filter.background);
-      const n = SESSIONS_BACKGROUND_VALUES.length;
-      return setFilter({ ...filter, background: SESSIONS_BACKGROUND_VALUES[(i + step + n) % n]! });
-    }
+  const toggle = (row: Row) => {
+    if (row.kind === "remote") return setFilter({ ...filter, remote: filter.remote === "hide" ? "show" : "hide" });
+    if (row.kind === "background") return setFilter({ ...filter, background: filter.background === "hide" ? "show" : "hide" });
     if (row.kind === "folder") {
       const folders = toggleFolder(filter.folders, row.which);
       return folders ? setFilter({ ...filter, folders }) : setNotice("one folder stays checked");
@@ -122,8 +113,7 @@ export function SessionFilterDialog({
     if (key.return) return onApply(filter);
     if (key.upArrow || key.downArrow) return setAt((r) => (r + (key.upArrow ? -1 : 1) + rows.length) % rows.length);
     const row = rows[at]!;
-    if (input === " ") return toggle(row, 1);
-    if ((row.kind === "background" || row.kind === "remote") && (key.leftArrow || key.rightArrow)) return toggle(row, key.leftArrow ? -1 : 1);
+    if (input === " ") return toggle(row);
   });
 
   const box = (on: boolean) => (on ? "[x]" : "[ ]");
@@ -139,7 +129,7 @@ export function SessionFilterDialog({
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   const legend = legendLines(width - 4);
   // Title, blank, three headings, the rows, blank, the legend's heading and lines, blank, notice, keys, plus the border.
-  const height = 2 + (withAccounts ? 3 : 2) + rows.length + (remote ? 1 : 0) + 2 + legend.length + 3 + 2;
+  const height = 2 + (withAccounts ? 3 : 2) + rows.length + 2 + legend.length + 3 + 2;
   const accountsAt = 2;
   const backgroundAt = rows.length - (remote ? 2 : 1);
   const remoteAt = rows.length - 1;
@@ -154,31 +144,9 @@ export function SessionFilterDialog({
       {line(1, box(filter.folders !== "this"), "other folders")}
       {withAccounts && <Text dimColor>Accounts</Text>}
       {withAccounts && accounts.map((a, i) => line(accountsAt + i, box(accountChosen(filter, a.dir)), a.label))}
-      <Text dimColor>Background (claude -p, SDK, daemon)</Text>
-      {line(
-        backgroundAt,
-        "",
-        <>
-          {SESSIONS_BACKGROUND_VALUES.map((v) => (
-            <Text key={v} color={v === filter.background ? "green" : undefined} dimColor={v !== filter.background}>
-              {`${v === filter.background ? "(•)" : "( )"} ${BACKGROUND_NAMES[v]}  `}
-            </Text>
-          ))}
-        </>,
-      )}
-      {remote && <Text dimColor>Remote (Remote Control, claude.ai)</Text>}
-      {remote &&
-        line(
-          remoteAt,
-          "",
-          <>
-            {SESSIONS_REMOTE_VALUES.map((v) => (
-              <Text key={v} color={v === filter.remote ? "green" : undefined} dimColor={v !== filter.remote}>
-                {`${v === filter.remote ? "(•)" : "( )"} ${v}  `}
-              </Text>
-            ))}
-          </>,
-        )}
+      <Text dimColor>Others</Text>
+      {line(backgroundAt, box(filter.background !== "hide"), "Background (claude -p, SDK, daemon)")}
+      {remote && line(remoteAt, box(filter.remote !== "hide"), "Remote (Remote Control, claude.ai)")}
       <Text> </Text>
       <Text dimColor>Marks in the list</Text>
       {legend.map((l, i) => (

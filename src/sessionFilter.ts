@@ -65,14 +65,12 @@ export const accountChosen = (filter: SessionFilter, dir: string) => filter.acco
 export function passesFilter(s: SessionSummary, filter: SessionFilter, own: string, cwd: string, background: SessionBackground | undefined): boolean {
   // A remote session has no folder or account of its own here: only the remote setting decides (the list holds none without remoteApi).
   if (s.remote) return filter.remote !== "hide";
-  if (filter.remote === "only") return false;
   if (!accountChosen(filter, s.account ?? own)) return false;
   if (filter.folders !== "all") {
     // The project folder of the transcript: the same slug in every account's projects.
     const here = basename(dirname(s.path)) === projectSlug(cwd);
     if (here !== (filter.folders === "this")) return false;
   }
-  if (filter.background === "only") return background !== undefined;
   if (filter.background === "hide") return background === undefined;
   return true;
 }

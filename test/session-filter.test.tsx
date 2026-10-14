@@ -13,7 +13,6 @@ import { SessionsView } from "../src/tui/SessionsView.js";
 
 const layout: Layout = { columns: 120, rows: 26, listWidth: 40, previewWidth: 77, bodyHeight: 22 };
 const DOWN = "\u001b[B";
-const RIGHT = "\u001b[C";
 
 const line = (entry: object) => JSON.stringify(entry) + "\n";
 const prompt = (id: string, text: string, extra: object = {}) =>
@@ -97,7 +96,7 @@ describe("the filter dialog in Sessions", () => {
     utimesSync(file, new Date(ts), new Date(ts));
   }
 
-  it("marks the background sessions and shows them alone, then leaves them out", async () => {
+  it("marks the background sessions and leaves them out, then shows them again", async () => {
     session(cwd, "typed", "typed here", 10, { entrypoint: "cli" });
     session(cwd, "script", "scripted run", 5, { entrypoint: "sdk-cli" });
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
@@ -114,20 +113,22 @@ describe("the filter dialog in Sessions", () => {
     expect(view.frame()).toMatch(/◌ +background +∅ +folder gone/);
     // One account: no accounts group, the background row follows the folders.
     expect(view.frame()).not.toContain("Accounts");
-    await view.press(DOWN);
-    await view.press(DOWN);
-    await view.press(RIGHT);
-    await view.press("\r");
-    await expect.poll(() => readSettings().sessionsBackground).toBe("only");
-    await until(() => !view.frame().includes("typed here"));
-    await view.press("a");
-    await until(() => view.frame().includes("Show sessions"));
+    // One check box under Others: shown or not.
+    expect(view.frame()).toMatch(/Others.*\n.*\[x\] Background/);
     await view.press(DOWN);
     await view.press(DOWN);
     await view.press(" ");
     await view.press("\r");
     await expect.poll(() => readSettings().sessionsBackground).toBe("hide");
     await until(() => view.frame().includes("typed here") && !view.frame().includes("scripted run"));
+    await view.press("a");
+    await until(() => view.frame().includes("Show sessions"));
+    await view.press(DOWN);
+    await view.press(DOWN);
+    await view.press(" ");
+    await view.press("\r");
+    await expect.poll(() => readSettings().sessionsBackground).toBe("show");
+    await until(() => view.frame().includes("typed here") && view.frame().includes("scripted run"));
     view.unmount();
   });
 
@@ -155,7 +156,7 @@ describe("the filter dialog in Sessions", () => {
   });
 
   it("keeps the active session whatever the filter says", async () => {
-    updateSettings({ sessionsBackground: "only" });
+    updateSettings({ sessionsFolders: "other" });
     session(cwd, "mine", "my session", 10);
     const active = join(projectDir(cwd), "mine.jsonl");
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active activePath={active} />, layout);

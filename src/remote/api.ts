@@ -102,7 +102,11 @@ async function get(path: string, login: RemoteLogin): Promise<unknown> {
   if (response.status === 403) throw new RemoteError("forbidden", "claude.ai refused access (Remote Control may be off for the organisation)");
   if (response.status === 429) throw new RemoteError("rate-limit", "claude.ai asks to slow down");
   if (response.status >= 500) throw new RemoteError("server", `claude.ai answered ${response.status}`);
-  if (!response.ok) throw new RemoteError("format", `claude.ai answered ${response.status}`);
+  if (!response.ok) {
+    // The error body says what was wrong with the request.
+    const detail = await response.json().then((b: { error?: { message?: unknown } }) => (typeof b?.error?.message === "string" ? `: ${b.error.message.slice(0, 120)}` : ""), () => "");
+    throw new RemoteError("format", `claude.ai answered ${response.status}${detail}`);
+  }
   try {
     return await response.json();
   } catch {
@@ -119,7 +123,7 @@ export async function listSessions(dir?: string): Promise<RemoteSession[]> {
 }
 
 /** How many events one request asks for; a session with more is cut at its oldest end and flagged. */
-export const EVENT_LIMIT = 1000;
+export const EVENT_LIMIT = 100;
 
 /** The newest events of a session, oldest first, and whether older ones were left out. */
 export async function listEvents(id: string, dir?: string): Promise<{ events: RemoteEvent[]; truncated: boolean }> {

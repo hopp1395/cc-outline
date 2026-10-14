@@ -201,6 +201,7 @@ export function remoteLine(s: SessionSummary): string | undefined {
     "remote",
     r.workerStatus === "running" ? "working" : r.workerStatus === "requires_action" ? "waiting for input" : r.workerStatus,
     r.connectionStatus,
+    ...(r.error ? [`events: ${r.error}`] : []),
     ...(r.truncated ? ["older events not read"] : []),
     ...(unknown ? [`not shown: ${unknown}`] : []),
   ].filter(Boolean);
@@ -453,7 +454,7 @@ function useRemoteDetail(base: SessionSummary | undefined, visible: boolean): Se
     let cancelled = false;
     new RemoteSessions().detail(base).then(
       (read) => !cancelled && setDetail(read),
-      () => {},
+      (err) => !cancelled && setDetail({ ...base, remote: { ...base.remote!, loaded: true, error: describeRemoteError(err) } }),
     );
     return () => {
       cancelled = true;

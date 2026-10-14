@@ -608,7 +608,6 @@ export const SETTING_ROWS: Row[] = [
       "Whether the Sessions view lists the sessions that ran in the background: started with `claude -p` or the Agent SDK (a script, a CI run), or run by the Claude Code daemon. They are marked ◌ before their title, and the preview says how they ran (for a session the daemon runs, with `claude attach`).",
     values: [
       ["show", "with the others, marked ◌"],
-      ["only", "only them, e.g. to follow the runs of a script"],
       ["hide", "leave them out: only the sessions typed in a terminal"],
     ],
     dialog: "sessions",
@@ -624,7 +623,6 @@ export const SETTING_ROWS: Row[] = [
       "Whether the Sessions view lists the Remote Control sessions of this account that run on another machine (a Claude Code started with `claude remote-control` or `/remote-control`, as the Claude app lists them). They are marked ◈ before their title; a session of this machine that is connected shows ⇄. Only with the remote API setting on.",
     values: [
       ["show", "with the others, marked ◈"],
-      ["only", "only them, e.g. to see what runs elsewhere"],
       ["hide", "leave them out: only the sessions on this machine"],
     ],
     dialog: "sessions",
@@ -1594,6 +1592,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           initial={sessionFilter(settings, claudeDir(), otherDirs)}
           folderName={basename(cwd) || cwd}
           accounts={filterAccounts(accountState.accounts, claudeDir())}
+          remote={settings.remoteApi}
           onApply={(next) => {
             set(filterSettings(next, claudeDir(), otherDirs));
             setSessionsFilterOpen(false);
