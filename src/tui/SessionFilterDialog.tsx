@@ -7,7 +7,7 @@ import { otherAccounts } from "../accountContinue.js";
 import { SESSIONS_BACKGROUND_VALUES, type SessionsBackground, type SessionsFolders } from "../settings.js";
 import { accountChosen, type SessionFilter } from "../sessionFilter.js";
 import { Dialog, type Layout } from "./layout.js";
-import { legendMark, SESSION_LEGEND, type LegendMark } from "./sessionLegend.js";
+import { legendCell, legendCellWidth, SESSION_LEGEND, type LegendMark } from "./sessionLegend.js";
 
 const MAX_WIDTH = 60;
 
@@ -31,14 +31,14 @@ export function filterAccounts(accounts: Account[], own: string): FilterAccount[
 export function legendLines(width: number): string[] {
   // A column of marks, then what each says: in two columns of pairs where they fit, else one a line.
   const markWidth = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
-  const cell = (m: LegendMark) => `${legendMark(m)}${" ".repeat(markWidth - stringWidth(m.mark))} ${m.short}`;
-  const cellWidth = Math.max(...SESSION_LEGEND.map((m) => markWidth + 1 + stringWidth(m.short)));
+  const cell = (m: LegendMark) => legendCell(m, markWidth);
+  const cellWidth = Math.max(...SESSION_LEGEND.map((m) => legendCellWidth(m, markWidth)));
   const gap = 3;
   if (2 * cellWidth + gap > width) return SESSION_LEGEND.map(cell);
   const lines: string[] = [];
   for (let i = 0; i < SESSION_LEGEND.length; i += 2) {
     const [left, right] = [SESSION_LEGEND[i]!, SESSION_LEGEND[i + 1]];
-    const pad = " ".repeat(cellWidth - markWidth - 1 - stringWidth(left.short) + gap);
+    const pad = " ".repeat(cellWidth - legendCellWidth(left, markWidth) + gap);
     lines.push(right ? `${cell(left)}${pad}${cell(right)}` : cell(left));
   }
   return lines;
