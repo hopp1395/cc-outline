@@ -26,5 +26,8 @@ export const SESSION_LEGEND: LegendMark[] = [
   { mark: "„“", color: "2", short: "first prompt", text: "no `/rename` title: the first prompt stands in for it, dim and quoted" },
 ];
 
-/** A mark drawn in its colour. */
-export const legendMark = (m: LegendMark) => (m.color ? `\u001b[${m.color}m${m.mark}\u001b[0m` : m.mark);
+/**
+ * A mark drawn in its colour, closed by its own reset (dim 22, colours 39): a full reset (0) would also clear the
+ * background, and the dialog's text after the mark would stand on the terminal's instead of the dialog's.
+ */
+export const legendMark = (m: LegendMark) => (m.color ? `\u001b[${m.color}m${m.mark}\u001b[${m.color === "2" ? "22" : "39"}m` : m.mark);
