@@ -332,6 +332,8 @@ Below it:
 - **Changed files**: every file Claude edited or wrote. Files of the project come first, relative to it; files elsewhere (such as plan files) are dimmed.
 - **Prompts** with their time. Reports of background tasks (`↩` in the chat) are not counted as prompts.
 
+**Remote sessions (experimental).** With the setting *Sessions: remote API* on, the list also shows the Remote Control sessions of this account that claude.ai knows (a Claude Code started with `claude remote-control` or `/remote-control`, as the Claude app lists them), marked with a cyan `◈` before their title. Use it to see from another machine what runs elsewhere. cco reads them through an interface of claude.ai that Anthropic does not document and may change at any time (hence *experimental* and off by default), with the login Claude Code keeps in `.credentials.json`: it only reads that file, never writes or renews it, so once the login has expired the top bar says so and Claude Code has to be started or `/login` run. It needs a Pro, Max, Team or Enterprise login; behind a company proxy that replaces certificates, start cco with `NODE_OPTIONS=--use-system-ca`. The preview shows what claude.ai reports (`◈ remote · working · connected`) and, once the session is selected, its prompts, plans and changed files read from its events; `Enter` offers its address (`https://claude.ai/code/…`), `c` copies it. A session of this machine that is connected to claude.ai shows `⇄` instead of appearing twice (matched by the ids claude.ai names). *remote* in the filter (`a`) lists them with the others, alone or not at all. Nothing is sent: sending prompts and answering permissions from cco is not built yet.
+
 **Refresh.** Sessions are read when the view is first shown and re-read every 3 seconds while it is visible. The first read fills the list as it goes (`reading 42/97` in the top bar); with many projects it takes a few seconds. After that only files that changed are read again, and of those only the part that was appended. Only what the overview shows is kept in memory, not the answers.
 
 **Enter: attach, resume, detach.** `Enter` (or a double click) on a session always opens the same dialog: the actions that make sense for it, the usual one selected (`↑`/`↓` and `Enter`, or its number; `Esc` cancels), the others greyed out with the reason they cannot be chosen now. The help line names the action selected (`↵ switch`, `↵ attach`, `↵ resume here`, `↵ new window`, `↵ start + attach`, `↵ move here`, `↵ copy`). A viewer *attached* to a Claude Code is one opened by a `/cco:…` command or on start, or attached later; one started by hand (`cco watch`) is *detached* and follows the project's latest session. Only one viewer runs per Claude Code: `cco watch --claude-pid` refuses to start a second.
@@ -456,6 +458,8 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 | Sessions: folders | this / other / all | this | `a` in Sessions |
 | Sessions: accounts | current / all / those checked | current | `a` in Sessions |
 | Sessions: background | show / only / hide | show | `a` in Sessions |
+| Sessions: remote (with *remote API*) | show / only / hide | show | `a` in Sessions |
+| Sessions: remote API (experimental) | on / off | off | – |
 | Sessions: pinned sessions (active and running ones at the top) | on / off | on | – |
 | Sessions: range | today / 7 days / 30 days / 90 days / unlimited | 7 days | – |
 | Monitor: tab | on / off | on | – |
@@ -524,7 +528,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `d` / `Del` | – | – | – | move the session to the trash |
 | `u` | – | – | – | undo the last move; in the trash: restore |
 | `T` | – | – | – | show / leave the trash |
-| `a` | – | – | – | the filter: folders, accounts, background sessions (a dialog) |
+| `a` | – | – | – | the filter: folders, accounts, background and remote sessions (a dialog) |
 | `x` / `X` | – | – | – | in the trash: delete for good / empty the trash |
 | `]` / `[` | – | next / previous hunk (changed block in whole-file mode) | – | – |
 | `w` | toggle wrapping | toggle wrapping | toggle wrapping | – |

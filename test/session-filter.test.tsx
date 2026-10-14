@@ -57,15 +57,15 @@ describe("the filter's settings", () => {
   });
 
   it("stores this account alone as current and every one found as all, so a new one shows too", () => {
-    const store = (accounts: string[]) => filterSettings({ folders: "all", accounts, background: "hide" }, own, [work, home]);
-    expect(store([own])).toEqual({ sessionsFolders: "all", sessionsAccounts: "current", sessionsBackground: "hide" });
+    const store = (accounts: string[]) => filterSettings({ folders: "all", accounts, background: "hide", remote: "show" }, own, [work, home]);
+    expect(store([own])).toEqual({ sessionsFolders: "all", sessionsAccounts: "current", sessionsBackground: "hide", sessionsRemote: "show" });
     expect(store([home, own, work]).sessionsAccounts).toBe("all");
     expect(store([own, home]).sessionsAccounts).toBe(`${own}|${home}`);
     expect(store([work]).sessionsAccounts).toBe(work);
   });
 
   it("counts as set when it leaves this folder, this account or all background sessions", () => {
-    const base = { folders: "this" as const, accounts: [own], background: "show" as const };
+    const base = { folders: "this" as const, accounts: [own], background: "show" as const, remote: "show" as const };
     expect(filterIsSet(base, own)).toBe(false);
     expect(filterIsSet({ ...base, folders: "all" }, own)).toBe(true);
     expect(filterIsSet({ ...base, accounts: [own, work] }, own)).toBe(true);

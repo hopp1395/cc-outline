@@ -617,6 +617,30 @@ export const SETTING_ROWS: Row[] = [
     viewKey: "`a` in Sessions",
   },
   {
+    key: "sessionsRemote",
+    group: "Sessions",
+    label: "remote",
+    description:
+      "Whether the Sessions view lists the Remote Control sessions of this account that run on another machine (a Claude Code started with `claude remote-control` or `/remote-control`, as the Claude app lists them). They are marked ◈ before their title; a session of this machine that is connected shows ⇄. Only with the remote API setting on.",
+    values: [
+      ["show", "with the others, marked ◈"],
+      ["only", "only them, e.g. to see what runs elsewhere"],
+      ["hide", "leave them out: only the sessions on this machine"],
+    ],
+    dialog: "sessions",
+    legend: true,
+    inline: true,
+    viewKey: "`a` in Sessions",
+  },
+  {
+    key: "remoteApi",
+    group: "Sessions",
+    label: "remote API",
+    description:
+      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: nothing is sent or changed on claude.ai.",
+    values: ON_OFF("Remote Control sessions are listed in Sessions, and the preview shows their prompts", "nothing is asked of claude.ai"),
+  },
+  {
     key: "pinnedSessions",
     group: "Sessions",
     label: "pinned sessions",

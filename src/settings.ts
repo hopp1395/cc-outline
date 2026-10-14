@@ -42,6 +42,9 @@ export type SessionsFolders = (typeof SESSIONS_FOLDERS_VALUES)[number];
 /** The Sessions view's background sessions (`claude -p`, the SDK, the daemon): listed with the others, alone, or left out. */
 export const SESSIONS_BACKGROUND_VALUES = ["show", "only", "hide"] as const;
 export type SessionsBackground = (typeof SESSIONS_BACKGROUND_VALUES)[number];
+/** The Sessions view's remote sessions (Remote Control sessions that run on another machine, from claude.ai): listed with the others, alone, or left out. */
+export const SESSIONS_REMOTE_VALUES = ["show", "only", "hide"] as const;
+export type SessionsRemote = (typeof SESSIONS_REMOTE_VALUES)[number];
 /** The accounts value naming the chosen config folders, joined by this. */
 export const ACCOUNT_DIRS_SEPARATOR = "|";
 /** A value of `sessionsAccounts`: `current`, `all`, or config folders joined by `|`. */
@@ -157,6 +160,10 @@ export interface Settings {
   sessionsAccounts: string;
   /** Sessions: the background sessions (`claude -p`, SDK, daemon) listed with the others, alone, or not at all. */
   sessionsBackground: SessionsBackground;
+  /** Sessions: the remote sessions of this account (Remote Control, only with remoteApi) listed with the others, alone, or not at all. */
+  sessionsRemote: SessionsRemote;
+  /** Experimental: reads the Remote Control sessions of this account through the unofficial claude.ai API, with Claude Code's login. */
+  remoteApi: boolean;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -213,6 +220,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionsFolders: "this",
   sessionsAccounts: "current",
   sessionsBackground: "show",
+  sessionsRemote: "show",
+  remoteApi: false,
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
@@ -304,6 +313,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   planOrder: ORDER_VALUES,
   sessionsFolders: SESSIONS_FOLDERS_VALUES,
   sessionsBackground: SESSIONS_BACKGROUND_VALUES,
+  sessionsRemote: SESSIONS_REMOTE_VALUES,
   sessionsRange: RANGE_VALUES,
   monitorRange: RANGE_VALUES,
   chatListWidth: LIST_WIDTH_VALUES,

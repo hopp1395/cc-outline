@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
+import { describeRemoteError, RemoteSessions, remoteUrl } from "../remote/index.js";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionBackground, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
@@ -147,6 +148,8 @@ const titleIsPrompt = (s: SessionSummary) => s.title === undefined && s.prompts.
 
 /** Shell command that continues the session in Claude Code; for another account's, under its config folder. */
 export function resumeCommand(s: SessionSummary): string {
+  // A remote session is continued in the Claude app or on claude.ai, not with a command: its address stands in.
+  if (s.remote) return remoteUrl(s.id);
   return s.account ? resumeShellCommand(s.id, s.account) : `claude --resume ${s.id}`;
 }
 
@@ -183,6 +186,25 @@ export function sessionAccountLines(account: Account | undefined, color: Account
     `\u001b[${fg(color)}m▌\u001b[39m ${account.email}${account.organization ? ` (${account.organization})` : ""} · ${tilde(account.dir)}${own ? dim(" · this account") : ""}`,
     `  cco plugin ${status}`,
   ];
+}
+
+/** The mark of a remote session in the list, before its title, and of a session of this machine that is connected to claude.ai. */
+const REMOTE_MARK = "◈";
+const CONNECTED_MARK = "⇄";
+
+/** The header's line about a remote session: what claude.ai says of it, and what could not be shown. */
+export function remoteLine(s: SessionSummary): string | undefined {
+  const r = s.remote;
+  if (!r) return undefined;
+  const unknown = r.unknown ? Object.entries(r.unknown).map(([type, n]) => `${n} ${type}`).join(", ") : "";
+  const parts = [
+    "remote",
+    r.workerStatus === "running" ? "working" : r.workerStatus === "requires_action" ? "waiting for input" : r.workerStatus,
+    r.connectionStatus,
+    ...(r.truncated ? ["older events not read"] : []),
+    ...(unknown ? [`not shown: ${unknown}`] : []),
+  ].filter(Boolean);
+  return dim(`${REMOTE_MARK} ${parts.join(" · ")}`);
 }
 
 /** Status of a subagent in the overview, like the chat's agent blocks. */
@@ -268,7 +290,7 @@ function sessionHeader(
 ): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
   const counts = [
-    plural(s.prompts.length, "prompt"),
+    plural(s.remote && !s.remote.loaded ? (s.remote.userMessages ?? 0) : s.prompts.length, "prompt"),
     plural(s.plans.length, "plan"),
     ...(s.agents?.length ? [plural(s.agents.length, "agent")] : []),
     plural(s.files.length, "changed file"),
@@ -379,6 +401,65 @@ function useSessions(cwd: string, visible: boolean, all: boolean, since: number 
   }, [cwd, visible, all, ownAll, reload.count, since, folders]);
 
   return { sessions, progress, complete, refresh: () => void scanRef.current() };
+}
+
+/** Whether two reads of the remote sessions show the same, so the list is not rebuilt for nothing. */
+const sameRemote = (a: SessionSummary[], b: SessionSummary[]) =>
+  a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.title === b[i]!.title && s.modified === b[i]!.modified && s.remote?.workerStatus === b[i]!.remote?.workerStatus && s.remote?.connectionStatus === b[i]!.remote?.connectionStatus);
+
+const NO_REMOTE: { sessions: SessionSummary[]; error?: string } = { sessions: [] };
+
+/**
+ * The remote sessions of this account, listed every few seconds while the view is `visible` and `enabled` (the
+ * `remoteApi` setting and not hidden by the filter); `error` says why a read failed, the last list stays. F5 reads again.
+ */
+function useRemoteSessions(visible: boolean, enabled: boolean): { sessions: SessionSummary[]; error?: string } {
+  const reload = useReload();
+  const [state, setState] = useState(NO_REMOTE);
+  useEffect(() => {
+    if (!visible || !enabled) return;
+    const api = new RemoteSessions();
+    let cancelled = false;
+    let busy = false;
+    const read = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const sessions = await api.list();
+        if (!cancelled) setState((prev) => (!prev.error && sameRemote(prev.sessions, sessions) ? prev : { sessions }));
+      } catch (err) {
+        if (!cancelled) setState((prev) => ({ sessions: prev.sessions, error: describeRemoteError(err) }));
+      } finally {
+        busy = false;
+      }
+    };
+    void read();
+    const timer = setInterval(() => void read(), REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [visible, enabled, reload.count]);
+  return enabled ? state : NO_REMOTE;
+}
+
+/** The selected remote session `base` with its events read (prompts, plans, files), again whenever the list says it changed. */
+function useRemoteDetail(base: SessionSummary | undefined, visible: boolean): SessionSummary | undefined {
+  const [detail, setDetail] = useState<SessionSummary>();
+  const id = base?.remote ? base.id : undefined;
+  const stamp = base && `${base.modified}|${base.remote?.workerStatus}`;
+  useEffect(() => {
+    if (!base?.remote || !visible) return;
+    let cancelled = false;
+    new RemoteSessions().detail(base).then(
+      (read) => !cancelled && setDetail(read),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [id, stamp, visible]);
+  return id !== undefined && detail?.id === id ? detail : undefined;
 }
 
 /** The sessions of several accounts in one list, oldest first, like each index gives them. */
@@ -509,6 +590,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const [sessionsFolders] = useSetting("sessionsFolders");
   const [sessionsAccounts] = useSetting("sessionsAccounts");
   const [sessionsBackground] = useSetting("sessionsBackground");
+  const [sessionsRemote] = useSetting("sessionsRemote");
+  const [remoteApi] = useSetting("remoteApi");
   const [separators] = useSetting("dateSeparators");
   const [pinnedSessions] = useSetting("pinnedSessions");
   const [accountColor] = useSetting("accountColor");
@@ -521,7 +604,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // With the other accounts, every row gets a bar in its account's colour and the header names the account.
   // What the list shows (a opens the dialog): the project folders, the accounts, the background sessions.
   const ownDir = claudeDir();
-  const shownFilter = sessionFilter({ sessionsFolders, sessionsAccounts, sessionsBackground }, ownDir, others.map((a) => a.dir));
+  const shownFilter = sessionFilter({ sessionsFolders, sessionsAccounts, sessionsBackground, sessionsRemote }, ownDir, others.map((a) => a.dir));
   const [filterOpen, setFilterOpen] = useState(false);
   const all = shownFilter.folders !== "this";
   const ownChosen = shownFilter.accounts[0] === ownDir;
@@ -531,6 +614,19 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The own folder is read for the active session also while its account is not chosen, then only this project's.
   const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since, foreign, ownChosen && all);
   const running = useRunning(visible, foreign);
+  // Remote Control sessions (claude.ai), unless one of this machine's sessions is the same: that one then shows ⇄.
+  const remoteRead = useRemoteSessions(visible, remoteApi && shownFilter.remote !== "hide");
+  const { merged, connected } = useMemo(() => {
+    if (!read) return { merged: read, connected: new Set<string>() };
+    const local = new Set(read.filter((s) => !s.account).map((s) => s.id));
+    const twins = new Set<string>();
+    const alone = remoteRead.sessions.filter((r) => {
+      const twin = r.remote?.refs?.filter((id) => local.has(id)) ?? [];
+      for (const id of twin) twins.add(id);
+      return twin.length === 0;
+    });
+    return { merged: alone.length ? byLastActive([...read, ...alone]) : read, connected: twins };
+  }, [read, remoteRead.sessions]);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   /** The viewer's own session; another account's never is, even under the same id. */
   const isActive = (s: SessionSummary) => !s.account && s.id === activeId;
@@ -571,14 +667,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const filterKey = JSON.stringify(shownFilter);
   const sessions = useMemo(() => {
     const since = range.since;
-    if (!read) return read;
-    return read.filter((s) => {
+    if (!merged) return merged;
+    return merged.filter((s) => {
       if (isActive(s)) return true;
       if (!passesFilter(s, shownFilter, ownDir, cwd, backgroundOf(s, running.get(sessionKey(s))))) return false;
       const at = lastActive(s);
       return since === undefined || !at || Date.parse(at) >= since || running.has(sessionKey(s));
     });
-  }, [read, range.since, activeId, running, filterKey]);
+  }, [merged, range.since, activeId, running, filterKey]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashRead, setTrash] = useState<TrashEntry[]>([]);
   // The trash holds this account's sessions: the filter's folders and background sessions apply, its accounts do not.
@@ -687,6 +783,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const onLoadMore = isLoadMore(picked);
   const onImport = isImport(picked);
   const session = isSession(picked) ? picked : undefined;
+  // A remote session's events, read while it is selected; until then the list's data.
+  const remoteDetail = useRemoteDetail(session, visible);
+  const viewed = remoteDetail ?? session;
   // The oldest session before load more was clicked: the one read next to it gets the selection.
   const loadedAfter = useRef<string | undefined>(undefined);
   const loadMore = () => {
@@ -706,28 +805,28 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     trashOpen ? "trash" : isActive(s) ? "active" : running.has(sessionKey(s)) ? "running" : undefined;
 
   const header = useMemo(() => {
-    if (!session) return [];
-    const state = stateOf(session);
-    const activity = state === "active" || state === "running" ? running.get(sessionKey(session))?.activity : undefined;
-    const account = withAccounts && !trashOpen ? sessionAccountLines(accountOf(session), barColor(session), !session.account) : [];
+    if (!viewed) return [];
+    const state = stateOf(viewed);
+    const activity = state === "active" || state === "running" ? running.get(sessionKey(viewed))?.activity : undefined;
+    const account = withAccounts && !trashOpen ? sessionAccountLines(accountOf(viewed), barColor(viewed), !viewed.account) : [];
     return fitHeader(
       sessionHeader(
-        session,
+        viewed,
         state,
         previewWidth,
         entry?.deletedAt,
         activity,
-        folderGone(session),
-        trashOpen ? undefined : transferOf(session),
+        folderGone(viewed),
+        trashOpen ? undefined : transferOf(viewed),
         account,
-        backgroundLine(backgroundOf(session, running.get(sessionKey(session))), running.get(sessionKey(session))),
+        backgroundLine(backgroundOf(viewed, running.get(sessionKey(viewed))), running.get(sessionKey(viewed))) ?? remoteLine(viewed),
       ),
       headerHeight,
     );
-  }, [session, activeId, running, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
+  }, [viewed, activeId, running, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
   const lines = useMemo(
-    () => (session ? sessionLines(session, cwd, previewWidth, separators) : []),
-    [session, cwd, previewWidth, separators],
+    () => (viewed ? sessionLines(viewed, cwd, previewWidth, separators) : []),
+    [viewed, cwd, previewWidth, separators],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(session && sessionKey(session), lines.length, viewport);
@@ -813,6 +912,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
 
   /** Enter: asks what to do with the session (`sessionOptions`), with the usual choice selected. */
   const start = (s: SessionSummary) => {
+    if (s.remote) return startRemote(s);
     if (s.account && !accountOf(s)) return notify("its account is no longer signed in here");
     const { situation, claude, dir } = situationOf(s);
     const lines = headFor(s, situation.state);
@@ -834,6 +934,19 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       },
     });
   };
+
+  /** Enter on a remote session: it can only be seen here; the Claude app or claude.ai continue it, so its address is offered. */
+  const startRemote = (s: SessionSummary) =>
+    setChoice({
+      title: "What to do with this session?",
+      lines: [truncate(sessionTitle(s), 56), span(s.start, s.end), "remote: it runs on another machine, read from claude.ai"].filter(Boolean),
+      options: [{ id: "copy", label: "Copy its address", detail: remoteUrl(s.id) }],
+      initial: 0,
+      onChoose: () => {
+        setChoice(undefined);
+        act("copy", s, cwd, undefined, remoteUrl(s.id));
+      },
+    });
 
   const act = (id: SessionAction, s: SessionSummary, dir: string, claude: RunningSession | undefined, command: string, prepared?: ConsoleTyper) => {
     switch (id) {
@@ -992,7 +1105,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   /** The marked sessions, else `s`, with the form for the options. */
   const askExport = (s: SessionSummary) => {
     // Only this account's sessions: another account's are not exported from here.
-    const marked = (sessions ?? []).filter((m) => !m.account && favorites.isMarked(m.id));
+    const marked = (sessions ?? []).filter((m) => !m.account && !m.remote && favorites.isMarked(m.id));
     const targets = marked.length ? marked : [s];
     setExporting({ sessions: targets, opts: readExportOptions(), lines: exportLines(targets) });
   };
@@ -1090,7 +1203,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           const target = filter.nextMark(mark);
           return target !== undefined && select(target);
         }
-        if ((input === "d" || key.delete) && session) return session.account ? notify(OWN_ONLY) : askDelete(session);
+        if ((input === "d" || key.delete) && session) return session.remote ? notify("a remote session lives on claude.ai: archive it there") : session.account ? notify(OWN_ONLY) : askDelete(session);
         if (input === "u") {
           if (!lastTrashed) return notify("nothing to undo");
           const s = lastTrashed;
@@ -1171,7 +1284,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             ? "↵ load more"
             : onImport
               ? "↵ import"
-              : session
+              : session?.remote
+                ? "↵ address"
+                : session
                 ? enterLabel(situationOf(session).situation)
                 : "↵ start",
           priority: 3,
@@ -1199,6 +1314,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
               "…"
             )}
             {progress && <Text color="yellow">{` · reading ${progress.done}/${progress.total}`}</Text>}
+            {remoteRead.error && !trashOpen && <Text color="yellow">{` · ${remoteRead.error}`}</Text>}
             {session && !progress && ` · ${scroll.position}`}
             {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           </Text>
@@ -1239,6 +1355,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
               const moved = transfer?.to ? "⇢ " : transfer?.from ? "⇠ " : "";
               // Ran with claude -p, the SDK or the daemon.
               const background = backgroundOf(s, running.get(sessionKey(s))) !== undefined;
+              // Read from claude.ai (◈), or of this machine and connected to it (⇄).
+              const remoteMark = s.remote ? `${REMOTE_MARK} ` : connected.has(s.id) ? `${CONNECTED_MARK} ` : "";
               // A /rename title is bright, a first prompt standing in for it dim and quoted.
               // The quotes go around the cut text, so the closing one is never cut off.
               const quoted = titleIsPrompt(s);
@@ -1252,6 +1370,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                   {badge && <SessionMarker symbol={badge} activity={running.get(sessionKey(s))?.activity} />}
                   {gone && <Text dimColor>∅ </Text>}
                   {moved && <Text color="magenta">{moved}</Text>}
+                  {remoteMark && <Text color="cyan">{remoteMark}</Text>}
                   {/* Ran in the background: before the project name. */}
                   {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&
@@ -1278,6 +1397,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                           (marked ? 2 : 0) -
                           (badge || gone ? 2 : 0) -
                           (moved ? 2 : 0) -
+                          (remoteMark ? 2 : 0) -
                           (background ? 2 : 0) -
                           (all ? Math.min(12, projectName(s).length) + 1 : 0) -
                           (quoted ? 2 : 0),
@@ -1330,6 +1450,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           folderName={basename(cwd) || cwd}
           // The trash holds this account's sessions only.
           accounts={trashOpen ? [] : filterAccounts(accountState.accounts, ownDir)}
+          remote={remoteApi}
           onApply={applyFilter}
           onClose={() => setFilterOpen(false)}
         />
