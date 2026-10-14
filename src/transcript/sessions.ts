@@ -35,6 +35,8 @@ export interface SessionSummary {
   account?: string;
   /** Ran in the background: started with `claude -p` or the SDK (`sdk`), or by the Claude Code daemon (`daemon`). */
   background?: SessionBackground;
+  /** The ids claude.ai gave the session while Remote Control connected it (`bridge-session` entries, `cse_…`). */
+  bridgeIds?: string[];
   /** A Remote Control session read from claude.ai, not from a transcript on this machine (`path` is only a stand-in). */
   remote?: RemoteInfo;
 }
@@ -87,6 +89,7 @@ interface RawEntry {
   gitBranch?: string;
   cwd?: string;
   customTitle?: string;
+  bridgeSessionId?: string;
   isSidechain?: boolean;
   entrypoint?: string;
   sessionKind?: string;
@@ -106,6 +109,7 @@ export class SessionReader {
   private end?: string;
   private files: string[] = [];
   private background?: SessionBackground;
+  private bridgeIds: string[] = [];
   private summary?: SessionSummary;
 
   constructor(readonly path: string) {
@@ -128,6 +132,7 @@ export class SessionReader {
   private reset(): void {
     this.parser = new TranscriptParser();
     this.title = this.branch = this.cwd = this.start = this.end = this.background = undefined;
+    this.bridgeIds = [];
     this.files = [];
   }
 
@@ -139,6 +144,8 @@ export class SessionReader {
       return;
     }
     if (entry.type === "custom-title" && entry.customTitle?.trim()) this.title = entry.customTitle.trim();
+    // Remote Control connected it: claude.ai lists it under this id.
+    if (entry.type === "bridge-session" && entry.bridgeSessionId && !this.bridgeIds.includes(entry.bridgeSessionId)) this.bridgeIds.push(entry.bridgeSessionId);
     if (!entry.isSidechain) {
       if (entry.gitBranch) this.branch = entry.gitBranch;
       if (entry.cwd) this.cwd ??= entry.cwd;
@@ -199,6 +206,7 @@ export class SessionReader {
       modified: this.file.modified !== undefined ? new Date(this.file.modified).toISOString() : undefined,
       continuedIn: this.parser.continuedIn,
       ...(this.background && { background: this.background }),
+      ...(this.bridgeIds.length > 0 && { bridgeIds: [...this.bridgeIds] }),
     };
   }
 }
@@ -222,6 +230,7 @@ function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionS
     branch: later.branch ?? earlier.branch,
     cwd: earlier.cwd ?? later.cwd,
     background: later.background ?? earlier.background,
+    ...((earlier.bridgeIds || later.bridgeIds) && { bridgeIds: [...new Set([...(earlier.bridgeIds ?? []), ...(later.bridgeIds ?? [])])] }),
     start: earlier.start ?? later.start,
     end: later.end ?? earlier.end,
     modified: [earlier.modified, later.modified].filter((m): m is string => m !== undefined).sort().at(-1),

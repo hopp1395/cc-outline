@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -89,6 +89,31 @@ describe("remote sessions in Sessions", () => {
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
     await until(() => /⇄ .*work on this machine/.test(view.frame()));
     expect(view.frame()).not.toContain("Same session");
+    view.unmount();
+  });
+
+  it("finds this machine's session by the id its transcript records for Remote Control", async () => {
+    updateSettings({ remoteApi: true });
+    local("bridged", "work with the app", 10);
+    // Claude Code writes the id claude.ai lists the session under into the transcript.
+    appendFileSync(join(projectDir(cwd), "bridged.jsonl"), JSON.stringify({ type: "bridge-session", sessionId: "bridged", bridgeSessionId: "cse_bridged", lastSequenceNum: 0 }) + "\n");
+    listed = [{ id: "cse_bridged", title: "Bridged title", status: "active", last_event_at: new Date().toISOString() }];
+    const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
+    await until(() => /⇄ .*work with the app/.test(view.frame()));
+    expect(view.frame()).not.toContain("Bridged title");
+    view.unmount();
+  });
+
+  it("leaves out the sessions claude.ai archived, as the app does", async () => {
+    updateSettings({ remoteApi: true });
+    listed = [
+      { id: "cse_on", title: "Still active", status: "active", last_event_at: new Date().toISOString() },
+      { id: "cse_off", title: "Archived one", status: "archived", last_event_at: new Date().toISOString() },
+    ];
+    const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, layout);
+    await until(() => view.frame().includes("Still active"));
+    expect(view.frame()).not.toContain("Archived one");
+    expect(requests[0]).toContain("?limit=100");
     view.unmount();
   });
 

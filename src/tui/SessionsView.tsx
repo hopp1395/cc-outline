@@ -630,10 +630,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const remoteRead = useRemoteSessions(visible, remoteApi && shownFilter.remote !== "hide");
   const { merged, connected } = useMemo(() => {
     if (!read) return { merged: read, connected: new Set<string>() };
+    // A session of this machine names the id claude.ai lists it under (`bridge-session` entries); failing that, a
+    // remote one may name the local id somewhere in its data.
     const local = new Set(read.filter((s) => !s.account).map((s) => s.id));
+    const byBridge = new Map<string, string>();
+    for (const s of read) if (!s.account) for (const id of s.bridgeIds ?? []) byBridge.set(id, s.id);
     const twins = new Set<string>();
     const alone = remoteRead.sessions.filter((r) => {
-      const twin = r.remote?.refs?.filter((id) => local.has(id)) ?? [];
+      const twin = [...(byBridge.has(r.id) ? [byBridge.get(r.id)!] : []), ...(r.remote?.refs?.filter((id) => local.has(id)) ?? [])];
       for (const id of twin) twins.add(id);
       return twin.length === 0;
     });
