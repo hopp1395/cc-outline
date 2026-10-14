@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderInk } from "./helpers/ink.js";
+import { renderInk, tick } from "./helpers/ink.js";
 import { updateSettings } from "../src/settings.js";
 import type { Layout } from "../src/tui/layout.js";
 import { App } from "../src/tui/App.js";
@@ -69,4 +69,49 @@ describe("restart the viewer", () => {
       for (const [key, value] of Object.entries(env)) if (value !== undefined) process.env[key] = value;
     }
   });
+});
+
+describe("r", () => {
+  const withoutTerminal = async (run: () => Promise<void>) => {
+    const env = { TMUX: process.env.TMUX, WT_SESSION: process.env.WT_SESSION, WT_PROFILE_ID: process.env.WT_PROFILE_ID };
+    for (const key of Object.keys(env)) delete process.env[key];
+    try {
+      await run();
+    } finally {
+      for (const [key, value] of Object.entries(env)) if (value !== undefined) process.env[key] = value;
+    }
+  };
+
+  it("restarts the viewer from a view, asking first while confirm quit is on", () =>
+    withoutTerminal(async () => {
+      updateSettings({ confirmQuit: true, rememberPositions: false });
+      const view = renderView(<App cwd={mkdtempSync(join(tmpdir(), "cco-restart-r-"))} initialMode="monitor" />);
+      await view.press("r");
+      await expect.poll(view.frame).toContain("Restart the viewer?");
+      await view.press("\r");
+      await expect.poll(view.frame).toContain("Restarting…");
+      view.unmount();
+    }));
+
+  it("restarts without asking while confirm quit is off", () =>
+    withoutTerminal(async () => {
+      updateSettings({ confirmQuit: false, rememberPositions: false });
+      const view = renderView(<App cwd={mkdtempSync(join(tmpdir(), "cco-restart-r-"))} initialMode="monitor" />);
+      await view.press("r");
+      await expect.poll(view.frame).toContain("Restarting…");
+      expect(view.frame()).not.toContain("Restart the viewer?");
+      view.unmount();
+    }));
+
+  it("keeps its own meaning in Settings: the selected setting back to its default", () =>
+    withoutTerminal(async () => {
+      updateSettings({ confirmQuit: true, rememberPositions: false });
+      const view = renderView(<App cwd={mkdtempSync(join(tmpdir(), "cco-restart-r-"))} initialMode="settings" select="reset:restart" />);
+      await expect.poll(view.frame).toContain("restart the viewer");
+      await view.press("r");
+      await tick(50);
+      expect(view.frame()).not.toContain("Restart the viewer?");
+      expect(view.frame()).not.toContain("Restarting…");
+      view.unmount();
+    }));
 });

@@ -29,7 +29,7 @@ import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { AccountsView } from "./AccountsView.js";
-import { SettingsView } from "./SettingsView.js";
+import { restartDetail, SettingsView } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
 import { AccountContext, useAccounts } from "./useAccount.js";
 import { UpdateContext, useUpdate } from "./useUpdate.js";
@@ -135,6 +135,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Mouse events go to the shown view only, and to none while a dialog is open.
   const mouseFor = (m: Mode) => mouse && mode === m && !blocked && !modal;
   const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
+  // r: like quitting, asks first unless confirm quit is off.
+  const [restartAsked, setRestartAsked] = useState(false);
+  const restart = () => (confirmQuit ? setRestartAsked(true) : restartViewer());
   const [gitRoot, setGitRoot] = useState<string | null>();
   // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
   const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
@@ -234,7 +237,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
-  const blocked = infoOpen || quitAsked || placementOpen || whatsNewOpen || progress.host.open;
+  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
@@ -418,7 +421,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || placementOpen || whatsNewOpen || progress.host.open) return;
+    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -439,6 +442,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     else if (input === "|") toggleWidth();
     // Only a viewer that follows the live session moves; one started with --session stays.
     else if (input === "p" && !sessionId) setPlacementOpen(true);
+    // r restarts like Reset's entry (Settings keeps r for back to the default); Ctrl+R reloads.
+    else if (input === "r" && !key.ctrl && mode !== "settings" && !sessionId) restart();
     // Tab and Shift+Tab step through the shown views, wrapping around.
     else if (key.tab) setMode(nextShownView(readSettings(), mode, key.shift ? -1 : 1));
     // ← and → do the same; with Ctrl they scroll sideways in the views.
@@ -605,6 +610,17 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
               onConfirm: exit,
             }}
             onClose={() => setQuitAsked(false)}
+          />
+        )}
+        {restartAsked && (
+          <ConfirmDialog
+            layout={layout}
+            confirmation={{
+              title: "Restart the viewer?",
+              lines: [`It opens again here, in this view, with ${restartDetail(update.root)}.`, "Claude Code keeps running; restart it for changes to the plugin."],
+              onConfirm: restartViewer,
+            }}
+            onClose={() => setRestartAsked(false)}
           />
         )}
         {progress.dialog}
