@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -24,6 +24,16 @@ describe("settings", () => {
     updateSettings({ showTools: "full" });
     updateSettings({ wrap: false });
     expect(readSettings()).toEqual({ ...DEFAULT_SETTINGS, showTools: "full", wrap: false });
+  });
+
+  it("keeps the settings of a newer version and drops the former formats", () => {
+    mkdirSync(dirname(settingsFile()), { recursive: true });
+    writeFileSync(settingsFile(), JSON.stringify({ futureSetting: true, pinnedGroup: true }));
+    updateSettings({ wrap: false });
+    const stored = JSON.parse(readFileSync(settingsFile(), "utf8"));
+    expect(stored.futureSetting).toBe(true);
+    expect(stored).not.toHaveProperty("pinnedGroup");
+    expect(stored.pinnedFavorites).toBe(true);
   });
 
   it("ignores broken files and mistyped values", () => {
@@ -67,7 +77,9 @@ describe("settings", () => {
     expect(read({ allProjects: false, sessionsScope: "all-accounts" })).toEqual(["all", "all", "show"]);
     // The new settings win over the former one.
     expect(read({ sessionsScope: "all", sessionsFolders: "other" })).toEqual(["other", "current", "show"]);
-    expect(read({ sessionsAccounts: "a|b", sessionsBackground: "only" })).toEqual(["this", "a|b", "only"]);
+    expect(read({ sessionsAccounts: "a|b", sessionsBackground: "hide" })).toEqual(["this", "a|b", "hide"]);
+    // only was a value before it became show or hide.
+    expect(read({ sessionsBackground: "only" })).toEqual(["this", "current", "show"]);
     expect(read({ sessionsAccounts: "a||b", sessionsBackground: "never" })).toEqual(["this", "current", "show"]);
   });
 

@@ -14,6 +14,8 @@ export interface Account {
   name?: string;
   organization?: string;
   organizationType?: string;
+  /** The organisation's id (`organizationUuid`), which the remote API wants as a header. */
+  organizationId?: string;
   billing?: string;
   seat?: string;
   rateLimitTier?: string;
@@ -89,6 +91,7 @@ export function readAccount(dir: string, home = homedir()): Account | undefined 
       name: text(stored.displayName) ?? text(stored.fullName),
       organization: text(stored.organizationName),
       organizationType: text(stored.organizationType),
+      organizationId: text(stored.organizationUuid),
       billing: text(stored.billingType),
       seat: text(stored.seatTier),
       rateLimitTier: text(stored.organizationRateLimitTier),

@@ -6,6 +6,7 @@ import { detectTerminal } from "./open.js";
 import { DEFAULT_SETTINGS, readSettings, settingsFile, type Settings } from "./settings.js";
 import { activeFile, claudeDir, claudeFile, claudePidFromEnv, projectDir, readJson, transcriptForSession, writeJson, type ActiveSession } from "./transcript/locate.js";
 import { runningSessions } from "./transcript/trash.js";
+import { readLogin, RemoteError } from "./remote/credentials.js";
 import { compareVersions, installKind, packageRoot, runCommand, type RunCommand } from "./update.js";
 import { VERSION } from "./version.js";
 import { isAlive } from "./viewer.js";
@@ -350,7 +351,20 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
       text: "neither Windows Terminal nor tmux: cco opens no panes",
       hint: "run cco watch in a terminal of your own",
     });
+  if (readSettings().remoteApi) findings.push(remoteLogin(dir));
   return findings;
+}
+
+/** The remote API (setting remoteApi) needs the login Claude Code keeps; whether claude.ai accepts it shows in the Sessions view. */
+function remoteLogin(dir: string): Finding {
+  const group = "Environment";
+  try {
+    readLogin(dir);
+    return { group, severity: "ok", text: "remote API: login for claude.ai found" };
+  } catch (err) {
+    if (!(err instanceof RemoteError)) throw err;
+    return { group, severity: "warn", text: `remote API: ${err.message}`, hint: "start Claude Code and run /login, or turn the remote API setting off" };
+  }
 }
 
 // ---------------------------------------------------------------- Hooks

@@ -608,13 +608,35 @@ export const SETTING_ROWS: Row[] = [
       "Whether the Sessions view lists the sessions that ran in the background: started with `claude -p` or the Agent SDK (a script, a CI run), or run by the Claude Code daemon. They are marked ◌ before their title, and the preview says how they ran (for a session the daemon runs, with `claude attach`).",
     values: [
       ["show", "with the others, marked ◌"],
-      ["only", "only them, e.g. to follow the runs of a script"],
       ["hide", "leave them out: only the sessions typed in a terminal"],
     ],
     dialog: "sessions",
     legend: true,
     inline: true,
     viewKey: "`a` in Sessions",
+  },
+  {
+    key: "sessionsRemote",
+    group: "Sessions",
+    label: "remote",
+    description:
+      "Whether the Sessions view lists the Remote Control sessions of this account that run on another machine (a Claude Code started with `claude remote-control` or `/remote-control`, as the Claude app lists them). They are marked ◈ before their title; a session of this machine that is connected shows ⇄. Only with the remote API setting on.",
+    values: [
+      ["show", "with the others, marked ◈"],
+      ["hide", "leave them out: only the sessions on this machine"],
+    ],
+    dialog: "sessions",
+    legend: true,
+    inline: true,
+    viewKey: "`a` in Sessions",
+  },
+  {
+    key: "remoteApi",
+    group: "Sessions",
+    label: "remote API",
+    description:
+      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: nothing is sent or changed on claude.ai.",
+    values: ON_OFF("Remote Control sessions are listed in Sessions, and the preview shows their prompts", "nothing is asked of claude.ai"),
   },
   {
     key: "pinnedSessions",
@@ -1570,6 +1592,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           initial={sessionFilter(settings, claudeDir(), otherDirs)}
           folderName={basename(cwd) || cwd}
           accounts={filterAccounts(accountState.accounts, claudeDir())}
+          remote={settings.remoteApi}
           onApply={(next) => {
             set(filterSettings(next, claudeDir(), otherDirs));
             setSessionsFilterOpen(false);

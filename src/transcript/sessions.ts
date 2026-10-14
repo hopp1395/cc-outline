@@ -34,6 +34,28 @@ export interface SessionSummary {
   account?: string;
   /** Ran in the background: started with `claude -p` or the SDK (`sdk`), or by the Claude Code daemon (`daemon`). */
   background?: SessionBackground;
+  /** A Remote Control session read from claude.ai, not from a transcript on this machine (`path` is only a stand-in). */
+  remote?: RemoteInfo;
+}
+
+/** What claude.ai tells about a remote session, besides what a transcript would hold. */
+export interface RemoteInfo {
+  /** `idle`, `running` or `requires_action`. */
+  workerStatus?: string;
+  connectionStatus?: string;
+  /** `bridge` for a Remote Control session. */
+  kind?: string;
+  /** How many prompts claude.ai counts; the summary holds them only once its events are `loaded`. */
+  userMessages?: number;
+  loaded: boolean;
+  /** Why its events could not be read. */
+  error?: string;
+  /** Older events were left out of what was read. */
+  truncated?: boolean;
+  /** Kinds of event with no counterpart in a transcript, by count. */
+  unknown?: Record<string, number>;
+  /** Ids named in the session's data: a session of this machine with one of them is the same. */
+  refs?: string[];
 }
 
 /** How a background session was run: `claude -p` or the SDK (`entrypoint` `sdk-cli`), or the daemon (`sessionKind` `bg`). */
