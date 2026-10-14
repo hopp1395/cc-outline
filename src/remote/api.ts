@@ -149,9 +149,15 @@ async function get(path: string, login: RemoteLogin, body?: unknown): Promise<un
   }
 }
 
-/** The sessions of the account of config folder `dir`, as claude.ai lists them. */
+/**
+ * How many sessions one list asks for, the newest first: without it claude.ai sends 20, archived ones among them, and
+ * a session the app still lists (not archived) can be older than those.
+ */
+export const SESSION_LIMIT = 100;
+
+/** The sessions of the account of config folder `dir`, as claude.ai lists them, archived ones too. */
 export async function listSessions(dir?: string): Promise<RemoteSession[]> {
-  const body = await get("/v1/code/sessions", readLogin(dir));
+  const body = await get(`/v1/code/sessions?limit=${SESSION_LIMIT}`, readLogin(dir));
   const data = isObject(body) ? body.data : undefined;
   if (!Array.isArray(data)) throw new RemoteError("format", "the list of sessions is not in the expected shape");
   return data.map(parseSession).filter((s): s is RemoteSession => s !== undefined);

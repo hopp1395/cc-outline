@@ -76,7 +76,7 @@ describe("the API", () => {
     const sessions = await listSessions(dir);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({ id: "cse_1", title: "Work", workerStatus: "running", environmentKind: "bridge", userMessageCount: 3 });
-    expect(calls[0]!.url).toBe("https://api.anthropic.com/v1/code/sessions");
+    expect(calls[0]!.url).toBe("https://api.anthropic.com/v1/code/sessions?limit=100");
     expect(calls[0]!.init.method).toBe("GET");
     expect(calls[0]!.init.body).toBeUndefined();
     const headers = calls[0]!.init.headers as Record<string, string>;

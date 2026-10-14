@@ -35,10 +35,13 @@ export class RemoteSessions {
   /** `dir`: the account's config folder; none for the viewer's own. */
   constructor(private readonly dir?: string) {}
 
-  /** The sessions claude.ai lists, newest write last. */
+  /** The sessions the Claude app lists: those claude.ai has not archived (`status` `active`), newest write last. */
   async list(): Promise<SessionSummary[]> {
     const sessions = await listSessions(this.dir);
-    return sessions.map(remoteSummary).sort((a, b) => (a.modified ?? "").localeCompare(b.modified ?? ""));
+    return sessions
+      .filter((s) => s.status !== "archived")
+      .map(remoteSummary)
+      .sort((a, b) => (a.modified ?? "").localeCompare(b.modified ?? ""));
   }
 
   /** `base` with the prompts, plans, files and agents its events hold, read through the parser a transcript takes. */
