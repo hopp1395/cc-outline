@@ -7,7 +7,7 @@ import { otherAccounts } from "../accountContinue.js";
 import { SESSIONS_BACKGROUND_VALUES, type SessionsBackground, type SessionsFolders } from "../settings.js";
 import { accountChosen, type SessionFilter } from "../sessionFilter.js";
 import { Dialog, type Layout } from "./layout.js";
-import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
+import { legendCell, legendCellWidth, SESSION_LEGEND, type LegendMark } from "./sessionLegend.js";
 
 const MAX_WIDTH = 60;
 
@@ -29,24 +29,22 @@ export function filterAccounts(accounts: Account[], own: string): FilterAccount[
 
 /** The marks of the list in short, as many to a line as fit in `width` columns. */
 export function legendLines(width: number): string[] {
+  // A column of marks, then what each says: in two columns of pairs where they fit, else one a line.
+  const markWidth = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
+  const cell = (m: LegendMark) => legendCell(m, markWidth);
+  const cellWidth = Math.max(...SESSION_LEGEND.map((m) => legendCellWidth(m, markWidth)));
+  const gap = 3;
+  if (2 * cellWidth + gap > width) return SESSION_LEGEND.map(cell);
   const lines: string[] = [];
-  let line = "";
-  let used = 0;
-  for (const m of SESSION_LEGEND) {
-    const size = stringWidth(`${m.mark} ${m.short}`);
-    if (used > 0 && used + 2 + size > width) {
-      lines.push(line);
-      line = "";
-      used = 0;
-    }
-    line += `${used > 0 ? "  " : ""}${legendMark(m)} ${m.short}`;
-    used += (used > 0 ? 2 : 0) + size;
+  for (let i = 0; i < SESSION_LEGEND.length; i += 2) {
+    const [left, right] = [SESSION_LEGEND[i]!, SESSION_LEGEND[i + 1]];
+    const pad = " ".repeat(cellWidth - legendCellWidth(left, markWidth) + gap);
+    lines.push(right ? `${cell(left)}${pad}${cell(right)}` : cell(left));
   }
-  if (line) lines.push(line);
   return lines;
 }
 
-type Row ={ kind: "folder"; which: "this" | "other" } | { kind: "account"; dir: string } | { kind: "background" };
+type Row = { kind: "folder"; which: "this" | "other" } | { kind: "account"; dir: string } | { kind: "background" };
 
 const BACKGROUND_NAMES: Record<SessionsBackground, string> = { show: "show", only: "only", hide: "hide" };
 

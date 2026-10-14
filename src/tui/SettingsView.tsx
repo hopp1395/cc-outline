@@ -785,6 +785,11 @@ export function settingLines(row: Row, current: string | boolean, width: number,
     const column = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
     lines.push("", bold("Marks in the Sessions list"));
     for (const m of SESSION_LEGEND) {
+      // Without a mark (the project's name): the name in its colour on a line of its own, what it says below.
+      if (!m.mark) {
+        lines.push(`  ${legendMark({ ...m, mark: m.short })}`, ...wrapText(m.text, width, " ".repeat(column + 4)));
+        continue;
+      }
       const [first = "", ...rest] = wrapText(m.text, width - column - 4);
       const pad = " ".repeat(column - stringWidth(m.mark));
       lines.push(`  ${legendMark(m)}${pad}  ${first}`, ...rest.map((l) => " ".repeat(column + 4) + l));

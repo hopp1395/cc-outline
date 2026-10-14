@@ -35,7 +35,10 @@ describe("the legend", () => {
     const lines = legendLines(40).map(plain);
     expect(lines.length).toBeGreaterThan(2);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(40);
-    expect(lines.join("  ")).toContain("◌ background");
+    // Too narrow for two columns: one mark a line, in a column.
+    expect(lines).toContain("◌  background");
+    // Wide enough, the pairs share a line.
+    expect(legendLines(52).map(plain)).toContain("◌  background           ∅  folder gone");
   });
 });
 
@@ -108,8 +111,7 @@ describe("the filter dialog in Sessions", () => {
     await until(() => view.frame().includes("Show sessions"));
     // The marks of the list, explained below the rows.
     expect(view.frame()).toContain("Marks in the list");
-    expect(view.frame()).toContain("◌ background");
-    expect(view.frame()).toContain("∅ folder gone");
+    expect(view.frame()).toMatch(/◌ +background +∅ +folder gone/);
     // One account: no accounts group, the background row follows the folders.
     expect(view.frame()).not.toContain("Accounts");
     await view.press(DOWN);
