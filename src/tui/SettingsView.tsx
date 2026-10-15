@@ -622,7 +622,7 @@ export interface DoctorChecking {
 /** The check's progress dialog: the group being checked. */
 export function checkProgress(checking: DoctorChecking): Progress {
   const at = DOCTOR_GROUPS.indexOf(checking.current);
-  return { title: L().settings.doctor.title, status: "running", text: L().settings.doctor.checking, step: { label: checking.current, at: at + 1, of: DOCTOR_GROUPS.length } };
+  return { title: L().settings.doctor.title, status: "running", text: L().settings.doctor.checking, step: { label: L().doctor.groups[checking.current] ?? checking.current, at: at + 1, of: DOCTOR_GROUPS.length } };
 }
 
 /** The doctor's details: what it does, the repair while it runs, then the report of the last check (the dialog shows a check under way). */

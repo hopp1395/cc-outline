@@ -1,4 +1,5 @@
 import { proc } from "./proc.js";
+import { L } from "./i18n/index.js";
 
 /**
  * How text reaches the clipboard:
@@ -53,7 +54,7 @@ function run({ cmd, args, input }: Command): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = proc.spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited with ${code}`))));
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(L().core.exited(cmd, String(code))))));
     child.stdin.on("error", () => {}); // reported by "close" or "error"
     child.stdin.end(input);
   });

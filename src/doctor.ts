@@ -1,5 +1,6 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { L } from "./i18n/index.js";
 import { join } from "node:path";
 import { cliFile } from "./cliPath.js";
 import { detectTerminal } from "./open.js";
@@ -68,7 +69,6 @@ export function tilde(path: string): string {
   return path.toLowerCase().startsWith(home.toLowerCase()) ? "~" + path.slice(home.length) : path;
 }
 
-const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** The parsed file, `undefined` if it is missing, `null` if it is not JSON. */
@@ -96,28 +96,28 @@ function installation(root: string, version: string): Finding[] {
   const group = "Installation";
   const kind = installKind(root);
   const findings: Finding[] = [
-    { group, severity: "ok", text: `${kind === "npm" ? "installed with npm" : "development install (npm link or npx)"}, v${version}: ${tilde(root)}` },
+    { group, severity: "ok", text: L().doctor.installed(kind === "npm" ? L().doctor.npm : L().doctor.dev, version, tilde(root)) },
   ];
 
   const cli = join(root, "dist", "cli.js");
-  const recordCli: Repair = { id: "cli", label: `record ${tilde(cli)} in cli.json`, apply: () => writeJson(cliFile(), { cli }) };
+  const recordCli: Repair = { id: "cli", label: L().doctor.recordCli(tilde(cli)), apply: () => writeJson(cliFile(), { cli }) };
   const recorded = parseFile(cliFile());
   if (recorded === undefined)
     findings.push({
       group,
       severity: "warn",
-      text: "cli.json is missing: the plugin starts cco through the shell, which takes seconds on Windows",
+      text: L().doctor.cliMissing,
       repair: recordCli,
     });
   // Not JSON: State files renames it.
   else if (recorded !== null) {
     const path = isObject(recorded) ? recorded.cli : undefined;
-    if (typeof path === "string" && existsSync(path)) findings.push({ group, severity: "ok", text: `plugin launcher starts ${tilde(path)}` });
+    if (typeof path === "string" && existsSync(path)) findings.push({ group, severity: "ok", text: L().doctor.launcher(tilde(path)) });
     else
       findings.push({
         group,
         severity: "error",
-        text: typeof path === "string" ? `cli.json names ${tilde(path)}, which does not exist` : "cli.json names no CLI",
+        text: typeof path === "string" ? L().doctor.cliGone(tilde(path)) : L().doctor.cliNone,
         repair: recordCli,
       });
   }
@@ -128,14 +128,14 @@ function installation(root: string, version: string): Finding[] {
     findings.push({
       group,
       severity: "error",
-      text: `the plugin ${PLUGIN} is not installed: no hooks (auto open, following the session) and no /cco:… commands`,
-      hint: `claude plugin marketplace add "${root}" && claude plugin install ${PLUGIN}, then restart Claude Code`,
+      text: L().doctor.notInstalled(PLUGIN),
+      hint: L().doctor.thenRestart(`claude plugin marketplace add "${root}" && claude plugin install ${PLUGIN}`),
     });
     return findings;
   }
   const enabled = readJson<{ enabledPlugins?: Record<string, unknown> }>(join(claudeDir(), "settings.json"))?.enabledPlugins?.[PLUGIN];
   if (enabled === false)
-    findings.push({ group, severity: "error", text: `the plugin ${PLUGIN} is disabled`, hint: `claude plugin enable ${PLUGIN}, then restart Claude Code` });
+    findings.push({ group, severity: "error", text: L().doctor.disabled(PLUGIN), hint: L().doctor.thenRestart(`claude plugin enable ${PLUGIN}`) });
   const pluginVersion = typeof installed.version === "string" ? installed.version : undefined;
   const cmp = pluginVersion ? compareVersions(pluginVersion, version) : 0;
   if (pluginVersion && cmp < 0) {
@@ -143,18 +143,18 @@ function installation(root: string, version: string): Finding[] {
     findings.push({
       group,
       severity: "warn",
-      text: `the plugin is v${pluginVersion}, older than cco v${version}`,
-      hint: kind === "npm" ? "then restart Claude Code" : `${commands.join(" && ")}, then restart Claude Code`,
-      repair: kind === "npm" ? { id: "plugin", label: "update the plugin", commands } : undefined,
+      text: L().doctor.older(pluginVersion, version),
+      hint: kind === "npm" ? L().doctor.restartOnly : L().doctor.thenRestart(commands.join(" && ")),
+      repair: kind === "npm" ? { id: "plugin", label: L().doctor.updatePlugin, commands } : undefined,
     });
   } else if (pluginVersion && cmp > 0)
     findings.push({
       group,
       severity: "warn",
-      text: `the plugin is v${pluginVersion}, newer than cco v${version}`,
-      hint: kind === "npm" ? "npm install -g cc-outline@latest" : "update and rebuild the checkout",
+      text: L().doctor.newer(pluginVersion, version),
+      hint: kind === "npm" ? "npm install -g cc-outline@latest" : L().doctor.rebuild,
     });
-  else if (enabled !== false) findings.push({ group, severity: "ok", text: `plugin ${PLUGIN}${pluginVersion ? ` v${pluginVersion}` : ""} installed and enabled` });
+  else if (enabled !== false) findings.push({ group, severity: "ok", text: L().doctor.pluginOk(`${PLUGIN}${pluginVersion ? ` v${pluginVersion}` : ""}`) });
   return findings;
 }
 
@@ -174,7 +174,7 @@ function stateFiles(now: number): Finding[] {
       .filter((d) => d.isFile())
       .map((d) => d.name);
   } catch {
-    return [{ group, severity: "ok", text: `${tilde(dir)} does not exist yet` }];
+    return [{ group, severity: "ok", text: L().doctor.noDir(tilde(dir)) }];
   }
   const stale: string[] = [];
   const leftovers: string[] = [];
@@ -243,15 +243,16 @@ function stateFiles(now: number): Finding[] {
   const findings: Finding[] = [];
   const add = (paths: string[], text: string, id: string, label: string, apply: () => void) =>
     paths.length > 0 && findings.push({ group, severity: "warn", text, paths, repair: { id, label, apply } });
-  add(stale, `${plural(stale.length, "state file")} of processes that have ended`, "stale", `delete ${plural(stale.length, "state file")} of ended processes`, removeAll(stale));
-  add(corrupt, `${plural(corrupt.length, "file")} that ${corrupt.length === 1 ? "is" : "are"} no valid JSON; cco reads the defaults instead`, "corrupt", `rename ${plural(corrupt.length, "file")} to .corrupt`, () => {
+  const t = L().doctor;
+  add(stale, t.stale(stale.length), "stale", t.staleRepair(stale.length), removeAll(stale));
+  add(corrupt, t.corrupt(corrupt.length), "corrupt", t.corruptRepair(corrupt.length), () => {
     for (const p of corrupt) if (existsSync(p)) renameSync(p, `${p}.corrupt`);
   });
-  add(leftovers, `${plural(leftovers.length, "leftover")}: unfinished writes, debug logs, old .corrupt copies`, "leftovers", `delete ${plural(leftovers.length, "leftover")}`, removeAll(leftovers));
-  add(ended, `${plural(ended.length, "record")} of sessions that ended over a day ago`, "ended", `delete ${plural(ended.length, "record")} of ended sessions`, removeAll(ended));
-  add(orphaned, `${plural(orphaned.length, "restore state")} of projects without transcripts`, "orphaned", `delete ${plural(orphaned.length, "restore state")} of gone projects`, removeAll(orphaned));
-  add(trash, `${plural(trash.length, "folder")} in the trash without a readable manifest: not shown, never purged`, "trash", `delete ${plural(trash.length, "trash folder")} for good`, removeAll(trash));
-  if (findings.length === 0) findings.push({ group, severity: "ok", text: `nothing to clean up in ${tilde(dir)}` });
+  add(leftovers, t.leftovers(leftovers.length), "leftovers", t.leftoversRepair(leftovers.length), removeAll(leftovers));
+  add(ended, t.ended(ended.length), "ended", t.endedRepair(ended.length), removeAll(ended));
+  add(orphaned, t.orphaned(orphaned.length), "orphaned", t.orphanedRepair(orphaned.length), removeAll(orphaned));
+  add(trash, t.trash(trash.length), "trash", t.trashRepair(trash.length), removeAll(trash));
+  if (findings.length === 0) findings.push({ group, severity: "ok", text: t.clean(tilde(dir)) });
   return findings;
 }
 
@@ -297,29 +298,28 @@ function trashOrphans(): string[] {
 
 // ---------------------------------------------------------------- Settings
 
-const LEGACY_SETTINGS: Record<string, string> = {
-  updateCheck: "the former on/off of update",
-  pinnedGroup: "the former name of pinned favorites",
-};
+/** Keys of former formats `readSettings` takes over, which the doctor names. */
+const LEGACY_SETTINGS = ["updateCheck", "pinnedGroup"];
 
 function settingsCheck(): Finding[] {
   const group = "Settings";
   const file = settingsFile();
   const stored = parseFile(file);
-  if (stored === undefined) return [{ group, severity: "ok", text: "no settings.json: every setting is at its default" }];
+  const t = L().doctor;
+  if (stored === undefined) return [{ group, severity: "ok", text: t.noSettings }];
   // Not JSON: State files renames it.
   if (!isObject(stored)) return [];
   const applied = readSettings();
-  const repair: Repair = { id: "settings", label: "rewrite settings.json with the values that apply", apply: () => writeJson(file, readSettings()) };
+  const repair: Repair = { id: "settings", label: t.rewrite, apply: () => writeJson(file, readSettings()) };
   const findings: Finding[] = [];
   const show = (v: unknown) => JSON.stringify(v);
   for (const [key, value] of Object.entries(stored)) {
-    if (key in LEGACY_SETTINGS) {
-      findings.push({ group, severity: "warn", text: `${key} is ${LEGACY_SETTINGS[key]}, an old format`, repair });
+    if (LEGACY_SETTINGS.includes(key)) {
+      findings.push({ group, severity: "warn", text: t.oldFormat(key, t.legacy[key] ?? key), repair });
       continue;
     }
     if (!(key in DEFAULT_SETTINGS)) {
-      findings.push({ group, severity: "warn", text: `unknown setting ${key}`, repair });
+      findings.push({ group, severity: "warn", text: t.unknown(key), repair });
       continue;
     }
     const k = key as keyof Settings;
@@ -328,11 +328,11 @@ function settingsCheck(): Finding[] {
     findings.push({
       group,
       severity: "warn",
-      text: migrated ? `${k}: ${show(value)} is an old format; ${show(applied[k])} applies` : `${k}: ${show(value)} is not valid; the default ${show(applied[k])} applies`,
+      text: migrated ? t.migrated(k, show(value), show(applied[k])) : t.invalid(k, show(value), show(applied[k])),
       repair,
     });
   }
-  if (findings.length === 0) findings.push({ group, severity: "ok", text: `settings.json is valid` });
+  if (findings.length === 0) findings.push({ group, severity: "ok", text: t.valid });
   return findings;
 }
 
@@ -344,32 +344,32 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
   const major = Number.parseInt(process.versions.node, 10);
   findings.push(
     major >= 22
-      ? { group, severity: "ok", text: `Node ${process.versions.node}` }
-      : { group, severity: "error", text: `Node ${process.versions.node}: cco needs Node 22 or newer`, hint: "install a current Node" },
+      ? { group, severity: "ok", text: L().doctor.node(process.versions.node) }
+      : { group, severity: "error", text: L().doctor.nodeOld(process.versions.node), hint: L().doctor.installNode },
   );
   const dir = claudeDir();
   const where = env.CLAUDE_CONFIG_DIR ? `CLAUDE_CONFIG_DIR ${tilde(dir)}` : tilde(dir);
   findings.push(
     existsSync(dir)
-      ? { group, severity: "ok", text: `Claude Code's folder: ${where}` }
-      : { group, severity: "error", text: `Claude Code's folder ${where} does not exist`, hint: "check CLAUDE_CONFIG_DIR, or start Claude Code once" },
+      ? { group, severity: "ok", text: L().doctor.folder(where) }
+      : { group, severity: "error", text: L().doctor.folderGone(where), hint: L().doctor.checkFolder },
   );
   const terminal = detectTerminal(env);
-  if (terminal === "tmux") findings.push({ group, severity: "ok", text: "terminal: tmux" });
-  else if (terminal === "wt" && env.WT_SESSION) findings.push({ group, severity: "ok", text: "terminal: Windows Terminal" });
+  if (terminal === "tmux") findings.push({ group, severity: "ok", text: L().doctor.terminal("tmux") });
+  else if (terminal === "wt" && env.WT_SESSION) findings.push({ group, severity: "ok", text: L().doctor.terminal("Windows Terminal") });
   else if (terminal === "wt")
     findings.push({
       group,
       severity: "warn",
-      text: "Windows Terminal without WT_SESSION (Claude Code restarted itself, or its daemon runs the session): the viewer opens in a window of its own",
-      hint: "start Claude Code anew in its tab",
+      text: L().doctor.noWtSession,
+      hint: L().doctor.startAnew,
     });
   else
     findings.push({
       group,
       severity: "warn",
-      text: "neither Windows Terminal nor tmux: cco opens no panes",
-      hint: "run cco watch in a terminal of your own",
+      text: L().doctor.noTerminal,
+      hint: L().doctor.ownTerminal,
     });
   if (readSettings().remoteApi) findings.push(remoteLogin(dir));
   return findings;
@@ -380,10 +380,10 @@ function remoteLogin(dir: string): Finding {
   const group = "Environment";
   try {
     readLogin(dir);
-    return { group, severity: "ok", text: "remote API: login for claude.ai found" };
+    return { group, severity: "ok", text: L().doctor.loginFound };
   } catch (err) {
     if (!(err instanceof RemoteError)) throw err;
-    return { group, severity: "warn", text: `remote API: ${err.message}`, hint: "start Claude Code and run /login, or turn the remote API setting off" };
+    return { group, severity: "warn", text: L().doctor.remote(err.message), hint: L().doctor.remoteHint };
   }
 }
 
@@ -439,16 +439,16 @@ function hooks(cwd: string, claudePid: number | undefined): Finding[] {
     .filter((s) => existsSync(s.transcript));
   const own = running.filter((s) => s.pid === claudePid);
   const candidates = own.length > 0 ? own : running;
-  if (candidates.length === 0) return [{ group, severity: "ok", text: `no Claude Code runs in ${tilde(cwd)}; the hooks are checked while one does` }];
+  if (candidates.length === 0) return [{ group, severity: "ok", text: L().doctor.noClaude(tilde(cwd)) }];
   const session = candidates.map((s) => ({ ...s, mtime: statSync(s.transcript).mtimeMs })).sort((a, b) => b.mtime - a.mtime)[0];
   const states = [claudeFile(cwd, session.pid), activeFile(cwd)].map((f) => readJson<ActiveSession>(f)).filter((s) => isObject(s));
   const updated = Math.max(...states.map((s) => (typeof s.updated === "string" ? Date.parse(s.updated) : Number.NaN)).filter((t) => !Number.isNaN(t)), -Infinity);
-  const hint = "check the plugin above; after installing or enabling it, restart Claude Code";
-  if (updated === -Infinity) return [{ group, severity: "error", text: `no session recorded for ${tilde(projectDir(cwd))}: the plugin's hooks have not run here`, hint }];
+  const hint = L().doctor.hooksHint;
+  if (updated === -Infinity) return [{ group, severity: "error", text: L().doctor.noRecord(tilde(projectDir(cwd))), hint }];
   const prompt = lastPromptTime(session.transcript);
   if (prompt !== undefined && updated < prompt - HOOK_SLACK_MS)
-    return [{ group, severity: "error", text: `the last prompt (${clock(prompt)}) came after the hooks last ran (${clock(updated)})`, hint }];
-  return [{ group, severity: "ok", text: `the hooks recorded the session at ${clock(updated)}` }];
+    return [{ group, severity: "error", text: L().doctor.late(clock(prompt), clock(updated)), hint }];
+  return [{ group, severity: "ok", text: L().doctor.recorded(clock(updated)) }];
 }
 
 // ---------------------------------------------------------------- Running
@@ -471,7 +471,7 @@ export function diagnoseGroup(group: DoctorGroup, options: DoctorOptions): Findi
   try {
     return checks[group]();
   } catch (err) {
-    return [{ group, severity: "error", text: `the check failed: ${(err as Error).message}` }];
+    return [{ group, severity: "error", text: L().doctor.failed((err as Error).message) }];
   }
 }
 
@@ -493,8 +493,8 @@ export function countFindings(findings: Finding[]): { errors: number; warnings: 
 /** "1 error, 3 warnings" or "no problems". */
 export function countText(findings: Finding[]): string {
   const { errors, warnings } = countFindings(findings);
-  if (errors + warnings === 0) return "no problems";
-  return [errors > 0 ? plural(errors, "error") : "", warnings > 0 ? plural(warnings, "warning") : ""].filter(Boolean).join(", ");
+  if (errors + warnings === 0) return L().doctor.noProblems;
+  return [errors > 0 ? L().doctor.errors(errors) : "", warnings > 0 ? L().doctor.warnings(warnings) : ""].filter(Boolean).join(", ");
 }
 
 /** One step of a repair: a command, or a change of files. */
@@ -556,15 +556,15 @@ export function reportLines(findings: Finding[], color: boolean): string[] {
   for (const group of DOCTOR_GROUPS) {
     const own = findings.filter((f) => f.group === group);
     if (own.length === 0) continue;
-    lines.push("", bold(group));
+    lines.push("", bold(L().doctor.groups[group] ?? group));
     for (const f of own) {
       lines.push(`  ${paint(COLORS[f.severity], SEVERITY_MARKS[f.severity])} ${f.text}`);
       const paths = f.paths ?? [];
       for (const p of paths.slice(0, LIST_MAX)) lines.push(`      ${dim(tilde(p))}`);
-      if (paths.length > LIST_MAX) lines.push(`      ${dim(`… and ${paths.length - LIST_MAX} more`)}`);
+      if (paths.length > LIST_MAX) lines.push(`      ${dim(L().doctor.andMore(paths.length - LIST_MAX))}`);
       if (f.severity === "ok") continue;
       if (f.hint) lines.push(`      ${f.hint}`);
-      if (f.repair) lines.push(`      ${dim(`repair: ${f.repair.label}`)}`);
+      if (f.repair) lines.push(`      ${dim(L().doctor.repair(f.repair.label))}`);
     }
   }
   return lines;
@@ -580,14 +580,14 @@ export async function runDoctor(options: DoctorOptions & { fix?: boolean; out?: 
   const repairs = repairsOf(findings);
   out("");
   if (!options.fix) {
-    out(`${countText(findings)}.${repairs.length > 0 ? ` cco doctor --fix repairs ${countFindings(findings).repairable} of them.` : ""}`);
+    out(L().doctor.summary(countText(findings), repairs.length > 0 ? countFindings(findings).repairable : 0));
     return countFindings(findings).errors > 0 ? 1 : 0;
   }
   if (repairs.length === 0) {
-    out(`${countText(findings)}; nothing to repair.`);
+    out(L().doctor.nothing(countText(findings)));
     return countFindings(findings).errors > 0 ? 1 : 0;
   }
-  out("Repairing");
+  out(L().doctor.repairing);
   // Each step once, when it has finished.
   const printed = new Set<number>();
   await runRepairs(repairSteps(repairs), (results) => {
@@ -600,7 +600,7 @@ export async function runDoctor(options: DoctorOptions & { fix?: boolean; out?: 
   });
   findings = diagnose(options);
   out("");
-  out("After the repair");
+  out(L().doctor.after);
   for (const line of reportLines(findings, color)) out(line);
   out("");
   out(`${countText(findings)}.`);

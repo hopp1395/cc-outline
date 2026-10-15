@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { L } from "../i18n/index.js";
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { readFavorites, toggleFavorite } from "../favorites.js";
 import { readPositions, rememberScroll, savePositions, type PositionList } from "../positions.js";
@@ -277,7 +278,7 @@ export function importArchive(file: string, cwd: string): ImportResult {
   const entries = readZip(file);
   const result: ImportResult = { imported: [], skipped: [] };
   const manifests = entries.filter((e) => /^[^/]+-backup\/manifest\.json$/.test(e.name));
-  if (manifests.length === 0) throw new Error("no session backups in this archive");
+  if (manifests.length === 0) throw new Error(L().core.noBackups);
   const slugTo = projectSlug(cwd);
   const projectDir = join(claudeDir(), "projects", slugTo);
   for (const m of manifests) {
@@ -286,17 +287,17 @@ export function importArchive(file: string, cwd: string): ImportResult {
     try {
       manifest = JSON.parse(m.data().toString("utf8")) as BackupManifest;
     } catch {
-      result.skipped.push({ id: folder, title: folder, reason: "unreadable manifest" });
+      result.skipped.push({ id: folder, title: folder, reason: L().core.unreadable });
       continue;
     }
     const title = manifest.summary?.title ?? manifest.summary?.prompts?.[0]?.text?.split("\n")[0] ?? manifest.id;
     if (manifest.format !== BACKUP_FORMAT || typeof manifest.id !== "string" || typeof manifest.slug !== "string") {
-      result.skipped.push({ id: folder, title, reason: "not a session backup" });
+      result.skipped.push({ id: folder, title, reason: L().core.notBackup });
       continue;
     }
     const ids = Array.isArray(manifest.ids) ? manifest.ids : [manifest.id];
     if (ids.some((id) => existsSync(join(projectDir, `${id}.jsonl`)))) {
-      result.skipped.push({ id: manifest.id, title, reason: "already there" });
+      result.skipped.push({ id: manifest.id, title, reason: L().core.already });
       continue;
     }
     const prefix = `${folder}/claude/`;
@@ -326,12 +327,12 @@ export function importArchive(file: string, cwd: string): ImportResult {
     const oldest = files.find((e) => e.name === `${prefix}projects/${manifest.slug}/${ids[0]}.jsonl`);
     const uuid = relocation.ids.size > 0 && oldest ? firstUuid(oldest.data().toString("utf8")) : undefined;
     if (uuid && holdsCopy(projectDir, uuid)) {
-      result.skipped.push({ id: manifest.id, title, reason: "already there" });
+      result.skipped.push({ id: manifest.id, title, reason: L().core.already });
       continue;
     }
     const outside = targets.find((t) => !t.target);
     if (outside) {
-      result.skipped.push({ id: manifest.id, title, reason: `unsafe path ${outside.entry.name}` });
+      result.skipped.push({ id: manifest.id, title, reason: L().core.unsafe(outside.entry.name) });
       continue;
     }
     // Unpacked (and checked) first, so a damaged archive leaves nothing half imported.
@@ -382,12 +383,12 @@ export function newestExport(dir = downloadsDir()): string | undefined {
 
 /** "imported 2 sessions · skipped 1 (already there)". */
 export function importSummary(result: ImportResult): string {
-  const parts = [`imported ${result.imported.length} session${result.imported.length === 1 ? "" : "s"}`];
+  const parts = [L().core.imported(result.imported.length)];
   const renamed = result.imported.filter((s) => s.from).length;
-  if (renamed) parts.push(`${renamed} with a new id`);
+  if (renamed) parts.push(L().core.newId(renamed));
   if (result.skipped.length) {
     const reasons = [...new Set(result.skipped.map((s) => s.reason))].join(", ");
-    parts.push(`skipped ${result.skipped.length} (${reasons})`);
+    parts.push(L().core.skipped(result.skipped.length, reasons));
   }
   return parts.join(" · ");
 }

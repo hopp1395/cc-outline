@@ -5,7 +5,8 @@ import { openedFromQueue, openPane } from "./open.js";
 import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv, setClaudeDir } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
-import { PLACEMENT_VALUES, type Placement } from "./settings.js";
+import { PLACEMENT_VALUES, readSettings, type Placement } from "./settings.js";
+import { applyLanguage, L } from "./i18n/index.js";
 import { isAlive, registerViewer, runningViewer, unregisterCurrentViewer, VIEWER_ACTIONS, type ViewerAction } from "./viewer.js";
 
 const VIEWS = ["chat", "git", "plan", "sessions", "settings", "monitor", "accounts"];
@@ -39,23 +40,31 @@ async function waitForExit(pid: number, timeoutMs = 3000): Promise<void> {
   await sleep(300);
 }
 
+// The help and the messages in the language of the settings; the hook prints nothing and stays fast without it.
+const t = (() => {
+  if (process.argv[2] !== "hook") applyLanguage(readSettings().language);
+  return L().cli;
+})();
+
 const program = new Command()
   .name("cco")
-  .description("cc-outline: Claude Code session as Markdown, git diffs, plans and a session browser in a split pane")
-  .version(VERSION);
+  .description(t.description)
+  .version(VERSION, "-V, --version", t.version)
+  .helpOption("-h, --help", t.help)
+  .helpCommand("help [command]", t.helpCommand);
 
 program
   .command("watch", { isDefault: true })
-  .description("show the session of a project and follow new output")
-  .option("--cwd <dir>", "project directory the Claude Code session runs in", process.cwd())
-  .option("--session <id>", "observe this session: its chat only, live while it runs, in a window of its own")
+  .description(t.watch)
+  .option("--cwd <dir>", t.cwd, process.cwd())
+  .option("--session <id>", t.session)
   // No default: without it, the session's last view (setting "view per session"), else the chat.
-  .addOption(new Option("--view <view>", "view to start with (default: the session's last view, else chat)").choices(VIEWS))
-  .addOption(new Option("--unfocused", "the pane opens without the keyboard focus").hideHelp())
-  .addOption(pidOption("--claude-pid <pid>", "follow the session of this Claude Code process"))
+  .addOption(new Option("--view <view>", t.view).choices(VIEWS))
+  .addOption(new Option("--unfocused", t.unfocused).hideHelp())
+  .addOption(pidOption("--claude-pid <pid>", t.claudePid))
   // Where the pane was opened, so p in the viewer knows the current place.
-  .addOption(new Option("--placement <placement>", "where the viewer runs").choices(PLACEMENT_VALUES).hideHelp())
-  .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
+  .addOption(new Option("--placement <placement>", t.placement).choices(PLACEMENT_VALUES).hideHelp())
+  .addOption(new Option("--select <entry>", t.select))
   // After an update the viewer reopens and says so once.
   .addOption(new Option("--updated-to <version>").hideHelp())
   // /cco:update and /cco:account opening a new viewer: it checks and asks at once, or asks for the account.
@@ -63,13 +72,16 @@ program
   // The config folder (account) of the Claude Code that opened it: a terminal pane does not get its environment.
   .addOption(new Option("--config-dir <dir>").hideHelp())
   // A Remote Control session from claude.ai (Sessions: open it in its own viewer), in the chat only.
-  .addOption(new Option("--remote <id>", "show this Remote Control session from claude.ai (experimental, setting remote API)"))
-  .addOption(new Option("--observe", "with --remote: only observe it, without the prompt line"))
+  .addOption(new Option("--remote <id>", t.remote))
+  .addOption(new Option("--observe", t.observe))
   // The window cco opened an observer in, so Sessions can bring it to the front.
   .addOption(new Option("--window <name>").hideHelp())
   .action(async (opts: { remote?: string; observe?: boolean; window?: string; cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
     // First: every state file and setting is read from the config folder.
-    if (opts.configDir) setClaudeDir(opts.configDir);
+    if (opts.configDir) {
+      setClaudeDir(opts.configDir);
+      applyLanguage(readSettings().language);
+    }
     // An observer (--session, --remote --observe): any number per session, registered for Sessions' ◎.
     const observe = opts.session !== undefined || (opts.remote !== undefined && opts.observe === true);
     if (observe) {
@@ -90,7 +102,7 @@ program
     // One viewer per Claude Code: a second one would share its state files and its /cco:… requests.
     const other = claudePid ? runningViewer(opts.cwd, claudePid) : undefined;
     if (other && other.pid !== process.pid) {
-      console.error(`cco: a viewer (pid ${other.pid}) already runs for this Claude Code`);
+      console.error(t.otherViewer(other.pid));
       process.exit(1);
     }
     // The App records the view it actually starts in.
@@ -114,9 +126,9 @@ program
 
 program
   .command("claude")
-  .description("run claude under a config folder (account), then a shell there; for terminal windows cco opens")
-  .requiredOption("--config-dir <dir>", "the config folder (CLAUDE_CONFIG_DIR)")
-  .argument("[args...]", "arguments for claude")
+  .description(t.claude)
+  .requiredOption("--config-dir <dir>", t.configDir)
+  .argument("[args...]", t.claudeArgs)
   .action(async (args: string[], opts: { configDir: string }) => {
     const { runClaudeIn } = await import("./launch.js");
     process.exitCode = await runClaudeIn(opts.configDir, args);
@@ -124,24 +136,24 @@ program
 
 program
   .command("hook")
-  .description("Claude Code hook: record the active session (reads hook JSON from stdin)")
+  .description(t.hook)
   .action(runHook);
 
 program
   .command("open")
-  .description("open the viewer in a split pane of the current terminal")
-  .option("--cwd <dir>", "project directory", process.cwd())
+  .description(t.open)
+  .option("--cwd <dir>", t.openCwd, process.cwd())
   // Without it, a running viewer keeps its view (--action restart); a new one opens in the chat, or with --action or --last-view in the session's last view.
-  .addOption(new Option("--view <view>", "view to start with (default: chat)").choices(VIEWS))
+  .addOption(new Option("--view <view>", t.openView).choices(VIEWS))
   // /cco:open: back where the viewer was left.
-  .addOption(new Option("--last-view", "start in the session's last view; a running viewer keeps its view").conflicts("view"))
-  .addOption(new Option("--placement <placement>", "where to open it (default: the session's placement, else the setting)").choices(PLACEMENT_VALUES))
-  .addOption(pidOption("--claude-pid <pid>", "the Claude Code process the viewer belongs to (default: CLAUDE_PID)"))
+  .addOption(new Option("--last-view", t.lastView).conflicts("view"))
+  .addOption(new Option("--placement <placement>", t.openPlacement).choices(PLACEMENT_VALUES))
+  .addOption(pidOption("--claude-pid <pid>", t.openClaudePid))
   // Moving with p: the running viewer quits, and the new one opens once it is gone.
-  .addOption(pidOption("--after-pid <pid>", "open once this viewer process has exited"))
-  .addOption(new Option("--select <entry>", "entry to select in the view (releases in settings)"))
+  .addOption(pidOption("--after-pid <pid>", t.afterPid))
+  .addOption(new Option("--select <entry>", t.select))
   .addOption(new Option("--updated-to <version>").hideHelp())
-  .addOption(new Option("--action <action>", "restart the running viewer (else open one), check for an update and offer it, or continue the session in another account").choices(VIEWER_ACTIONS))
+  .addOption(new Option("--action <action>", t.action).choices(VIEWER_ACTIONS))
   // A viewer that paired with a Claude Code it started (Sessions) moves next to it: its wt window or tmux pane.
   .addOption(new Option("--target <target>").hideHelp())
   .action(async (opts: { cwd: string; view?: Mode; lastView?: boolean; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string }) => {
@@ -156,9 +168,9 @@ program
 
 program
   .command("doctor")
-  .description("check the installation, state files, settings, terminal and hooks; --fix repairs what it can")
-  .option("--cwd <dir>", "project whose hooks are checked", process.cwd())
-  .option("--fix", "repair without asking, then check again")
+  .description(t.doctor)
+  .option("--cwd <dir>", t.doctorCwd, process.cwd())
+  .option("--fix", t.fix)
   .action(async (opts: { cwd: string; fix?: boolean }) => {
     // Loaded here only: the hook must start fast.
     const { runDoctor } = await import("./doctor.js");
@@ -167,15 +179,15 @@ program
 
 program
   .command("import")
-  .description("import the session backups of a cco-session-export zip archive into the current folder (Sessions view: Enter, Export it)")
-  .argument("<zip>", "the archive")
+  .description(t.import)
+  .argument("<zip>", t.zip)
   .action(async (zip: string) => {
     // Loaded here only: the hook must start fast.
     const { importArchive, importSummary } = await import("./export/archive.js");
     try {
       const result = importArchive(zip, process.cwd());
-      for (const s of result.imported) console.log(`imported  ${s.id}  ${s.title}${s.from ? ` (was ${s.from})` : ""}`);
-      for (const s of result.skipped) console.log(`skipped   ${s.id}  ${s.title} (${s.reason})`);
+      for (const s of result.imported) console.log(t.imported(s.id, s.title, s.from));
+      for (const s of result.skipped) console.log(t.skipped(s.id, s.title, s.reason));
       console.log(importSummary(result));
     } catch (err) {
       console.error(`cco: ${(err as Error).message}`);
