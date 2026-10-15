@@ -177,7 +177,7 @@ describe("remote control in the viewers", () => {
     await view.press("\r");
     await until(() => view.frame().includes("Send a prompt"));
     const lines = view.frame().split("\n");
-    expect(lines.findIndex((l) => l.includes("Send a prompt"))).toBeLessThan(lines.findIndex((l) => l.includes("Open it in a viewer of its own")));
+    expect(lines.findIndex((l) => l.includes("Send a prompt"))).toBeLessThan(lines.findIndex((l) => l.includes("Steer it in a viewer of its own")));
     await view.press(DOWN);
     await view.press(DOWN);
     view.unmount();

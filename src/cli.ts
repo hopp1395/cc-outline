@@ -48,7 +48,7 @@ program
   .command("watch", { isDefault: true })
   .description("show the session of a project and follow new output")
   .option("--cwd <dir>", "project directory the Claude Code session runs in", process.cwd())
-  .option("--session <id>", "show this session instead of the active one")
+  .option("--session <id>", "observe this session: its chat only, live while it runs, in a window of its own")
   // No default: without it, the session's last view (setting "view per session"), else the chat.
   .addOption(new Option("--view <view>", "view to start with (default: the session's last view, else chat)").choices(VIEWS))
   .addOption(new Option("--unfocused", "the pane opens without the keyboard focus").hideHelp())
@@ -64,15 +64,26 @@ program
   .addOption(new Option("--config-dir <dir>").hideHelp())
   // A Remote Control session from claude.ai (Sessions: open it in its own viewer), in the chat only.
   .addOption(new Option("--remote <id>", "show this Remote Control session from claude.ai (experimental, setting remote API)"))
-  .action(async (opts: { remote?: string; cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
+  .addOption(new Option("--observe", "with --remote: only observe it, without the prompt line"))
+  // The window cco opened an observer in, so Sessions can bring it to the front.
+  .addOption(new Option("--window <name>").hideHelp())
+  .action(async (opts: { remote?: string; observe?: boolean; window?: string; cwd: string; session?: string; view?: Mode; unfocused?: boolean; claudePid?: number; placement?: Placement; select?: string; updatedTo?: string; action?: ViewerAction; configDir?: string }) => {
     // First: every state file and setting is read from the config folder.
     if (opts.configDir) setClaudeDir(opts.configDir);
-    if (opts.remote) {
-      // One window per remote session; it belongs to no project or Claude Code here.
-      const { registerRemoteViewer } = await import("./remote/viewer.js");
-      registerRemoteViewer(opts.remote);
+    // An observer (--session, --remote --observe): any number per session, registered for Sessions' ◎.
+    const observe = opts.session !== undefined || (opts.remote !== undefined && opts.observe === true);
+    if (observe) {
+      const [{ registerObserver }, { claudeDir }] = await Promise.all([import("./observers.js"), import("./transcript/locate.js")]);
+      registerObserver({ sessionId: opts.session, remoteId: opts.session ? undefined : opts.remote, configDir: claudeDir(), window: opts.window });
+    }
+    if (opts.remote || opts.session) {
+      // A steering remote viewer is one per session; neither kind belongs to a project's Claude Code here.
+      if (!observe) {
+        const { registerRemoteViewer } = await import("./remote/viewer.js");
+        registerRemoteViewer(opts.remote!);
+      }
       const { runViewer } = await importProduction(() => import("./watch.js"));
-      await runViewer({ cwd: opts.cwd, remoteId: opts.remote, initialMode: opts.view ?? "chat" });
+      await runViewer({ cwd: opts.cwd, remoteId: opts.session ? undefined : opts.remote, sessionId: opts.session, observe, initialMode: "chat" });
       process.exit(0);
     }
     const claudePid = validPid(opts.claudePid);
@@ -90,7 +101,6 @@ program
     const { runViewer } = await importProduction(() => import("./watch.js"));
     await runViewer({
       cwd: opts.cwd,
-      sessionId: opts.session,
       initialMode: opts.view,
       unfocused: opts.unfocused,
       claudePid,

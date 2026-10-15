@@ -3,10 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
 import { TIMING } from "../src/timing.js";
+import { accountsHome } from "../src/addAccount.js";
+
+const testHome = mkdtempSync(join(tmpdir(), "cco-tests-home-"));
 
 // Tests point CLAUDE_CONFIG_DIR at a folder of their own and restore it afterwards; without a value to
 // restore, Node would set the string "undefined", and a late write would land in ./undefined of the checkout.
 process.env.CLAUDE_CONFIG_DIR ||= mkdtempSync(join(tmpdir(), "cco-tests-"));
+
+// What cco keeps below the home folder itself (the account trash, the observers) goes to a folder of the tests.
+accountsHome.get = () => testHome;
 
 // The viewer asks npm and GitHub at its start (setting updateMode); tests stay offline.
 vi.stubGlobal("fetch", () => Promise.reject(new Error("no network in tests")));

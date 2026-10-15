@@ -128,7 +128,7 @@ describe("a remote viewer", () => {
     setViewLimit(undefined);
   });
 
-  it("shows the session live in the chat, with the chat as its only tab", async () => {
+  it("shows the session live in the chat, with what it does and the title in place of the tabs", async () => {
     const layout: Layout = { columns: 110, rows: 26, listWidth: 40, previewWidth: 67, bodyHeight: 22 };
     const app = renderInk(<App cwd={tmpdir()} remoteId={String(session.id)} initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
@@ -136,7 +136,10 @@ describe("a remote viewer", () => {
     await until(() => app.frame().includes("frag mich mit askuserquestion"));
     expect(app.frame()).not.toContain("zähle bis 10");
     const tabs = app.frame().split("\n")[0]!;
-    expect(tabs).toContain("Chat");
+    // Without remote control it only observes.
+    expect(tabs).toContain(" observing ");
+    expect(tabs).toContain("rc-test");
+    expect(tabs).not.toContain("Chat");
     expect(tabs).not.toContain("Sessions");
     expect(tabs).not.toContain("Plan");
     expect(tabs).not.toContain("Settings");
