@@ -116,10 +116,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [reloading, setReloading] = useState<{ mode: Mode; done: boolean }>();
   // The chat and the plan view share the transcript: a reload of either reads it afresh.
   const transcriptReload = reloads.chat + reloads.plan;
+  // A new language reads the transcript again too: the parser writes some texts (tool results, notices) as it reads.
+  const languageReads = useRef<{ lang: string; count: number }>({ lang, count: 0 });
+  if (languageReads.current.lang !== lang) languageReads.current = { lang, count: languageReads.current.count + 1 };
   const opened = useSessionPath(cwd, sessionId, claudePid, transcriptReload);
   // Parsed once for the chat and the plan view; a remote viewer's from the session's events on claude.ai.
-  const local = useTranscript(remoteId ? undefined : opened, transcriptReload);
-  const remote = useRemoteTranscript(remoteId, transcriptReload);
+  const local = useTranscript(remoteId ? undefined : opened, transcriptReload + languageReads.current.count);
+  const remote = useRemoteTranscript(remoteId, transcriptReload + languageReads.current.count);
   const transcript = remoteId ? remote : local;
   // The transcript read now: the session may have continued in another one.
   const path = remoteId ? remotePath(remoteId) : (transcript.file ?? opened);
@@ -403,7 +406,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }, [reloading]);
   // The transcript is read synchronously; it is loaded once it reports the reload.
   useEffect(() => {
-    if (transcriptReload > 0 && transcript.loaded === transcriptReload) finishReload(reloading?.mode === "plan" ? "plan" : "chat");
+    if (transcriptReload > 0 && transcript.loaded === transcriptReload + languageReads.current.count) finishReload(reloading?.mode === "plan" ? "plan" : "chat");
   }, [transcript.loaded]);
   // A reload still running is not started again.
   const reload = () => {

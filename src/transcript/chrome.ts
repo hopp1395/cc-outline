@@ -1,4 +1,5 @@
 import { escapeMd, fence, type BrowserStep, type ResultImage, type ToolLevel, type ToolOutcome } from "./tools.js";
+import { L } from "../i18n/index.js";
 
 /**
  * Browser tools: Claude in Chrome (`mcp__claude-in-chrome__*`) and the
@@ -122,13 +123,12 @@ function actionHead(tool: string, input: unknown): { symbol: string; verb: strin
     case "select_browser":
       return { symbol: "◎", verb: "select browser" };
     case "browser_batch":
-      return { symbol: "⧉", verb: "browser batch", arg: plural(Array.isArray(i.actions) ? i.actions.length : 0, "action") };
+      return { symbol: "⧉", verb: "browser batch", arg: L().browser.actions(Array.isArray(i.actions) ? i.actions.length : 0) };
     default:
       return { symbol: "⚙", verb: tool.replace(/_mcp$/, "").replace(/_/g, " ") };
   }
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The matches a find listed: "- ref_1: link …" (Chrome) or "- link "…" [ref_21] …" (Browser pane). */
 const findMatches = (text: string) =>
@@ -154,17 +154,17 @@ function actionSummary(tool: string, input: unknown, text: string, context = "")
       return undefined;
     case "find": {
       const n = /Found (\d+) match/.exec(text)?.[1];
-      if (n) return `→ ${plural(Number(n), "element")}`;
+      if (n) return L().browser.elements(Number(n));
       return /^No match/.test(text.trim()) ? "→ none" : firstLine(text, 60);
     }
     case "tabs_context_mcp": {
       const tabs = (context.match(/• tabId/g) ?? []).length;
-      return tabs ? plural(tabs, "tab") : undefined;
+      return tabs ? L().browser.tabs(tabs) : undefined;
     }
     case "list_connected_browsers": {
       try {
         const list = JSON.parse(text);
-        if (Array.isArray(list)) return list.length ? plural(list.length, "browser") : "none";
+        if (Array.isArray(list)) return list.length ? L().browser.browsers(list.length) : L().browser.none;
       } catch {
         // Not the JSON list: fall through to its first line.
       }
@@ -172,14 +172,14 @@ function actionSummary(tool: string, input: unknown, text: string, context = "")
     }
     case "read_network_requests": {
       const requests = text.split("\n").filter((l) => /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\S/.test(l)).length;
-      return requests ? plural(requests, "request") : firstLine(text, 60);
+      return requests ? L().browser.requests(requests) : firstLine(text, 60);
     }
     case "javascript_tool":
       // Results are often JSON over several lines: one line of it.
       return text.trim() ? code(text, 60) : undefined;
     case "get_page_text":
     case "read_page":
-      return text ? `${Math.max(1, Math.round(text.length / 1000))}k chars` : undefined;
+      return text ? L().browser.chars(Math.max(1, Math.round(text.length / 1000))) : undefined;
     default:
       return text.trim() ? firstLine(text, 60) : undefined;
   }
@@ -210,7 +210,7 @@ function actionBrief(tool: string, text: string): string[] | undefined {
   lines = lines.map((l) => l.trimEnd()).filter((l) => l.trim());
   if (lines.length === 0) return undefined;
   const shown = lines.slice(0, BRIEF_LINES).map((l) => cut(l, BRIEF_WIDTH));
-  return lines.length > BRIEF_LINES ? [...shown, `… ${lines.length - BRIEF_LINES} more`] : shown;
+  return lines.length > BRIEF_LINES ? [...shown, L().browser.more(lines.length - BRIEF_LINES)] : shown;
 }
 
 /** Markdown of one action's line. */
@@ -319,12 +319,12 @@ export function batchFailure(input: unknown, text: string): ToolOutcome {
   const results = text.split("\n").filter((l) => STEP.test(l)).map((l) => l.replace(STEP, "").trim());
   const steps = actions.map((a, i): BrowserStep => {
     const name = str(obj(a).name) ?? "";
-    const summary = i === at ? `✗ ${error}` : at >= 0 && i > at ? "not run" : results[i] !== undefined ? actionSummary(name, obj(a).input, results[i]) : undefined;
+    const summary = i === at ? `✗ ${error}` : at >= 0 && i > at ? L().browser.notRun : results[i] !== undefined ? actionSummary(name, obj(a).input, results[i]) : undefined;
     return { line: actionLine(name, obj(a).input, summary) };
   });
   // Without the failure line the error goes below the actions.
   if (at < 0) steps.push({ line: `**✗** ${error}` });
-  return { status: "error", summary: at >= 0 ? `✗ action ${at + 1} of ${actions.length} failed` : `✗ ${error}`, steps };
+  return { status: "error", summary: at >= 0 ? L().browser.actionFailed(at + 1, actions.length) : `✗ ${error}`, steps };
 }
 
 const tailLines = (text: string, n = 10) => text.trim().split("\n").slice(0, n).join("\n") + (text.trim().split("\n").length > n ? "\n…" : "");

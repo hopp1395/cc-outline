@@ -1,5 +1,6 @@
 import { isAbsolute, relative } from "node:path";
 import { BOX_END, BOX_RULE, BOX_START } from "../render/markdown.js";
+import { L } from "../i18n/index.js";
 import { batchFailure, browserAction, chromeMarkdown, chromeOutcome, isBrowserTool } from "./chrome.js";
 
 /** How much of Claude's tool calls the chat shows: nothing, a line each, or with command and output. */
@@ -80,7 +81,6 @@ export function shortPath(path: string, cwd?: string): string {
   return path.replace(/\\/g, "/");
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"}`;
 const lines = (s: string) => s.replace(/\n+$/, "").split("\n");
 
 /** The text of a tool_result's content: a string or text blocks. */
@@ -95,7 +95,7 @@ function tail(text: string, n = OUTPUT_TAIL): string {
   const all = lines(text);
   const shown = all.slice(-n).join("\n");
   const above = all.length - n;
-  return (above > 0 ? `*… ${plural(above, "line")} above*\n\n` : "") + fence(shown);
+  return (above > 0 ? `${L().tools.above(above)}\n\n` : "") + fence(shown);
 }
 
 /** "+12 −3" from a structuredPatch. */
@@ -118,7 +118,7 @@ function fileList(files: unknown, cwd?: string, total?: number): string | undefi
   if (!Array.isArray(files) || files.length === 0) return undefined;
   const names = files.filter((f): f is string => typeof f === "string");
   const more = (total ?? names.length) - Math.min(names.length, MAX_FILES);
-  return [...names.slice(0, MAX_FILES).map((f) => `- ${code(shortPath(f, cwd), 200)}`), ...(more > 0 ? [`- *… ${more} more*`] : [])].join("\n");
+  return [...names.slice(0, MAX_FILES).map((f) => `- ${code(shortPath(f, cwd), 200)}`), ...(more > 0 ? [`- ${L().tools.more(more)}`] : [])].join("\n");
 }
 
 const DENIED = /^The user doesn't want to proceed/;
@@ -134,7 +134,7 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
     if (DENIED.test(text)) {
       // The words after "the user said:" when they rejected with feedback.
       const feedback = /the user said:\s*([\s\S]*)$/i.exec(text)?.[1]?.trim();
-      return { status: "denied", summary: "⊘ denied", ...(feedback ? { feedback, detail: `> ${escapeMd(feedback)}` } : {}) };
+      return { status: "denied", summary: L().tools.denied, ...(feedback ? { feedback, detail: `> ${escapeMd(feedback)}` } : {}) };
     }
     // A batch that stopped: the actions that ran, then the one that failed.
     if (isBrowserTool(name) && browserAction(name) === "browser_batch") return batchFailure(input, text);
@@ -144,18 +144,19 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
   if (isBrowserTool(name)) return chromeOutcome(name, input, content);
   const r = obj(result);
   const i = obj(input);
+  const t = L().tools;
   switch (name) {
     case "Bash":
     case "PowerShell": {
       const out = str(r.stdout) ?? (typeof result === "string" ? result : text);
       const err = str(r.stderr);
-      const status = r.interrupted === true ? "⊘ interrupted" : str(r.backgroundTaskId) ? "⏱ background" : "✓";
+      const status = r.interrupted === true ? t.interrupted : str(r.backgroundTaskId) ? t.background : "✓";
       const count = out ? lines(out).length : 0;
       const detail = [
         ...(out ? [tail(out)] : []),
-        ...(err ? [`*stderr:*\n\n${tail(err)}`] : []),
+        ...(err ? [`${t.stderr}\n\n${tail(err)}`] : []),
       ].join("\n\n");
-      return { status: "ok", summary: count ? `${status} · ${plural(count, "line")}` : status, detail: detail || undefined };
+      return { status: "ok", summary: count ? `${status} · ${t.lines(count)}` : status, detail: detail || undefined };
     }
     case "Read": {
       const file = obj(r.file);
@@ -165,7 +166,7 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
       const start = num(file.startLine) ?? 1;
       const count = num(file.numLines);
       if (total === undefined || count === undefined) return { status: "ok" };
-      return { status: "ok", summary: start === 1 && count >= total ? plural(total, "line") : `lines ${start}–${start + count - 1} of ${total}` };
+      return { status: "ok", summary: start === 1 && count >= total ? t.lines(total) : t.range(start, start + count - 1, total) };
     }
     case "Edit":
     case "MultiEdit":
@@ -173,7 +174,7 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
     case "Write": {
       if (r.type === "update") return { status: "ok", summary: patchCounts(r.structuredPatch) };
       const body = str(i.content);
-      return { status: "ok", summary: body !== undefined ? `created, ${plural(lines(body).length, "line")}` : "created" };
+      return { status: "ok", summary: body !== undefined ? t.createdLines(t.lines(lines(body).length)) : t.created };
     }
     case "Grep": {
       const files = num(r.numFiles) ?? 0;
@@ -181,18 +182,18 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
       const found = mode === "content" ? (num(r.numLines) ?? 0) : mode === "count" ? (num(r.numMatches) ?? 0) : files;
       const summary =
         found === 0
-          ? "no matches"
+          ? t.noMatches
           : mode === "content"
-            ? plural(found, "line")
+            ? t.lines(found)
             : mode === "count"
-              ? `${plural(found, "match")} in ${plural(files, "file")}`
-              : plural(files, "file");
+              ? t.matchesIn(t.matches(found), t.files(files))
+              : t.files(files);
       const detail = mode === "content" && str(r.content) ? tail(str(r.content)!, MAX_FILES) : fileList(r.filenames, cwd, files);
       return { status: "ok", summary, detail };
     }
     case "Glob": {
       const files = num(r.numFiles) ?? 0;
-      return { status: "ok", summary: files === 0 ? "no files" : plural(files, "file") + (r.truncated === true ? " (truncated)" : ""), detail: fileList(r.filenames, cwd, files) };
+      return { status: "ok", summary: files === 0 ? t.noFiles : t.files(files) + (r.truncated === true ? t.truncated : ""), detail: fileList(r.filenames, cwd, files) };
     }
     case "WebFetch": {
       const bytes = num(r.bytes);
@@ -210,11 +211,11 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
         }
       }
       const detail = links.slice(0, MAX_FILES).map((l) => `- ${escapeMd(l.title)}  \n  ${l.url}`).join("\n");
-      return { status: "ok", summary: plural(links.length, "result"), detail: detail || undefined };
+      return { status: "ok", summary: t.results(links.length), detail: detail || undefined };
     }
     case "ToolSearch": {
       const matches = Array.isArray(r.matches) ? r.matches.filter((m): m is string => typeof m === "string") : [];
-      return { status: "ok", summary: matches.length ? `loaded ${matches.map(mcpName).join(", ")}` : "nothing found" };
+      return { status: "ok", summary: matches.length ? t.loaded(matches.map(mcpName).join(", ")) : t.nothingFound };
     }
     case "AskUserQuestion": {
       const answers: Record<string, string> = {};
@@ -229,11 +230,11 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
       const given = asked.map((q) => answers[q]).filter((a): a is string => a !== undefined);
       const detail = asked
         .map((q) => {
-          const answer = answers[q] === undefined ? "*not answered*" : `**${escapeMd(answers[q])}**`;
-          return `- *${escapeMd(q)}* → ${answer}${notes[q] ? `  \n  note: ${escapeMd(notes[q])}` : ""}`;
+          const answer = answers[q] === undefined ? t.notAnsweredMd : `**${escapeMd(answers[q])}**`;
+          return `- *${escapeMd(q)}* → ${answer}${notes[q] ? `  \n  ${t.note(escapeMd(notes[q]))}` : ""}`;
         })
         .join("\n");
-      return { status: "ok", answers, notes, summary: given.length ? given.map(escapeMd).join("; ") : "not answered", detail: detail || undefined };
+      return { status: "ok", answers, notes, summary: given.length ? given.map(escapeMd).join("; ") : t.notAnswered, detail: detail || undefined };
     }
     case "ExitPlanMode":
     case "Skill":
@@ -286,7 +287,7 @@ function toolTitle(name: string, input: unknown, cwd?: string): string {
       return code(`/${[str(i.skill), str(i.args)].filter(Boolean).join(" ")}`);
     case "AskUserQuestion": {
       const asked = questionTexts(input);
-      return asked.length === 1 ? `*${escapeMd(asked[0])}*` : `*${plural(asked.length, "question")}*`;
+      return asked.length === 1 ? `*${escapeMd(asked[0])}*` : `*${L().tools.questions(asked.length)}*`;
     }
     default:
       return keyInput(input);
@@ -308,15 +309,16 @@ function questionTexts(input: unknown): string[] {
 export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string, shots?: number[], hint = false): string {
   if (level === "off") return name === "AskUserQuestion" ? questionMarkdown(input, outcome) : "";
   if (name === "ExitPlanMode") {
+    const t = L().tools;
     const decision =
       outcome === undefined
-        ? "waiting for your decision"
+        ? t.waitingDecision
         : outcome.status === "ok"
-          ? "approved"
+          ? t.approved
           : outcome.status === "denied"
-            ? `rejected${outcome.feedback ? `: ${escapeMd(outcome.feedback)}` : ""}`
-            : "failed";
-    return `**▤ Plan presented** → ${decision} *(3 Plan view)*`;
+            ? t.rejected(outcome.feedback ? escapeMd(outcome.feedback) : "")
+            : t.failed;
+    return t.planPresented(decision);
   }
   if (isBrowserTool(name)) return chromeMarkdown(name, input, outcome, level, shots, hint);
   const status = outcome?.summary ? ` · ${outcome.summary}` : "";
@@ -341,7 +343,8 @@ const badge = (s: string) => `\u001b[7m\u001b[33m\u00a0${s}\u00a0\u001b[39m\u001
 function questionMarkdown(input: unknown, outcome: ToolOutcome | undefined): string {
   const questions = Array.isArray(obj(input).questions) ? (obj(input).questions as unknown[]) : [];
   if (questions.length === 0) return "";
-  const title = questions.length === 1 ? "Claude asks" : `Claude asks ${questions.length} questions`;
+  const t = L().tools;
+  const title = t.asks(questions.length);
   const body = questions
     .map((raw, i) => {
       const q = obj(raw);
@@ -362,17 +365,17 @@ function questionMarkdown(input: unknown, outcome: ToolOutcome | undefined): str
       const own = answer !== undefined && !labels.some((l) => chosen.has(l));
       const reply =
         outcome === undefined
-          ? faint("┃ waiting for your answer")
+          ? faint(t.waitingAnswer)
           : answer === undefined
-            ? faint("┃ not answered")
-            : green(`┃ You: ${escapeMd(answer)}`) + (own ? faint(" (own answer)") : "");
+            ? faint(t.notAnsweredBar)
+            : green(t.you(escapeMd(answer))) + (own ? faint(t.ownAnswer) : "");
       const note = outcome?.notes?.[question];
       const number = questions.length > 1 ? `${i + 1}/${questions.length}` : "";
       const tag = [number, header ? escapeMd(header) : ""].filter(Boolean).join(" ") || "?";
       return [
         `${badge(tag)} ${escapeMd(question)}`,
         ...(options.length ? [options.join("\n")] : []),
-        reply + (note ? `  \n${green("┃")} ${faint(`note: ${escapeMd(note)}`)}` : ""),
+        reply + (note ? `  \n${green("┃")} ${faint(t.note(escapeMd(note)))}` : ""),
       ].join("\n\n");
     })
     .join(`\n\n${BOX_RULE}\n\n`);
