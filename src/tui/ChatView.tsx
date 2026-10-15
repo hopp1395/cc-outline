@@ -532,7 +532,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const markedCount = turns.filter((t) => favorites.isMarked(t.id)).length;
 
   // Each turn remembers where its answer was scrolled to, also across restarts; unvisited turns start at the top.
-  // The selection is kept per session: an observer of another session of the project must not move this one's.
+  // The selection is kept per session: a viewer of another session of the project must not move this one's.
   const remembered = usePositions(cwd, "chat", path ? basename(path, ".jsonl") : undefined);
   // A turn is found by its prompt; its details are what came with it and the subagents it started.
   const filter = useListFilter({

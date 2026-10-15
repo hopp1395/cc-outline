@@ -97,8 +97,9 @@ describe("answering a permission in a remote viewer", () => {
 
   it("asks in place of the prompt line with the command shown, and allows it on Enter", async () => {
     const app = viewer();
-    // In place of the prompt line, which has the keys.
+    // In place of the prompt line; Tab hands it the keys, which the chat has at first.
     await until(() => app.frame().includes("lösche b.txt") && app.frame().includes("Allow Bash?"));
+    await app.press("\t");
     expect(app.frame()).toContain("$ rm /c/workspace/cco-rc/b.txt");
     await app.press("\r");
     await expect.poll(() => posted.length).toBe(1);
@@ -165,8 +166,9 @@ describe("answering a permission in a remote viewer", () => {
 
   it("denies it, saying why", async () => {
     const app = viewer();
-    // In place of the prompt line, which has the keys.
+    // In place of the prompt line; Tab hands it the keys, which the chat has at first.
     await until(() => app.frame().includes("lösche b.txt") && app.frame().includes("Allow Bash?"));
+    await app.press("\t");
     await app.press(DOWN);
     await app.press(DOWN);
     await app.press("\r");

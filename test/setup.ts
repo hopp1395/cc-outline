@@ -11,7 +11,7 @@ const testHome = mkdtempSync(join(tmpdir(), "cco-tests-home-"));
 // restore, Node would set the string "undefined", and a late write would land in ./undefined of the checkout.
 process.env.CLAUDE_CONFIG_DIR ||= mkdtempSync(join(tmpdir(), "cco-tests-"));
 
-// What cco keeps below the home folder itself (the account trash, the observers) goes to a folder of the tests.
+// What cco keeps below the home folder itself (the account trash, the session viewers) goes to a folder of the tests.
 accountsHome.get = () => testHome;
 
 // The viewer asks npm and GitHub at its start (setting updateMode); tests stay offline.

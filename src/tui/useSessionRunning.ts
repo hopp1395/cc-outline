@@ -4,7 +4,7 @@ import { TIMING } from "../timing.js";
 
 /**
  * Whether session `id` runs in a Claude Code now (`~/.claude/sessions/<pid>.json` with a live pid), checked every
- * `TIMING.activityPoll`; for an observer, which shows Claude working only while the session runs. Without an id: false.
+ * `TIMING.activityPoll`; for a viewer of one session, which shows Claude working only while the session runs. Without an id: false.
  */
 export function useSessionRunning(id: string | undefined): boolean {
   const check = () => id !== undefined && runningSessions().has(id);

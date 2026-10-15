@@ -65,8 +65,6 @@ interface Props {
   onDetach?: (cwd: string) => void;
   /** A remote viewer (`--remote`): the Remote Control session of this id, read from claude.ai, in the chat only. */
   remoteId?: string;
-  /** An observer (`--session`, `--remote --observe`): the chat only, without a prompt line. */
-  observe?: boolean;
 }
 
 /** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a remote viewer's prompt line). */
@@ -75,7 +73,7 @@ function shorter(layout: Layout, rows: number): Layout {
   return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
 }
 
-/** The views of a viewer of one session (an observer, a remote viewer): only the chat. */
+/** The views of a viewer of one session (`--session`, `--remote`): only the chat. */
 export const REMOTE_VIEWS: readonly Mode[] = ["chat"];
 
 const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
@@ -96,7 +94,7 @@ const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefine
 const REDRAW = "\u001b[?25l";
 const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0, accounts: 0 };
 
-export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach, remoteId, observe = false }: Props) {
+export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach, remoteId }: Props) {
   const { exit } = useApp();
   const [startedAt] = useState(Date.now);
   // Each view's list has its own width (< and >); the dialogs take the normal one.
@@ -118,11 +116,11 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // A viewer of one session (--session, --remote) stays where it is: it does not move, restart or follow another.
   const fixed = sessionId !== undefined || remoteId !== undefined;
   const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
-  // An observer of a session of this machine shows Claude working only while the session runs in a Claude Code.
-  const observedRunning = useSessionRunning(sessionId !== undefined ? sessionOf(path) : undefined);
-  const live = sessionId === undefined || observedRunning;
+  // A viewer of one session of this machine shows Claude working only while the session runs in a Claude Code.
+  const sessionRunning = useSessionRunning(sessionId !== undefined ? sessionOf(path) : undefined);
+  const live = sessionId === undefined || sessionRunning;
   // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
-  // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; an observer of a session that runs nowhere shows no status.
+  // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; a viewer of one session that runs nowhere shows no status.
   const lastTurn = transcript.turns.at(-1);
   const working = lastTurn !== undefined && !lastTurn.done && !lastTurn.interrupted;
   // The title ends with the shown account's avatar, if one is chosen; the "cco" (or the avatar) takes its colour.
@@ -130,8 +128,11 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [accountTitle] = useSetting("accountTitle");
   const [accountColor] = useSetting("accountColor");
   const sessionTitle = remoteId ? `◈ ${transcript.title ?? remoteId}` : (transcript.title ?? basename(cwd));
+  // A viewer of one session has a prompt line for a remote session while remote control is on, as Claude Code does.
+  const [remoteControl] = useSetting("remoteControl");
+  const composer = remoteId !== undefined && remoteControl;
   useTerminalTitle(
-    observe ? `👁 ${sessionTitle}` : sessionTitle,
+    fixed && !composer ? `👁 ${sessionTitle}` : sessionTitle,
     !live ? undefined : working ? "working" : "idle",
     accountTitle ? account.avatar : undefined,
   );
@@ -259,11 +260,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
-  // A remote viewer with remote control has a prompt line below the chat, as Claude Code does; it has the keys
-  // at first, Esc or Tab hand them to the chat, Tab or i back. The chat leaves it the rows it takes.
-  const [remoteControl] = useSetting("remoteControl");
-  const composer = remoteId !== undefined && remoteControl && !observe;
-  const [composing, setComposing] = useState(true);
+  // The prompt line below the chat: the chat has the keys at first, Tab or i hand them to the prompt line, Esc or
+  // Tab back. The chat leaves it the rows it takes.
+  const [composing, setComposing] = useState(false);
   const [composerRows, setComposerRows] = useState(3);
   const typingInComposer = composer && composing;
   const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;

@@ -16,7 +16,7 @@ interface Props {
   path?: string;
   /** Git repository root; null outside a repository, undefined while unknown. */
   gitRoot?: string | null;
-  /** A viewer of one session (an observer, a remote viewer): no other views, and it does not move or restart. */
+  /** A viewer of one session (`--session`, `--remote`): no other views, and it does not move or restart. */
   oneSession?: boolean;
 }
 

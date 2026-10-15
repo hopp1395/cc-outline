@@ -116,10 +116,13 @@ describe("remote control in the viewers", () => {
     });
   };
 
-  it("types into the prompt line below the chat at once, as in Claude Code, and sends on Enter", async () => {
+  it("types into the prompt line below the chat once Tab gave it the keys, and sends on Enter", async () => {
     updateSettings({ remoteApi: true, remoteControl: true });
     const app = viewer();
-    await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("Enter send"));
+    await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("Tab write a prompt"));
+    expect(app.frame().split("\n")[0]).toContain(" controlling ");
+    await app.press("\t");
+    await until(() => app.frame().includes("Enter send"));
     // The prompt line is the last thing on the screen, below the chat.
     const rows = app.frame().split("\n");
     expect(rows.findIndex((r) => r.includes("Enter send"))).toBeGreaterThan(rows.findIndex((r) => r.includes("lege die datei a.txt")));
@@ -135,9 +138,11 @@ describe("remote control in the viewers", () => {
     app.unmount();
   });
 
-  it("hands the keys to the chat with Esc and takes them back with Tab", async () => {
+  it("starts with the keys in the chat, hands them to the prompt line with i and back with Esc", async () => {
     updateSettings({ remoteApi: true, remoteControl: true });
     const app = viewer();
+    await until(() => app.frame().includes("Tab write a prompt"));
+    await app.press("i");
     await until(() => app.frame().includes("Enter send"));
     await app.press("\u001b");
     await until(() => app.frame().includes("Tab write a prompt"));
@@ -150,6 +155,8 @@ describe("remote control in the viewers", () => {
     updateSettings({ remoteApi: true, remoteControl: true });
     status = "running";
     const app = viewer();
+    await until(() => app.frame().includes("Tab write a prompt"));
+    await app.press("\t");
     await until(() => app.frame().includes("Esc stop Claude"));
     await app.press("\u001b");
     await expect.poll(() => posted[0]?.body.events[0]?.payload.type).toBe("control_request");
@@ -162,6 +169,8 @@ describe("remote control in the viewers", () => {
     const app = viewer();
     await until(() => app.frame().includes("lege die datei a.txt"));
     expect(app.frame()).not.toContain("Enter send");
+    expect(app.frame()).not.toContain("Tab write a prompt");
+    expect(app.frame().split("\n")[0]).toContain(" observing ");
     app.unmount();
   });
 
@@ -177,7 +186,7 @@ describe("remote control in the viewers", () => {
     await view.press("\r");
     await until(() => view.frame().includes("Send a prompt"));
     const lines = view.frame().split("\n");
-    expect(lines.findIndex((l) => l.includes("Send a prompt"))).toBeLessThan(lines.findIndex((l) => l.includes("Steer it in a viewer of its own")));
+    expect(lines.findIndex((l) => l.includes("Send a prompt"))).toBeLessThan(lines.findIndex((l) => l.includes("Open it in a window of its own")));
     await view.press(DOWN);
     await view.press(DOWN);
     view.unmount();

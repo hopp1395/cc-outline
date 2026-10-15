@@ -22,8 +22,6 @@ export interface WatchOptions {
   action?: ViewerAction;
   /** A remote viewer: the Remote Control session of this id, in the chat only. */
   remoteId?: string;
-  /** An observer (`--session`, `--remote --observe`): the chat only, read-only. */
-  observe?: boolean;
 }
 
 /**

@@ -1,14 +1,11 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { openRemoteViewer } from "../src/open.js";
-import { proc } from "../src/proc.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { remote, type RemoteEvent } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { pendingRequests } from "../src/remote/pending.js";
 import { toTranscript } from "../src/remote/toTranscript.js";
-import { registerRemoteViewer, remoteViewerFile, remoteWindow } from "../src/remote/viewer.js";
 import { isViewShown, readSettings, setViewLimit } from "../src/settings.js";
 import { TranscriptParser } from "../src/transcript/parse.js";
 import { App, REMOTE_VIEWS } from "../src/tui/App.js";
@@ -65,41 +62,6 @@ describe("the views of a remote viewer", () => {
     const settings = readSettings();
     expect(isViewShown(settings, "chat")).toBe(true);
     expect(["git", "plan", "sessions", "monitor", "settings", "accounts"].some((m) => isViewShown(settings, m as never))).toBe(false);
-  });
-});
-
-describe("opening a remote viewer", () => {
-  const spawned: { cmd: string; args: string[] }[] = [];
-  const real = { ...proc };
-  const env = { ...process.env };
-  let saved: string | undefined;
-  beforeAll(() => {
-    proc.spawn = ((cmd: string, args: string[]) => {
-      spawned.push({ cmd, args });
-      return { unref: () => {} };
-    }) as never;
-  });
-  afterAll(() => Object.assign(proc, real));
-  beforeEach(() => {
-    spawned.length = 0;
-    saved = process.env.CLAUDE_CONFIG_DIR;
-    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-remote-open-"));
-    delete process.env.TMUX;
-    process.env.WT_SESSION = "x";
-  });
-  afterEach(() => {
-    process.env = { ...env, CLAUDE_CONFIG_DIR: saved };
-  });
-
-  it("opens a window named after the session, then brings it to the front", () => {
-    expect(openRemoteViewer("cse_01Abc", "◈ Build")).toBe("opened in a window of its own");
-    expect(spawned[0]!.args.slice(0, 3)).toEqual(["-w", remoteWindow("cse_01Abc"), "new-tab"]);
-    expect(spawned[0]!.args).toEqual(expect.arrayContaining(["watch", "--remote", "cse_01Abc"]));
-    // This process stands in for the viewer started there.
-    registerRemoteViewer("cse_01Abc");
-    expect(openRemoteViewer("cse_01Abc", "◈ Build")).toBe("its viewer is in front");
-    expect(spawned[1]!.args).toEqual(["-w", remoteWindow("cse_01Abc"), "focus-tab", "-t", "0"]);
-    writeFileSync(remoteViewerFile("cse_01Abc"), "{}");
   });
 });
 

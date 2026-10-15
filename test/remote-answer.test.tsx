@@ -136,6 +136,8 @@ describe("answering a remote session", () => {
   it("shows the question in place of the prompt line in the session's viewer and sends the answer as the app does", async () => {
     const app = viewer();
     await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
+    // The chat has the keys at first; Tab hands them to the question.
+    await app.press("\t");
     await app.press(" ");
     await app.press("\r");
     await expect.poll(() => posted.length).toBe(1);
@@ -154,6 +156,7 @@ describe("answering a remote session", () => {
   it("puts the prompt line back when the app answered the question first", async () => {
     const app = viewer();
     await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
+    await app.press("\t");
     answered = true;
     await until(() => app.frame().includes("already answered in another app"));
     expect(app.frame()).not.toContain("Space choose");

@@ -424,8 +424,8 @@ export const AccountBadgeContext = createContext<AccountColorName | undefined>(u
 export const AccountAvatarContext = createContext<string | undefined>(undefined);
 
 /**
- * A viewer of one session (an observer, a remote viewer) and what it does: its top bar shows that and the session's
- * title in place of the tabs. Undefined for the project's viewer.
+ * A viewer of one session (`--session`, `--remote`) and what it does (`controlling` with a prompt line, else
+ * `observing`): its top bar shows that and the session's title in place of the tabs. Undefined for the project's viewer.
  */
 export const ViewerRoleContext = createContext<{ role: "observing" | "controlling"; title: string } | undefined>(undefined);
 

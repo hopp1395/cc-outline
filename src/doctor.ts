@@ -10,7 +10,7 @@ import { readLogin, RemoteError } from "./remote/credentials.js";
 import { compareVersions, installKind, packageRoot, runCommand, type RunCommand } from "./update.js";
 import { VERSION } from "./version.js";
 import { isAlive } from "./viewer.js";
-import { observersDir } from "./observers.js";
+import { legacyObserversDir, sessionViewersDir } from "./sessionViewers.js";
 
 /** `ok` passes, `warn` is worth a look (or a repair), `error` keeps cco from working as it should; only errors fail `cco doctor`. */
 export type Severity = "ok" | "warn" | "error";
@@ -162,6 +162,7 @@ function installation(root: string, version: string): Finding[] {
 
 const PID_FILE = /^([A-Za-z0-9-]+)\.(claude|viewer|control)-(\d+)\.json$/;
 const LEGACY_FILE = /^([A-Za-z0-9-]+)\.(viewer|control)\.json$/;
+const REMOTE_VIEWER_FILE = /^remote-[A-Za-z0-9_-]+\.viewer\.json$/;
 const RESTORE_FILE = /^([A-Za-z0-9-]+)\.restore\.json$/;
 const ACTIVE_FILE = /^[A-Za-z0-9-]+\.json$/;
 
@@ -221,6 +222,11 @@ function stateFiles(now: number): Finding[] {
       if (!isAlive(Number(pidFile[3]))) stale.push(path);
       continue;
     }
+    // The one viewer per remote session of before: its pid until it ended.
+    if (REMOTE_VIEWER_FILE.test(name)) {
+      if (!(typeof data.pid === "number" && isAlive(data.pid))) stale.push(path);
+      continue;
+    }
     const legacy = LEGACY_FILE.exec(name);
     if (legacy) {
       if (!legacyViewerAlive(legacy[1])) stale.push(path);
@@ -237,8 +243,8 @@ function stateFiles(now: number): Finding[] {
     }
   }
   const trash = trashOrphans();
-  // Observers register below the default folder, whichever account they read.
-  stale.push(...staleObservers());
+  // Session viewers register below the default folder, whichever account they read; in `observers/` before.
+  stale.push(...staleViewers(sessionViewersDir()), ...legacyObservers());
 
   const findings: Finding[] = [];
   const add = (paths: string[], text: string, id: string, label: string, apply: () => void) =>
@@ -255,9 +261,8 @@ function stateFiles(now: number): Finding[] {
   return findings;
 }
 
-/** Registrations of observers that no longer run, or files there that are none. */
-function staleObservers(): string[] {
-  const dir = observersDir();
+/** Registrations of session viewers in `dir` that no longer run, or files there that are none. */
+function staleViewers(dir: string): string[] {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".json"));
@@ -270,6 +275,14 @@ function staleObservers(): string[] {
       const info = parseFile(path);
       return !(isObject(info) && typeof info.pid === "number" && isAlive(info.pid));
     });
+}
+
+/** The observers' folder of before, as a whole once none of its observers runs any more. */
+function legacyObservers(): string[] {
+  const dir = legacyObserversDir();
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir).filter((n) => n.endsWith(".json"));
+  return staleViewers(dir).length === files.length ? [dir] : [];
 }
 
 /** Folders in the trash the Sessions view cannot show: a session without a readable manifest, or a project's folder left empty. */
