@@ -49,7 +49,7 @@ interface Props {
   cwd: string;
   layout: Layout;
   active: boolean;
-  /** Reports whether the whole-file view is open, so Esc closes it instead of quitting. */
+  /** Reports whether the whole-file view is open, so it can show over the whole pane. */
   onFileOpen?: (open: boolean) => void;
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;

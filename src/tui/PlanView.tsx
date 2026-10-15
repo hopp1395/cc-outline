@@ -44,7 +44,7 @@ interface Props {
   hasSession: boolean;
   layout: Layout;
   active: boolean;
-  /** Reports whether the changes view is open, so Esc closes it instead of quitting. */
+  /** Reports whether the changes view is open, so it can show over the whole pane. */
   onDiffOpen?: (open: boolean) => void;
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;

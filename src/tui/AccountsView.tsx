@@ -37,8 +37,6 @@ interface Props {
   noSession?: string;
   /** The Claude Code process the viewer belongs to. */
   claudePid?: number;
-  /** Reports whether the trash is shown, so Esc leaves it instead of quitting. */
-  onTrashOpen?: (open: boolean) => void;
 }
 
 /** An entry of the list: an account, a note that there is none, or how they are looked for. */
@@ -99,7 +97,7 @@ const when = (ms: number) => {
 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onTrashOpen }: Props) {
+export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid }: Props) {
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -123,7 +121,6 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
   // The accounts trash (T): read when it opens, after each change and on F5.
   const [trashOpen, setTrashOpen] = useState(false);
   const trash = useMemo(() => (trashOpen ? listAccountTrash() : []), [trashOpen, flow.trashChanged, reads]);
-  useEffect(() => onTrashOpen?.(trashOpen), [trashOpen]);
   const accountList = useMemo(() => accountEntries(state, order), [state.accounts, state.current?.dir, order]);
   const entries = useMemo((): Entry[] => (trashOpen ? trash.map((entry) => ({ kind: "trashed", entry })) : accountList), [trashOpen, trash, accountList]);
   const [listKey, setListKey] = useState<string | undefined>(positions.selected);

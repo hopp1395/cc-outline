@@ -471,7 +471,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
 - **placement** is where the viewer opens for sessions that have no place of their own: docked right or left of Claude Code, or in a window. `p` in the viewer moves it and remembers the place for the session (see [Usage](#usage)).
-- **confirm quit** makes `q` and `Esc` ask before the viewer closes, and `r` and *restart the viewer* in the Reset group ask before it restarts.
+- **confirm quit** makes `q` ask before the viewer closes, and `r` and *restart the viewer* in the Reset group ask before it restarts.
 - **compact** `single` is for a small screen or a narrow pane: one column that shows the list, and `Enter` (a detail) or `|` (in every view) shows the preview over the whole pane, `Esc` or `|` goes back. The help line, the status and the version are left out (`i` lists the keys), the tabs are shortened to their number and the preview's header takes one line. `<` and `>` do nothing then; the list widths you chose apply again with `off`. `stacked` shows the list above the preview, both as wide as the pane, with a rule between them; the list takes *compact split* of the height (10% to 50%) and has *compact columns* columns, filled one after the other like a newspaper, which `<` and `>` change (up to four). Everything else of `single` applies too, except that nothing opens over the pane and `|` does nothing.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.
 - **date separators** puts a line with the date above each day's entries in Chat, Plan, Sessions and the trash, and one per year in the Monitor; off, Sessions and the trash show the date in each row again.
@@ -519,7 +519,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `Ctrl+Home` | top of the answer | top of the diff | top of the plan | top of the details |
 | `Ctrl+End` | bottom of the answer; on the newest turn also resume follow mode | bottom of the diff | bottom of the plan | bottom of the details |
 | `Enter` (also: double click) | full prompt ↔ answer | open the file in the app the system uses for it | plan ↔ changes to the previous version | what to do with the session: switch to its tab, attach the viewer, resume it here or in a new window, detach, move it here, rename, export, import (a dialog) |
-| `Esc` | close the full prompt, otherwise quit | close the whole file, otherwise quit | close the changes, otherwise quit | leave the trash, otherwise quit |
+| `Esc` | close the full prompt | close the whole file | close the changes | leave the trash |
 | `f` | toggle follow mode | – | – | – |
 | `t` / `h` | tool calls off / compact / full; thinking | – | – | – |
 | `o` | list the turn's pasted images and screenshots to open one | – | – | – |
@@ -547,7 +547,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 
 **Reloading.** `F5` (or `Ctrl+R`, for terminals that keep F5 to themselves) reads the shown view's data again from scratch and redraws the screen, in every view: the Chat and Plan views the transcript (both, since they share it), the subagent shown and the plan file; Changes git; Sessions and Monitor all transcripts; Settings `settings.json`, with changes made by other viewers. Marks are read again too. The selection, scroll positions and open details stay; a list filter is dropped. The top bar says `reloading…` until the data is there, then `reloaded`. While a dialog is open, `F5` does nothing.
 
-Quitting with `q` or `Esc`, and restarting from the Settings view, asks first, unless *confirm quit* is off in the Settings view. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
+Quitting with `q`, and restarting from the Settings view, asks first, unless *confirm quit* is off in the Settings view. `Esc` never quits: it closes what is open (a detail, the trash, a dialog) and otherwise does nothing. In this and every other confirmation, `Enter` means yes and `Esc` means no. When the session ends, the viewer still closes without asking.
 
 What you start and then wait for (the update, the doctor's check and repairs, export, import, attaching to a Claude Code started for it, the restart) shows in the same progress dialog: its title names the run, a spinner line says what runs now (`Updating – marketplace (2/3)…`), and a mark replaces the spinner at the end, `✓` in green or `✗` in red. Only waiting for a Claude Code to attach to can be cancelled (`Esc`). A dialog that ends with a result only it shows (export, import) or with a failure stays until `Esc`; `c` copies the commands left to run, where there are some.
 

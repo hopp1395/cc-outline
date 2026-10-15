@@ -65,7 +65,7 @@ interface Props {
   transcript: Transcript;
   layout: Layout;
   active: boolean;
-  /** Reports whether the full-prompt view is open, so Esc closes it instead of quitting. */
+  /** Reports whether the full-prompt view is open, so it can show over the whole pane. */
   onPromptOpen?: (open: boolean) => void;
   /** The viewer follows the running session, so its last unfinished turn is one Claude works on. */
   liveSession?: boolean;

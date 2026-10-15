@@ -87,8 +87,6 @@ interface Props {
   visible: boolean;
   /** The view takes keys. */
   active: boolean;
-  /** Reports whether the trash is shown, so Esc leaves it instead of quitting. */
-  onTrashOpen?: (open: boolean) => void;
   /** Reports whether a confirmation is open; the app then leaves all keys to it. */
   onModal?: (open: boolean) => void;
   /** The filter dialog opened or closed. */
@@ -617,7 +615,7 @@ export function exportProgress(count: number, state: { progress?: ExportProgress
   };
 }
 
-export function SessionsView({ cwd, activePath, layout, visible, active, onTrashOpen, onModal, onTyping, onPair, paired, onPairStarted, onDetach, accountRequest }: Props) {
+export function SessionsView({ cwd, activePath, layout, visible, active, onModal, onTyping, onPair, paired, onPairStarted, onDetach, accountRequest }: Props) {
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -885,7 +883,6 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const scroll = positions.scroll(session && sessionKey(session), lines.length, viewport);
 
   useEffect(() => onModal?.(dialogOpen), [dialogOpen]);
-  useEffect(() => onTrashOpen?.(trashOpen), [trashOpen]);
 
   const select = (next: number) => {
     const target = list[Math.max(0, Math.min(list.length - 1, next))];

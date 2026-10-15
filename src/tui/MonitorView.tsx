@@ -54,7 +54,7 @@ interface Props {
   /** The view takes keys. */
   active: boolean;
   cwd: string;
-  /** The response table opened or closed (Esc closes it instead of quitting). */
+  /** The response table opened or closed, so it can show over the whole pane. */
   onTableOpen?: (open: boolean) => void;
   /** The filter dialog opened or closed. */
   onTyping?: (typing: boolean) => void;

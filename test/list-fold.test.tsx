@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderInk } from "./helpers/ink.js";
+import { renderInk, tick } from "./helpers/ink.js";
 import { readSettings, updateSettings } from "../src/settings.js";
 import { projectSlug } from "../src/transcript/locate.js";
 import { layoutOf, type Layout } from "../src/tui/layout.js";
@@ -152,6 +152,18 @@ describe("| in a view", () => {
     await expect.poll(listed).toBe(true);
     // Esc closed the detail and did not ask to quit.
     expect(view.frame()).not.toContain("Quit");
+    view.unmount();
+  });
+
+  it("does nothing on Esc with nothing open: only q quits", async () => {
+    const view = render(session());
+    await expect.poll(view.frame).toContain("The answer text");
+    const before = view.frame();
+    await view.press("\u001b");
+    await tick(50);
+    expect(view.frame()).toBe(before);
+    await view.press("q");
+    await expect.poll(view.frame).toContain("Quit cco?");
     view.unmount();
   });
 
