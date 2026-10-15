@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { basename } from "node:path";
+import { removeStaleObservers } from "./observers.js";
 import { openPane } from "./open.js";
 import { readSessionView, resolvePlacement } from "./sessionViews.js";
 import { readSettings, shownView } from "./settings.js";
@@ -40,6 +41,8 @@ function removeStaleFiles(cwd: string): void {
       if (Number.isInteger(pid) && pid > 0 && !isAlive(pid)) rmSync(file, { force: true });
     }
   }
+  // Observers belong to no project: those of every account register below the default folder.
+  removeStaleObservers();
 }
 
 /**

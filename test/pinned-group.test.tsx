@@ -107,7 +107,7 @@ describe("the Pinned group", () => {
     await view.press(UP);
     await shows(view, "Answer a");
     view.unmount();
-    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "a", follow: false, pinned: true });
+    expect(readPositions(cwd, "chat").sessions?.s).toMatchObject({ selected: "a", follow: false, pinned: true });
 
     // Back on the copy: ↓ goes to the next pinned row, not to the second turn in the list.
     const again = render();
@@ -127,8 +127,8 @@ describe("the Pinned group", () => {
     await unpinned.press(UP);
     await shows(unpinned, "Answer a");
     unpinned.unmount();
-    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "a", follow: false });
-    expect(readPositions(cwd, "chat").pinned).toBeUndefined();
+    expect(readPositions(cwd, "chat").sessions?.s).toMatchObject({ selected: "a", follow: false });
+    expect(readPositions(cwd, "chat").sessions?.s?.pinned).toBeUndefined();
   });
 
   it("does not store the copy while following", async () => {
@@ -139,8 +139,8 @@ describe("the Pinned group", () => {
     await view.press(SHIFT_UP);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Answer c");
     view.unmount();
-    expect(readPositions(cwd, "chat")).toMatchObject({ selected: "c", follow: true });
-    expect(readPositions(cwd, "chat").pinned).toBeUndefined();
+    expect(readPositions(cwd, "chat").sessions?.s).toMatchObject({ selected: "c", follow: true });
+    expect(readPositions(cwd, "chat").sessions?.s?.pinned).toBeUndefined();
   });
 
   it("is off by default", async () => {

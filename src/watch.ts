@@ -22,6 +22,8 @@ export interface WatchOptions {
   action?: ViewerAction;
   /** A remote viewer: the Remote Control session of this id, in the chat only. */
   remoteId?: string;
+  /** An observer (`--session`, `--remote --observe`): the chat only, read-only. */
+  observe?: boolean;
 }
 
 /**
@@ -47,7 +49,7 @@ export function Viewer(opts: WatchOptions) {
  * `cco hook` runs on every prompt, before Claude Code writes it down.
  */
 export async function runViewer(opts: WatchOptions): Promise<void> {
-  if (opts.remoteId) setViewLimit(REMOTE_VIEWS);
+  if (opts.remoteId || opts.sessionId) setViewLimit(REMOTE_VIEWS);
   const app = render(createElement(Viewer, opts), {
     // Only changed lines, in one write: no flicker under load. CCO_FRAME_BUFFER=0 turns it off.
     stdout: process.stdout.isTTY && process.env.CCO_FRAME_BUFFER !== "0" ? frameBufferedStdout(process.stdout) : process.stdout,

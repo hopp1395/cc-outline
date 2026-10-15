@@ -126,6 +126,55 @@ export function openRemoteViewer(id: string, title: string): string {
   return `no Windows Terminal or tmux: run cco watch --remote ${id}`;
 }
 
+/** What an observer is opened for: a session of this machine (in its folder and config folder), or a remote one. */
+export type ObserverTarget = { sessionId: string; cwd: string; configDir?: string } | { remoteId: string };
+
+/** The `cco watch` arguments of an observer of `target`, in window `window`. */
+function observerArgs(target: ObserverTarget, window?: string): string[] {
+  const where = window ? ["--window", window] : [];
+  if ("remoteId" in target) return ["watch", "--remote", target.remoteId, "--observe", "--config-dir", claudeDir(), ...where];
+  return ["watch", "--session", target.sessionId, "--cwd", target.cwd, "--config-dir", target.configDir ?? claudeDir(), ...where];
+}
+
+/** The command that opens an observer of `target` by hand, for a terminal cco cannot open windows in. */
+export function observerCommand(target: ObserverTarget, platform: NodeJS.Platform = process.platform): string {
+  if ("remoteId" in target) return `cco watch --remote ${target.remoteId} --observe`;
+  // cmd and PowerShell take double quotes, POSIX shells single ones; a plain path needs none.
+  const quote = (s: string) => (!/[\s"'$&;|()<>`]/.test(s) ? s : platform === "win32" ? `"${s}"` : shellQuote(s));
+  const account = target.configDir && !isDefaultClaudeDir(target.configDir) ? ` --config-dir ${quote(target.configDir)}` : "";
+  return `cco watch --session ${target.sessionId} --cwd ${quote(target.cwd)}${account}`;
+}
+
+/**
+ * Opens an observer of `target` (the chat only, read-only, live) in a new window named `window` (`observerWindow`):
+ * any number per session. Returns what happened, or undefined without Windows Terminal or tmux (then
+ * `observerCommand` is the way).
+ */
+export function openObserver(target: ObserverTarget, title: string, window: string): string | undefined {
+  const terminal = detectTerminal();
+  const args = [process.execPath, CLI, ...observerArgs(target, window)];
+  // The observer reads the session; claude's variables must not make it a part of the Claude Code it was opened from.
+  const env = independentEnv();
+  if (terminal === "wt") {
+    // A name of its own makes a new window; no windowsHide, see resumeInNewWindow.
+    proc.spawn("wt", ["-w", window, "new-tab", "--title", title, ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
+    return "observing it in a new window";
+  }
+  if (terminal === "tmux") {
+    proc.spawn("tmux", ["new-window", "-n", window, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
+    return "observing it in a new tmux window";
+  }
+  return undefined;
+}
+
+/** Brings the window of an observer (`window`) to the front; false without Windows Terminal or tmux. */
+export function focusObserver(window: string): boolean {
+  const terminal = detectTerminal();
+  if (terminal === "wt") proc.spawn("wt", ["-w", window, "focus-tab", "-t", "0"], { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
+  else if (terminal === "tmux") proc.spawn("tmux", ["select-window", "-t", window], { stdio: "ignore", detached: true, env: independentEnv() }).unref();
+  return terminal !== undefined;
+}
+
 /**
  * Runs the start script of an account (`script`, its full path) in a new window, in the folder `dir`, with a shell
  * kept open afterwards; for its first start and `/login`. The script sets the config folder itself. Returns what

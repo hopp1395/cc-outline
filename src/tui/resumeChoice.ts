@@ -13,9 +13,11 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
  * - `export`: write it (or the marked sessions) into a zip archive; `import`: read the sessions of one.
  * - `account`: copy it into another account's config folder and continue it there, in a new window.
+ * - `observe`: open an observer of it (the chat only, read-only, live) in a new window; `observe-front`: bring the
+ *   one opened last to the front.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "observe" | "observe-front" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -66,6 +68,8 @@ export interface SessionSituation {
   foreign?: boolean;
   /** Windows Terminal or tmux runs the viewer: tabs can be switched and windows opened. */
   terminal: boolean;
+  /** How many observers of it run (◎). */
+  observers?: number;
   /** The command `copy` copies. */
   command: string;
 }
@@ -160,6 +164,7 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
       detail: accounts.length === 1 ? "a copy, in a new window" : `a copy in one of ${accounts.length} other accounts, in a new window`,
       disabled: own ?? (s.folderMissing ? "its folder is gone" : undefined),
     });
+  options.push(...observeOptions(s.observers ?? 0, s.terminal));
   options.push(
     { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: own ?? (s.state === "inactive" ? undefined : RUNS) },
     marked > 0 && !own
@@ -168,8 +173,33 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     { id: "import", label: "Import sessions…", detail: `from a cco-session-export zip${into}`, disabled: own },
     copy,
   );
-  const first = preferred.map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
+  // When nothing else can be chosen (folder gone, another account's without a terminal), observing it can.
+  const first = [...preferred, "observe"].map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
   return { options, initial: first ?? options.indexOf(copy) };
+}
+
+/**
+ * Observing a session (also a remote one): another window each time, and bringing the one opened last to the front
+ * while `observers` run. Without a terminal to open a window in, it copies the command; it can always be chosen.
+ */
+export function observeOptions(observers: number, terminal: boolean): ChoiceOption<"observe" | "observe-front">[] {
+  return [
+    {
+      id: "observe",
+      label: observers > 0 ? "Observe it in another window" : "Observe it in a window of its own",
+      detail: terminal ? "its chat only, live while it runs; nothing can be typed there" : "no Windows Terminal or tmux: copies the command that opens it",
+    },
+    ...(observers > 0
+      ? [
+          {
+            id: "observe-front" as const,
+            label: "Bring its observer to the front",
+            detail: observers === 1 ? "the one observing it now" : `the one opened last of ${observers}`,
+            disabled: terminal ? undefined : NO_TERMINAL,
+          },
+        ]
+      : []),
+  ];
 }
 
 /** What the help line says Enter does: the action selected at first, or for the viewer's own session that it can detach. */
@@ -189,6 +219,8 @@ export function enterLabel(s: SessionSituation): string {
     export: "export",
     import: "import",
     account: "other account",
+    observe: "observe",
+    "observe-front": "observer",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;

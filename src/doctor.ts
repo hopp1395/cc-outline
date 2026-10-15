@@ -10,6 +10,7 @@ import { readLogin, RemoteError } from "./remote/credentials.js";
 import { compareVersions, installKind, packageRoot, runCommand, type RunCommand } from "./update.js";
 import { VERSION } from "./version.js";
 import { isAlive } from "./viewer.js";
+import { observersDir } from "./observers.js";
 
 /** `ok` passes, `warn` is worth a look (or a repair), `error` keeps cco from working as it should; only errors fail `cco doctor`. */
 export type Severity = "ok" | "warn" | "error";
@@ -236,6 +237,8 @@ function stateFiles(now: number): Finding[] {
     }
   }
   const trash = trashOrphans();
+  // Observers register below the default folder, whichever account they read.
+  stale.push(...staleObservers());
 
   const findings: Finding[] = [];
   const add = (paths: string[], text: string, id: string, label: string, apply: () => void) =>
@@ -250,6 +253,23 @@ function stateFiles(now: number): Finding[] {
   add(trash, `${plural(trash.length, "folder")} in the trash without a readable manifest: not shown, never purged`, "trash", `delete ${plural(trash.length, "trash folder")} for good`, removeAll(trash));
   if (findings.length === 0) findings.push({ group, severity: "ok", text: `nothing to clean up in ${tilde(dir)}` });
   return findings;
+}
+
+/** Registrations of observers that no longer run, or files there that are none. */
+function staleObservers(): string[] {
+  const dir = observersDir();
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  return names
+    .map((n) => join(dir, n))
+    .filter((path) => {
+      const info = parseFile(path);
+      return !(isObject(info) && typeof info.pid === "number" && isAlive(info.pid));
+    });
 }
 
 /** Folders in the trash the Sessions view cannot show: a session without a readable manifest, or a project's folder left empty. */

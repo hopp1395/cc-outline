@@ -17,7 +17,8 @@ import {
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
-import { detectTerminal, openRemoteViewer, resumeInNewWindow, resumeShellCommand } from "../open.js";
+import { detectTerminal, focusObserver, observerCommand, openObserver, openRemoteViewer, resumeInNewWindow, resumeShellCommand, type ObserverTarget } from "../open.js";
+import { observersOf, observerWindow, runningObservers, type ObserverInfo } from "../observers.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
 import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
@@ -40,7 +41,7 @@ import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { RenameDialog } from "./RenameDialog.js";
-import { enterLabel, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation } from "./resumeChoice.js";
+import { enterLabel, observeOptions, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
@@ -191,6 +192,8 @@ export function sessionAccountLines(account: Account | undefined, color: Account
 
 /** The mark of a remote session in the list, before its title, and of a session of this machine that is connected to claude.ai. */
 const REMOTE_MARK = "◈";
+/** Observers of the session run (`cco watch --session`, `--remote --observe`); with a count from two on. */
+const OBSERVED_MARK = "◎";
 const CONNECTED_MARK = "⇄";
 
 /** The header's line about a remote session: what claude.ai says of it, and what could not be shown. */
@@ -298,6 +301,7 @@ function sessionHeader(
   transfer?: Transfer,
   account: string[] = [],
   background?: string,
+  observed?: string,
 ): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
   const counts = [
@@ -321,6 +325,7 @@ function sessionHeader(
       ...account,
       ...(s.cwd ? [gone ? red(`folder gone: ${tilde(s.cwd)}`) : `in ${tilde(s.cwd)}`] : []),
       ...(background ? [background] : []),
+      ...(observed ? [observed] : []),
       ...continues,
       ...transferLines(transfer),
       last,
@@ -505,6 +510,25 @@ function useRunning(visible: boolean, accounts: string[]): Map<string, RunningSe
   return running;
 }
 
+/** The observers that run, read every second while `visible`; the list only changes when they do. */
+function useObservers(visible: boolean): ObserverInfo[] {
+  const [observers, setObservers] = useState<ObserverInfo[]>([]);
+  useEffect(() => {
+    if (!visible) return;
+    const read = () => {
+      const next = runningObservers();
+      setObservers((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    };
+    read();
+    const timer = setInterval(read, TIMING.activityPoll);
+    return () => clearInterval(timer);
+  }, [visible]);
+  return observers;
+}
+
+/** What the preview's header says about the observers of a session. */
+export const observedLine = (n: number) => (n > 0 ? `${OBSERVED_MARK} observed in ${plural(n, "window")}` : undefined);
+
 /**
  * The marker of the active (`●`) or a running (`▶`) session in the list: yellow while its Claude waits
  * for the user, green otherwise, turning bright and dim while it works. Owns its timer so only it
@@ -626,6 +650,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   // The own folder is read for the active session also while its account is not chosen, then only this project's.
   const { sessions: read, progress, complete, refresh } = useSessions(cwd, visible, all, range.since, foreign, ownChosen && all);
   const running = useRunning(visible, foreign);
+  const observers = useObservers(visible);
+  /** The observers of `s` that run, the newest last. */
+  const observersFor = (s: SessionSummary) =>
+    observersOf(observers, s.remote ? { remoteId: s.id } : { ids: [s.id, ...(s.continues ?? [])], configDir: s.account ?? claudeDir() });
+  const observedCount = (s: SessionSummary) => (trashOpen ? 0 : observersFor(s).length);
   // Remote Control sessions (claude.ai), unless one of this machine's sessions is the same: that one then shows ⇄.
   const remoteRead = useRemoteSessions(visible, remoteApi && shownFilter.remote !== "hide");
   const { merged, connected } = useMemo(() => {
@@ -842,10 +871,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         trashOpen ? undefined : transferOf(viewed),
         account,
         backgroundLine(backgroundOf(viewed, running.get(sessionKey(viewed))), running.get(sessionKey(viewed))) ?? remoteLine(viewed),
+        trashOpen ? undefined : observedLine(observersFor(viewed).length),
       ),
       headerHeight,
     );
-  }, [viewed, activeId, running, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
+  }, [viewed, activeId, running, observers, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
   const lines = useMemo(
     // A remote session has no transcript on this machine.
     () => (viewed ? sessionLines(viewed, cwd, previewWidth, separators, viewed.remote ? undefined : transcriptLocation(viewed, entry)) : []),
@@ -920,6 +950,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       account: accountState.accounts.length >= 2 ? accountOf(s)?.email : undefined,
       foreign: s.account !== undefined,
       terminal: detectTerminal() !== undefined,
+      observers: observersFor(s).length,
       // A session the Claude Code daemon runs is attached to, not resumed.
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
     };
@@ -964,9 +995,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
    */
   const startRemote = (s: SessionSummary) => {
     const control = remoteControl ? remoteOptions(s.remote?.workerStatus, s.remote?.pending) : [];
+    const watching = observersFor(s).length;
     const options: ChoiceOption[] = [
       ...control,
-      { id: "open", label: "Open it in a viewer of its own", detail: "the whole session live in a chat, in a window of its own" },
+      // Steering it takes remote control: one viewer per session, with the prompt line; brought to the front when open.
+      ...(remoteControl ? [{ id: "open", label: "Steer it in a viewer of its own", detail: "its chat with a prompt line, in one window: brought to the front when open" }] : []),
+      ...observeOptions(watching, detectTerminal() !== undefined),
       { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
     ];
     setChoice({
@@ -977,6 +1011,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       onChoose: (id: string) => {
         setChoice(undefined);
         if (id === "open") return notify(openRemoteViewer(s.id, truncate(`◈ ${sessionTitle(s)}`, 30)));
+        if (id === "observe") return observe(s);
+        if (id === "observe-front") return bringObserver(s);
         if (id === "copy") return act("copy", s, cwd, undefined, remoteUrl(s.id));
         remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus, pending: s.remote?.pending });
       },
@@ -1017,12 +1053,36 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         return askImport();
       case "account":
         return flow.askAccount(s, claude, dir);
+      case "observe":
+        return observe(s);
+      case "observe-front":
+        return bringObserver(s);
       case "copy":
         return void copy(command).then(
           () => notify(`copied: ${command}`),
           (err: Error) => notify(`copy failed: ${err.message}`),
         );
     }
+  };
+  /**
+   * Opens an observer of `s` in a new window: its chat only, live, read-only; any number per session. Without a
+   * terminal to open it in, copies the command.
+   */
+  const observe = (s: SessionSummary) => {
+    const target: ObserverTarget = s.remote ? { remoteId: s.id } : { sessionId: s.id, cwd: s.cwd ?? cwd, configDir: s.account };
+    const opened = openObserver(target, truncate(`👁 ${sessionTitle(s)}`, 30), observerWindow());
+    if (opened) return notify(opened);
+    const command = observerCommand(target);
+    void copy(command).then(
+      () => notify(`no Windows Terminal or tmux: copied ${command}`),
+      (err: Error) => notify(`copy failed: ${err.message}`),
+    );
+  };
+  /** Brings the observer of `s` opened last to the front. */
+  const bringObserver = (s: SessionSummary) => {
+    const last = observersFor(s).filter((o) => o.window).at(-1);
+    if (!last?.window) return notify("its observers were not opened by cco: their window is unknown");
+    notify(focusObserver(last.window) ? "its observer is in front" : "no Windows Terminal or tmux");
   };
   // The PowerShell started for "continue it here", until it is used or the dialog closes.
   const typer = useRef<ConsoleTyper>(undefined);
@@ -1414,6 +1474,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
                     ) : (
                       <Text color="cyan">{remoteMark}</Text>
                     ))}
+                  {/* Observed in windows of their own (◎, ◎2). */}
+                  {observedCount(s) > 0 && <Text color="blue">{`${OBSERVED_MARK}${observedCount(s) > 1 ? observedCount(s) : ""} `}</Text>}
                   {/* Ran in the background: before the project name. */}
                   {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&

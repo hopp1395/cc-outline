@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import type { PairTarget } from "../src/viewer.js";
 import { AccountContext } from "../src/tui/useAccount.js";
 import { inClaudeDir, projectSlug } from "../src/transcript/locate.js";
 import { readTransfers } from "../src/transfers.js";
+import { observersDir } from "../src/observers.js";
 
 const spawned: { cmd: string; args: string[]; env?: NodeJS.ProcessEnv; typed?: string; killed?: boolean }[] = [];
 /** What a started PowerShell prints once it got its line; "ok" types, anything else fails. */
@@ -97,40 +98,40 @@ const shown = (s: Partial<Situation>) => {
 
 describe("sessionOptions", () => {
   it("offers its own session to stay or detach", () => {
-    expect(shown({ paired: idle, state: "current" })).toBe("✱stay detach ✗rename export import copy");
+    expect(shown({ paired: idle, state: "current" })).toBe("✱stay detach observe ✗rename export import copy");
   });
 
   it("switches to a running session by default, and attaches the viewer there if that Claude Code has none", () => {
-    expect(shown({ paired: idle, state: "active" })).toBe("✱switch attach ✗rename export import copy");
-    expect(shown({ paired: idle, state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✱switch ✗attach ✗rename export import copy");
+    expect(shown({ paired: idle, state: "active" })).toBe("✱switch attach observe ✗rename export import copy");
+    expect(shown({ paired: idle, state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✱switch ✗attach observe ✗rename export import copy");
     // A viewer of no Claude Code attaches by default.
-    expect(shown({ state: "active" })).toBe("✱attach switch ✗rename export import copy");
-    expect(shown({ state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✱switch ✗rename export import copy");
+    expect(shown({ state: "active" })).toBe("✱attach switch observe ✗rename export import copy");
+    expect(shown({ state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✱switch observe ✗rename export import copy");
   });
 
   it("continues a session that runs nowhere here when the viewer's Claude Code has no prompt yet, else in a new window", () => {
-    expect(shown({ paired: idle })).toBe("✱here window rename export import copy");
-    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window rename export import copy");
+    expect(shown({ paired: idle })).toBe("✱here window observe rename export import copy");
+    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window observe rename export import copy");
     // Versions without a status count as free.
-    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window rename export import copy");
+    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window observe rename export import copy");
     // Only a viewer without a Claude Code moves along: a session started elsewhere gets a viewer of its own.
-    expect(shown({})).toBe("✱window-attach window rename export import copy");
+    expect(shown({})).toBe("✱window-attach window observe rename export import copy");
   });
 
   it("greys out continuing here while Claude works or waits, and for another project folder", () => {
-    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window rename export import copy");
+    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window observe rename export import copy");
     const { options } = sessionOptions({ ...base, paired: idle, otherFolder: "other" });
     expect(options[0]!.disabled).toBe("ran in other, not in this folder");
   });
 
-  it("falls back to copying the command when nothing else can be done", () => {
-    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window rename export import ✱copy");
-    expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window rename export import ✱copy");
-    expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✗rename export import ✱copy");
+  it("falls back to observing it when nothing else can be done", () => {
+    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window ✱observe rename export import copy");
+    expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window ✱observe rename export import copy");
+    expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✱observe ✗rename export import copy");
   });
 
   it("moves a session whose folder is gone here first, and exports the marked sessions where there are some", () => {
-    expect(shown({ folderMissing: true, movable: "old" })).toBe("✱move ✗window-attach ✗window rename export import copy");
+    expect(shown({ folderMissing: true, movable: "old" })).toBe("✱move ✗window-attach ✗window observe rename export import copy");
     expect(enterLabel({ ...base, folderMissing: true, movable: "old" })).toBe("↵ move here");
     const label = (marked: number) => sessionOptions({ ...base, marked }).options.find((o) => o.id === "export")!.label;
     expect(label(0)).toBe("Export it");
@@ -138,21 +139,29 @@ describe("sessionOptions", () => {
   });
 
   it("offers another account only when one is signed in, for every state, but not for a session whose folder is gone", () => {
-    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window account rename export import copy");
-    expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account ✗rename export import copy");
-    expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account rename export import ✱copy");
+    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window account observe rename export import copy");
+    expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account observe ✗rename export import copy");
+    expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account ✱observe rename export import copy");
     const option = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!;
     expect(option(["b@x"])).toMatchObject({ label: "Continue it in b@x…", detail: "a copy, in a new window" });
     expect(option(["b@x", "c@x"])).toMatchObject({ label: "Continue it in another account…", detail: "a copy in one of 2 other accounts, in a new window" });
   });
 
   it("gives another account's session the same list, with what works only here greyed out", () => {
-    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account ✗rename ✗export ✗import copy");
-    expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch ✗rename ✗export ✗import copy");
-    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✗rename ✗export ✗import ✱copy");
+    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account observe ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch observe ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✱observe ✗rename ✗export ✗import copy");
     const window = sessionOptions({ ...base, foreign: true, account: "c@x" }).options.find((o) => o.id === "window")!;
     expect(window).toMatchObject({ label: "Continue it in a new window", detail: "claude --resume as c@x" });
     expect(sessionOptions({ ...base, foreign: true }).options.find((o) => o.id === "rename")!.disabled).toBe("only for sessions of this account");
+  });
+
+  it("observes it in another window while observers of it run, and brings the newest to the front", () => {
+    expect(shown({ paired: idle, observers: 2 })).toBe("✱here window observe observe-front rename export import copy");
+    const { options } = sessionOptions({ ...base, observers: 2 });
+    expect(options.find((o) => o.id === "observe")!.label).toBe("Observe it in another window");
+    expect(options.find((o) => o.id === "observe-front")!.detail).toBe("the one opened last of 2");
+    expect(sessionOptions({ ...base, observers: 1, terminal: false }).options.find((o) => o.id === "observe-front")!.disabled).toBe("no Windows Terminal or tmux");
   });
 
   it("names the selected action in the help line, and detaching for its own session", () => {
@@ -162,7 +171,7 @@ describe("sessionOptions", () => {
     expect(enterLabel({ ...base, paired: idle })).toBe("↵ resume here");
     expect(enterLabel({ ...base, paired: { ...idle, empty: false } })).toBe("↵ new window");
     expect(enterLabel(base)).toBe("↵ new window + attach");
-    expect(enterLabel({ ...base, terminal: false })).toBe("↵ copy");
+    expect(enterLabel({ ...base, terminal: false })).toBe("↵ observe");
   });
 });
 
@@ -432,7 +441,7 @@ describe("Enter on a session that runs", () => {
     await view.press("\r");
     await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("claude attach job7");
-    await view.press("6");
+    await view.press("7");
     await until(() => view.frame().includes("copied: claude attach job7"));
     view.unmount();
   });
@@ -445,7 +454,7 @@ describe("renaming a session", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    await view.press("3");
+    await view.press("4");
     await until(() => view.frame().includes("Rename the session"));
     await view.press("\r");
     await until(() => view.frame().includes("The name must not be empty"));
@@ -466,7 +475,7 @@ describe("renaming a session", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    await view.press("3");
+    await view.press("4");
     await until(() => view.frame().includes("› Old name"));
     await view.press("\r");
     await until(() => !view.frame().includes("Rename the session"));
@@ -482,9 +491,41 @@ describe("renaming a session", () => {
     await view.press("\r");
     await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("it runs: use /rename in its Claude Code");
-    await view.press("3");
+    await view.press("4");
     await tick(100);
     expect(view.frame()).not.toContain("Rename the session");
+    view.unmount();
+  });
+});
+
+describe("observing a session", () => {
+  afterEach(() => rmSync(observersDir(), { recursive: true, force: true }));
+
+  it("opens an observer in a window of its own, then counts the running ones and brings the newest to the front", async () => {
+    pastSession("s1");
+    const view = renderView({});
+    await until(() => view.frame().includes("Prompts (1)"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Observe it in a window of its own"));
+    await view.press("3");
+    await until(() => spawned.some((c) => c.args.includes("--session")));
+    const call = spawned.find((c) => c.args.includes("--session"))!;
+    expect(call.cmd).toBe("wt");
+    expect(call.args[1]).toMatch(/^cco-observe-/);
+    expect(call.args).toEqual(expect.arrayContaining(["watch", "--session", "s1", "--cwd", cwd, "--window", call.args[1]]));
+    await until(() => view.frame().includes("observing it in a new window"));
+
+    // This process stands in for the observer started there.
+    mkdirSync(observersDir(), { recursive: true });
+    writeFileSync(join(observersDir(), `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", configDir: claudeDir(), window: "cco-observe-test", started: Date.now() }));
+    await until(() => view.frame().includes("observed in 1 window"));
+    expect(view.frame()).toContain("◎ ");
+    await view.press("\r");
+    await until(() => view.frame().includes("Bring its observer to the front"));
+    expect(view.frame()).toContain("Observe it in another window");
+    await view.press("4");
+    await until(() => spawned.some((c) => c.args.includes("focus-tab")));
+    expect(spawned.find((c) => c.args.includes("focus-tab"))!.args).toEqual(["-w", "cco-observe-test", "focus-tab", "-t", "0"]);
     view.unmount();
   });
 });

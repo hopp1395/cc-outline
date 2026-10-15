@@ -20,18 +20,22 @@ export function useViewerControl(opts: {
   cwd: string;
   claudePid?: number;
   followActive: boolean;
+  /** Whether it takes the requests of `cco open` (default); a viewer of one session takes none. */
+  control?: boolean;
   /** A request from `cco open`: a view to show (none: keep the one shown), an entry to select, an action. */
   onView: (view: Mode | undefined, select?: string, action?: ViewerAction) => void;
   onSessionEnd: () => void;
 }): void {
-  const { cwd, claudePid, followActive, onView, onSessionEnd } = opts;
+  const { cwd, claudePid, followActive, control: takesRequests = true, onView, onSessionEnd } = opts;
 
   useEffect(() => {
     const started = Date.now();
-    const control = watchFile(controlFile(cwd, claudePid), () => {
-      const req = readControl(cwd, claudePid);
-      if (req && req.at >= started) onView(req.view, req.select, req.action);
-    });
+    const control = takesRequests
+      ? watchFile(controlFile(cwd, claudePid), () => {
+          const req = readControl(cwd, claudePid);
+          if (req && req.at >= started) onView(req.view, req.select, req.action);
+        })
+      : undefined;
 
     let timer: NodeJS.Timeout | undefined;
     const isEnded = () => {
@@ -51,8 +55,8 @@ export function useViewerControl(opts: {
     return () => {
       clearTimeout(timer);
       clearInterval(alive);
-      void control.close();
+      void control?.close();
       void active?.close();
     };
-  }, [cwd, claudePid, followActive]);
+  }, [cwd, claudePid, followActive, takesRequests]);
 }

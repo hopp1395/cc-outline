@@ -16,6 +16,8 @@ interface Props {
   path?: string;
   /** Git repository root; null outside a repository, undefined while unknown. */
   gitRoot?: string | null;
+  /** A viewer of one session (an observer, a remote viewer): no other views, and it does not move or restart. */
+  oneSession?: boolean;
 }
 
 /** Keys all lists share; each view lists them first. */
@@ -113,6 +115,9 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
 };
 
+/** The keys a viewer of one session does not have. */
+const VIEWER_KEYS = new Set(["1 – 6", "Tab → ⇧Tab ←", "p", "r"]);
+
 const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor", accounts: "Accounts" };
 
 const MAX_WIDTH = 78;
@@ -145,7 +150,7 @@ function terminalName(): string {
  * Modal box centred over the view: version, what is being shown, where the
  * data comes from, and the keys of the current view.
  */
-export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
+export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false }: Props) {
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   // Border (2) and padding (2).
   const inner = width - 4;
@@ -163,7 +168,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot }: Props) {
     </Text>
   );
 
-  const keys = KEYS[mode];
+  const keys = oneSession ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)) : KEYS[mode];
   const half = Math.ceil(keys.length / 2);
   const columnWidth = Math.floor(inner / 2);
   const keyCell = (entry?: [string, string]) =>

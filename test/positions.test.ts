@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MAX_POSITIONS, readPositions, rememberScroll, savePositions } from "../src/positions.js";
+import { MAX_POSITIONS, readPositions, rememberScroll, rememberSelection, savePositions, updatePositions } from "../src/positions.js";
 import { positionsFile, writeJson } from "../src/transcript/locate.js";
 
 const cwd = join(tmpdir(), "cco-positions-project");
@@ -33,6 +33,25 @@ describe("positions", () => {
     expect(readPositions(cwd, "chat")).toMatchObject({ selected: "a", pinned: true });
     writeJson(positionsFile(cwd), { chat: { selected: "a", pinned: "yes", scroll: {} } });
     expect(readPositions(cwd, "chat").pinned).toBeUndefined();
+  });
+
+  it("changes only what is changed, into what another viewer stored meanwhile", () => {
+    savePositions(cwd, "chat", { scroll: { a: 3 }, sessions: { s1: { selected: "a", follow: false } } });
+    updatePositions(cwd, "chat", (p) => {
+      rememberScroll(p, "b", 7);
+      rememberSelection(p, "s2", { selected: "b", follow: true });
+    });
+    expect(readPositions(cwd, "chat")).toMatchObject({ scroll: { a: 3, b: 7 }, sessions: { s1: { selected: "a", follow: false }, s2: { selected: "b", follow: true } } });
+  });
+
+  it("keeps the selections of the sessions shown last", () => {
+    const p = readPositions(cwd, "chat");
+    for (let i = 0; i < MAX_POSITIONS + 2; i++) rememberSelection(p, `s${i}`, { selected: "t" });
+    rememberSelection(p, "s2", { selected: "again" });
+    const ids = Object.keys(p.sessions!);
+    expect(ids).toHaveLength(MAX_POSITIONS);
+    expect(ids).not.toContain("s0");
+    expect(ids.at(-1)).toBe("s2");
   });
 
   it("ignores values of the wrong type", () => {

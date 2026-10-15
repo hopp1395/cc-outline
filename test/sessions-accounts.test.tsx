@@ -143,8 +143,8 @@ describe("Sessions with the other accounts", () => {
     expect(view.frame()).toContain("▌ jan@work.com");
     expect(view.frame()).toContain("runs nowhere");
     expect(view.frame()).toContain("Rename it");
-    // Without a terminal, copying the command is selected.
-    expect(view.frame()).toMatch(/› +Copy the command/);
+    // Without a terminal, observing it (which copies its command) is selected.
+    expect(view.frame()).toMatch(/› +Observe it in a window of its own/);
     view.unmount();
   });
 

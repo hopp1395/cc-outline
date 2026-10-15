@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
-import { savePositions } from "../src/positions.js";
+import { readPositions, savePositions } from "../src/positions.js";
 import type { Turn } from "../src/transcript/parse.js";
 import { ChatView } from "../src/tui/ChatView.js";
 import type { Layout } from "../src/tui/layout.js";
@@ -39,6 +39,27 @@ describe("ChatView selection", () => {
     chat.show("resumed.jsonl", resumed);
     await expect.poll(chat.frame, { timeout: 2000 }).toContain("Answer two");
     chat.unmount();
+  });
+
+  it("keeps the selection per session, so two viewers of the project's sessions keep theirs", async () => {
+    const other = transcript([turn("x", "Answer x"), turn("y", "Answer y")], 1);
+    const view = (path: string, t: Transcript) => <ChatView cwd={cwd} path={path} transcript={t} layout={layout} active liveSession />;
+    // The project's viewer on one session, an observer on another, both open at once.
+    const first = renderInk(view("resumed.jsonl", resumed), { columns: 120, rows: 20 });
+    const second = renderInk(view("other.jsonl", other), { columns: 120, rows: 20 });
+    await expect.poll(first.frame, { timeout: 2000 }).toContain("Answer three");
+    await expect.poll(second.frame, { timeout: 2000 }).toContain("Answer y");
+    await first.press("[A");
+    await expect.poll(first.frame, { timeout: 2000 }).toContain("Answer two");
+    await second.press("[A");
+    await expect.poll(second.frame, { timeout: 2000 }).toContain("Answer x");
+    first.unmount();
+    second.unmount();
+    expect(readPositions(cwd, "chat").sessions).toMatchObject({ resumed: { selected: "b", follow: false }, other: { selected: "x", follow: false } });
+    // Each comes back to its own.
+    const again = renderInk(view("resumed.jsonl", resumed), { columns: 120, rows: 20 });
+    await expect.poll(again.frame, { timeout: 2000 }).toContain("Answer two");
+    again.unmount();
   });
 
   it("selects the newest turn of a session whose turns come with the switch to it (/resume)", async () => {

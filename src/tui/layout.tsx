@@ -423,6 +423,12 @@ export const AccountBadgeContext = createContext<AccountColorName | undefined>(u
 /** The account's avatar in place of the "cco"; undefined keeps "cco". */
 export const AccountAvatarContext = createContext<string | undefined>(undefined);
 
+/**
+ * A viewer of one session (an observer, a remote viewer) and what it does: its top bar shows that and the session's
+ * title in place of the tabs. Undefined for the project's viewer.
+ */
+export const ViewerRoleContext = createContext<{ role: "observing" | "controlling"; title: string } | undefined>(undefined);
+
 /** The top bar's background: the session colour's, else the blue focus bar while focused. */
 export function barBackground(color: string | undefined, focused: boolean): string | undefined {
   const bar = color ? SESSION_BARS[color] : undefined;
@@ -465,18 +471,35 @@ export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string
   return undefined;
 }
 
+/** The columns the session's title takes at most in the top bar of a viewer of one session. */
+const VIEWER_TITLE_WIDTH = 40;
+
 function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const settings = useSettings();
   const badge = useContext(AccountBadgeContext);
   const avatar = useContext(AccountAvatarContext);
+  const viewer = useContext(ViewerRoleContext);
   const compact = settings.compactView !== "off";
+  const lead = (
+    <Text bold inverse={mode === "accounts"} color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
+      {avatarLead(avatar)}
+    </Text>
+  );
+  // One session's chat, nothing to switch to: what the viewer does and whose chat it is.
+  if (viewer)
+    return (
+      <Text>
+        {lead}
+        <Text> </Text>
+        <Text inverse bold>{` ${viewer.role} `}</Text>
+        <Text dimColor={!focused}>{` ${truncate(viewer.title, VIEWER_TITLE_WIDTH)}`}</Text>
+      </Text>
+    );
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
       {/* The "cco" (or the avatar) is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
-      <Text bold inverse={mode === "accounts"} color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
-        {avatarLead(avatar)}
-      </Text>
+      {lead}
       <Text> </Text>
       {shownTabs(settings, mode).map((tab) =>
         tab.mode === mode ? (
