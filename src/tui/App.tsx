@@ -150,7 +150,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [modal, setModal] = useState(false);
   // A view's filter dialog takes the typed keys; the mouse still reaches the list.
   const [typing, setTyping] = useState(false);
-  // q or Esc asks before quitting; the viewer still closes by itself when the session ends.
+  // q asks before quitting; the viewer still closes by itself when the session ends.
   const [quitAsked, setQuitAsked] = useState(false);
   const [confirmQuit] = useSetting("confirmQuit");
   // The one progress dialog of all runs the user starts (update, doctor, export, import, attaching, restart).
@@ -164,16 +164,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [restartAsked, setRestartAsked] = useState(false);
   const restart = () => (confirmQuit ? setRestartAsked(true) : restartViewer());
   const [gitRoot, setGitRoot] = useState<string | null>();
-  // While a view shows a detail (full prompt, whole file, plan changes), Esc closes it instead of quitting.
-  const [detailOpen, setDetailOpen] = useState<Record<Mode, boolean>>({
-    chat: false,
-    git: false,
-    plan: false,
-    sessions: false,
-    settings: false,
-    monitor: false,
-    accounts: false,
-  });
   // |, < and > past the ends fold a view's list away or spread it over the pane (stored as its width);
   // which end | takes next and a detail shown over the pane are kept until the viewer quits.
   const [folds, setFolds] = useState<Record<Mode, FoldState>>(() => ({
@@ -186,19 +176,25 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     accounts: UNFOLDED,
   }));
   const setFold = (m: Mode, state: FoldState) => setFolds((f) => (f[m] === state ? f : { ...f, [m]: state }));
-  // What each view reported last, also between renders: a view may report twice before one.
-  const reported = useRef(detailOpen);
+  // Whether each view shows a detail (full prompt, whole file, plan changes, …), as it reported last,
+  // also between renders: a view may report twice before one. Esc closes the detail in the view itself.
+  const reported = useRef<Record<Mode, boolean>>({
+    chat: false,
+    git: false,
+    plan: false,
+    sessions: false,
+    settings: false,
+    monitor: false,
+    accounts: false,
+  });
   const setDetail = (m: Mode) => (open: boolean) => {
     const was = reported.current[m];
     reported.current = { ...reported.current, [m]: open };
-    // A detail opened from the full list shows over the whole pane; the trash is a list itself.
-    if (m !== "sessions" && m !== "accounts") {
-      // Stacked shows list and preview together: nothing to open over the pane.
-      const { compactView: view } = readSettings();
-      const width = view === "single" ? "full" : view === "stacked" ? "normal" : readSettings()[LIST_WIDTH_SETTINGS[m]];
-      setFolds((f) => ({ ...f, [m]: detailFold(width, f[m], open, was) }));
-    }
-    setDetailOpen((d) => ({ ...d, [m]: open }));
+    // A detail opened from the full list shows over the whole pane.
+    // Stacked shows list and preview together: nothing to open over the pane.
+    const { compactView: view } = readSettings();
+    const width = view === "single" ? "full" : view === "stacked" ? "normal" : readSettings()[LIST_WIDTH_SETTINGS[m]];
+    setFolds((f) => ({ ...f, [m]: detailFold(width, f[m], open, was) }));
   };
   // Turning the compact view on or off starts every view on its list again.
   const [compactView] = useSetting("compactView");
@@ -476,7 +472,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       if (view && view !== mode) setMode(view);
       return;
     }
-    if (input === "q" || (key.escape && !detailOpen[mode])) quit();
+    // Only q quits: Esc closes what is open and otherwise does nothing.
+    if (input === "q") quit();
     else if (input === "i") setInfoOpen(true);
     else if (input === "<" || input === ">") stepWidth(input === "<" ? -1 : 1);
     else if (input === "|") toggleWidth();
@@ -562,7 +559,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             layout={viewLayout("sessions")}
             visible={mode === "sessions"}
             active={mode === "sessions" && !blocked}
-            onTrashOpen={setDetail("sessions")}
             onTyping={setTyping}
             onModal={setModal}
             // Any viewer attaches to another Claude Code, leaving its own if it has one.
@@ -612,7 +608,6 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             sessionPath={continuable ? path : undefined}
             claudePid={claudePid}
             noSession={noSession}
-            onTrashOpen={setDetail("accounts")}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>

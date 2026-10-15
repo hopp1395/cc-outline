@@ -349,8 +349,8 @@ export const SETTING_ROWS: Row[] = [
     group: "General",
     label: "confirm quit",
     description:
-      "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether `r` (in the other views) and restart the viewer (Reset, below) ask before the viewer restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
-    values: ON_OFF("ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no", "close at the first `q` or `Esc`; restart the viewer restarts without asking"),
+      "Whether `q` asks before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether `r` (in the other views) and restart the viewer (Reset, below) ask before the viewer restarts. `Esc` never closes the viewer, only what is open in it. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
+    values: ON_OFF("ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no", "close at the first `q`; restart the viewer restarts without asking"),
   },
   {
     key: "compactView",

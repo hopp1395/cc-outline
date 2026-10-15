@@ -110,7 +110,7 @@ export interface Settings {
   autoOpen: AutoOpen;
   /** Where the viewer opens, unless the session has its own placement (chosen with p in the viewer). */
   placement: Placement;
-  /** q and Esc ask before the viewer quits. */
+  /** q asks before the viewer quits. */
   confirmQuit: boolean;
   /** The selected list entry scrolls when it is too long. */
   marquee: boolean;
