@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { accountsHome } from "./addAccount.js";
 import { systemLanguage, type LanguageSetting } from "./i18n/index.js";
 import { readJson, writeJson } from "./transcript/locate.js";
@@ -18,5 +19,8 @@ export function shouldAskLanguage(setting: LanguageSetting): boolean {
 
 /** Notes that the question was answered (or closed), so it never comes again. */
 export function markLanguageAsked(answer: LanguageSetting): void {
-  writeJson(languagePromptFile(), { asked: true, answer, at: new Date().toISOString() });
+  const file = languagePromptFile();
+  // writeJson creates only this account's cco folder; the default one may not exist when another account runs.
+  mkdirSync(dirname(file), { recursive: true });
+  writeJson(file, { asked: true, answer, at: new Date().toISOString() });
 }

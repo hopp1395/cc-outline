@@ -43,6 +43,7 @@ export const en = {
     quitPane: "The pane closes; a /cco:… command opens it again.",
   },
   layout: {
+    updated: (version: string) => `updated to v${version} · restart Claude Code for the plugin · `,
     info: "i info",
     more: "i more",
     quit: "q quit",
@@ -1133,6 +1134,9 @@ export const en = {
     after: "After the repair",
   },
   core: {
+    sameAccount: "the session is in this account already",
+    binaryChanged: "Binary file changed",
+    noContentChanges: "No content changes",
     background: (job: string) => ` · runs in the background: claude attach ${job}`,
     noPane: (attach: string) => `its tmux pane was not found${attach}`,
     switchedPane: "switched to its tmux pane",

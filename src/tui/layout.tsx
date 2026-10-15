@@ -670,7 +670,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
             <Text wrap="truncate">
               <Tabs mode={mode} focused={focused} />
               <Text> </Text>
-              {update.notice && <Text color="green">{`updated to v${update.notice} · restart Claude Code for the plugin · `}</Text>}
+              {update.notice && <Text color="green">{L().layout.updated(update.notice)}</Text>}
               <ReloadStatus />
               {!layout.compact && status}
             </Text>

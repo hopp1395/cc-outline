@@ -1,5 +1,6 @@
 import { extname } from "node:path";
 import stringWidth from "string-width";
+import { L } from "../i18n/index.js";
 import wrapAnsi from "wrap-ansi";
 import type { DiffLine, ParsedDiff } from "../git/diff.js";
 import { highlight } from "./highlight.js";
@@ -69,8 +70,8 @@ export interface RenderedDiff {
 export function renderDiff(diff: ParsedDiff, path: string, width: number, wrap = true): RenderedDiff {
   const lines: string[] = [];
   const hunkStarts: number[] = [];
-  if (diff.binary) return { lines: [dim("Binary file changed")], hunkStarts, gutterWidth: 0 };
-  if (diff.hunks.length === 0) return { lines: [dim("No content changes")], hunkStarts, gutterWidth: 0 };
+  if (diff.binary) return { lines: [dim(L().core.binaryChanged)], hunkStarts, gutterWidth: 0 };
+  if (diff.hunks.length === 0) return { lines: [dim(L().core.noContentChanges)], hunkStarts, gutterWidth: 0 };
 
   const language = languageFor(path);
   const maxNo = Math.max(

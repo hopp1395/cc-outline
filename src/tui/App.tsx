@@ -703,7 +703,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             layout={layout}
             choice={{
               title: L().languageDialog.title,
-              lines: [...wrapAnsi(L().languageDialog.question, Math.min(64, layout.columns - 4) - 4, { hard: true }).split("\n"), "", L().languageDialog.hint],
+              lines: [...wrapAnsi(L().languageDialog.question, Math.min(64, layout.columns - 4) - 4, { hard: true }).split("\n"), " ", L().languageDialog.hint],
               options: [
                 { id: "de", label: L().languageDialog.yes, detail: L().languageDialog.yesDetail },
                 { id: "en", label: L().languageDialog.no, detail: messagesOf("en").languageDialog.noDetail },

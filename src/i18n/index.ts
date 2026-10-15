@@ -14,20 +14,27 @@ export const LANGUAGE_NAMES: Record<Language, string> = { en: "English", de: "De
 
 const CATALOGS: Record<Language, Messages> = { en, de };
 
-/** Where the system's locale comes from; tests swap `get` so they run in English on any machine. */
-export const systemLocale = {
-  get(): string {
-    for (const name of ["LC_ALL", "LC_MESSAGES", "LANG"]) {
-      const value = process.env[name];
-      if (value && value !== "C" && value !== "POSIX" && !value.startsWith("C.")) return value;
-    }
-    return Intl.DateTimeFormat().resolvedOptions().locale;
-  },
-};
+/**
+ * The locale the environment names: `LC_ALL`, `LC_MESSAGES` or `LANG` (in that order, leaving out `C` and `POSIX`),
+ * else the one Intl reports (on Windows the user's language).
+ */
+export function localeOf(env: NodeJS.ProcessEnv, intl: () => string = () => Intl.DateTimeFormat().resolvedOptions().locale): string {
+  for (const name of ["LC_ALL", "LC_MESSAGES", "LANG"]) {
+    const value = env[name];
+    if (value && value !== "C" && value !== "POSIX" && !value.startsWith("C.")) return value;
+  }
+  return intl();
+}
 
-/** The operating system's language: German for every `de` locale (de-DE, de_AT.UTF-8, de-CH), else English. */
+/** Where the system's locale comes from; tests swap `get` so they run in English on any machine. */
+export const systemLocale = { get: (): string => localeOf(process.env) };
+
+/** The language of a locale: German for every `de` one (de-DE, de_AT.UTF-8, de-CH), else English. */
+export const languageOf = (locale: string): Language => (/^de([-_.@]|$)/i.test(locale) ? "de" : "en");
+
+/** The operating system's language. */
 export function systemLanguage(): Language {
-  return /^de([-_.@]|$)/i.test(systemLocale.get()) ? "de" : "en";
+  return languageOf(systemLocale.get());
 }
 
 /** The language a setting stands for. */

@@ -41,6 +41,7 @@ export const de: Messages = {
     quitPane: "Das Pane schließt sich; ein /cco:…-Befehl öffnet es wieder.",
   },
   layout: {
+    updated: (version) => `aktualisiert auf v${version} · starte Claude Code neu für das Plugin · `,
     info: "i Info",
     more: "i mehr",
     quit: "q beenden",
@@ -1155,6 +1156,9 @@ export const de: Messages = {
     after: "Nach der Reparatur",
   },
   core: {
+    sameAccount: "die Session ist schon in diesem Account",
+    binaryChanged: "Binärdatei geändert",
+    noContentChanges: "Keine inhaltlichen Änderungen",
     background: (job) => ` · läuft im Hintergrund: claude attach ${job}`,
     noPane: (attach) => `ihr tmux-Pane wurde nicht gefunden${attach}`,
     switchedPane: "zu ihrem tmux-Pane gewechselt",
