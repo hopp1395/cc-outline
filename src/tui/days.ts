@@ -1,3 +1,4 @@
+import { L } from "../i18n/index.js";
 import { dayKey } from "../monitor/responses.js";
 
 /** What list entries are grouped by under a separator: the day ("2026-09-27") or the year ("2026"). */
@@ -25,13 +26,10 @@ export function periodOf(at: string | number | undefined, period: Period): strin
 export function dayLabel(day: string, year: "always" | "other" | "never" = "other", now = Date.now()): string {
   // Written out, since ICU versions differ ("Sep" or "Sept").
   const d = new Date(`${day}T12:00:00`);
-  const label = `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  const days = L().days;
   const withYear = year === "always" || (year === "other" && d.getFullYear() !== new Date(now).getFullYear());
-  return withYear ? `${label} ${d.getFullYear()}` : label;
+  return days.label(days.weekdays[d.getDay()], d.getDate(), days.months[d.getMonth()], withYear ? d.getFullYear() : undefined);
 }
-
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** The name of a group key: "Sun 27 Sep" (with `year`, see dayLabel) for a day, "2026" for a year. */
 export function periodLabel(key: string, year: "always" | "other" = "other"): string {

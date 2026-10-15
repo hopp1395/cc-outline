@@ -9,7 +9,7 @@ import type { Turn } from "../src/transcript/parse.js";
 import { App } from "../src/tui/App.js";
 import { ChatView } from "../src/tui/ChatView.js";
 import type { Layout } from "../src/tui/layout.js";
-import { SETTING_ROWS } from "../src/tui/SettingsView.js";
+import { settingRows } from "../src/tui/SettingsView.js";
 import type { Transcript } from "../src/tui/useTranscript.js";
 
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
@@ -79,7 +79,7 @@ describe("list filter in the app", () => {
   it("keeps the app's keys (q, i, the view numbers) out while typing", async () => {
     const project = mkdtempSync(join(tmpdir(), "cco-filter-app-"));
     const view = renderView(<App cwd={project} sessionId="none" initialMode="settings" />);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
     await view.press(CTRL_F);
     await tick();
     await type(view, "q1i");

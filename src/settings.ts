@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { ACCOUNT_COLOR_VALUES, type AccountColorSetting } from "./account.js";
 import { isAvatarSetting } from "./avatar.js";
+import { LANGUAGE_VALUES, type LanguageSetting } from "./i18n/index.js";
 import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
 import { TOOL_LEVELS, type ToolLevel } from "./transcript/tools.js";
 import type { Mode } from "./tui/layout.js";
@@ -108,6 +109,8 @@ export interface Settings {
    * exited in the project, `always` opens it on every start, `never` not at all.
    */
   autoOpen: AutoOpen;
+  /** The language of the viewer and the CLI: the operating system's (German if it is, else English), English or German. */
+  language: LanguageSetting;
   /** Where the viewer opens, unless the session has its own placement (chosen with p in the viewer). */
   placement: Placement;
   /** q and Esc ask before the viewer quits. */
@@ -196,6 +199,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   autoOpen: "always",
+  language: "system",
   placement: "right",
   confirmQuit: true,
   marquee: true,
@@ -311,6 +315,7 @@ export function shownView(settings: Settings, mode: Mode): Mode {
 /** Allowed values of the settings that are not on/off. */
 const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   autoOpen: AUTO_OPEN_VALUES,
+  language: LANGUAGE_VALUES,
   placement: PLACEMENT_VALUES,
   filterIn: FILTER_IN_VALUES,
   updateMode: UPDATE_VALUES,

@@ -6,7 +6,7 @@ import { renderInk } from "./helpers/ink.js";
 import { readFavorites } from "../src/favorites.js";
 import { readSettings } from "../src/settings.js";
 import type { Layout } from "../src/tui/layout.js";
-import { SETTING_ROWS, SettingsView } from "../src/tui/SettingsView.js";
+import { settingRows, SettingsView } from "../src/tui/SettingsView.js";
 
 const layout: Layout = { columns: 120, rows: 20, listWidth: 40, previewWidth: 77, bodyHeight: 16 };
 const cwd = join(tmpdir(), "cco-settings-project");
@@ -25,14 +25,14 @@ const renderSettings = () => renderInk(<SettingsView cwd={cwd} layout={layout} a
 describe("SettingsView marks", () => {
   it("marks with Space instead of changing the value, which only Enter does", async () => {
     const view = renderSettings();
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
-    const before = readSettings()[SETTING_ROWS[0].key];
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
+    const before = readSettings()[settingRows()[0].key];
     await view.press(" ");
-    await expect.poll(() => readFavorites(cwd, "settings"), { timeout: 2000 }).toEqual([SETTING_ROWS[0].key]);
+    await expect.poll(() => readFavorites(cwd, "settings"), { timeout: 2000 }).toEqual([settingRows()[0].key]);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("★");
-    expect(readSettings()[SETTING_ROWS[0].key]).toBe(before);
+    expect(readSettings()[settingRows()[0].key]).toBe(before);
     await view.press("\r");
-    await expect.poll(() => readSettings()[SETTING_ROWS[0].key], { timeout: 2000 }).not.toBe(before);
+    await expect.poll(() => readSettings()[settingRows()[0].key], { timeout: 2000 }).not.toBe(before);
     view.unmount();
   });
 });

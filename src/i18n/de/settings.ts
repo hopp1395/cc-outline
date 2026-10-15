@@ -1,0 +1,586 @@
+import type { settings as en } from "../en/settings.js";
+
+export const settings: typeof en = {
+  groups: {
+    Start: "Start",
+    General: "Allgemein",
+    Account: "Account",
+    Chat: "Chat",
+    Changes: "Änderungen",
+    Plan: "Plan",
+    Sessions: "Sessions",
+    Monitor: "Monitor",
+    Settings: "Einstellungen",
+    Reset: "Zurücksetzen",
+    Releases: "Releases",
+  },
+  values: {
+    on: "an",
+    off: "aus",
+    remember: "merken",
+    always: "immer",
+    never: "nie",
+    right: "rechts",
+    left: "links",
+    window: "Fenster",
+    list: "Liste",
+    details: "Details",
+    both: "beides",
+    auto: "auto",
+    single: "einzeln",
+    stacked: "gestapelt",
+    compact: "kompakt",
+    full: "voll",
+    "oldest-first": "älteste zuerst",
+    "newest-first": "neueste zuerst",
+    oldest: "älteste",
+    newest: "neueste",
+    this: "dieser",
+    other: "andere",
+    all: "alle",
+    current: "dieser",
+    show: "zeigen",
+    hide: "ausblenden",
+    today: "heute",
+    "7d": "7 Tage",
+    "30d": "30 Tage",
+    "90d": "90 Tage",
+    unlimited: "unbegrenzt",
+    hidden: "verborgen",
+    narrow: "schmal",
+    normal: "normal",
+    wide: "breit",
+    wider: "breiter",
+    email: "E-Mail",
+    folder: "Ordner",
+    recent: "zuletzt",
+    system: "System",
+  },
+  default: "Standard",
+  yourOwn: "eigener Wert",
+  chosen: (n) => `${n} gewählt`,
+  valuesHeading: "Werte",
+  also: (key) => `Auch ${key}.`,
+  legendHeading: "Zeichen in der Sessions-Liste",
+  inView: (key, view) => `${key} in ${view}`,
+
+  reset: {
+    restart: {
+      label: "Viewer neu starten",
+      description:
+        "Schließt den Viewer und öffnet ihn an derselben Stelle und in derselben Ansicht neu, mit der jetzt installierten Version von cco: nach einem Update von Hand (`npm install -g`, ein Neubau eines verlinkten Checkouts) oder wenn er sich seltsam verhält. Hooks und Befehle des Plugins lädt Claude Code; sie ändern sich erst, wenn Claude Code neu startet. `r` in den anderen Ansichten tut dasselbe. Fragt vorher, außer Beenden bestätigen ist aus.",
+    },
+    doctor: {
+      label: "Doctor: prüfen und reparieren",
+      description:
+        "Prüft, was cco braucht: die Installation (npm, das Plugin und seine Version, den Pfad, über den das Plugin cco startet), die Dateien von cco in `~/.claude/cco` (von beendeten Prozessen, unvollständige Schreibvorgänge, Dateien ohne gültiges JSON, den Papierkorb), die Einstellungen, das Terminal und ob die Hooks des Plugins laufen. `Enter` fragt, dann wird geprüft; dabei wird nichts geändert. Der Bericht erscheint unten, und `Enter` bietet dann an zu reparieren, was geht; manche Befunde nennen einen Befehl, den du selbst ausführst. `cco doctor` in einer Shell tut dasselbe (`--fix` repariert), `/cco:doctor` zeigt den Bericht in Claude Code.",
+    },
+    settings: {
+      label: "alle Einstellungen auf Standard",
+      description:
+        "Setzt jede Einstellung oben auf ihren Standard zurück und entfernt die Markierungen ★ der Einstellungen. `R` tut dasselbe von jeder Einstellung aus; `r` setzt nur die ausgewählte zurück.",
+    },
+    data: {
+      label: "gespeicherte Daten dieses Projekts",
+      description:
+        "Löscht, was cco sich für dieses Projekt merkt: die Markierungen ★ von Turns, Dateien, Plänen, Sessions und Tagen, den ausgewählten Eintrag und die Scrollposition jeder Liste, Ansicht und Platzierung jeder Session und ob der Viewer offen war, als Claude Code zuletzt beendet wurde. Die Einstellungen bleiben, und von Claude Code wird nichts angefasst: Transkripte, Sessions und git bleiben wie sie sind. Die Ansichten laden leer neu.",
+    },
+    changed: "Geändert",
+    noneChanged: "  nichts: jede Einstellung steht auf Standard",
+    marked: "Markiert",
+    saved: "Gespeichert",
+    nothingSaved: "  für dieses Projekt ist nichts gespeichert",
+    asksFirst: "`Enter` fragt, bevor etwas geändert wird.",
+    header: (label) => `Zurücksetzen: ${label}`,
+    changedCount: (n) => `${n} geändert`,
+    markedCount: (n) => `${n} markiert`,
+    savedFiles: (n) => `${n} von 4 Dateien gespeichert`,
+    askSettingsTitle: "Alle Einstellungen zurücksetzen?",
+    differ: (n, of) => `${n} von ${of} weichen vom Standard ab:`,
+    allDefault: "Jede Einstellung steht auf Standard.",
+    marksRemoved: (n) => `Die Markierungen ★ von ${n} ${n === 1 ? "Eintrag" : "Einträgen"} werden entfernt.`,
+    askDataTitle: "Gespeicherte Daten dieses Projekts löschen?",
+    dataStays: "Einstellungen, Transkripte und git bleiben.",
+  },
+
+  doctor: {
+    title: "Doctor",
+    checking: "Prüfe",
+    repairHeading: "Reparatur",
+    repairing: "Repariere…",
+    notChecked: "Noch nicht geprüft. `Enter` fragt, dann wird geprüft.",
+    repairOffer: (n) => `\`Enter\` fragt, dann wird ${n === 1 ? "einer davon" : `${n} davon`} repariert. \`F5\` prüft erneut.`,
+    nothingToRepair: "Nichts zu reparieren. `Enter` oder `F5` prüft erneut.",
+    checkingHeader: "prüfe…",
+    checkedAt: (count, time) => `${count} · geprüft ${time}`,
+    notCheckedHeader: "noch nicht geprüft",
+    askTitle: "Doctor ausführen?",
+    askLines: [
+      "Prüft die Installation, die Dateien von cco in ~/.claude/cco, die Einstellungen, das Terminal und die Hooks.",
+      "Es wird nichts geändert: Reparaturen werden mit dem Bericht angeboten.",
+    ],
+    askRepair: (n) => `${n} ${n === 1 ? "Befund" : "Befunde"} reparieren?`,
+    repairTitle: "Reparatur",
+    repairFailed: (failed, of) => `${failed} von ${of} ${of === 1 ? "Reparatur" : "Reparaturen"} fehlgeschlagen`,
+    reportShows: "Der Bericht zeigt, was übrig ist.",
+  },
+
+  restart: {
+    askTitle: "Viewer neu starten?",
+    opensAgain: (detail) => `Er öffnet sich hier neu, in dieser Ansicht, mit ${detail}.`,
+    keepsRunning: "Claude Code läuft weiter; starte es neu, damit Änderungen am Plugin greifen.",
+    running: (installed, running) => `v${installed} (läuft: v${running})`,
+  },
+
+  update: {
+    title: (target) => `cco auf v${target} aktualisieren`,
+    updating: "Aktualisiere",
+    stoppedAt: (step) => `Das Update hat angehalten bei ${step}`,
+    runRest: "Führe den Rest von Hand aus und öffne den Viewer dann neu.",
+    updatedTo: (target) => `Aktualisiert auf v${target}`,
+    restartForPlugin: "Starte Claude Code neu, damit das Plugin greift.",
+    restarting: "Starte neu",
+    stopped: "Das Update hat angehalten. Führe den Rest von Hand aus (`c` kopiert ihn), schließe dann den Viewer mit `q` und öffne ihn wieder:",
+    done: (target) =>
+      `Aktualisiert auf v${target}. Der Viewer öffnet sich damit neu; falls nicht, schließe ihn mit \`q\` und öffne ihn wieder. Starte Claude Code neu, damit das Plugin greift.`,
+    updatingNow: "Aktualisiere…",
+    isOut: (target, version) => `v${target} ist erschienen; dies ist v${version}. \`Enter\` fragt, dann wird ausgeführt:`,
+    thenReopens: "Danach öffnet sich der Viewer mit der neuen Version. Das Plugin (Hooks, `/cco:…`-Befehle) greift, wenn Claude Code neu startet.",
+    installed: (target, version) => `v${target} ist installiert; dieser Viewer läuft noch mit v${version}. \`Enter\` öffnet ihn mit der neuen Version neu.`,
+    dev: (target, version, root) =>
+      `v${target} ist erschienen; dies ist v${version}, gestartet aus \`${root}\` (\`npm link\` oder \`npx\`), das cco nicht aktualisiert. Aktualisiere den Checkout oder installiere das Release (\`c\` kopiert es):`,
+    noNotes: "Keine Notizen zu diesem Release.",
+    asking: "Frage npm und GitHub…",
+    checkOff: "Die Update-Prüfung ist aus (Allgemein: Update), deshalb hat cco GitHub nicht nach den Release Notes gefragt. `F5` prüft einmal.",
+    unreachable: "npm und GitHub waren nicht erreichbar. `F5` versucht es erneut.",
+    askTitle: (target) => `cco auf v${target} aktualisieren?`,
+    thenReopensShort: "Danach öffnet sich der Viewer mit der neuen Version.",
+    entryRelease: (version, title) => `v${version}${title}`,
+    checkingEntry: "prüfe…",
+    releaseNotes: "Release Notes",
+    updateTo: (target) => `Update auf v${target}`,
+    restartWith: (target) => `Neustart mit v${target}`,
+    out: (target) => `v${target} ist erschienen`,
+    update: "Update",
+    installedMark: "installiert",
+    newMark: "neu",
+    asOf: (day) => `Stand ${day}`,
+    releasesHeader: "Releases",
+    updateMode: (mode) => `Update ${mode}`,
+    devInstall: (version) => `Entwicklungsinstallation · v${version}`,
+    installedVersion: (version) => `installiert v${version}`,
+    newer: (n) => `${n} ${n === 1 ? "neueres Release" : "neuere Releases"}`,
+  },
+
+  account: {
+    details: "wie Accounts gefunden werden",
+    add: "wie man einen Account hinzufügt",
+    none: "kein Account gefunden",
+    header: (label) => `Account: ${label}`,
+    found: (n) => `${n} ${n === 1 ? "Account" : "Accounts"} gefunden`,
+    howFound:
+      "cco sucht Accounts in den Konfigurationsordnern von Claude Code: dem dieses Viewers (`CLAUDE_CONFIG_DIR`, sonst `~/.claude`), `~/.claude` und jedem Ordner `~/.claude*` in deinem Home-Ordner. Ein Ordner zählt als Account, wenn seine `.claude.json` einen nennt (`oauthAccount`).",
+    thisViewer: "Dieser Viewer",
+    notSet: "nicht gesetzt",
+    configFolder: "Konfigurationsordner",
+    ccoFiles: "Dateien von cco",
+    accountsFound: (n) => `Gefundene Accounts (${n})`,
+    noneFound: "keine",
+    lookedUp: "Der Account eines Claude Code, an das du dich hängst, wird über die Datei `sessions/<pid>.json` in diesen Ordnern ermittelt.",
+    noAccount:
+      "Kein Account für dieses Claude Code gefunden: sein Konfigurationsordner hat keine `.claude.json` mit angemeldetem Account. Melde dich mit `/login` in Claude Code an; die Liste aktualisiert sich innerhalb von 30 Sekunden, sofort mit `F5`.",
+    active: "● aktiv: der Account des Claude Code, dem dieser Viewer folgt",
+    another: "○ ein weiterer gefundener Account",
+    email: "E-Mail",
+    name: "Name",
+    organization: "Organisation",
+    billing: "Abrechnung",
+    seat: "Platz",
+    rateLimitTier: "Rate-Limit-Stufe",
+    readFrom: "gelesen aus",
+    colour: (badge, chosen) => `Farbe: ${badge}${chosen ? ", gewählt" : ", aus der E-Mail"}`,
+    avatar: "Avatar",
+    noAvatar: (fallback) => `keiner, "${fallback}"`,
+    showsWhere: "Farbe und Avatar erscheinen in der Kopfzeile, der Avatar auch im Titel, solange dies der aktive Account ist.",
+  },
+
+  addAccount: {
+    intro:
+      "Claude Code hält Login, Sessions, Einstellungen und Plugins in einem Konfigurationsordner: `~/.claude` oder dem Ordner, den `CLAUDE_CONFIG_DIR` nennt. Ein zweiter Account ist ein zweiter Ordner, gestartet mit gesetzter Variable. cco findet jeden angemeldeten Ordner `~/.claude*`.",
+    enterHeading: "Enter richtet einen ein",
+    asks: "Es fragt nach einem Befehl (z. B. `cw`) und einem Ordner (`.claude-cw`), prüft den Namen des Befehls, dann:",
+    step1: "1. legt es den Ordner in deinem Home-Ordner an;",
+    step2: (bin, windows) =>
+      `2. schreibt es Startskripte neben claude, in ${bin}: ${windows ? "`cw.cmd` für cmd und PowerShell und `cw` für Git Bash" : "`cw`, ausführbar"};`,
+    step3: "3. installiert es dort das cco-Plugin und gibt ihm die Einstellungen von cco;",
+    step4: "4. startet es das Skript in einem neuen Fenster: melde dich dort mit `/login` an. Der Account erscheint dann hier (innerhalb von 30 s, sofort mit `F5`).",
+    byHand: "Von Hand",
+    cmdFile: "cmd und PowerShell: eine Datei `cw.cmd` in einem Ordner im PATH:",
+    bashFile: "Git Bash: eine Datei `cw` (ohne Endung) im selben Ordner:",
+    unixFile: "Eine Datei `cw` in einem Ordner im PATH (z. B. `~/.local/bin`), ausführbar gemacht mit `chmod +x cw`:",
+    thenRun: "Dann `cw` starten, mit `/login` anmelden und cco dort hinzufügen:",
+    avoid: "Namen, die man meiden sollte",
+    avoidWindows:
+      "Eine Shell führt ihre eigenen Befehle vor Dateien im PATH aus. In PowerShell gewinnen Aliase: `cp` startet Copy-Item, nicht `cp.cmd`; ebenso `sc` (Set-Content), `r`, `h`, `gc`, `where` und viele mehr. cmd hat eingebaute Befehle wie `copy`, `dir` und `start`, Bash etwa `test` und `type`. Und ein gleichnamiges Programm weiter vorn im PATH gewinnt ebenfalls. `Get-Command cw -All` in PowerShell (`type -a cw` in Bash) listet, was ein Name startet; der erste gewinnt. Enter prüft all das und fragt PowerShell nach seinen Aliasen, auch denen deines Profils.",
+    avoidUnix:
+      "Eine Shell führt ihre eingebauten Befehle und Aliase vor Dateien im PATH aus (`test`, `type`, …), und ein gleichnamiges Programm weiter vorn im PATH gewinnt ebenfalls. `type -a cw` listet, was ein Name startet; der erste gewinnt. Enter prüft die eingebauten Befehle und den PATH.",
+  },
+
+  view: {
+    entries: (count) => `${count} Einträge · `,
+    copied: "kopiert · ",
+    changed: (n) => ` · ${n} geändert`,
+    checkingUpdates: " · suche nach Updates…",
+    empty: "Keine Einstellungen",
+    noMatch: "Keine Einstellung passt zum Filter",
+    footer: {
+      setting: "↑↓ Einstellung",
+      repair: "↵ reparieren",
+      check: "F5 prüfen",
+      checkNow: "↵ prüfen",
+      reset: "↵ zurücksetzen",
+      update: "↵ aktualisieren",
+      restart: "↵ neu starten",
+      copyCommands: "c Befehle kopieren",
+      actions: "↵ Aktionen…",
+      delete: "d löschen",
+      addAccount: "↵ Account hinzufügen…",
+      reload: "F5 neu laden",
+      choose: "↵ wählen…",
+      change: "↵ ändern",
+      default: "r Standard",
+      resetAll: "R alle zurücksetzen",
+      views: "1-6/Tab Ansicht",
+    },
+    settingHeader: (value, def) => `${value} · Standard ${def}`,
+  },
+
+  common: {
+    tab: "Tab",
+    tabDescription: (name, what, number) =>
+      `Ob die Ansicht ${name} (${what}) einen Tab hat. Blende eine Ansicht aus, die du nicht nutzt, dann wird die Tableiste kürzer. Ausgeblendet behält sie ihre Nummer: \`${number}\` tut nichts, und die anderen Ansichten behalten ihre (mit ausgeblendetem Plan bleibt Sessions \`4\`). Ein \`/cco:…\`-Befehl oder \`--view\`, der sie nennt, öffnet sie trotzdem, und ihr Tab erscheint, solange sie offen ist. Einstellungen (\`6\`) lässt sich nicht ausblenden, und mindestens eine andere Ansicht bleibt sichtbar.`,
+    tabOn: (number) => `Tab zeigen; \`${number}\` und \`Tab\` erreichen sie`,
+    tabOff: (number) => `ausblenden; \`${number}\` und \`Tab\` überspringen sie`,
+    order: "Reihenfolge",
+    orderDescription: (view, what) =>
+      `Ob die Liste von ${view} die neuesten oder die ältesten ${what} oben zeigt. Älteste zuerst liest sich wie Claude Code, von oben nach unten; neueste zuerst setzt das Letzte direkt unter die Tabs, wo eine lange Liste beginnt. Die Tasten folgen dem, was du siehst: \`↑/↓\` gehen in der Liste hoch und runter, \`Home\` und \`g\` nach oben, \`End\` und \`G\` nach unten.`,
+    oldestFirst: (what) => `älteste oben, neueste unten: neue ${what} erscheinen unten`,
+    newestFirst: (what) => `neueste oben, älteste unten: neue ${what} erscheinen oben`,
+    range: "Zeitraum",
+    rangeDescription: (view, what, dated) =>
+      `Wie weit die Liste von ${view} beim Lesen zurückreicht: die ${what}, ${dated} heute oder an den Tagen davor, gezählt in Kalendertagen ab Mitternacht. Ein kurzer Zeitraum öffnet schneller, wenn es viele Transkripte gibt: die zuletzt davor geschriebenen werden nicht gelesen. Die Liste zeigt die neuesten oben und endet mit "↓ mehr ↓", das den Rest liest, bis der Viewer neu startet.`,
+    rangeAll: "der ganze Verlauf, ohne ↓ mehr ↓; das erste Lesen dauert bei vielen Transkripten länger",
+    rangeToday: (first) => `nur heute, seit ${first} 00:00`,
+    rangeDays: (days, first) => `heute und die ${days} Tage davor, seit ${first} 00:00`,
+    detailOf: {
+      Chat: "`Enter` zeigt den ganzen Prompt und `a` die Seite eines Subagents",
+      Changes: "`Enter` zeigt die ganze Datei",
+      Plan: "`Enter` zeigt die Änderungen des Plans",
+      Monitor: "`Enter` zeigt die Tabelle der Antworten",
+    },
+    share: (percent, min, max) => `${percent} % des Panes, ${min}–${max} Spalten`,
+    widthDescription: (view, suits) =>
+      `Wie breit die Liste von ${view} ist; die Vorschau nimmt den Rest des Panes. ${suits} Die Vorschau behält mindestens 20 Spalten, in einem schmalen Pane enden die breiteren Stufen also dort. An den Enden nimmt eine von beiden das ganze Pane: verborgen, um die Vorschau in voller Breite zu lesen, voll, um die Einträge der Liste ungekürzt zu lesen.`,
+    widthHidden: "die Liste ist weggeklappt, die Vorschau nimmt das ganze Pane; `↑` `↓` wechseln weiterhin die Einträge",
+    widthNarrow: (share) => `${share}: mehr Platz für die Vorschau`,
+    widthWider: (share) => `${share}: Liste und Vorschau teilen sich das Pane`,
+    widthFullDetail: (detail) => `die Liste nimmt das ganze Pane, ohne Vorschau; ${detail} über das ganze Pane, \`Esc\` geht zurück zur Liste`,
+    widthFull: "die Liste nimmt das ganze Pane, ohne Vorschau",
+    widthKeys: (view) => `\`<\`, \`>\` und \`|\` in ${view}`,
+    widthNotes: [
+      "`<` und `>` gehen eine Breite weiter, von verborgen bis voll. `|` geht von einer Breite auf verborgen und beim nächsten Drücken zurück auf diese Breite; das Drücken danach geht auf voll und das nächste wieder zurück. Nach einem Neustart ist die Breite davor nicht bekannt: `|` geht dann von verborgen auf schmal und von voll auf breiter.",
+      "Jeder Schritt wird hier gespeichert, auch verborgen und voll: die Ansicht startet, wie du sie verlassen hast.",
+    ],
+    widthSettingsNote: "Mit verborgen verschwindet diese Liste, sobald du es wählst; `|` oder `>` holt sie zurück.",
+    listWidth: "Listenbreite",
+    wrap: "Umbruch",
+    wrapDescription: (what) => `Ob lange Zeilen ${what} am Rand des Panes umbrechen; aus, werden sie abgeschnitten und \`Ctrl+←/→\` scrollt seitlich.`,
+    wrapOn: "am Rand umbrechen; nichts wird abgeschnitten",
+    wrapOff: (off) => `am Rand abschneiden, \`Ctrl+←/→\` scrollt; ${off}`,
+  },
+
+  rows: {
+    language: {
+      label: "Sprache",
+      description:
+        "Die Sprache des Viewers und der Ausgaben von cco in einer Shell (`cco doctor`, `cco open`). System folgt dem Betriebssystem: Deutsch, wenn es auf Deutsch eingestellt ist, sonst Englisch. Was Claude schreibt, die Release Notes und die Befehle des Plugins bleiben, wie sie sind.",
+      system: (lang) => `die Sprache des Betriebssystems, hier ${lang}`,
+      en: "Englisch",
+      de: "Deutsch",
+      note: "Wirkt sofort, in jeder Ansicht.",
+    },
+    autoOpen: {
+      label: "automatisch öffnen",
+      description:
+        "Ob sich der Viewer von selbst öffnet, wenn Claude Code startet (auch mit `--resume` und `--continue`). Der Fokus bleibt in Claude Code, und ein Claude Code, das schon einen Viewer hat, bekommt keinen zweiten. Mit merken ist der Viewer da, wo du ihn gelassen hast: offen in den Projekten, in denen du ihn willst, geschlossen in den anderen.",
+      remember:
+        "nur wieder öffnen, wenn er offen war, als Claude Code im Projekt zuletzt beendet wurde: in einem Projekt mit `q` geschlossen, bleibt er dort zu und öffnet sich in den anderen trotzdem",
+      always: "bei jedem Start öffnen, in jedem Projekt; im Chat, außer zuletzt war eine andere Ansicht offen (z. B. Änderungen, wo du ihn gelassen hast)",
+      never: "nie von selbst öffnen; `/cco:chat`, `/cco:git` und die anderen `/cco:…`-Befehle tun es weiterhin",
+      needs: (terminal) => `Braucht die Hooks des Plugins und Windows Terminal oder tmux (hier: ${terminal}).`,
+      needsNone: "Braucht die Hooks des Plugins und Windows Terminal oder tmux; keins von beiden ist hier zu finden, also öffnet er sich nicht.",
+      nextStart: "Wirkt beim nächsten Start von Claude Code.",
+    },
+    placement: {
+      label: "Platzierung",
+      description:
+        "Wo sich der Viewer öffnet, wenn Claude Code startet und bei `/cco:…`-Befehlen. rechts und links passen zu einem breiten Bildschirm, auf dem beide nebeneinander Platz haben; Fenster lässt Claude Code die volle Breite, für einen schmalen. `p` im Viewer verschiebt ihn an eine andere Stelle und merkt sich diese für die Session; diese Einstellung gilt für Sessions ohne eigene.",
+      right: "ein Pane rechts von Claude Code; jedes nimmt die Hälfte des Tabs",
+      left: "dasselbe, links von Claude Code",
+      windowWt: "ein eigenes Fenster von Windows Terminal, eins pro Claude Code; Claude Code behält den ganzen Tab, `Alt+Tab` wechselt",
+      windowTmux: "ein eigenes tmux-Fenster neben dem von Claude Code; Claude Code behält das ganze Fenster, dein Präfix und `n` oder `p` (`Ctrl+b n`) wechseln",
+      focus: "Ein Fenster nimmt Claude Code den Fokus: Windows Terminal kann ihn nicht an ein anderes Fenster zurückgeben.",
+      next: "Wirkt, wenn sich der Viewer das nächste Mal öffnet; ein laufender Viewer bleibt, wo er ist.",
+      meanings: {
+        right: "ein Pane rechts von Claude Code",
+        left: "ein Pane links von Claude Code",
+        window: "ein eigenes Fenster (in tmux: ein tmux-Fenster)",
+      },
+    },
+    confirmQuit: {
+      label: "Beenden bestätigen",
+      description:
+        "Ob `q` und `Esc` fragen, bevor sich der Viewer schließt, damit eine Taste, die für Claude Code gedacht war, aber im Pane des Viewers getippt wurde, ihn nicht schließt, und ob `r` (in den anderen Ansichten) und Viewer neu starten (Zurücksetzen, unten) fragen, bevor der Viewer neu startet. Der Viewer schließt sich weiterhin von selbst, wenn die Session endet; `/cco:chat` öffnet ihn wieder. `/cco:restart` fragt nie.",
+      on: "erst fragen: cco beenden? oder Viewer neu starten? `Enter` ja, `Esc` nein",
+      off: "beim ersten `q` oder `Esc` schließen; Viewer neu starten startet ohne Frage neu",
+    },
+    compactView: {
+      label: "kompakt",
+      description:
+        "Ein Layout für kleine Bildschirme oder ein schmales Pane neben Claude Code, wo Liste und Vorschau nebeneinander beide zu schmal werden. Die gewählten Listenbreiten (`<`, `>`) bleiben erhalten und gelten mit aus wieder; `i` listet weiterhin die Tasten, die sonst die Hilfezeile zeigt.",
+      off: "Liste und Vorschau nebeneinander, mit Hilfezeile und Status; die Breiten von `<`, `>` und `|` gelten",
+      stacked:
+        "die Liste über der Vorschau, beide so breit wie das Pane (die Spalten der Liste: `<` und `>`, ihre Höhe: kompakte Aufteilung); `Enter` öffnet Details wie gewohnt in der Vorschau; keine Hilfezeile, kein Status, die Tabs auf ihre Nummer gekürzt, der Kopf der Vorschau einzeilig",
+      single:
+        "eine Spalte: die Liste, und `Enter` (oder `|`, in jeder Ansicht) zeigt die Vorschau über das ganze Pane, `Esc` (oder `|`) geht zurück; keine Hilfezeile, kein Status, die Tabs auf ihre Nummer gekürzt, der Kopf der Vorschau einzeilig",
+    },
+    compactColumns: {
+      label: "kompakte Spalten",
+      description:
+        "Mit kompakt gestapelt: wie viele Spalten die Liste über der Vorschau hat, damit mehr Einträge in ihre wenigen Zeilen passen. Auch mit `<` und `>` einstellbar, die in den anderen Layouts die Breite ändern. Die Einträge laufen die erste Spalte hinunter, dann die nächste.",
+      "1": "eine Spalte mit Einträgen, jeder zeigt so viel wie möglich",
+      "2": "zwei Spalten, nacheinander gefüllt: erst die erste von oben nach unten, dann die zweite",
+      "3": "drei Spalten; die Einträge werden nach einem Drittel des Panes abgeschnitten",
+      "4": "vier Spalten; für ein breites Pane mit kurzen Einträgen",
+    },
+    compactSplit: {
+      label: "kompakte Aufteilung",
+      description: "Mit kompakt gestapelt: der Anteil an der Höhe des Panes, den die Liste nimmt; die Vorschau bekommt den Rest.",
+      "10%": "die Liste ist ein paar Zeilen hoch (mindestens drei), die Vorschau bekommt fast alles",
+      "20%": "ein Fünftel der Höhe für die Liste; etwa sechs Zeilen in einem Pane von 30",
+      "30%": "ein gutes Drittel für die Liste, z. B. mit zwei oder drei Spalten längerer Einträge",
+      "40%": "die Liste bekommt mehr Zeilen, die Vorschau etwas weniger als zwei Drittel",
+      "50%": "halbe-halbe; für lange Listen, etwa die Sessions eines Monats",
+    },
+    marquee: {
+      label: "Laufschrift",
+      description:
+        "Ob der ausgewählte Listeneintrag seitlich scrollt, wenn er für die Liste zu lang ist, höchstens 250 Spalten, dann von vorn. Nützlich in einem schmalen Pane, wo Prompts, Pfade und Session-Titel abgeschnitten werden.",
+      on: "der ausgewählte Eintrag scrollt bis zu seinem Ende und beginnt von vorn; die anderen werden mit … gekürzt",
+      off: "jeder Eintrag wird mit … gekürzt, z. B. Fix the date separa…; der Kopf der Vorschau zeigt ihn ganz",
+    },
+    dateSeparators: {
+      label: "Datumstrenner",
+      description: (example) =>
+        `Ob Chat, Plan, Sessions und der Papierkorb über den Einträgen jedes Tages eine Zeile mit dem Datum zeigen (── ${example} ──), außer alle sind von heute; die Einträge zeigen dann nur ihre Uhrzeit. Die Tage des Monitors bekommen eine Zeile pro Jahr (── 2025 ──), sobald sie in ein anderes Jahr reichen. Aus, zeigen Sessions und der Papierkorb wieder das Datum in jeder Zeile.`,
+      on: (yesterday) => `eine Zeile pro Tag, z. B. ── ${yesterday} ── über den Einträgen von gestern; die Zeilen zeigen nur 14:32`,
+      off: (date) => `keine Zeilen; Sessions und der Papierkorb zeigen ${date} 14:32 in jeder Zeile`,
+    },
+    pinnedFavorites: {
+      label: "angeheftete Favoriten",
+      description:
+        "Ob jede Liste (Chat, Änderungen, Plan, Sessions, Monitor und Einstellungen) ihre markierten Einträge (`Space`) oben noch einmal zeigt, unter ── ★ Angeheftet ──, in der Reihenfolge der Liste, und darunter die ganze Liste, nach einer schlichten Linie oder ihrem ersten Datumstrenner, wo sie ihren Platz behalten, ebenfalls mit ★. `↑↓` und `Home`/`End` folgen den Zeilen auf dem Bildschirm, durch beide Kopien; `Shift+↑/↓` nur den angehefteten. Wer dem neuesten Eintrag folgt, wählt ihn an seinem Platz in der Liste. Ein Filter gilt auch für sie. Sessions und der Monitor heften nur an, was ihr Zeitraum gelesen hat; Sessions heftet auch die aktive und laufende Sessions an, solange angeheftete Sessions an ist. Nützlich, um ein paar Einträge einer langen Liste griffbereit zu halten: den Turn mit der Aufgabe, an der du arbeitest, eine Datei, die du immer wieder prüfst, die Einstellungen, die du oft änderst.",
+      on: "markierte Einträge oben noch einmal, unter ── ★ Angeheftet ──, und an ihrem Platz darunter, beide mit ★",
+      off: "markierte Einträge nur an ihrem Platz, mit ★; `Shift+↑/↓` springt zwischen ihnen",
+    },
+    rememberPositions: {
+      label: "Positionen merken",
+      description:
+        "Ob jede Liste ihren ausgewählten Eintrag und die Scrollposition jedes Eintrags über Neustarts des Viewers behält. Beim Wechseln der Einträge bleiben die Positionen in jedem Fall erhalten, solange der Viewer läuft.",
+      on: "pro Projekt speichern, z. B. öffnet Änderungen wieder auf derselben Datei, zum selben Hunk gescrollt",
+      off: "nach jedem Neustart frisch beginnen: der neueste Turn im Chat, sonst der erste Eintrag, jeweils nach oben gescrollt",
+      stored: (file) => `Gespeichert in \`${file}\`; Ausschalten behält die Datei.`,
+      atStart: "Wirkt, wenn der Viewer startet.",
+    },
+    rememberView: {
+      label: "Ansicht pro Session",
+      description:
+        "Ob jede Session in der Ansicht zurückkommt, in der sie zuletzt gezeigt wurde (Chat, Änderungen, Plan, Sessions oder Einstellungen): wenn Claude Code sie startet oder fortsetzt, wenn du den Viewer mit `/cco:open` oder ohne `--view` startest und wenn der Viewer ihr nach `/resume` folgt. Ein `/cco:…`-Befehl öffnet weiterhin die Ansicht, die er nennt.",
+      on: "die letzte Ansicht der Session wieder öffnen, z. B. kommt eine in Änderungen verlassene Session nach `claude --resume` in Änderungen zurück",
+      off: "im Chat starten oder in der Ansicht, die im Projekt zuletzt gezeigt wurde",
+      stored: (file) => `Pro Projekt gespeichert in \`${file}\`.`,
+    },
+    mouse: {
+      label: "Maus",
+      description: (select) =>
+        `Ob der Viewer die Maus übernimmt: ein Klick auf einen Tab wechselt dorthin, ein Klick auf eine Webadresse öffnet sie im Browser, ein Klick in eine Liste wählt den Eintrag, ein Doppelklick tut, was \`Enter\` tut, und das Rad scrollt die Vorschau (oder bewegt sich durch die Liste). Ziehen in der Vorschau markiert Zeilen und kopiert sie beim Loslassen. Solange es an ist, überlässt das Terminal die Klicks dem Viewer: ${select}.`,
+      selectWt: "Text markierst du mit `Shift+Ziehen`",
+      selectTmux: "Text markierst du mit `Shift+Ziehen` oder der Zusatztaste deines Terminals (`Option` in iTerm2)",
+      selectOther: "Text markierst du mit `Shift+Ziehen` in Windows Terminal (in tmux mit `Shift` oder der Zusatztaste deines Terminals)",
+      on: "Klicks und Rad gehen an den Viewer",
+      offTmux: "tmux und das Terminal behalten die Maus, wie in jedem anderen Pane",
+      off: "das Terminal behält die Maus: Ziehen markiert Text, `Ctrl+Klick` öffnet Links",
+    },
+    filterIn: {
+      label: "Filter in",
+      description:
+        "Worin der Listenfilter (`Ctrl+F`) sucht. Die Liste: was die Zeile eines Eintrags zeigt (Prompt, Dateipfad, Plan- oder Session-Titel, Tag, Name der Einstellung). Die Details: was seine Vorschau hinzufügt (angehängte Dateien und Subagents, Text und Feedback eines Plans, Prompts, Dateien und Branch einer Session, die Modelle eines Tages, die Beschreibung einer Einstellung). Mit den Details findet z. B. `src/tui` in Sessions die Sessions, die dort eine Datei geändert haben, obwohl keine Zeile das zeigt. Jedes Wort muss passen, in beliebiger Reihenfolge; `*` steht für beliebige Zeichen, `?` für eins. Im Filterdialog schalten `^L` und `^D` sie ein und aus, was diese Einstellung ändert.",
+      list: "was die Zeilen zeigen, z. B. einen Prompt, einen Dateipfad oder den Titel einer Session",
+      details: "was die Vorschauen hinzufügen, z. B. die geänderten Dateien einer Session oder den Text eines Plans",
+      both: "Zeilen und Details: findet am meisten, auch Einträge, die die Wörter nur irgendwo erwähnen",
+    },
+    updateMode: {
+      label: "Update",
+      description:
+        "Ob der Viewer beim Start npm nach der neuesten Version von cco und GitHub nach den Release Notes fragt. Eine neuere Version erscheint in der Kopfzeile, und die Einträge unter Releases am Ende der Liste zeigen die Notizen jeder Version und führen das Update aus. Mit auto öffnet der Viewer das Update hier auch gleich, sobald die Prüfung eins findet, und fragt, ob es installiert werden soll. Wähle an, um zu aktualisieren, wann es dir passt, aus ohne Netzzugang.",
+      on: "beim Start npm und GitHub fragen; eine neuere Version erscheint in der Kopfzeile (v0.7.0 → 0.8.0), und du aktualisierst, wann du willst",
+      off: "keine Netzanfragen; `F5` hier prüft trotzdem einmal",
+      auto: "wie an, und sobald die Prüfung eine neuere Version findet, öffnet der Viewer sie hier und fragt, ob sie installiert werden soll, einmal pro Start",
+      notes: ["`F5` in den Einstellungen prüft in jedem Fall einmal.", "Die Antwort wird in `~/.claude/cco/releases.json` aufbewahrt, so erscheinen die Notizen auch offline."],
+    },
+    accountColor: {
+      label: "Farbe in der Kopfzeile",
+      description:
+        "Der Hintergrund des \"cco\" links in der Kopfzeile, damit du auf einen Blick siehst, mit welchem Claude-Account dieses Claude Code läuft. Er erscheint, sobald das Claude Code, dem der Viewer folgt, bei einem Account angemeldet ist; bei mehreren (Konfigurationsordner `~/.claude*`, zum Beispiel `~/.claude-work` und `~/.claude-personal`, gestartet mit `CLAUDE_CONFIG_DIR`) unterscheiden die Farben sie. Die Farben sind die 16 der Konsole und sehen also aus wie im Farbschema deines Terminals. auto nimmt eine aus der E-Mail (rot, grün, gelb, magenta, cyan oder eine helle davon, nie blau wie die Fokusleiste), so hat ein Account auf jedem Rechner dieselbe Farbe; eine feste überschreibt sie für den Account des Konfigurationsordners dieses Viewers. Sie wird in den Einstellungen dieses Ordners gespeichert; die Viewer der anderen Accounts lesen sie von dort und zeigen diesen Account ebenfalls darin.",
+      auto: "eine Farbe aus der E-Mail",
+      off: "das \"cco\" behält die Farbe der Leiste",
+    },
+    accountAvatar: {
+      label: "Avatar",
+      description:
+        "Was links in der Kopfzeile statt \"cco\" steht, auf der Farbe des Accounts, damit du die Accounts an mehr als der Farbe unterscheidest: bis zu sechs Spalten aus Buchstaben, Symbolen oder Emojis (ein Emoji nimmt zwei). Es steht auch in den Einträgen des Accounts hier und in der Ansicht Accounts, vor den Sessions des Accounts in der Ansicht Sessions (wenn die anderen Accounts gelistet sind) und am Ende des Terminaltitels. `Enter` öffnet eine Liste von Avataren, jeder mit dem, was er zeigt, und ein Feld für einen eigenen. Wie die Farbe wird er in den Einstellungen dieses Ordners gespeichert; die Viewer der anderen Accounts lesen ihn von dort.",
+      none: 'das "cco"',
+      emojis: (hint) => `Emojis: ${hint}. Aus mehreren zusammengesetzte Emojis (eine Person mit Laptop, eine Flagge) werden nicht angeboten: manche Terminals zeichnen ihre Teile getrennt.`,
+    },
+    accountTitle: {
+      label: "Avatar im Titel",
+      description: "Ob der Fenster- und Tab-Titel des Terminals mit dem Avatar des Accounts endet, z. B. `✳ orders · 🦊`. Ohne Avatar ist es der Titel der Session allein.",
+      on: "der Titel endet mit dem Avatar des Accounts",
+      off: "der Titel ist der Titel der Session allein",
+    },
+    viewAccounts: {
+      label: "Ansicht Accounts",
+      description:
+        "Ob die Ansicht Accounts (die gefundenen Accounts, ihr Plugin, was dort läuft und die Sessions des Projekts in jedem) mit `0`, einem Klick auf das \"cco\" links in der Kopfzeile und `←` `→` / `Tab` erreichbar ist. Das \"cco\" bleibt in jedem Fall, in der Farbe des Accounts. `/cco:accounts` öffnet die Ansicht auch, wenn sie aus ist, so wie `--view` es für einen ausgeblendeten Tab tut.",
+      on: "`0`, der Klick auf \"cco\" und `Tab` erreichen sie",
+      off: "`0` und der Klick tun nichts, `Tab` überspringt sie",
+    },
+    accountsListWidth: {
+      label: "Breite der Account-Liste",
+      suits:
+        "Die Ansicht Accounts (`0` oder ein Klick auf das \"cco\" links in der Kopfzeile) listet die Accounts nach E-Mail: eine breitere Liste zeigt lange E-Mails ganz, eine schmalere lässt den Details mehr Platz.",
+    },
+    accountsOrder: {
+      label: "Reihenfolge der Accounts",
+      description: "Die Reihenfolge der Liste der Ansicht Accounts unterhalb des aktiven Accounts, der immer zuerst kommt.",
+      email: "nach E-Mail, z. B. jan@work.com vor me@home.de",
+      folder: "nach dem Namen des Konfigurationsordners, z. B. .claude vor .claude-work",
+      recent: "der zuletzt genutzte Account zuerst: der letzte Prompt in seiner `history.jsonl`, sonst wann seine `.claude.json` geschrieben wurde",
+    },
+    viewChat: { what: "die Turns der Session, als Markdown dargestellt" },
+    chatListWidth: { suits: "Eine breitere Liste zeigt mehr von jedem Prompt; eine schmalere lässt den Antworten mehr Platz, z. B. für breite Tabellen und Code." },
+    showTools: {
+      label: "Tool-Aufrufe",
+      description:
+        "Wie viel der Chat von Claudes Tool-Aufrufen (Lesen, Bearbeiten, Befehle, Suchen) zwischen dem Text zeigt. kompakt zeigt auf einen Blick, was Claude getan hat, voll auch, was herauskam. Aus erscheinen Claudes Fragen und deine Antworten (AskUserQuestion) weiterhin in einem gelben Rahmen und was Claude im Browser getan hat (Claude in Chrome, der Browser-Bereich der Desktop-App) in einem cyanfarbenen, mit nummerierten Screenshots, die ein Klick oder `o` / `O` öffnet; sonst sind sie Tool-Aufrufe wie die anderen.",
+      off: "ausblenden; Claudes Text liest sich als eine Antwort",
+      compact: "je eine Zeile mit dem Ergebnis, z. B. ⚙ Read src/app.ts · 120 Zeilen, ⚙ Edit src/app.ts · +4 −2, ⚙ Bash Run the tests · ✓ · 38 Zeilen",
+      full: "auch der Befehl, die letzten 10 Zeilen seiner Ausgabe und die ersten 5 Dateien, die eine Suche gefunden hat",
+    },
+    showThinking: {
+      label: "Denken",
+      description:
+        "Ob der Chat Claudes Denkblöcke zeigt: was Claude vor einer Antwort oder einem Tool-Aufruf erwogen hat. Nützlich, um zu sehen, warum Claude einen Weg genommen hat; die Turns werden deutlich länger.",
+      on: "dort zeigen, wo Claude nachgedacht hat, zwischen dem Text",
+      off: "ausblenden; nur, was Claude dir geschrieben hat",
+    },
+    showAgents: {
+      label: "Agents",
+      description:
+        "Ob der Chat die Subagents zeigt, die Claude gestartet hat, dort, wo es sie gestartet hat: Typ, Aufgabe, Modell und ob sie laufen, fertig oder fehlgeschlagen sind, mit Dauer, Tool-Aufrufen und Tokens. `a` im Chat öffnet, was ein Subagent getan hat.",
+      on: "zeigen, z. B. einen Explore-Agent, der den Code durchsucht, mit seinem Status",
+      off: "ausblenden; `a` öffnet weiterhin, was sie getan haben",
+    },
+    chatWrap: { what: "im Chat", off: "nützlich für breite Tabellen und Codeblöcke" },
+    chatOrder: { what: "Turns" },
+    viewGit: { what: "die geänderten Dateien mit ihren Diffs" },
+    gitListWidth: {
+      suits: "Eine breitere Liste zeigt lange Pfade ganz, z. B. `src/tui/SettingsView.tsx` tief in einem Ordner; eine schmalere lässt den Diffs mehr Platz.",
+    },
+    wrap: { what: "in Diffs", off: "lange Codezeilen behalten Form und Einrückung" },
+    gitNestedRepos: {
+      label: "Unter-Repositorys",
+      description:
+        "Ob Änderungen auch die git-Repositorys in den Ordnern darunter zeigt: Repositorys im Repository des Projekts, Submodule, Worktrees oder die Repositorys eines Ordners, der selbst keins ist. Sie werden bis zu 3 Ebenen unter der obersten Ebene des Repositorys gesucht (oder des Ordners, wenn er keins ist), ohne versteckte Ordner, `node_modules`, `bin` und `obj`, auch wenn das Repository sie ignoriert; `F5` sucht erneut, und die Ansicht tut es alle 30 s. Jedes Repository bekommt über seinen Dateien eine Zeile mit Pfad und Branch, auch das einzige; eins ohne Änderungen zeigt keine Änderungen, und seine Vorschau nennt Branch und letzte Commits. Die ersten 10 werden alle 2 s gelesen; ↓ mehr ↓ am Ende der Liste liest die anderen, alle 10 s.",
+      on: "jedes gefundene Repository, z. B. ── tools/bar · main ── über den dort geänderten Dateien; ein verschachteltes Repository oder Submodul erscheint nicht mehr als ein Eintrag des Repositorys drumherum",
+      off: "nur das Repository, in dem der Ordner liegt, als eine Gruppe",
+    },
+    viewPlan: { what: "die Pläne, die Claude im Plan-Modus vorgelegt hat" },
+    planListWidth: { suits: "Eine breitere Liste zeigt mehr vom Titel jedes Plans; eine schmalere lässt dem Plantext mehr Platz." },
+    planWrap: { what: "von Plänen", off: "nützlich für breite Tabellen und Codeblöcke" },
+    planOrder: { what: "Pläne" },
+    viewSessions: { what: "die Übersicht vergangener Sessions" },
+    sessionsListWidth: {
+      suits: "Eine breitere Liste zeigt mehr vom Titel oder ersten Prompt jeder Session, auch im Papierkorb; eine schmalere lässt den Prompts und Dateien der Vorschau mehr Platz.",
+    },
+    sessionsFolders: {
+      label: "Ordner",
+      description:
+        "Die Projektordner, deren Sessions die Ansicht Sessions listet: dieser, die anderen oder alle mit Sessions in `~/.claude/projects`. Andere Ordner helfen, eine anderswo gestartete Session zu finden; jede Zeile nennt dann ihr Projekt. Der Papierkorb folgt dieser Wahl. Die aktive Session erscheint immer. `Enter` hier oder `a` in Sessions öffnet den Filter mit dieser Einstellung, den Accounts und den Hintergrund-Sessions.",
+      this: (name) => `nur dieser, ${name}`,
+      other: (name) => `jeder Ordner außer ${name}`,
+      all: "alle Projektordner",
+    },
+    sessionsAccounts: {
+      label: "Accounts",
+      description:
+        "Die Claude-Accounts, deren Sessions die Ansicht Sessions listet, von denen, die auf diesem Rechner angemeldet sind (die Ordner `~/.claude*`): dieser, alle oder die im Filter angehakten. Mit anderen Accounts beginnt jede Zeile mit einem Balken in der Farbe ihres Accounts (grau für einen Account, dessen Farbe aus ist), die Vorschau nennt den Account, ob die Session dort läuft und ob er das cco-Plugin hat, und `Enter` bietet an, sie dort fortzusetzen, in einem neuen Fenster unter diesem Account. Ihre Sessions lassen sich markieren, nicht löschen, umbenennen, exportieren oder verschieben. Der Papierkorb zeigt immer die dieses Accounts.",
+      current: "nur die dieses Accounts",
+      all: "jeder gefundene Account, auch einer, der später angemeldet wird",
+    },
+    sessionsBackground: {
+      label: "Hintergrund",
+      description:
+        "Ob die Ansicht Sessions die Sessions listet, die im Hintergrund liefen: gestartet mit `claude -p` oder dem Agent SDK (ein Skript, ein CI-Lauf) oder vom Daemon von Claude Code ausgeführt. Sie sind vor ihrem Titel mit ◌ markiert, und die Vorschau sagt, wie sie liefen (bei einer Session, die der Daemon ausführt, mit `claude attach`).",
+      show: "mit den anderen, markiert mit ◌",
+      hide: "weglassen: nur die in einem Terminal getippten Sessions",
+    },
+    sessionsRemote: {
+      label: "Remote",
+      description:
+        "Ob die Ansicht Sessions die Remote-Control-Sessions dieses Accounts listet, die auf einem anderen Rechner laufen (ein Claude Code, gestartet mit `claude remote-control` oder `/remote-control`, so wie die Claude-App sie listet). Sie sind vor ihrem Titel mit ◈ markiert; eine verbundene Session dieses Rechners zeigt ⇄. Nur mit eingeschalteter Einstellung Remote-API.",
+      show: "mit den anderen, markiert mit ◈",
+      hide: "weglassen: nur die Sessions auf diesem Rechner",
+    },
+    remoteApi: {
+      label: "Remote-API",
+      description:
+        "Experimentell. Liest die Remote-Control-Sessions dieses Accounts von claude.ai über eine Schnittstelle, die Anthropic nicht dokumentiert und jederzeit ändern kann, mit dem Login, das Claude Code in `.credentials.json` hält (gelesen, nie geschrieben oder erneuert; ist es abgelaufen, starte Claude Code oder führe `/login` aus). Braucht ein Pro-, Max-, Team- oder Enterprise-Login; hinter einem Firmen-Proxy braucht es die Zertifikate des Systems (`NODE_OPTIONS=--use-system-ca`). Es liest nur: Senden ist die Einstellung Fernsteuerung.",
+      on: "Remote-Control-Sessions erscheinen in Sessions, und die Vorschau zeigt ihre Prompts",
+      off: "claude.ai wird nichts gefragt",
+    },
+    remoteControl: {
+      label: "Fernsteuerung",
+      description:
+        "Experimentell, mit eingeschalteter Remote-API. Lässt cco eine Remote-Control-Session steuern wie die Claude-App: ihr einen Prompt senden und anhalten, was Claude tut, aus dem `Enter`-Dialog in Sessions oder mit `Enter` auf dem letzten Turn im eigenen Viewer einer Remote-Session. Es schreibt über dieselbe undokumentierte Schnittstelle an claude.ai, eine Änderung dort kann also einen Prompt ins Leere laufen lassen; was gesendet wurde, erscheint im Chat, sobald die Session es hat.",
+      on: "`Enter` auf einer Remote-Session bietet an, einen Prompt zu senden oder sie zu unterbrechen",
+      off: "Remote-Sessions werden nur gezeigt, nichts wird gesendet",
+    },
+    pinnedSessions: {
+      label: "angeheftete Sessions",
+      description:
+        "Ob die Ansicht Sessions die aktive Session (●) und die in einem anderen Claude Code laufenden (▶) oben in der Gruppe Angeheftet zeigt, markiert oder nicht, damit sie griffbereit bleiben, egal wie weit unten ihr letzter Prompt sie in der Liste einordnet. Das geht auch mit ausgeschalteten angehefteten Favoriten: die Gruppe hält dann nur sie; ist es an, mischen sie sich in der Reihenfolge der Liste mit den markierten Sessions. Eine Session, die endet, verlässt die Gruppe. Ein Filter gilt auch für sie.",
+      on: "die aktive und laufende Sessions oben noch einmal, unter ── ★ Angeheftet ──, mit ● oder ▶",
+      off: "sie erscheinen nur an ihrem Platz in der Liste, mit ● oder ▶",
+    },
+    sessionsRange: { what: "Sessions", dated: "gestartet" },
+    viewMonitor: { what: "Antworttempo, Wartezeit und Fehler über den Tag" },
+    monitorListWidth: { suits: "Die Tage brauchen wenig Platz, schmal lässt also den Diagrammen und der Tabelle der Antworten mehr Spalten." },
+    monitorRange: {
+      what: "Tage",
+      dated: "mit Antworten",
+      note: "Die üblichen Werte (der Median der 30 Tage vor einem Tag) kommen aus den gelesenen Tagen, ein kurzer Zeitraum hat also weniger davon.",
+    },
+    settingsListWidth: { suits: "Eine breitere Liste kürzt weniger Bezeichnungen; eine schmalere lässt den Beschreibungen mehr Platz." },
+  },
+};

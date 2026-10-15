@@ -2,6 +2,7 @@ import { Text, useInput } from "ink";
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import wrapAnsi from "wrap-ansi";
 import { Dialog, Spinner, type Layout } from "./layout.js";
+import { L } from "../i18n/index.js";
 
 /** A step of a run (an update or a repair) as the dialog needs it. */
 export interface ProgressStep {
@@ -41,7 +42,7 @@ export interface Progress {
 const MAX_WIDTH = 64;
 
 /** What a restart (on its own or after an update) says when `cco open` cannot reopen the viewer. */
-export const REOPEN_BY_HAND = "The viewer cannot reopen itself here: close it with q and open it again.";
+export const REOPEN_BY_HAND = () => L().progress.reopenByHand;
 
 /** The last `n` lines of a command's output that are not empty, without colours and overwritten progress. */
 export function outputTail(text: string, n: number): string[] {
@@ -134,18 +135,18 @@ export function ProgressDialog({ layout, progress }: { layout: Layout; progress:
         <Text wrap="truncate">
           {progress.copy && (
             <>
-              <Text color="yellow">c</Text> copy commands{"   "}
+              <Text color="yellow">c</Text> {L().progress.copyCommands}{"   "}
             </>
           )}
-          <Text color="yellow">Esc</Text> close
+          <Text color="yellow">Esc</Text> {L().progress.close}
         </Text>
       ) : progress.onCancel ? (
         <Text wrap="truncate">
-          <Text color="yellow">Esc</Text> cancel
+          <Text color="yellow">Esc</Text> {L().progress.cancel}
         </Text>
       ) : (
         <Text dimColor wrap="truncate">
-          Please wait, this cannot be cancelled.
+          {L().progress.wait}
         </Text>
       )}
     </Dialog>
