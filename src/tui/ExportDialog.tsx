@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import type { AgentExport, ExportOptions } from "../export/session.js";
 import { TOOL_LEVELS } from "../transcript/tools.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -14,14 +15,13 @@ interface Field<K extends keyof ExportOptions = keyof ExportOptions> {
   name: (value: ExportOptions[K]) => string;
 }
 
-const onOff = (v: boolean) => (v ? "on" : "off");
-const AGENT_NAMES: Record<AgentExport, string> = { none: "none", reports: "reports", full: "whole conversations" };
+const onOff = (v: boolean) => (v ? L().settings.values.on : L().settings.values.off);
 
 const FIELDS: Field[] = [
-  { key: "tools", label: "Tool calls", values: TOOL_LEVELS, name: (v) => String(v) },
-  { key: "thinking", label: "Thinking", values: [false, true], name: (v) => onOff(v as boolean) },
-  { key: "agents", label: "Subagents", values: ["none", "reports", "full"], name: (v) => AGENT_NAMES[v as AgentExport] },
-  { key: "stats", label: "Turn stats", values: [false, true], name: (v) => onOff(v as boolean) },
+  { key: "tools", label: "tools", values: TOOL_LEVELS, name: (v) => L().settings.values[String(v)] ?? String(v) },
+  { key: "thinking", label: "thinking", values: [false, true], name: (v) => onOff(v as boolean) },
+  { key: "agents", label: "agents", values: ["none", "reports", "full"], name: (v) => L().dialogs.export.agents[v as AgentExport] ?? String(v) },
+  { key: "stats", label: "stats", values: [false, true], name: (v) => onOff(v as boolean) },
 ] as Field[];
 
 /** The value after (`step` 1) or before (-1) `value`, wrapping around. */
@@ -69,7 +69,7 @@ export function ExportDialog({
   return (
     <Dialog layout={layout} width={width} height={height}>
       <Text bold color="cyan" wrap="truncate">
-        Export
+        {L().dialogs.export.title}
       </Text>
       <Text> </Text>
       {lines.map((line, i) => (
@@ -79,14 +79,14 @@ export function ExportDialog({
       ))}
       <Text> </Text>
       <Text dimColor wrap="truncate">
-        markdown · llm · json · backup, in one zip archive
+        {L().dialogs.export.formats}
       </Text>
       <Text> </Text>
       {FIELDS.map((f, i) => {
         const selected = i === row;
         return (
           <Text key={f.key} wrap="truncate">
-            <Text color="cyan">{selected ? "›" : " "}</Text> {f.label.padEnd(12)}
+            <Text color="cyan">{selected ? "›" : " "}</Text> {(L().dialogs.export.fields[f.label] ?? f.label).padEnd(Math.max(12, ...FIELDS.map((g) => (L().dialogs.export.fields[g.label] ?? g.label).length + 1)))}
             <Text dimColor={!selected}>‹ </Text>
             <Text bold={selected} inverse={selected}>{` ${f.name(opts[f.key] as never)} `}</Text>
             <Text dimColor={!selected}> ›</Text>
@@ -100,10 +100,10 @@ export function ExportDialog({
         </Text>
       )}
       <Text wrap="truncate">
-        <Text color="yellow">↑↓</Text> field{"   "}
-        <Text color="yellow">←→</Text> change{"   "}
-        <Text color="yellow">Enter</Text> export{"   "}
-        <Text color="yellow">Esc</Text> cancel
+        <Text color="yellow">↑↓</Text> {L().dialogs.export.field}{"   "}
+        <Text color="yellow">←→</Text> {L().dialogs.export.change}{"   "}
+        <Text color="yellow">Enter</Text> {L().dialogs.export.export}{"   "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}
       </Text>
     </Dialog>
   );

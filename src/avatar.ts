@@ -1,4 +1,5 @@
 import stringWidth from "string-width";
+import { L } from "./i18n/index.js";
 
 /** The widest an avatar may be, in terminal columns: three emojis. */
 export const AVATAR_MAX_WIDTH = 6;
@@ -63,8 +64,8 @@ export const ALL_AVATAR_PRESETS: AvatarPreset[] = AVATAR_PRESETS.flatMap((g) => 
 export function avatarProblem(text: string): string | undefined {
   const value = text.trim();
   if (!value) return undefined;
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return "no control characters";
-  if (stringWidth(value) > AVATAR_MAX_WIDTH) return `at most ${AVATAR_MAX_WIDTH} columns (an emoji takes 2)`;
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return L().dialogs.avatar.noControl;
+  if (stringWidth(value) > AVATAR_MAX_WIDTH) return L().dialogs.avatar.tooWide(AVATAR_MAX_WIDTH);
   return undefined;
 }
 
@@ -88,7 +89,7 @@ export const avatarMeaning = (avatar: string): string | undefined => ALL_AVATAR_
 
 /** How to type an emoji on this system, for the dialog and the setting's details. */
 export function emojiInputHint(platform: NodeJS.Platform = process.platform): string {
-  if (platform === "win32") return "`Win+.` opens the emoji panel";
-  if (platform === "darwin") return "`Ctrl+Cmd+Space` opens the emoji picker";
-  return "your desktop's emoji picker types emojis (GNOME: `Ctrl+.` in many apps)";
+  if (platform === "win32") return L().dialogs.avatar.hintWindows;
+  if (platform === "darwin") return L().dialogs.avatar.hintMac;
+  return L().dialogs.avatar.hintLinux;
 }

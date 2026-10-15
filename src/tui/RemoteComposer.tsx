@@ -1,5 +1,6 @@
 import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useRef, useState } from "react";
+import { L } from "../i18n/index.js";
 import { editLine, type LineState } from "../filter.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { describeRemoteError } from "../remote/index.js";
@@ -43,9 +44,9 @@ function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: 
 
 type Permission = "allow" | "deny" | "reason";
 const PERMISSIONS: { id: Permission; label: string }[] = [
-  { id: "allow", label: "Allow" },
-  { id: "deny", label: "Deny" },
-  { id: "reason", label: "Deny, saying why…" },
+  { id: "allow", label: "allow" },
+  { id: "deny", label: "deny" },
+  { id: "reason", label: "reason" },
 ];
 
 /**
@@ -98,8 +99,8 @@ export function RemoteComposer({
     if (before && before !== answered.current) {
       const text = typed.trim();
       setTyped("");
-      if (text) void copy(text).then(() => notify("already answered in another app; what you typed is copied"), () => notify("already answered in another app"));
-      else notify("already answered in another app");
+      if (text) void copy(text).then(() => notify(L().remote.answeredCopied), () => notify(L().remote.answeredElsewhere));
+      else notify(L().remote.answeredElsewhere);
     }
   }, [pending?.requestId]);
 
@@ -108,7 +109,7 @@ export function RemoteComposer({
     if (box.current) onHeight(measureElement(box.current).height);
   });
 
-  const report = (done: string) => (p: Promise<void>) => p.then(() => notify(done), (err) => notify(`not sent: ${describeRemoteError(err)}`));
+  const report = (done: string) => (p: Promise<void>) => p.then(() => notify(done), (err) => notify(L().remote.notSent(describeRemoteError(err))));
   const answer = (response: Record<string, unknown>, done: string) => {
     if (!pending) return;
     answered.current = pending.requestId;
@@ -127,12 +128,12 @@ export function RemoteComposer({
       },
       (err) => {
         setSending(false);
-        notify(`not sent: ${describeRemoteError(err)}`);
+        notify(L().remote.notSent(describeRemoteError(err)));
       },
     );
   };
   const escape = () => {
-    if (working && !pending) return void report("interrupt sent")(sendInterrupt(sessionId));
+    if (working && !pending) return void report(L().remote.interruptSent)(sendInterrupt(sessionId));
     onFocus(false);
   };
 
@@ -159,7 +160,7 @@ export function RemoteComposer({
         if (pick < 0) return;
         const id = PERMISSIONS[pick]!.id;
         if (id === "reason") return setReason(EMPTY);
-        return answer(permissionResponse(pending, id === "allow"), id === "allow" ? "allowed" : "denied");
+        return answer(permissionResponse(pending, id === "allow"), id === "allow" ? L().remote.allowed : L().remote.denied);
       }
       if (key.escape) return escape();
       if (input === "\n" || (key.ctrl && input === "j")) return setLine({ text: line.text.slice(0, line.cursor) + "\n" + line.text.slice(line.cursor), cursor: line.cursor + 1, selected: false });
@@ -198,9 +199,9 @@ export function RemoteComposer({
         inline
         active={focused}
         layout={layout}
-        title={`Claude asks · ◈ ${truncate(title, 40)}`}
+        title={L().remote.asks(truncate(title, 40))}
         questions={questionsOf(pending.input)}
-        onSend={(answers) => answer({ behavior: "allow", toolUseID: pending.toolUseId, tool_name: pending.toolName, updatedInput: { ...pending.input, answers } }, "answer sent")}
+        onSend={(answers) => answer({ behavior: "allow", toolUseID: pending.toolUseId, tool_name: pending.toolName, updatedInput: { ...pending.input, answers } }, L().remote.answerSent)}
         onCancel={() => onFocus(false)}
         onTyped={setTyped}
       />
@@ -209,7 +210,7 @@ export function RemoteComposer({
     body = (
       <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
         <Text bold color="yellow" wrap="truncate">
-          {`Allow ${pending.displayName ?? pending.toolName}?`}
+          {L().remote.allowTool(pending.displayName ?? pending.toolName)}
         </Text>
         {toolInputLines(pending, room).map((l, i) => (
           <Text key={i} wrap="truncate">
@@ -218,9 +219,9 @@ export function RemoteComposer({
         ))}
         {reason ? (
           <>
-            <Text dimColor>Why? Claude reads it.</Text>
+            <Text dimColor>{L().remote.why}</Text>
             <TextRows line={reason} room={room - 2} lead="› " />
-            {keys([["Enter", "deny"], ["^J", "new line"], ["Esc", "back"]])}
+            {keys([["Enter", L().remote.keys.deny], ["^J", L().remote.keys.newLine], ["Esc", L().remote.keys.back]])}
           </>
         ) : (
           <>
@@ -228,10 +229,10 @@ export function RemoteComposer({
               <Text key={p.id} wrap="truncate">
                 <Text color="cyan">{i === choice && focused ? "›" : " "}</Text>
                 {` ${i + 1}. `}
-                <Text bold={i === choice}>{p.label}</Text>
+                <Text bold={i === choice}>{L().remote[p.id as "allow" | "deny" | "reason"]}</Text>
               </Text>
             ))}
-            {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [["Tab", "answer it"]])}
+            {keys(focused ? [["↑↓", L().remote.keys.choose], ["Enter", L().remote.keys.answer], ["1-3", ""], ["Esc", L().remote.keys.chat]] : [["Tab", L().remote.keys.answerIt]])}
           </>
         )}
       </Box>
@@ -241,8 +242,8 @@ export function RemoteComposer({
       <Box flexDirection="column" width={width} borderStyle="round" borderColor={focused ? "cyan" : "gray"} paddingX={1} flexShrink={0}>
         {line.text || focused ? <TextRows line={line} room={room - 2} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
         {focused
-          ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"]])
-          : keys([["Tab", "write a prompt"]])}
+          ? keys([["Enter", sending ? L().remote.keys.sending : working ? L().remote.keys.sendWorking : L().remote.keys.send], ["^J", L().remote.keys.newLine], ["Esc", working ? L().remote.keys.stop : L().remote.keys.chat], ["PgUp/Dn", L().remote.keys.scroll]])
+          : keys([["Tab", L().remote.keys.write]])}
       </Box>
     );
   }

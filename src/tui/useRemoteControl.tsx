@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listEvents, sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
+import { L } from "../i18n/index.js";
 import { describeRemoteError } from "../remote/index.js";
 import { pendingRequests, type PendingRequest } from "../remote/pending.js";
 import { TIMING } from "../timing.js";
@@ -48,12 +49,12 @@ export function toolInputLines(pending: PendingRequest, width = 56): string[] {
 
 /** What the answer option says it does, by what is asked. */
 function answerOption(pending: PendingRequest | undefined): ChoiceOption<RemoteAction> {
-  if (!pending) return { id: "answer", label: "Answer it", detail: "", disabled: "what it waits for is not known yet" };
+  if (!pending) return { id: "answer", label: L().remote.answerIt, detail: "", disabled: L().remote.unknownWait };
   if (isQuestion(pending)) {
     const [first] = questionsOf(pending.input);
-    return { id: "answer", label: "Answer Claude's question", detail: first?.question ?? "", ...(!answerable(pending) && { disabled: "the question is in an unknown shape" }) };
+    return { id: "answer", label: L().remote.answerQuestion, detail: first?.question ?? "", ...(!answerable(pending) && { disabled: L().remote.unknownShape }) };
   }
-  return { id: "answer", label: `Allow or deny ${toolName(pending)}`, detail: toolInputLines(pending)[0] ?? "" };
+  return { id: "answer", label: L().remote.allowOrDeny(toolName(pending)), detail: toolInputLines(pending)[0] ?? "" };
 }
 
 /**
@@ -61,11 +62,12 @@ function answerOption(pending: PendingRequest | undefined): ChoiceOption<RemoteA
  * that; while Claude works, stopping it, then a prompt it takes in when it can; otherwise a prompt.
  */
 export function remoteOptions(workerStatus: string | undefined, pending?: PendingRequest): ChoiceOption<RemoteAction>[] {
-  const prompt = (detail: string): ChoiceOption<RemoteAction> => ({ id: "prompt", label: "Send a prompt", detail });
-  const interrupt: ChoiceOption<RemoteAction> = { id: "interrupt", label: "Interrupt Claude", detail: "stops what Claude does, like Esc in the terminal" };
-  if (workerStatus === "requires_action" || pending) return [answerOption(pending), interrupt, prompt("Claude takes it in once answered")];
-  if (workerStatus === "running") return [interrupt, prompt("Claude takes it in when it can, as if typed while it works")];
-  return [prompt("Claude starts on it at once")];
+  const t = L().remote;
+  const prompt = (detail: string): ChoiceOption<RemoteAction> => ({ id: "prompt", label: t.sendPrompt, detail });
+  const interrupt: ChoiceOption<RemoteAction> = { id: "interrupt", label: t.interrupt, detail: t.interruptDetail };
+  if (workerStatus === "requires_action" || pending) return [answerOption(pending), interrupt, prompt(t.onceAnswered)];
+  if (workerStatus === "running") return [interrupt, prompt(t.whenItCan)];
+  return [prompt(t.atOnce)];
 }
 
 /** How the app answers a tool's request: allowed with its input unchanged, or denied with what the user said. */
@@ -90,10 +92,10 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
   // What was typed into an answer, for the clipboard if another app answers first.
   const [typed, setTyped] = useState("");
   const copy = useClipboard();
-  const report = (done: string) => (p: Promise<void>) => p.then(() => notify(done), (err) => notify(`not sent: ${describeRemoteError(err)}`));
+  const report = (done: string) => (p: Promise<void>) => p.then(() => notify(done), (err) => notify(L().remote.notSent(describeRemoteError(err))));
   const act = (action: RemoteAction, target: RemoteTarget) => {
     if (action === "prompt") return setPrompting(target);
-    if (action === "interrupt") return void report("interrupt sent")(sendInterrupt(target.id));
+    if (action === "interrupt") return void report(L().remote.interruptSent)(sendInterrupt(target.id));
     if (action === "answer" && answerable(target.pending)) {
       setTyped("");
       return setAnswering({ ...target, pending: target.pending! });
@@ -128,10 +130,10 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
   useEffect(() => {
     if (!gone) return;
     setAnswering(undefined);
-    if (!typed.trim()) return notify("already answered in another app");
+    if (!typed.trim()) return notify(L().remote.answeredElsewhere);
     void copy(typed).then(
-      () => notify("already answered in another app; what you typed is copied"),
-      () => notify("already answered in another app"),
+      () => notify(L().remote.answeredCopied),
+      () => notify(L().remote.answeredElsewhere),
     );
   }, [gone]);
 
@@ -147,10 +149,10 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
     element = (
       <QuestionDialog
         layout={layout}
-        title={`◈ ${answering.title}: Claude asks`}
+        title={L().remote.asksTitle(answering.title)}
         questions={questionsOf(pending.input)}
         // As the app: the questions as asked, with the answers by question.
-        onSend={(answers) => answer({ behavior: "allow", toolUseID: pending.toolUseId, tool_name: pending.toolName, updatedInput: { ...pending.input, answers } }, "answer sent")}
+        onSend={(answers) => answer({ behavior: "allow", toolUseID: pending.toolUseId, tool_name: pending.toolName, updatedInput: { ...pending.input, answers } }, L().remote.answerSent)}
         onCancel={() => setAnswering(undefined)}
         onTyped={setTyped}
       />
@@ -160,7 +162,7 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
     element = (
       <PromptDialog
         layout={layout}
-        title={`Deny ${toolName(pending)}, saying why`}
+        title={L().remote.denyWhy(toolName(pending))}
         lines={[`◈ ${answering.title}`, ...toolInputLines(pending)]}
         draftKey={`${answering.id}#${pending.requestId}`}
         onSend={(text) => answer(permissionResponse(pending, false, text), "denied")}
@@ -171,22 +173,22 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
   } else if (answering) {
     const { pending } = answering;
     const options: ChoiceOption<Permission>[] = [
-      { id: "allow", label: "Allow", detail: "this once, as the app does" },
-      { id: "deny", label: "Deny", detail: "Claude is told no and goes on" },
-      { id: "reason", label: "Deny, saying why…", detail: "Claude reads what you write" },
+      { id: "allow", label: L().remote.allow, detail: L().remote.allowDetail },
+      { id: "deny", label: L().remote.deny, detail: L().remote.denyDetail },
+      { id: "reason", label: L().remote.reason, detail: L().remote.reasonDetail },
     ];
     element = (
       <ChoiceDialog
         key={pending.requestId}
         layout={layout}
         choice={{
-          title: `◈ ${answering.title}: allow ${toolName(pending)}?`,
+          title: L().remote.allowToolTitle(answering.title, toolName(pending)),
           lines: [...toolInputLines(pending), ...(pending.description ? [truncate(pending.description, 56)] : [])],
           options,
           initial: 0,
           onChoose: (choice: Permission) => {
             if (choice === "reason") return setAnswering({ ...answering, reason: true });
-            answer(permissionResponse(pending, choice === "allow"), choice === "allow" ? "allowed" : "denied");
+            answer(permissionResponse(pending, choice === "allow"), choice === "allow" ? L().remote.allowed : L().remote.denied);
           },
         }}
         onClose={() => setAnswering(undefined)}
@@ -196,12 +198,12 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
     element = (
       <PromptDialog
         layout={layout}
-        title={prompting.workerStatus === "running" ? "Send a prompt (Claude is working)" : "Send a prompt"}
+        title={prompting.workerStatus === "running" ? L().remote.sendPromptWorking : L().remote.sendPrompt}
         lines={[`◈ ${prompting.title}`]}
         draftKey={prompting.id}
         onSend={(text) => {
           setPrompting(undefined);
-          void report("prompt sent")(sendPrompt(prompting.id, text));
+          void report(L().remote.promptSent)(sendPrompt(prompting.id, text));
         }}
         onCancel={() => setPrompting(undefined)}
       />

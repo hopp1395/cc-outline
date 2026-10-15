@@ -11,7 +11,7 @@ import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { ALL_AVATAR_PRESETS, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
 import { AvatarDialog } from "./AvatarDialog.js";
-import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
+import { legendMark, sessionLegend } from "./sessionLegend.js";
 import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { filterSettings, sessionFilter } from "../sessionFilter.js";
 import { otherAccounts } from "../accountContinue.js";
@@ -386,7 +386,7 @@ function buildRows(m: Messages["settings"]): Row[] {
       group: "Account",
       label: r.accountAvatar.label,
       description: r.accountAvatar.description,
-      values: [["", r.accountAvatar.none], ...ALL_AVATAR_PRESETS.map((p): [string, string] => [p.avatar, p.meaning])],
+      values: [["", r.accountAvatar.none], ...ALL_AVATAR_PRESETS.map((p): [string, string] => [p.avatar, L().dialogs.avatar.meanings[p.meaning] ?? p.meaning])],
       dialog: "avatar",
       inline: true,
       notes: [() => r.accountAvatar.emojis(emojiInputHint())],
@@ -694,6 +694,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
   for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
   if (row.legend) {
     // The marks in a column, what each says wrapped beside it.
+    const SESSION_LEGEND = sessionLegend();
     const column = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
     lines.push("", bold(m.legendHeading));
     for (const m of SESSION_LEGEND) {

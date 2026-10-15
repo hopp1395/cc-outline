@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import { editLine, insertable, lineOf } from "../filter.js";
 import { LineField } from "./FilterDialog.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -48,7 +49,7 @@ export function RenameDialog({
   return (
     <Dialog layout={layout} width={width} height={9 + lines.length}>
       <Text bold color="cyan" wrap="truncate">
-        Rename the session
+        {L().dialogs.rename.title}
       </Text>
       <Text> </Text>
       {lines.map((line, i) => (
@@ -59,13 +60,13 @@ export function RenameDialog({
       <Text> </Text>
       <LineField line={line} width={width} />
       <Text color="red" wrap="truncate">
-        {empty ? "  The name must not be empty" : " "}
+        {empty ? L().dialogs.rename.empty : " "}
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">Enter</Text> save{"  "}
-        <Text color="yellow">Esc</Text> cancel{"  "}
-        <Text color="yellow">^U</Text> clear
+        <Text color="yellow">Enter</Text> {L().dialogs.rename.save}{"  "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}{"  "}
+        <Text color="yellow">^U</Text> {L().dialog.clear}
       </Text>
     </Dialog>
   );

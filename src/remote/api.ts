@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import tls from "node:tls";
+import { L } from "../i18n/index.js";
 import { readLogin, RemoteError, type RemoteLogin } from "./credentials.js";
 import type { PendingRequest } from "./pending.js";
 
@@ -107,8 +108,8 @@ const TLS_CODES = new Set(["UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "SELF_SIGNED_CER
 
 function networkError(err: unknown): RemoteError {
   const code = (err as { cause?: { code?: string } })?.cause?.code;
-  if (code && TLS_CODES.has(code)) return new RemoteError("tls", "the connection's certificate is not trusted: start cco with NODE_OPTIONS=--use-system-ca");
-  return new RemoteError("offline", "claude.ai cannot be reached");
+  if (code && TLS_CODES.has(code)) return new RemoteError("tls", L().remote.tls);
+  return new RemoteError("offline", L().remote.offline);
 }
 
 async function get(path: string, login: RemoteLogin, body?: unknown): Promise<unknown> {
@@ -131,21 +132,21 @@ async function get(path: string, login: RemoteLogin, body?: unknown): Promise<un
   } catch (err) {
     throw networkError(err);
   }
-  if (response.status === 401) throw new RemoteError("unauthorized", "claude.ai refused the login: run /login");
-  if (response.status === 403) throw new RemoteError("forbidden", "claude.ai refused access (Remote Control may be off for the organisation)");
-  if (response.status === 429) throw new RemoteError("rate-limit", "claude.ai asks to slow down");
-  if (response.status >= 500) throw new RemoteError("server", `claude.ai answered ${response.status}`);
+  if (response.status === 401) throw new RemoteError("unauthorized", L().remote.unauthorized);
+  if (response.status === 403) throw new RemoteError("forbidden", L().remote.forbidden);
+  if (response.status === 429) throw new RemoteError("rate-limit", L().remote.rateLimit);
+  if (response.status >= 500) throw new RemoteError("server", L().remote.answered(String(response.status)));
   if (!response.ok) {
     // The error body says what was wrong with the request.
     const detail = await response.json().then((b: { error?: { message?: unknown } }) => (typeof b?.error?.message === "string" ? `: ${b.error.message.slice(0, 120)}` : ""), () => "");
-    throw new RemoteError("format", `claude.ai answered ${response.status}${detail}`);
+    throw new RemoteError("format", L().remote.answered(`${response.status}${detail}`));
   }
   try {
     return await response.json();
   } catch {
     // A write needs no answer: what it did shows in the events.
     if (body !== undefined) return undefined;
-    throw new RemoteError("format", "claude.ai sent no JSON");
+    throw new RemoteError("format", L().remote.noJson);
   }
 }
 
@@ -159,7 +160,7 @@ export const SESSION_LIMIT = 100;
 export async function listSessions(dir?: string): Promise<RemoteSession[]> {
   const body = await get(`/v1/code/sessions?limit=${SESSION_LIMIT}`, readLogin(dir));
   const data = isObject(body) ? body.data : undefined;
-  if (!Array.isArray(data)) throw new RemoteError("format", "the list of sessions is not in the expected shape");
+  if (!Array.isArray(data)) throw new RemoteError("format", L().remote.listShape);
   return data.map(parseSession).filter((s): s is RemoteSession => s !== undefined);
 }
 
@@ -170,7 +171,7 @@ export const EVENT_LIMIT = 100;
 export async function listEvents(id: string, dir?: string): Promise<{ events: RemoteEvent[]; truncated: boolean }> {
   const body = await get(`/v1/code/sessions/${encodeURIComponent(id)}/events?limit=${EVENT_LIMIT}&sort_order=desc`, readLogin(dir));
   const data = isObject(body) ? body.data : undefined;
-  if (!Array.isArray(data)) throw new RemoteError("format", "the events are not in the expected shape");
+  if (!Array.isArray(data)) throw new RemoteError("format", L().remote.eventsShape);
   const events: RemoteEvent[] = [];
   for (const raw of data) {
     if (!isObject(raw) || !isObject(raw.payload)) continue;

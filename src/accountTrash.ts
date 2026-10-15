@@ -1,5 +1,6 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { L } from "./i18n/index.js";
 import type { Account } from "./account.js";
 import { accountsHome, claudeBinDir } from "./addAccount.js";
 import { removeFavorite } from "./favorites.js";
@@ -120,12 +121,12 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Why the account of `dir` may not be deleted, or undefined when it may. `active`: the account the viewer follows. */
 export function accountDeleteBlocker(dir: string, active: string | undefined, home = accountsHome.get()): string | undefined {
-  if (same(dir, join(home, ".claude"))) return "~/.claude is the default account: it can't be deleted";
-  if (active && same(dir, active)) return "it is the account of the Claude Code this viewer follows";
+  if (same(dir, join(home, ".claude"))) return L().accountTrash.isDefault;
+  if (active && same(dir, active)) return L().accountTrash.isActive;
   const running = inClaudeDir(dir, runningSessions).size;
-  if (running) return `${plural(running, "Claude Code")} ${running === 1 ? "runs" : "run"} with it`;
+  if (running) return L().accountTrash.running(running);
   const viewers = accountViewers(dir);
-  if (viewers.length) return `a cco viewer runs with it (pid ${viewers.join(", ")})`;
+  if (viewers.length) return L().accountTrash.viewer(viewers.join(", "));
   return undefined;
 }
 
@@ -177,8 +178,8 @@ export function trashAccount(account: Account, active: string | undefined, home 
   } catch (err) {
     rmSync(target, { recursive: true, force: true });
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") throw new Error(`the folder is in use by a process (${code}): close it and try again`);
-    throw new Error(`the folder could not be moved: ${(err as Error).message}`);
+    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") throw new Error(L().accountTrash.inUse(code));
+    throw new Error(L().accountTrash.notMoved((err as Error).message));
   }
   const failed: string[] = [];
   for (const s of entry.scripts) {
@@ -214,9 +215,9 @@ export function listAccountTrash(home = accountsHome.get()): AccountTrashEntry[]
 /** Moves an account back from the trash. Refuses, without moving anything, if its folder or a script exists again. */
 export function restoreAccount(id: string, home = accountsHome.get()): AccountTrashEntry {
   const entry = listAccountTrash(home).find((e) => e.id === id);
-  if (!entry) throw new Error("not in the trash");
+  if (!entry) throw new Error(L().accountTrash.notInTrash);
   const taken = [entry.folder, ...entry.scripts].find((i) => existsSync(i.from));
-  if (taken) throw new Error(`can't restore: ${basename(taken.from)} exists again`);
+  if (taken) throw new Error(L().accountTrash.existsAgain(basename(taken.from)));
   if (existsSync(entry.folder.to)) move(entry.folder.to, entry.folder.from);
   for (const s of entry.scripts) if (existsSync(s.to)) move(s.to, s.from);
   rmSync(join(accountTrashRoot(home), id), { recursive: true, force: true });

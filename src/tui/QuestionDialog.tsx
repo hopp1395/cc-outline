@@ -1,5 +1,6 @@
 import { Box, Text, useInput, usePaste } from "ink";
 import { useState, type ReactNode } from "react";
+import { L } from "../i18n/index.js";
 import { editLine, insertable, type LineState } from "../filter.js";
 import { LineField } from "./FilterDialog.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -109,7 +110,7 @@ export function QuestionDialog({
     if (key.escape) return onCancel();
     if (key.return) {
       const result = answersOf(questions, answers);
-      return result ? onSend(result) : setNotice("every question needs an answer");
+      return result ? onSend(result) : setNotice(L().question.needsAnswer);
     }
     if (key.upArrow || key.downArrow) return setAt((r) => (r + (key.upArrow ? -1 : 1) + rows.length) % rows.length);
     if (!row) return;
@@ -148,7 +149,7 @@ export function QuestionDialog({
     lines.push(
       <Text key={`x${qi}`} wrap="truncate">
         <Text color="cyan">{selected ? "›" : " "}</Text> <Text color={a.other !== undefined ? "green" : undefined}>{mark(a.other !== undefined)}</Text>{" "}
-        <Text bold={selected}>Other…</Text>
+        <Text bold={selected}>{L().question.other}</Text>
       </Text>,
     );
     if (selected || a.other !== undefined) lines.push(<LineField key={`f${qi}`} line={field[qi]!} width={width} />);
@@ -166,10 +167,10 @@ export function QuestionDialog({
         {notice ?? " "}
       </Text>
       <Text wrap="truncate">
-        <Text color="yellow">↑↓</Text> row{"  "}
-        <Text color="yellow">Space</Text> choose{"  "}
-        <Text color="yellow">Enter</Text> send{"  "}
-        <Text color="yellow">Esc</Text> {inline ? "chat" : "later"}
+        <Text color="yellow">↑↓</Text> {L().question.row}{"  "}
+        <Text color="yellow">Space</Text> {L().question.choose}{"  "}
+        <Text color="yellow">Enter</Text> {L().question.send}{"  "}
+        <Text color="yellow">Esc</Text> {inline ? L().question.chat : L().question.later}
       </Text>
     </>
   );

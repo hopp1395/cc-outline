@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { L } from "./i18n/index.js";
 import { delimiter, join, relative, isAbsolute } from "node:path";
 import { readAccount } from "./account.js";
 import { proc } from "./proc.js";
@@ -139,23 +140,23 @@ export function checkNewAccount(
   folderName: string,
   { binDir, aliases, env = process.env, platform = process.platform, home = accountsHome.get() }: { binDir: string; aliases?: Map<string, string>; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; home?: string },
 ): AccountCheck {
-  if (!COMMAND_PATTERN.test(command)) return { problem: "the command takes letters, digits, - and _, starting with a letter" };
-  if (!FOLDER_PATTERN.test(folderName)) return { problem: "the folder must be .claude-<name> (letters, digits, . - _), so cco finds it" };
+  if (!COMMAND_PATTERN.test(command)) return { problem: L().addAccountCheck.pattern };
+  if (!FOLDER_PATTERN.test(folderName)) return { problem: L().addAccountCheck.folder };
   const name = command.toLowerCase();
   if (platform === "win32") {
-    const alias = aliases?.get(name) ?? (aliases ? undefined : POWERSHELL_ALIASES.includes(name) ? "a built-in command" : undefined);
-    if (alias) return { problem: `${command} is a PowerShell alias of ${alias}: it would win over ${command}.cmd` };
-    if (CMD_BUILTINS.includes(name)) return { problem: `${command} is built into cmd: it would win over ${command}.cmd` };
+    const alias = aliases?.get(name) ?? (aliases ? undefined : POWERSHELL_ALIASES.includes(name) ? L().addAccountCheck.builtin : undefined);
+    if (alias) return { problem: L().addAccountCheck.alias(command, alias) };
+    if (CMD_BUILTINS.includes(name)) return { problem: L().addAccountCheck.cmd(command) };
   }
-  if (BASH_BUILTINS.includes(name)) return { problem: `${command} is built into Bash: it would win over the script` };
+  if (BASH_BUILTINS.includes(name)) return { problem: L().addAccountCheck.bash(command) };
   const other = commandOnPath(command, binDir, env, platform);
-  if (other) return { problem: `${command} is a program on the PATH already: ${other}` };
+  if (other) return { problem: L().addAccountCheck.onPath(command, other) };
   const script = startScripts(command, join(home, folderName), binDir, platform, home).find((s) => existsSync(s.file));
-  if (script) return { problem: `${script.file} exists already` };
+  if (script) return { problem: L().addAccountCheck.exists(script.file) };
   const folder = join(home, folderName);
   if (existsSync(folder)) {
     const account = readAccount(folder, home);
-    if (account) return { problem: `${folderName} is the account of ${account.email} already` };
+    if (account) return { problem: L().addAccountCheck.taken(folderName, account.email) };
     return { reuse: folder };
   }
   return { ok: true };

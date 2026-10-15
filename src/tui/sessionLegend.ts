@@ -1,4 +1,5 @@
 import stringWidth from "string-width";
+import { L } from "../i18n/index.js";
 
 /** A mark of the Sessions list: how it is drawn (SGR colour code), what it says in short and in full; without a mark, the short text is drawn in the colour. */
 export interface LegendMark {
@@ -9,8 +10,8 @@ export interface LegendMark {
   text: string;
 }
 
-/** Every mark a row of the Sessions list can carry, in pairs that belong together (the dialog shows two to a line). */
-export const SESSION_LEGEND: LegendMark[] = [
+/** Every mark a row of the Sessions list can carry, in pairs that belong together (the dialog shows two to a line); its texts in English. */
+const LEGEND: LegendMark[] = [
   {
     mark: "●",
     color: "32",
@@ -32,6 +33,13 @@ export const SESSION_LEGEND: LegendMark[] = [
   { mark: "⚠", color: "33", short: "waits for you", text: "a remote session whose Claude waits for an answer (a permission or a question); its ◈ blinks while Claude works there" },
   { mark: "◎", color: "34", short: "observed", text: "observers of it run, each in a window of its own (Enter, observe); `◎2` and up count them" },
 ];
+
+/** The marks with their texts in the current language. */
+export const sessionLegend = (): LegendMark[] =>
+  LEGEND.map((m) => {
+    const [short, text] = L().legend.items[m.mark] ?? [m.short, m.text];
+    return { ...m, short, text };
+  });
 
 /**
  * A mark drawn in its colour, closed by its own reset (dim 22, colours 39): a full reset (0) would also clear the

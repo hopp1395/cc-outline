@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import { imageAction } from "../transcript/chrome.js";
 import type { Screenshot } from "../transcript/parse.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -50,7 +51,7 @@ export function ImagesDialog({
   return (
     <Dialog layout={layout} width={width} height={rows + 6}>
       <Text bold color="cyan" wrap="truncate">
-        Images of this turn · {images.length}
+        {L().dialogs.images.title(images.length)}
       </Text>
       <Text> </Text>
       {images.slice(first, first + rows).map((image, i) => {
@@ -60,7 +61,7 @@ export function ImagesDialog({
           return (
             <Text key={`pasted-${image.index}`} wrap="truncate" inverse={at}>
               {lead}
-              <Text color="magenta">⎘ {String(image.index + 1).padStart(digits)}</Text> {"pasted image".padEnd(16)}
+              <Text color="magenta">⎘ {String(image.index + 1).padStart(digits)}</Text> {L().dialogs.images.pasted.padEnd(16)}
             </Text>
           );
         const s = image.shot;
@@ -75,9 +76,9 @@ export function ImagesDialog({
       })}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">↑↓</Text> choose{"   "}
-        <Text color="yellow">↵</Text> open{"   "}
-        <Text color="yellow">Esc</Text> close
+        <Text color="yellow">↑↓</Text> {L().dialog.choose}{"   "}
+        <Text color="yellow">↵</Text> {L().dialogs.images.open}{"   "}
+        <Text color="yellow">Esc</Text> {L().dialog.close}
       </Text>
     </Dialog>
   );
