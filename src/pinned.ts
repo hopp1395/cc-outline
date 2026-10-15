@@ -18,7 +18,6 @@ export interface PinnedRows {
 }
 
 /** The label of the separator above the Pinned group; the list below it starts with a plain line. */
-export const PINNED_LABEL = "★ Pinned";
 
 /** The entries of a list top to bottom (natural indexes): those shown, bottom-up when `reversed`. */
 export function screenOrder(count: number, shown: number[] | undefined, reversed: boolean): number[] {

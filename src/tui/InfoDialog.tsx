@@ -7,6 +7,7 @@ import { settingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
 import { Dialog, type Layout, type Mode } from "./layout.js";
+import { L } from "../i18n/index.js";
 
 interface Props {
   layout: Layout;
@@ -20,105 +21,15 @@ interface Props {
   oneSession?: boolean;
 }
 
-/** Keys all lists share; each view lists them first. */
-const LIST_KEYS = (entry: string): [string, string][] => [
-  ["↑↓", `previous / next ${entry}`],
-  ["Home End g G", `first / last ${entry}`],
-  ["Space", `mark ${entry} ★`],
-  ["⇧↑↓", "previous / next marked"],
-  ["^F", "filter the list (again: clear)"],
-  ["PgUp PgDn", "scroll by page"],
-  ["^↑↓", "scroll by line"],
-  ["^Home ^End", "top / bottom"],
-];
-
-const COMMON_KEYS: [string, string][] = [
-  ["1 – 6", "chat / changes / plan / sessions / monitor / settings"],
-  ["Tab → ⇧Tab ←", "next / previous view"],
-  ["click wheel", "select, open a link / scroll"],
-  ["F5 ^R", "reload this view"],
-  ["p", "move: right / left / window"],
-  ["r", "restart the viewer"],
-  ["i", "this info"],
-  ["q", "quit"],
-];
-
-/** Keys of each view, shown in two columns. */
-const KEYS: Record<Mode, [string, string][]> = {
-  chat: [
-    ...LIST_KEYS("turn"),
-    ["s", "newest / oldest first"],
-    ["↵", "full prompt"],
-    ["ctrl+End", "jump to bottom"],
-    ["f", "follow mode"],
-    ["t", "tools: off / compact / full"],
-    ["h", "thinking"],
-    ["w", "wrap lines"],
-    ["^←→", "scroll sideways"],
-    ["c", "copy Markdown"],
-    ["o", "list images and screenshots"],
-    ["a A", "next / previous subagent"],
-    ...COMMON_KEYS,
-  ],
-  git: [
-    ...LIST_KEYS("file"),
-    ["^↵", "whole file / diff"],
-    ["↵ 2×click", "open in its app"],
-    ["[ ]", "previous / next hunk"],
-    ["w", "wrap lines"],
-    ["^←→", "scroll sideways"],
-    ...COMMON_KEYS,
-  ],
-  plan: [
-    ...LIST_KEYS("plan"),
-    ["s", "newest / oldest first"],
-    ["↵", "changes to previous"],
-    ["w", "wrap lines"],
-    ["^←→", "scroll sideways"],
-    ["c", "copy the plan"],
-    ...COMMON_KEYS,
-  ],
-  sessions: [
-    ...LIST_KEYS("session"),
-    ["s", "newest / oldest first"],
-    ["↵", "resume, move, export, import…"],
-    ["c", "copy resume command"],
-    ["d Del", "move to trash"],
-    ["u", "undo / restore"],
-    ["T", "trash on / off"],
-    ["a", "all projects / this one"],
-    ["x X", "delete / empty trash"],
-    ["● ▶ ∅", "active / running / folder gone"],
-    ...COMMON_KEYS,
-  ],
-  settings: [
-    ...LIST_KEYS("setting"),
-    ["↵", "next value / update"],
-    ["r", "back to the default"],
-    ["R", "reset all"],
-    ...COMMON_KEYS.filter(([k]) => k !== "r"),
-  ],
-  monitor: [
-    ...LIST_KEYS("day"),
-    ["s", "newest / oldest first"],
-    ["↵", "chart / table of responses"],
-    ["v", "overall / speed / wait / responses"],
-    ["m", "model"],
-    ...COMMON_KEYS,
-  ],
-  accounts: [
-    ...LIST_KEYS("account"),
-    ["↵ s", "actions / order: email → folder → last used"],
-    ["d T", "to the trash / trash on, off"],
-    ["u x X", "undo, restore / delete / empty trash"],
-    ...COMMON_KEYS,
-  ],
-};
+/** Keys of each view, shown in two columns: the list's keys, the view's own, then those all views share. */
+function keysOf(mode: Mode): [string, string][] {
+  const t = L().info;
+  const common = mode === "settings" ? t.common.filter(([k]) => k !== "r") : t.common;
+  return [...t.list(t.entry[mode]), ...t.views[mode], ...common];
+}
 
 /** The keys a viewer of one session does not have. */
 const VIEWER_KEYS = new Set(["1 – 6", "Tab → ⇧Tab ←", "p", "r"]);
-
-const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor", accounts: "Accounts" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;
@@ -143,7 +54,7 @@ function truncateStart(text: string, width: number): string {
 
 function terminalName(): string {
   const terminal = detectTerminal();
-  return terminal === "tmux" ? "tmux" : terminal === "wt" ? "Windows Terminal" : "other";
+  return terminal === "tmux" ? "tmux" : terminal === "wt" ? "Windows Terminal" : L().info.other;
 }
 
 /**
@@ -168,7 +79,8 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     </Text>
   );
 
-  const keys = oneSession ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)) : KEYS[mode];
+  const t = L().info;
+  const keys = oneSession ? keysOf(mode).filter(([k]) => !VIEWER_KEYS.has(k)) : keysOf(mode);
   const half = Math.ceil(keys.length / 2);
   const columnWidth = Math.floor(inner / 2);
   const keyCell = (entry?: [string, string]) =>
@@ -180,17 +92,17 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     ) : null;
 
   const lines = [
-    heading("Session"),
-    row("Project", tilde(cwd)),
-    row("Session", path ? basename(path, ".jsonl") : "none found"),
-    row("Transcript", path ? tilde(path) : "–"),
-    row("Git repo", gitRoot === undefined ? "…" : gitRoot === null ? "not a git repository" : tilde(gitRoot)),
+    heading(t.session),
+    row(t.project, tilde(cwd)),
+    row(t.session, path ? basename(path, ".jsonl") : t.noneFound),
+    row(t.transcript, path ? tilde(path) : "–"),
+    row(t.gitRepo, gitRoot === undefined ? "…" : gitRoot === null ? t.noRepo : tilde(gitRoot)),
     <Text key="gap1"> </Text>,
-    heading("Viewer"),
-    row("Terminal", `${terminalName()} · ${paneSwitchKey("left")} / ${paneSwitchKey("right")} switch panes`),
-    row("Settings", tilde(settingsFile())),
+    heading(t.viewer),
+    row(t.terminal, `${terminalName()} · ${paneSwitchKey("left")} / ${paneSwitchKey("right")} ${t.switchPanes}`),
+    row(t.settings, tilde(settingsFile())),
     <Text key="gap2"> </Text>,
-    heading(`Keys · ${VIEW_TITLES[mode]}`),
+    heading(t.keys(L().tabs[mode])),
     ...Array.from({ length: half }, (_, i) => (
       <Text key={`k${i}`} wrap="truncate">
         {keyCell(keys[i])}
@@ -202,7 +114,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
   // Title, author and blank line + content, plus the border.
   const height = Math.min(layout.rows - 2, lines.length + 5);
   const title = `cc-outline ${VERSION}`;
-  const hint = "i / esc close";
+  const hint = t.close;
 
   return (
     <Dialog layout={layout} width={width} height={height}>
@@ -212,7 +124,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
         <Text dimColor>{hint}</Text>
       </Text>
       <Text dimColor wrap="truncate">
-        by {AUTHOR} · {LICENSE} License
+        {t.by(AUTHOR, LICENSE)}
       </Text>
       <Text> </Text>
       {lines}

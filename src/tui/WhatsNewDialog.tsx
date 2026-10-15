@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { useMemo, useState } from "react";
+import { L } from "../i18n/index.js";
 import { renderMarkdown } from "../render/markdown.js";
 import type { Release } from "../update.js";
 import { VERSION } from "../version.js";
@@ -14,7 +15,7 @@ export function whatsNewLines(releases: Release[], width: number): string[] {
     const label = r.date ? `v${r.version} · ${r.date.slice(0, 10)}` : `v${r.version}`;
     if (lines.length > 0) lines.push("");
     lines.push(rule(width, label), "");
-    lines.push(...(r.body.trim() ? renderMarkdown(r.body, width) : [dim("No notes for this release.")]));
+    lines.push(...(r.body.trim() ? renderMarkdown(r.body, width) : [dim(L().whatsNew.noNotes)]));
   }
   return lines;
 }
@@ -46,13 +47,13 @@ export function WhatsNewDialog({ layout, releases, from, onClose }: { layout: La
   });
 
   const shown = lines.slice(scroll, scroll + visible);
-  const count = releases.length === 1 ? "1 release" : `${releases.length} releases`;
+  const count = L().whatsNew.releases(releases.length);
   const position = maxScroll > 0 ? ` · ${Math.round((scroll / maxScroll) * 100)}%` : "";
   return (
     <Dialog layout={layout} width={width} height={height} borderColor="green">
       <Text bold color="green" wrap="truncate">
-        {`cco updated to v${VERSION}`}
-        {from && <Text color="gray">{` from v${from} · ${count}`}</Text>}
+        {L().whatsNew.updated(VERSION)}
+        {from && <Text color="gray">{L().whatsNew.from(from, count)}</Text>}
       </Text>
       <Text> </Text>
       {shown.map((line, i) => (
@@ -65,15 +66,15 @@ export function WhatsNewDialog({ layout, releases, from, onClose }: { layout: La
       ))}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="green">Enter</Text> close
+        <Text color="green">Enter</Text> {L().dialog.close}
         {maxScroll > 0 && (
           <>
             {"   "}
-            <Text color="yellow">↑↓ PgUp/PgDn</Text> scroll{position}
+            <Text color="yellow">↑↓ PgUp/PgDn</Text> {L().dialog.scroll}{position}
           </>
         )}
         {"   "}
-        <Text color="gray">Claude Code needs a restart for the plugin</Text>
+        <Text color="gray">{L().whatsNew.restartNeeded}</Text>
       </Text>
     </Dialog>
   );

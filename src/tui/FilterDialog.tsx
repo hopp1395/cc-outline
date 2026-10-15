@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import stringWidth from "string-width";
+import { L } from "../i18n/index.js";
 import { editLine, insertable, nextBoundary, toggleFilterIn, type LineState } from "../filter.js";
 import type { FilterIn } from "../settings.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -57,29 +58,29 @@ export function FilterDialog({
   return (
     <Dialog layout={layout} width={width} height={11}>
       <Text bold color="cyan" wrap="truncate">
-        Filter
+        {L().filter.title}
       </Text>
       <Text> </Text>
       <LineField line={line} width={width} />
       <Text color={color} wrap="truncate">
         {"  "}
-        {shown} of {total}
+        {L().filter.count(shown, total)}
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        {box(filterIn !== "details")} in the list <Text color="yellow">^L</Text>
+        {box(filterIn !== "details")} {L().filter.inList} <Text color="yellow">^L</Text>
         {"    "}
-        {box(filterIn !== "list")} in the details <Text color="yellow">^D</Text>
+        {box(filterIn !== "list")} {L().filter.inDetails} <Text color="yellow">^D</Text>
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">Enter</Text> keep{"  "}
-        <Text color="yellow">Esc</Text> cancel{"  "}
-        <Text color="yellow">↑↓</Text> select{"  "}
-        <Text color="yellow">^U</Text> clear
+        <Text color="yellow">Enter</Text> {L().dialog.keep}{"  "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}{"  "}
+        <Text color="yellow">↑↓</Text> {L().dialog.select}{"  "}
+        <Text color="yellow">^U</Text> {L().dialog.clear}
       </Text>
       <Text dimColor wrap="truncate">
-        words must all match · * any text · ? _ one character
+        {L().filter.hint}
       </Text>
     </Dialog>
   );

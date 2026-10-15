@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { L } from "../i18n/index.js";
 import { barChart, bucketMinutes, CHART_AXIS_WIDTH } from "../monitor/chart.js";
 import {
   bucketIndex,
@@ -351,7 +352,7 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
   const viewport = bodyHeightBelow(header, bodyHeight);
   const lines = useMemo(() => {
     if (data && filter.none) return [dim("No day matches the filter")];
-    if (data && onLoadMore) return loadMoreLines(range, "days with responses", days.length, range.requested).map(dim);
+    if (data && onLoadMore) return loadMoreLines(range, L().loadMore.days, days.length, range.requested).map(dim);
     if (!data || !selected || !stats) return [dim(progress ? `reading transcripts ${progress.done}/${progress.total}…` : "reading transcripts…")];
     if (rows) return rows.rows;
     const { buckets, typical } = stats;

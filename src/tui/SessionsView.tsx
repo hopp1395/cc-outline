@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
+import { L } from "../i18n/index.js";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
@@ -1334,7 +1335,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
   else if (filter.none) preview = <Text dimColor>No session matches the filter</Text>;
-  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, "sessions", sessions.length, range.requested).join("\n")}</Text>;
+  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, L().loadMore.sessions, sessions.length, range.requested).join("\n")}</Text>;
   else if (onImport)
     preview = (
       <Text dimColor>

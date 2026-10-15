@@ -1,6 +1,7 @@
 import { Text } from "ink";
 import { useContext, useState } from "react";
-import { RANGE_NAMES, rangeStart } from "../settings.js";
+import { L } from "../i18n/index.js";
+import { rangeStart } from "../settings.js";
 import { dayKey } from "../monitor/responses.js";
 import { dayLabel } from "./days.js";
 import { AreaContext, columnWidthOf } from "./layout.js";
@@ -21,8 +22,8 @@ export interface RangeState {
   requested: boolean;
   /** Load more: the whole history, until the viewer restarts; the setting stays. */
   loadAll: () => void;
-  /** "the last 30 days", for the entry's preview. */
-  name: string;
+  /** How many days the range covers (1: today), for the entry's preview; 0 for the whole history. */
+  days: number;
 }
 
 /**
@@ -35,8 +36,7 @@ export function useListRange(key: "sessionsRange" | "monitorRange"): RangeState 
   const [everything, setEverything] = useState(false);
   // Recomputed on each render, so the range moves on at midnight.
   const since = everything ? undefined : rangeStart(range);
-  const name = range === "today" ? "today" : `the last ${RANGE_NAMES[range]}`;
-  return { since, more: since !== undefined, requested: everything, loadAll: () => setEverything(true), name };
+  return { since, more: since !== undefined, requested: everything, loadAll: () => setEverything(true), days: range === "all" ? 0 : range === "today" ? 1 : Number.parseInt(range, 10) };
 }
 
 /**
@@ -49,13 +49,14 @@ export const showsLoadMore = (range: RangeState, complete: boolean) => range.mor
 /** The row of the load more entry, a badge like the previews' "more lines": while the history is read, how far that got. */
 export function LoadMoreRow({ progress }: { progress?: { done: number; total: number } }) {
   const area = useContext(AreaContext);
-  const label = progress ? `↓ loading… ${progress.done}/${progress.total} ↓` : "↓ more ↓";
+  const label = progress ? L().loadMore.loading(progress.done, progress.total) : L().loadMore.more;
   return <Text>{centredBadge(label, columnWidthOf(area))}</Text>;
 }
 
 /** The preview of the load more entry: what the list shows and what Enter does. */
 export function loadMoreLines(range: RangeState, what: string, found: number, loading: boolean): string[] {
-  const from = range.since !== undefined ? ` (since ${dayLabel(dayKey(range.since))})` : "";
-  const shown = found > 0 ? `The list shows the ${what} of ${range.name}${from}.` : `No ${what} ${range.name === "today" ? "today" : `in ${range.name}`}${from}.`;
-  return [shown, "", loading ? "Reading the whole history…" : "Enter or a click loads the whole history, until the viewer restarts."];
+  const t = L().loadMore;
+  const from = range.since !== undefined ? t.since(dayLabel(dayKey(range.since))) : "";
+  const shown = found > 0 ? t.shows(what, range.days, from) : t.none(what, range.days, from);
+  return [shown, "", loading ? t.reading : t.hint];
 }

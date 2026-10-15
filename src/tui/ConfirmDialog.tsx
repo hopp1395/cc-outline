@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { Dialog, type Layout } from "./layout.js";
+import { L } from "../i18n/index.js";
 
 export interface Confirmation {
   title: string;
@@ -46,9 +47,9 @@ export function ConfirmDialog({
       ))}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color={color}>Enter</Text> yes
+        <Text color={color}>Enter</Text> {L().dialog.yes}
         {"   "}
-        <Text color="yellow">Esc</Text> no
+        <Text color="yellow">Esc</Text> {L().dialog.no}
       </Text>
     </Dialog>
   );
