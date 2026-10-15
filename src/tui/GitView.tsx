@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
+import { L } from "../i18n/index.js";
 import { basename, join } from "node:path";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
@@ -67,15 +68,6 @@ const STATUS_COLOR: Record<string, string> = {
 
 const STATUS_ANSI: Record<string, string> = { yellow: "33", green: "32", red: "31", blue: "34", magenta: "35" };
 
-const STATUS_LABEL: Record<string, string> = {
-  M: "modified",
-  A: "added",
-  "?": "untracked",
-  D: "deleted",
-  R: "renamed",
-  C: "copied",
-  U: "conflict",
-};
 
 /** What was read of a repository. */
 export interface RepoState {
@@ -140,7 +132,7 @@ export function gitEntries(repos: Repo[], states: Record<string, RepoState>, loa
 /** The separator of a repository: its path from the base (the base's own by its folder name), its branch and an operation in progress. */
 export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undefined, operation?: string): string {
   const name = repo.rel || basename(base) || base;
-  const label = branch ? `${name} · ${branch.branch ?? "(detached)"}` : name;
+  const label = branch ? `${name} · ${branch.branch ?? L().git.detached}` : name;
   return operation ? `${label} · ${operation}` : label;
 }
 
@@ -151,15 +143,16 @@ export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undef
 function fileHeader(file: FileChange, path: string, width: number, showFile: boolean): string[] {
   const color = STATUS_ANSI[STATUS_COLOR[file.status]] ?? "39";
   const counts = file.added !== undefined ? ` · +${file.added} -${file.removed}` : "";
-  const details = [(STATUS_LABEL[file.status] ?? file.status) + counts + (showFile ? " · whole file" : " · diff")];
-  if (file.oldPath) details.push(`from ${file.oldPath}`);
+  const t = L().git;
+  const details = [(t.status[file.status] ?? file.status) + counts + (showFile ? t.wholeFile : t.diff)];
+  if (file.oldPath) details.push(t.from(file.oldPath));
   const header = previewHeader(path, width, {
     marker: `\u001b[${color}m${file.status}\u001b[39m `,
     style: bold,
     details,
     wrap: wrapPath,
   });
-  return [...header.slice(0, -1), rule(width, showFile ? "↵ diff" : "↵ whole file")];
+  return [...header.slice(0, -1), rule(width, showFile ? t.toDiff : t.toFile)];
 }
 
 /**
@@ -172,15 +165,15 @@ export function repoHeader(repo: Repo, state: RepoState | undefined, live: RepoL
   const parts: string[] = [];
   if (state?.operation) parts.push(bright(state.operation));
   if (branch) {
-    const name = branch.branch ?? "(detached)";
+    const name = branch.branch ?? L().git.detached;
     parts.push(branch.upstream ? `${name} ↑${branch.ahead} ↓${branch.behind}` : name);
     if (branch.upstream) parts.push(branch.upstream);
   }
-  if (live?.fetched) parts.push(live.staleFetch ? bright(`fetched ${live.fetched}`) : `fetched ${live.fetched}`);
-  else if (live && branch?.upstream) parts.push(bright("never fetched"));
+  if (live?.fetched) parts.push(live.staleFetch ? bright(L().git.fetched(live.fetched)) : L().git.fetched(live.fetched));
+  else if (live && branch?.upstream) parts.push(bright(L().git.neverFetched));
   if (parts.length > 0) details.push(parts.join(" · "));
   const header = previewHeader(repo.root, width, { marker: "  ", style: bold, details, wrap: wrapPath });
-  return [...header.slice(0, -1), rule(width, "↵ open folder")];
+  return [...header.slice(0, -1), rule(width, L().git.openFolder)];
 }
 
 const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
@@ -200,11 +193,11 @@ export function repoInfoLines(info: RepoInfo | undefined, live: RepoLive | undef
   if (first.length > 0) lines.push(first.join(dim(" · ")));
   const second: string[] = [];
   if (live?.describe) second.push(dim(live.describe));
-  if (live?.stashes) second.push(yellow(`${live.stashes} stash${live.stashes === 1 ? "" : "es"}`));
+  if (live?.stashes) second.push(yellow(L().git.stashes(live.stashes)));
   if (second.length > 0) lines.push(second.join(dim(" · ")));
   if (info) {
     const { name, email } = info.user;
-    lines.push(email ? dim(name ? `${name} <${email}>` : `<${email}>`) : yellow("no user.email"));
+    lines.push(email ? dim(name ? `${name} <${email}>` : `<${email}>`) : yellow(L().git.noEmail));
   }
   return lines;
 }
@@ -229,18 +222,18 @@ export function repoLines(state: RepoState | undefined, commits: Commit[] | unde
     ...info,
     ...(info.length > 0 ? [""] : []),
     files.length === 0
-      ? dim("No changes")
-      : `${files.length} file${files.length === 1 ? "" : "s"} · \u001b[32m+${added}\u001b[39m \u001b[31m-${removed}\u001b[39m`,
+      ? dim(L().git.noChanges)
+      : `${L().git.files(files.length)} · \u001b[32m+${added}\u001b[39m \u001b[31m-${removed}\u001b[39m`,
   ];
   if (commits === undefined) return lines;
-  if (commits.length === 0) return [...lines, "", dim("No commits yet")];
+  if (commits.length === 0) return [...lines, "", dim(L().git.noCommits)];
   const shown = commits.slice(0, COMMIT_LIMIT);
-  const older = commits.length > COMMIT_LIMIT ? [dim("older commits: ") + yellow("git log")] : [];
-  const of = total !== undefined && total > shown.length ? ` of ${grouped(total)}` : "";
+  const older = commits.length > COMMIT_LIMIT ? [dim(L().git.olderCommits) + yellow("git log")] : [];
+  const of = total !== undefined && total > shown.length ? grouped(total) : undefined;
   return [
     ...lines,
     "",
-    `Last ${shown.length}${of} commit${shown.length === 1 && !of ? "" : "s"}:`,
+    L().git.lastCommits(shown.length, of),
     ...shown.map((c) => `${yellow(c.hash)}  ${dim(c.when)}  ${c.subject}`),
     ...older,
   ];
@@ -249,11 +242,9 @@ export function repoLines(state: RepoState | undefined, commits: Commit[] | unde
 /** The preview of load more: how many repositories are read and what Enter does. */
 function loadMoreLines(total: number, base: string, loading: boolean): string[] {
   return [
-    `The list shows the first ${REPO_LIMIT} of the ${total} repositories in ${base} and the folders below.`,
+    L().git.firstRepos(REPO_LIMIT, total, base),
     "",
-    loading
-      ? "Reading the others…"
-      : `Enter or a click reads the other ${total - REPO_LIMIT}, until the viewer restarts. They are read again every 10 s, the one of the selected entry every 2 s.`,
+    loading ? L().git.readingOthers : L().git.readOthers(total - REPO_LIMIT),
   ];
 }
 
@@ -264,9 +255,9 @@ function renderContent(
   width: number,
   wrap: boolean,
 ): RenderedDiff {
-  if (!content) return message("Loading…");
-  if (content.kind === "deleted") return message("File was deleted; there is no content after the change.");
-  if (content.kind === "binary") return message("Binary file");
+  if (!content) return message(L().git.loading);
+  if (content.kind === "deleted") return message(L().git.deleted);
+  if (content.kind === "binary") return message(L().git.binary);
   return renderFile(content.text, path, width, addedLines(parseDiff(diffText)), wrap);
 }
 
@@ -286,7 +277,7 @@ function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) 
     );
   return (
     <>
-      <Text color="cyan">{status.branch ?? "(detached)"}</Text>
+      <Text color="cyan">{status.branch ?? L().git.detached}</Text>
       {status.upstream && (
         <>
           {count("↑", status.ahead, "yellow")}
@@ -362,7 +353,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       isLoadMore(e)
         ? { list: "", details: "" }
         : e.file
-          ? { list: e.key, details: haystack([e.file.oldPath, STATUS_LABEL[e.file.status], labelOf(e.repo)]) }
+          ? { list: e.key, details: haystack([e.file.oldPath, L().git.status[e.file.status], labelOf(e.repo)]) }
           : // The separator stays while its name or one of its files matches.
             { list: haystack([labelOf(e.repo), ...(states[e.repo.root]?.files ?? []).map((f) => fileKey(e.repo, f.path))]), details: "" },
     selected: selectedIndex,
@@ -613,9 +604,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     if (!current) return;
     const target = currentFile ? join(current.repo.root, currentFile.path) : current.repo.root;
     const name = currentFile ? current.key : current.repo.rel || basename(base);
-    if (!existsSync(target)) return notify(`${name} no longer exists`);
+    if (!existsSync(target)) return notify(L().git.gone(name));
     openInDefaultApp(target);
-    notify(`opened ${name}`);
+    notify(L().git.opened(name));
   };
   const jumpHunk = (dir: 1 | -1) => {
     const starts = rendered.hunkStarts;
@@ -666,12 +657,12 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   if (repos === null)
     preview = (
       <Text dimColor>
-        {nested ? `No git repository in ${cwd} or up to ${REPO_DEPTH} levels below` : `${cwd} is not inside a git repository`}
+        {nested ? L().git.noRepoBelow(cwd, REPO_DEPTH) : L().git.notInRepo(cwd)}
       </Text>
     );
   else if (error && currentFile) preview = <Text color="red">git: {error}</Text>;
-  else if (filter.none) preview = <Text dimColor>No file matches the filter</Text>;
-  else if (!current && !onLoadMore) preview = <Text dimColor>{repos === undefined ? "Loading…" : "Working tree clean"}</Text>;
+  else if (filter.none) preview = <Text dimColor>{L().git.noMatch}</Text>;
+  else if (!current && !onLoadMore) preview = <Text dimColor>{repos === undefined ? L().git.loading : L().git.clean}</Text>;
   else
     preview = (
       <Preview
@@ -696,11 +687,11 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       status={
         <Text dimColor={!focused}>
           <BranchInfo status={currentState?.branch} bold={focused} />
-          {repos && repos.length > 1 && `${repos.length} repos · `}
-          {fileCount} files · <Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
+          {repos && repos.length > 1 && L().git.repos(repos.length)}
+          {L().git.filesStatus(fileCount)}<Text color="green">+{totals[0]}</Text> <Text color="red">-{totals[1]}</Text>
           {current && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
-          {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
+          {!wrap && hscroll > 0 && L().chat.cols(Math.min(hscroll, maxHscroll))}
         </Text>
       }
       list={
@@ -716,7 +707,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
           filter={filter.banner}
           selected={selectedIndex}
           height={listHeight}
-          empty={filter.empty ?? (repos === undefined || !ready ? "Loading…" : "No changes")}
+          empty={filter.empty ?? (repos === undefined || !ready ? L().git.loading : L().git.noChanges)}
           itemKey={keyOf}
           render={(e, isSelected, pinnedCopy) => {
             if (isLoadMore(e)) return <LoadMoreRow progress={loadAll && repos ? { done: readMore, total: repos.length - REPO_LIMIT } : undefined} />;
@@ -747,16 +738,16 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       }
       preview={preview}
       footer={flash ?? [
-        { text: "↑↓ file", priority: 4 },
-        { text: "PgUp/Dn scroll", priority: 1 },
-        ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
-        { text: "^↵ file", on: showFile },
-        { text: onLoadMore ? "↵ more" : "↵ open", priority: 1 },
+        { text: L().git.footer.file, priority: 4 },
+        { text: L().chat.footer.scroll, priority: 1 },
+        ...(wrap ? [] : [{ text: L().chat.footer.side, priority: 4 }]),
+        { text: L().git.footer.wholeFile, on: showFile },
+        { text: onLoadMore ? L().git.footer.more : L().git.footer.open, priority: 1 },
         ...markFooter(currentFile !== undefined && favorites.isMarked(current?.key), markedCount),
         ...filter.footer,
-        { text: showFile ? "[/] change" : "[/] hunk" },
-        { text: "w wrap", on: wrap, priority: 2 },
-        { text: "1-6/tab view", priority: 1 },
+        { text: showFile ? L().git.footer.change : L().git.footer.hunk },
+        { text: L().chat.footer.wrap, on: wrap, priority: 2 },
+        { text: L().chat.footer.views, priority: 1 },
       ]}
     />
     {filter.dialog}

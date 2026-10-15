@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { L } from "../i18n/index.js";
 import stringWidth from "string-width";
 import { diffLines } from "../git/linediff.js";
 import { renderDiff } from "../render/diff.js";
@@ -50,18 +51,18 @@ interface Props {
   onTyping?: (typing: boolean) => void;
 }
 
-const STATUS: Record<PlanStatus, { icon: string; color: string; label: string; ansi: string }> = {
-  draft: { icon: "✎", color: "cyan", label: "being written, not presented yet", ansi: "36" },
-  approved: { icon: "✓", color: "green", label: "approved", ansi: "32" },
-  rejected: { icon: "✗", color: "red", label: "rejected", ansi: "31" },
-  pending: { icon: "●", color: "yellow", label: "waiting for approval", ansi: "33" },
+const STATUS: Record<PlanStatus, { icon: string; color: string; ansi: string }> = {
+  draft: { icon: "✎", color: "cyan", ansi: "36" },
+  approved: { icon: "✓", color: "green", ansi: "32" },
+  rejected: { icon: "✗", color: "red", ansi: "31" },
+  pending: { icon: "●", color: "yellow", ansi: "33" },
 };
 
 /** The plan's first heading, or its first line. */
 export function planTitle(text: string): string {
   const lines = text.split("\n").map((l) => l.trim());
   const heading = lines.find((l) => /^#{1,6}\s+\S/.test(l));
-  return (heading ?? lines.find((l) => l) ?? "Plan").replace(/^#{1,6}\s+/, "");
+  return (heading ?? lines.find((l) => l) ?? L().plan.title).replace(/^#{1,6}\s+/, "");
 }
 
 function time(ts?: string): string {
@@ -78,15 +79,16 @@ const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
 /** Title, status and origin of a plan above its text; the rule names what Enter switches to. */
 function planHeader(plan: Plan, version: number, width: number, showDiff: boolean, hasPrevious: boolean): string[] {
   const status = STATUS[plan.status];
-  const details = [`v${version} · ${status.label} · ${time(plan.timestamp).trim()}${showDiff ? ` · changes to v${version - 1}` : ""}`];
-  if (plan.prompt) details.push(`for: ${truncate(plan.prompt, width - 8)}`);
-  if (plan.feedback) details.push(`feedback: ${truncate(plan.feedback, width - 13)}`);
+  const t = L().plan;
+  const details = [`v${version} · ${t.status[plan.status]} · ${time(plan.timestamp).trim()}${showDiff ? t.changesTo(version - 1) : ""}`];
+  if (plan.prompt) details.push(t.for(truncate(plan.prompt, width - 8)));
+  if (plan.feedback) details.push(t.feedback(truncate(plan.feedback, width - 13)));
   const header = previewHeader(planTitle(plan.text), width, {
     marker: `\u001b[${status.ansi}m${status.icon}\u001b[39m `,
     style: bold,
     details,
   });
-  const label = showDiff ? "↵ plan" : hasPrevious ? `↵ changes to v${version - 1}` : undefined;
+  const label = showDiff ? t.toPlan : hasPrevious ? t.toChanges(version - 1) : undefined;
   return [...header.slice(0, -1), rule(width, label)];
 }
 
@@ -167,7 +169,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   // A plan is found by its title; its details are its text, its status and the feedback it got.
   const filter = useListFilter({
     items: plans,
-    text: (p) => ({ list: planTitle(p.text), details: haystack([p.text, p.status, STATUS[p.status].label, p.feedback]) }),
+    text: (p) => ({ list: planTitle(p.text), details: haystack([p.text, p.status, L().plan.status[p.status], p.feedback]) }),
     selected: index,
     select: (i) => select(i),
     reversed,
@@ -214,7 +216,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       const diff = diffLines(previous!.text, plan.text);
       return diff.hunks.length
         ? renderDiff(diff, "plan.md", previewWidth, wrap)
-        : { ...none, lines: [dim("Same text as the previous version.")] };
+        : { ...none, lines: [dim(L().plan.same)] };
     }
     return { ...none, lines: renderMarkdown(plan.text, previewWidth, wrap) };
   }, [plan, previous, diffOpen, previewWidth, wrap]);
@@ -263,7 +265,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       // Checked first: Shift+↑/↓ jump between marked plans.
       const mark = markKeys(input, key);
       if (mark === "toggle") {
-        if (plan?.status === "draft") return notify("a plan can be marked once it is presented");
+        if (plan?.status === "draft") return notify(L().plan.notYet);
         if (!plan) return;
         if (favorites.isMarked(plan.id)) filter.unmarking(index);
         return favorites.toggle(plan.id);
@@ -284,8 +286,8 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       if (key.escape && diffOpen) return toggleDiff(false);
       if (input === "c" && plan) {
         copy(plan.text).then(
-          () => notify("copied the plan to the clipboard"),
-          (err: Error) => notify(`copy failed: ${err.message}`),
+          () => notify(L().plan.copied),
+          (err: Error) => notify(L().chat.copyFailed(err.message)),
         );
       }
     },
@@ -293,21 +295,21 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
   );
 
   let preview;
-  if (!hasSession) preview = <Text dimColor>No Claude Code session found</Text>;
-  else if (filter.none) preview = <Text dimColor>No plan matches the filter</Text>;
+  if (!hasSession) preview = <Text dimColor>{L().plan.noSession}</Text>;
+  else if (filter.none) preview = <Text dimColor>{L().plan.noMatch}</Text>;
   else if (!plan)
     preview = (
       <Text dimColor>
         {planMode
-          ? "Plan mode is on. The plan shows up here as soon as Claude writes it."
-          : "No plan in this session yet. In Claude Code, Shift+Tab switches to plan mode; the plans Claude presents show up here."}
+          ? L().plan.planMode
+          : L().plan.none}
       </Text>
     );
   else
     preview = (
       <Preview
         onWheel={(d) => scroll.by(d)}
-        onLink={(url) => notify(`opened ${url}`)}
+        onLink={(url) => notify(L().chat.opened(url))}
         header={header}
         lines={lines}
         scroll={scroll.scroll}
@@ -331,14 +333,14 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       mode="plan"
       status={
         <Text dimColor={!focused}>
-          {filter.count(plans.length)} {plans.length === 1 ? "plan" : "plans"}
-          {counts.approved > 0 && <Text color="green">{` · ${counts.approved} approved`}</Text>}
-          {counts.rejected > 0 && <Text color="red">{` · ${counts.rejected} rejected`}</Text>}
-          {counts.pending > 0 && <Text color="yellow">{` · ${counts.pending} waiting`}</Text>}
-          {counts.draft > 0 && <Text color="cyan">{" · 1 being written"}</Text>}
+          {L().plan.count(filter.count(plans.length), plans.length)}
+          {counts.approved > 0 && <Text color="green">{L().plan.approved(counts.approved)}</Text>}
+          {counts.rejected > 0 && <Text color="red">{L().plan.rejected(counts.rejected)}</Text>}
+          {counts.pending > 0 && <Text color="yellow">{L().plan.waiting(counts.pending)}</Text>}
+          {counts.draft > 0 && <Text color="cyan">{L().plan.writing}</Text>}
           {plan && ` · ${scroll.position}`}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
-          {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
+          {!wrap && hscroll > 0 && L().chat.cols(Math.min(hscroll, maxHscroll))}
         </Text>
       }
       list={
@@ -354,7 +356,7 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
           filter={filter.banner}
           selected={index}
           height={listHeight}
-          empty={filter.empty ?? "No plans yet"}
+          empty={filter.empty ?? L().plan.empty}
           itemKey={(p) => p.id}
           time={(p) => p.timestamp}
           render={(p, isSelected) => {
@@ -379,17 +381,17 @@ export function PlanView({ cwd, plans: presented, planMode, hasSession, layout, 
       preview={preview}
       footer={
         flash ?? [
-          { text: "↑↓ plan", priority: 4 },
+          { text: L().plan.footer.plan, priority: 4 },
           orderFooter(order, "oldest-first"),
-          { text: "PgUp/Dn scroll", priority: 1 },
-          ...(previous ? [{ text: "↵ changes", on: diffOpen }] : []),
+          { text: L().chat.footer.scroll, priority: 1 },
+          ...(previous ? [{ text: L().plan.footer.changes, on: diffOpen }] : []),
           ...markFooter(favorites.isMarked(plan?.id), markedCount),
           ...filter.footer,
-          ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
-          { text: "w wrap", on: wrap, priority: 2 },
-          ...(plans.length > 0 ? [{ text: "End follow", on: follow, priority: 2 }] : []),
-          { text: "c copy", priority: 2 },
-          { text: "1-6/tab view", priority: 1 },
+          ...(wrap ? [] : [{ text: L().chat.footer.side, priority: 4 }]),
+          { text: L().chat.footer.wrap, on: wrap, priority: 2 },
+          ...(plans.length > 0 ? [{ text: L().plan.footer.follow, on: follow, priority: 2 }] : []),
+          { text: L().chat.footer.copy, priority: 2 },
+          { text: L().chat.footer.views, priority: 1 },
         ]
       }
     />

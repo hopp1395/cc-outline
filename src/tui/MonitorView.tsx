@@ -64,13 +64,6 @@ interface Props {
 /** What the chart shows; v steps through them. */
 const VALUES = ["score", "speed", "wait", "count"] as const;
 type Value = (typeof VALUES)[number];
-const VALUE_NAMES: Record<Value, string> = {
-  speed: "Speed (output tokens/s)",
-  wait: "Wait until the first block (s)",
-  count: "Responses",
-  score: "Overall (100 = usual speed and wait)",
-};
-const VALUE_KEYS: Record<Value, string> = { speed: "speed", wait: "wait", count: "responses", score: "overall" };
 
 /** All models together, as a choice of m. */
 const ALL = "all models";
@@ -177,14 +170,13 @@ const scoreText = (score: number | undefined, width = 0) =>
 
 /** What the colours and marks of the chart mean, below it. */
 function legend(value: Value): string[] {
-  const usual = `${dim("─")} usual (median of the 30 days before)`;
-  const error = `${c("31", "✗")} error`;
-  if (value === "count") return [`${c("36", "█")} responses   ${usual}   ${error}`];
-  const better = value === "speed" ? "faster" : value === "wait" ? "shorter" : "better";
-  const worse = value === "speed" ? "slower" : value === "wait" ? "longer" : "worse";
+  const t = L().monitor;
+  const usual = `${dim("─")} ${t.usual}`;
+  const error = `${c("31", "✗")} ${t.error}`;
+  if (value === "count") return [`${c("36", "█")} ${t.responses}   ${usual}   ${error}`];
   return [
-    `${c("32", "█")} ${better} than usual   ${c("36", "█")} about usual   ${c("31", "█")} ${worse} than usual ${dim("(by more than 15 %)")}`,
-    value === "score" ? `${dim("─")} 100 = usual speed and wait at that time   ${error}` : `${usual}   ${error}`,
+    `${c("32", "█")} ${t.thanUsual(t.better[value])}   ${c("36", "█")} ${t.aboutUsual}   ${c("31", "█")} ${t.thanUsual(t.worse[value])} ${dim(t.by15)}`,
+    value === "score" ? `${dim("─")} ${t.hundredAt}   ${error}` : `${usual}   ${error}`,
   ];
 }
 
@@ -218,22 +210,23 @@ function dayFigures(data: Measurements, day: string, model: string | undefined, 
   hours.sort((a, b) => a.speed - b.speed);
   const hourName = (h: number) => `${String(h).padStart(2, "0")}:00`;
   const errors = buckets.flatMap((b) => b.errors);
+  const t = L().monitor;
+  // The labels in a column as wide as the longest, two spaces after it.
+  const width = Math.max(...Object.values(t.labels).map((l) => l.length)) + 2;
+  const label = (name: keyof typeof t.labels) => bold(t.labels[name]) + " ".repeat(width - t.labels[name].length);
   return [
-    `${bold("Overall")}    ${scoreText(dayScore(buckets, typical))}${dim(" · 100 = usual speed and wait at those times")}`,
-    `${bold("Speed")}      median ${fmt(speed, " tok/s")}${dim(` · usual ${fmt(usual("speed"), " tok/s")}`)}`,
-    `${bold("Wait")}       median ${fmt(wait, " s", 1)}${dim(` · usual ${fmt(usual("wait"), " s", 1)}`)}`,
-    `${bold("Responses")}  ${rs.length}${measured.length < rs.length ? dim(` · ${measured.length} long enough to time`) : ""}`,
+    `${label("overall")}${scoreText(dayScore(buckets, typical))}${dim(t.hundredAtThose)}`,
+    `${label("speed")}${t.median(fmt(speed, " tok/s"))}${dim(t.usualValue(fmt(usual("speed"), " tok/s")))}`,
+    `${label("wait")}${t.median(fmt(wait, " s", 1))}${dim(t.usualValue(fmt(usual("wait"), " s", 1)))}`,
+    `${label("responses")}${rs.length}${measured.length < rs.length ? dim(t.timed(measured.length)) : ""}`,
     ...(hours.length > 1
-      ? [`${bold("Slowest")}    ${hourName(hours[0].hour)} ${fmt(hours[0].speed, " tok/s")} · ${bold("fastest")} ${hourName(hours.at(-1)!.hour)} ${fmt(hours.at(-1)!.speed, " tok/s")}`]
+      ? [`${label("slowest")}${hourName(hours[0].hour)} ${fmt(hours[0].speed, " tok/s")} · ${bold(t.fastest)} ${hourName(hours.at(-1)!.hour)} ${fmt(hours.at(-1)!.speed, " tok/s")}`]
       : []),
     ...(errors.length
-      ? ["", `${bold("Errors")}`, ...errors.map((e) => `\u001b[31m✗\u001b[39m ${hhmm(e.at)}  ${e.text}`)]
+      ? ["", `${bold(t.labels.errors)}`, ...errors.map((e) => `\u001b[31m✗\u001b[39m ${hhmm(e.at)}  ${e.text}`)]
       : []),
     "",
-    dim("Speed: output tokens per second of a response. Wait: until its first finished block,"),
-    dim("an upper bound of the time to the first token. Usual: median of the 30 days before."),
-    dim("Overall: speed / usual and usual / wait, their geometric mean × 100."),
-    dim("Transient API errors (overloaded, retries) are not written to transcripts."),
+    ...t.explain.map(dim),
   ];
 }
 
@@ -245,7 +238,8 @@ function responseTable(data: Measurements, day: string, model: string | undefine
   const modelWidth = Math.min(16, Math.max(5, ...rs.map((r) => shortModel(r.model).length)));
   const cell = (s: string, width: number) => s.padStart(width);
   const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-  const heading = `Time      ${"Model".padEnd(modelWidth)}  ${cell("Wait", 7)}  ${cell("Took", 7)}  ${cell("Tokens", 6)}  ${cell("tok/s", 5)}  ${cell("Index", 5)}`;
+  const h = L().monitor.columns;
+  const heading = `${h.time.padEnd(10)}${h.model.padEnd(modelWidth)}  ${cell(h.wait, 7)}  ${cell(h.took, 7)}  ${cell(h.tokens, 6)}  ${cell(h.speed, 5)}  ${cell(h.index, 5)}`;
   const rows = [
     ...rs.map((r) => {
       const timed = measurable(r);
@@ -259,7 +253,7 @@ function responseTable(data: Measurements, day: string, model: string | undefine
     }),
     ...data.errors.filter((e) => dayKey(e.at) === day).map((e) => ({ at: e.at, line: `${hhmmss(e.at)}  ${c("31", `✗ ${e.text}`)}` })),
   ].sort((a, b) => a.at - b.at);
-  return { heading, rows: rows.length ? rows.map((r) => r.line) : [dim("No responses on this day.")] };
+  return { heading, rows: rows.length ? rows.map((r) => r.line) : [dim(L().monitor.noResponsesDay)] };
 }
 
 /** An entry of the list: a day, or load more after the oldest. */
@@ -333,27 +327,28 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
     [table, data, selected?.day, model, minutes, stats],
   );
   const header = useMemo(() => {
-    const live = selected?.day === dayKey(Date.now()) ? " · live" : "";
-    const modelName = model ? shortModel(model) : ALL;
-    const title = selected ? `${dayLabel(selected.day)} · ${table ? "Responses" : VALUE_NAMES[value]}` : "Monitor";
+    const t = L().monitor;
+    const live = selected?.day === dayKey(Date.now()) ? t.live : "";
+    const modelName = model ? shortModel(model) : t.allModels;
+    const title = selected ? `${dayLabel(selected.day)} · ${table ? t.responsesTitle : t.values[value]}` : L().tabs.monitor;
     const lines = previewHeader(title, previewWidth, {
       marker: "▁▅█ ",
       style: bold,
       details: [
         table && stats
-          ? `${modelName} · overall ${scoreText(dayScore(stats.buckets, stats.typical))} · index 100 = usual at that time${live}`
-          : `${modelName} · ${minutes} min per bar${live}`,
+          ? t.tableDetails(modelName, scoreText(dayScore(stats.buckets, stats.typical)), live)
+          : t.chartDetails(modelName, minutes, live),
       ],
     });
     // The column headings stay above the scrolled rows.
-    const separator = rule(previewWidth, table ? "↵ chart" : "↵ table");
+    const separator = rule(previewWidth, table ? t.toChart : t.toTable);
     return fitHeader([...lines.slice(0, -1), ...(rows ? [bold(rows.heading)] : []), separator], headerHeight);
   }, [selected?.day, value, model, minutes, previewWidth, headerHeight, table, stats, rows]);
   const viewport = bodyHeightBelow(header, bodyHeight);
   const lines = useMemo(() => {
-    if (data && filter.none) return [dim("No day matches the filter")];
+    if (data && filter.none) return [dim(L().monitor.noMatch)];
     if (data && onLoadMore) return loadMoreLines(range, L().loadMore.days, days.length, range.requested).map(dim);
-    if (!data || !selected || !stats) return [dim(progress ? `reading transcripts ${progress.done}/${progress.total}…` : "reading transcripts…")];
+    if (!data || !selected || !stats) return [dim(progress ? L().monitor.reading(progress.done, progress.total) : L().monitor.readingAll)];
     if (rows) return rows.rows;
     const { buckets, typical } = stats;
     const height = Math.max(4, Math.min(12, viewport - 12));
@@ -407,7 +402,7 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
       mode="monitor"
       status={
         <Text dimColor={!focused}>
-          {data ? `${data.responses.length} responses · ${models.length} models${filter.shown ? ` · ${filter.count(days.length)} days` : ""}` : progress ? `reading ${progress.done}/${progress.total}` : "reading…"}
+          {data ? L().monitor.status(data.responses.length, models.length, filter.shown ? filter.count(days.length) : undefined) : progress ? L().monitor.readingShort(progress.done, progress.total) : L().monitor.readingDots}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
         </Text>
       }
@@ -423,7 +418,7 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
           filter={filter.banner}
           selected={current}
           height={listHeight}
-          empty={filter.empty ?? (data ? "No responses" : "Reading…")}
+          empty={filter.empty ?? (data ? L().monitor.noResponses : L().monitor.readingList)}
           itemKey={(d) => (isLoadMore(d) ? "load-more" : d.day)}
           time={(d) => (isLoadMore(d) ? undefined : d.day)}
           period="year"
@@ -451,14 +446,14 @@ export function MonitorView({ layout, visible, active, cwd, onTableOpen, onTypin
         <Preview header={header} lines={lines} scroll={scroll.scroll} width={previewWidth} height={bodyHeight} onWheel={(d) => scroll.by(d)} />
       }
       footer={[
-        { text: "↑↓ day", priority: 4 },
-        { text: "PgUp/Dn scroll", priority: 1 },
+        { text: L().monitor.footer.day, priority: 4 },
+        { text: L().chat.footer.scroll, priority: 1 },
         ...markFooter(favorites.isMarked(selected?.day), markedCount),
         ...filter.footer,
-        onLoadMore ? { text: "↵ load more", priority: 3 } : { text: "↵ table", on: table, priority: 3 },
-        ...(table ? [] : [{ text: `v ${VALUE_KEYS[value]}`, on: true, priority: 3 }]),
-        { text: `m ${model ? shortModel(model) : "all"}`, on: true, priority: 3 },
-        { text: "1-6/tab view", priority: 1 },
+        onLoadMore ? { text: L().monitor.footer.loadMore, priority: 3 } : { text: L().monitor.footer.table, on: table, priority: 3 },
+        ...(table ? [] : [{ text: `v ${L().monitor.keys[value]}`, on: true, priority: 3 }]),
+        { text: `m ${model ? shortModel(model) : L().monitor.all}`, on: true, priority: 3 },
+        { text: L().chat.footer.views, priority: 1 },
       ]}
     />
     {filter.dialog}

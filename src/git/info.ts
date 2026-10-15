@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import { L } from "../i18n/index.js";
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -75,12 +76,12 @@ export const STALE_FETCH_MS = 24 * 60 * 60 * 1000;
 /** How long ago, short: `just now`, `5 min ago`, `3 h ago`, `2 days ago`. */
 export function ago(ms: number): string {
   const min = Math.floor(ms / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
+  const t = L().git;
+  if (min < 1) return t.justNow;
+  if (min < 60) return t.minAgo(min);
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h} h ago`;
-  const days = Math.floor(h / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
+  if (h < 24) return t.hoursAgo(h);
+  return t.daysAgo(Math.floor(h / 24));
 }
 
 /** What changes often, read with every refresh for the selected repository. */
@@ -163,9 +164,9 @@ export async function repoInfo(root: string, dirs: GitDirs | undefined): Promise
   }
   const kinds: string[] = [];
   if (dirs?.linked) {
-    if (dirs.common !== dirs.dir) kinds.push(`worktree of ${basename(dirs.common) === ".git" ? dirname(dirs.common) : dirs.common}`);
-    else kinds.push("submodule");
+    if (dirs.common !== dirs.dir) kinds.push(L().git.worktreeOf(basename(dirs.common) === ".git" ? dirname(dirs.common) : dirs.common));
+    else kinds.push(L().git.submodule);
   }
-  if (dirs && existsSync(join(dirs.common, "shallow"))) kinds.push("shallow");
+  if (dirs && existsSync(join(dirs.common, "shallow"))) kinds.push(L().git.shallow);
   return { remotes, kinds, user };
 }
