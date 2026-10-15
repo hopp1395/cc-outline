@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import type { AccountCheck } from "../addAccount.js";
 import { editLine, insertable, lineOf } from "../filter.js";
 import { LineField } from "./FilterDialog.js";
@@ -60,7 +61,7 @@ export function AddAccountDialog({
     if ("problem" in result) return setMessage({ text: result.problem, color: "red" });
     if ("reuse" in result) {
       setReuse(result.reuse);
-      return setMessage({ text: `${dir} exists without an account: Enter uses it`, color: "yellow" });
+      return setMessage({ text: L().dialogs.add.reuse(dir), color: "yellow" });
     }
     onAdd(cmd, dir);
   };
@@ -86,30 +87,30 @@ export function AddAccountDialog({
   return (
     <Dialog layout={layout} width={width} height={15}>
       <Text bold color="cyan" wrap="truncate">
-        Add an account
+        {L().dialogs.add.title}
       </Text>
       <Text> </Text>
       <Text dimColor wrap="truncate">
-        {truncate(`Start scripts go to ${binDir}`, width - 4)}
+        {truncate(L().dialogs.add.scripts(binDir), width - 4)}
       </Text>
       <Text color={onPath ? undefined : "yellow"} dimColor={onPath} wrap="truncate">
-        {onPath ? "next to claude, on the PATH" : "not on the PATH yet: add it there"}
+        {onPath ? L().dialogs.add.onPath : L().dialogs.add.notOnPath}
       </Text>
       <Text> </Text>
-      {label(0, "Command (starts Claude Code with the account)")}
+      {label(0, L().dialogs.add.command)}
       {field === 0 ? <LineField line={command} width={width} /> : <Text wrap="truncate">{`  ${command.text}`}</Text>}
-      {label(1, "Config folder in your home folder")}
+      {label(1, L().dialogs.add.folder)}
       {field === 1 ? <LineField line={folder} width={width} /> : <Text wrap="truncate">{`  ${folder.text}`}</Text>}
       <Text> </Text>
       <Text color={checking ? "cyan" : message?.color} wrap="truncate">
-        {checking ? "checking the name (PowerShell aliases, PATH)…" : (message?.text ?? " ")}
+        {checking ? L().dialogs.add.checking : (message?.text ?? " ")}
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">Enter</Text> add{"  "}
-        <Text color="yellow">Tab</Text> field{"  "}
-        <Text color="yellow">Esc</Text> cancel{"  "}
-        <Text color="yellow">^U</Text> clear
+        <Text color="yellow">Enter</Text> {L().dialogs.add.add}{"  "}
+        <Text color="yellow">Tab</Text> {L().dialogs.add.field}{"  "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}{"  "}
+        <Text color="yellow">^U</Text> {L().dialog.clear}
       </Text>
     </Dialog>
   );

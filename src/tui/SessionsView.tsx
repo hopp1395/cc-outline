@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
+import { L } from "../i18n/index.js";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
@@ -165,7 +166,7 @@ export const sessionKey = (s: Pick<SessionSummary, "id" | "account">) => (s.acco
 const BACKGROUND_MARK = "◌";
 
 /** How a background session ran, as the header and the filter's details name it. */
-const BACKGROUND_TEXT: Record<SessionBackground, string> = { sdk: "claude -p / SDK", daemon: "daemon" };
+const BACKGROUND_TEXT = (background: SessionBackground) => L().sessions.backgroundText[background] ?? background;
 
 /** How a session ran in the background, if it did: from its transcript, else from the daemon running it now. */
 export function backgroundOf(s: SessionSummary, running?: RunningSession): SessionBackground | undefined {
@@ -176,17 +177,18 @@ export function backgroundOf(s: SessionSummary, running?: RunningSession): Sessi
 export function backgroundLine(background: SessionBackground | undefined, running?: RunningSession): string | undefined {
   if (!background) return undefined;
   const attach = background === "daemon" && running?.kind === "bg" && running.jobId ? ` · claude attach ${running.jobId}` : "";
-  return dim(`${BACKGROUND_MARK} background: ${BACKGROUND_TEXT[background]}${attach}`);
+  return dim(`${BACKGROUND_MARK} ${L().sessions.background(BACKGROUND_TEXT(background))}${attach}`);
 }
 
 /** The lines the preview's header has about the account of a session, while the list shows every account's. */
 export function sessionAccountLines(account: Account | undefined, color: AccountColorName | "gray", own: boolean): string[] {
   if (!account) return [];
   const plugin = pluginState(account.dir);
-  const status = plugin.installed ? (plugin.enabled ? green("✓ installed") : yellow("! installed, disabled")) : red("✗ not installed");
+  const t = L().sessions;
+  const status = plugin.installed ? (plugin.enabled ? green(t.pluginInstalled) : yellow(t.pluginDisabled)) : red(t.pluginMissing);
   return [
-    `\u001b[${fg(color)}m▌\u001b[39m ${account.email}${account.organization ? ` (${account.organization})` : ""} · ${tilde(account.dir)}${own ? dim(" · this account") : ""}`,
-    `  cco plugin ${status}`,
+    `\u001b[${fg(color)}m▌\u001b[39m ${account.email}${account.organization ? ` (${account.organization})` : ""} · ${tilde(account.dir)}${own ? dim(t.thisAccount) : ""}`,
+    t.plugin(status),
   ];
 }
 
@@ -201,13 +203,14 @@ export function remoteLine(s: SessionSummary): string | undefined {
   const r = s.remote;
   if (!r) return undefined;
   const unknown = r.unknown ? Object.entries(r.unknown).map(([type, n]) => `${n} ${type}`).join(", ") : "";
+  const t = L().sessions;
   const parts = [
-    "remote",
-    r.workerStatus === "running" ? "working" : r.workerStatus === "requires_action" ? "waiting for input" : r.workerStatus,
+    t.remote,
+    r.workerStatus === "running" ? t.working : r.workerStatus === "requires_action" ? t.waitingInput : r.workerStatus,
     r.connectionStatus,
-    ...(r.error ? [`events: ${r.error}`] : []),
-    ...(r.truncated ? ["older events not read"] : []),
-    ...(unknown ? [`not shown: ${unknown}`] : []),
+    ...(r.error ? [t.events(r.error)] : []),
+    ...(r.truncated ? [t.olderEvents] : []),
+    ...(unknown ? [t.notShown(unknown)] : []),
   ].filter(Boolean);
   return dim(`${REMOTE_MARK} ${parts.join(" · ")}`);
 }
@@ -237,31 +240,32 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
   const severalDays = separators && dayOf(s.start) !== dayOf(s.end ?? s.start);
   const timed = <T,>(items: T[], at: (item: T) => string | undefined, line: (item: T) => string) =>
     severalDays ? linesByDay(items, at, line, width) : items.map(line);
-  if (location) lines.push(heading("Transcript"), ...wrapPath(location, width - 2).map((l) => `  ${l}`));
+  const t = L().sessions;
+  if (location) lines.push(heading(t.transcript), ...wrapPath(location, width - 2).map((l) => `  ${l}`));
   const section = (title: string, count: number, body: string[]) => {
     if (lines.length) lines.push("");
     lines.push(heading(`${title} (${count})`));
-    lines.push(...(count ? body : [dim("  none")]));
+    lines.push(...(count ? body : [dim(t.none)]));
   };
   section(
-    "Plans",
+    t.plans,
     s.plans.length,
     timed(s.plans, (p) => p.timestamp, (p) => `  ${STATUS_ICON[p.status]} ${dim(time(p.timestamp))} ${truncate(planTitle(p.text), width - 10)}`),
   );
   const agents = s.agents ?? [];
   if (agents.length > 0) {
     section(
-      "Agents",
+      t.agents,
       agents.length,
       timed(agents, (a) => a.started, (a) => {
         const icon = AGENT_ICON[a.status];
         const took = a.durationMs !== undefined ? dim(` ${formatMs(a.durationMs)}`) : "";
-        return `  ${icon} ${dim(time(a.started))} ${truncate(`${a.type ?? "agent"} · ${a.description}`, width - 20)}${took}`;
+        return `  ${icon} ${dim(time(a.started))} ${truncate(`${a.type ?? t.agent} · ${a.description}`, width - 20)}${took}`;
       }),
     );
   }
   section(
-    "Changed files",
+    t.changedFiles,
     s.files.length,
     // Project files first; files elsewhere (e.g. plan files, scratch scripts) dimmed after them.
     [...s.files.filter((f) => insideProject(f, cwd)), ...s.files.filter((f) => !insideProject(f, cwd))].flatMap((f) =>
@@ -269,7 +273,7 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
     ),
   );
   section(
-    "Prompts",
+    t.prompts,
     s.prompts.length,
     timed(s.prompts, (p) => p.timestamp, (p) => `  ${dim(time(p.timestamp))} ${truncate(p.text, width - 8)}`),
   );
@@ -279,15 +283,15 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
 type State = "active" | "running" | "trash" | undefined;
 
 /** What the header says a running session's Claude does; nothing while it is idle. */
-const ACTIVITY_TEXT: Record<SessionActivity, string> = { busy: "working · ", waiting: "waiting for input · ", idle: "" };
+const ACTIVITY_TEXT = (activity: SessionActivity) => L().sessions.activity[activity] ?? "";
 
 /** Where a session went on in another account, or came from: one line each. */
 export function transferLines(t: Transfer | undefined): string[] {
   if (!t) return [];
   const date = (at: number) => dateTime(new Date(at).toISOString());
   return [
-    ...(t.from ? [magenta(`⇠ continued from ${t.from.email || tilde(t.from.dir)} (${t.from.id.slice(0, 8)}) · ${date(t.from.at)}`)] : []),
-    ...(t.to ?? []).map((e) => magenta(`⇢ continued in ${e.email} as ${e.id.slice(0, 8)} · ${date(e.at)}`)),
+    ...(t.from ? [magenta(L().sessions.continuedFrom(t.from.email || tilde(t.from.dir), t.from.id.slice(0, 8), date(t.from.at)))] : []),
+    ...(t.to ?? []).map((e) => magenta(L().sessions.continuedIn(e.email, e.id.slice(0, 8), date(e.at)))),
   ];
 }
 
@@ -304,18 +308,20 @@ function sessionHeader(
   observed?: string,
 ): string[] {
   const when = [span(s.start, s.end), formatDuration(s.start, s.end), s.branch].filter(Boolean).join(" · ");
+  const c = L().counts;
+  const t = L().sessions;
   const counts = [
-    plural(s.remote && !s.remote.loaded ? (s.remote.userMessages ?? 0) : s.prompts.length, "prompt"),
-    plural(s.plans.length, "plan"),
-    ...(s.agents?.length ? [plural(s.agents.length, "agent")] : []),
-    plural(s.files.length, "changed file"),
+    c.prompts(s.remote && !s.remote.loaded ? (s.remote.userMessages ?? 0) : s.prompts.length),
+    c.plans(s.plans.length),
+    ...(s.agents?.length ? [c.agents(s.agents.length)] : []),
+    c.changedFiles(s.files.length),
   ];
   const last =
     state === "trash"
-      ? red(`in the trash since ${dateTime(new Date(deletedAt ?? 0).toISOString())} · u restores it`)
-      : `${state === "active" ? "active · " : state === "running" ? (s.account ? "running there · " : "running elsewhere · ") : ""}${activity ? ACTIVITY_TEXT[activity] : ""}${resumeCommand(s)}`;
+      ? red(t.trashSince(dateTime(new Date(deletedAt ?? 0).toISOString())))
+      : `${state === "active" ? t.active : state === "running" ? (s.account ? t.runningThere : t.runningElsewhere) : ""}${activity ? ACTIVITY_TEXT(activity) : ""}${resumeCommand(s)}`;
   // A session Claude Code went on with under a new id is shown as one; it names the ids it continues.
-  const continues = s.continues?.length ? [dim(`continues ${s.continues.map((id) => id.slice(0, 8)).join(", ")}`)] : [];
+  const continues = s.continues?.length ? [dim(t.continues(s.continues.map((id) => id.slice(0, 8)).join(", ")))] : [];
   return previewHeader(sessionTitle(s), width, {
     marker: state === "active" || state === "running" ? (activity === "waiting" ? yellow : green)(state === "active" ? "● " : "▶ ") : "  ",
     style: bold,
@@ -323,7 +329,7 @@ function sessionHeader(
       when,
       counts.join(" · "),
       ...account,
-      ...(s.cwd ? [gone ? red(`folder gone: ${tilde(s.cwd)}`) : `in ${tilde(s.cwd)}`] : []),
+      ...(s.cwd ? [gone ? red(t.folderGone(tilde(s.cwd))) : t.in(tilde(s.cwd))] : []),
       ...(background ? [background] : []),
       ...(observed ? [observed] : []),
       ...continues,
@@ -527,7 +533,7 @@ function useObservers(visible: boolean): ObserverInfo[] {
 }
 
 /** What the preview's header says about the observers of a session. */
-export const observedLine = (n: number) => (n > 0 ? `${OBSERVED_MARK} observed in ${plural(n, "window")}` : undefined);
+export const observedLine = (n: number) => (n > 0 ? `${OBSERVED_MARK} ${L().sessions.observed(L().counts.windows(n))}` : undefined);
 
 /**
  * The marker of the active (`●`) or a running (`▶`) session in the list: yellow while its Claude waits
@@ -568,8 +574,8 @@ function sessionText(s: SessionSummary, gone: boolean, email?: string, backgroun
     list: haystack([sessionTitle(s), projectName(s), email]),
     details: haystack([
       s.cwd,
-      gone ? "folder gone" : undefined,
-      background ? `background ${BACKGROUND_TEXT[background]}` : undefined,
+      gone ? L().sessions.folderGoneFilter : undefined,
+      background ? L().sessions.backgroundFilter(BACKGROUND_TEXT(background)) : undefined,
       s.branch,
       s.id,
       ...(s.continues ?? []),
@@ -596,24 +602,25 @@ const entryId = (e: Entry) => (isLoadMore(e) ? LOAD_MORE_ID : isImport(e) ? IMPO
 /** The row of the import entry, a badge like load more. */
 function ImportRow() {
   const area = useContext(AreaContext);
-  return <Text>{centredBadge("⤓ import sessions…", columnWidthOf(area))}</Text>;
+  return <Text>{centredBadge(L().sessions.importEntry, columnWidthOf(area))}</Text>;
 }
 
 /** The export's progress dialog: the step of the session being exported; the archive, or why it failed. */
 export function exportProgress(count: number, state: { progress?: ExportProgress; title?: string } | { result: ExportResult } | { error: Error }): Progress {
-  const title = `Export ${plural(count, "session")}`;
+  const t = L().sessions;
+  const title = t.exportTitle(L().counts.sessions(count));
   if ("result" in state)
-    return { title, status: "done", text: `Exported ${plural(state.result.sessions, "session")}`, lines: [basename(state.result.file), `in ${tilde(dirname(state.result.file))}`] };
-  if ("error" in state) return { title, status: "failed", text: "Nothing was written", lines: [state.error.message] };
+    return { title, status: "done", text: t.exported(L().counts.sessions(state.result.sessions)), lines: [basename(state.result.file), t.inFolder(tilde(dirname(state.result.file)))] };
+  if ("error" in state) return { title, status: "failed", text: t.nothingWritten, lines: [state.error.message] };
   const { progress: p, title: session } = state;
-  if (!p) return { title, status: "running", text: "Exporting" };
+  if (!p) return { title, status: "running", text: t.exporting };
   const steps: string[] = ["reading", ...EXPORT_FORMATS];
   return {
     title,
     status: "running",
-    text: "Exporting",
-    step: { label: p.step, at: steps.indexOf(p.step) + 1, of: steps.length },
-    detail: p.sessions > 1 ? `session ${p.session} of ${p.sessions}${session ? `: ${session}` : ""}` : session,
+    text: t.exporting,
+    step: { label: t.steps[p.step] ?? p.step, at: steps.indexOf(p.step) + 1, of: steps.length },
+    detail: p.sessions > 1 ? t.sessionOf(p.session, p.sessions, session) : session,
   };
 }
 
@@ -910,7 +917,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       action();
       notify(done);
     } catch (err) {
-      notify(`failed: ${(err as Error).message}`);
+      notify(L().sessions.failed((err as Error).message));
     }
     setTrash(listTrash(trashScope));
     refresh();
@@ -939,7 +946,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const situation: SessionSituation = {
       paired: paired && { empty: paired.empty, activity: own ? own.activity : undefined, method: resumeHereMethod() },
       state,
-      attachBlocked: !onPair ? "this viewer cannot attach" : claude && runningViewer(dir, claude.pid) ? "it has a viewer of its own" : undefined,
+      attachBlocked: !onPair ? L().sessions.cannotAttach : claude && runningViewer(dir, claude.pid) ? L().sessions.hasViewer : undefined,
       // /resume finds only the sessions of the project folder its Claude Code runs in, this viewer's.
       otherFolder: projectSlug(dir) === projectSlug(cwd) ? undefined : truncate(basename(dir), 20),
       folderMissing,
@@ -967,7 +974,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   /** Enter: asks what to do with the session (`sessionOptions`), with the usual choice selected. */
   const start = (s: SessionSummary) => {
     if (s.remote) return startRemote(s);
-    if (s.account && !accountOf(s)) return notify("its account is no longer signed in here");
+    if (s.account && !accountOf(s)) return notify(L().sessions.accountGone);
     const { situation, claude, dir } = situationOf(s);
     const lines = headFor(s, situation.state);
     const { options, initial } = sessionOptions(situation);
@@ -975,7 +982,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const here = options.find((o) => o.id === "here");
     if (paired && here && !here.disabled && resumeHereMethod() === "keys" && detectTerminal() !== "tmux") typer.current = prepareConsoleInput(paired.claudePid);
     setChoice({
-      title: "What to do with this session?",
+      title: L().sessions.whatToDo,
       lines,
       options,
       initial,
@@ -999,13 +1006,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const options: ChoiceOption[] = [
       ...control,
       // Steering it takes remote control: one viewer per session, with the prompt line; brought to the front when open.
-      ...(remoteControl ? [{ id: "open", label: "Steer it in a viewer of its own", detail: "its chat with a prompt line, in one window: brought to the front when open" }] : []),
+      ...(remoteControl ? [{ id: "open", label: L().sessions.steer, detail: L().sessions.steerDetail }] : []),
       ...observeOptions(watching, detectTerminal() !== undefined),
-      { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
+      { id: "copy", label: L().sessions.copyAddress, detail: remoteUrl(s.id) },
     ];
     setChoice({
-      title: "What to do with this session?",
-      lines: [truncate(sessionTitle(s), 56), span(s.start, s.end), "remote: it runs on another machine, read from claude.ai"].filter(Boolean),
+      title: L().sessions.whatToDo,
+      lines: [truncate(sessionTitle(s), 56), span(s.start, s.end), L().sessions.remoteHead].filter(Boolean),
       options,
       initial: Math.max(0, options.findIndex((o) => !o.disabled)),
       onChoose: (id: string) => {
@@ -1027,11 +1034,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         return onDetach?.();
       case "switch":
         if (!claude) return;
-        notify("looking for its tab…");
+        notify(L().sessions.lookingForTab);
         return void switchToSession(claude, s.title ? [s.title] : []).then(notify);
       case "attach":
         if (!claude) return;
-        if (!onPair?.({ cwd: dir, claudePid: claude.pid, sessionId: s.id, transcript: s.path })) notify("another viewer attached to it first");
+        if (!onPair?.({ cwd: dir, claudePid: claude.pid, sessionId: s.id, transcript: s.path })) notify(L().sessions.attachedFirst);
         return;
       case "here":
         return void (paired && continueHere(s.id, paired, prepared));
@@ -1059,8 +1066,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         return bringObserver(s);
       case "copy":
         return void copy(command).then(
-          () => notify(`copied: ${command}`),
-          (err: Error) => notify(`copy failed: ${err.message}`),
+          () => notify(L().sessions.copied(command)),
+          (err: Error) => notify(L().sessions.copyFailed(err.message)),
         );
     }
   };
@@ -1074,15 +1081,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     if (opened) return notify(opened);
     const command = observerCommand(target);
     void copy(command).then(
-      () => notify(`no Windows Terminal or tmux: copied ${command}`),
-      (err: Error) => notify(`copy failed: ${err.message}`),
+      () => notify(L().sessions.noTerminalCopied(command)),
+      (err: Error) => notify(L().sessions.copyFailed(err.message)),
     );
   };
   /** Brings the observer of `s` opened last to the front. */
   const bringObserver = (s: SessionSummary) => {
     const last = observersFor(s).filter((o) => o.window).at(-1);
-    if (!last?.window) return notify("its observers were not opened by cco: their window is unknown");
-    notify(focusObserver(last.window) ? "its observer is in front" : "no Windows Terminal or tmux");
+    if (!last?.window) return notify(L().sessions.observersUnknown);
+    notify(focusObserver(last.window) ? L().sessions.observerFront : L().sessions.noTerminal);
   };
   // The PowerShell started for "continue it here", until it is used or the dialog closes.
   const typer = useRef<ConsoleTyper>(undefined);
@@ -1102,9 +1109,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     setRenaming(undefined);
     try {
       renameSession(s.path, s.id, title);
-      notify(`renamed: ${title}`);
+      notify(L().sessions.renamed(title));
     } catch (err) {
-      notify(`rename failed: ${(err as Error).message}`);
+      notify(L().sessions.renameFailed((err as Error).message));
     }
     refresh();
   };
@@ -1113,15 +1120,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   const continueHere = async (id: string, claude: NonNullable<Props["paired"]>, prepared?: ConsoleTyper) => {
     let failed: string | undefined;
     if (resumeHereMethod() === "keys") {
-      notify("typing /resume in Claude Code…");
+      notify(L().sessions.typing);
       const result = await resumeInClaude(claude.claudePid, id, prepared);
       if (result.typed) return notify(result.message);
       failed = result.message;
     }
     const command = resumeSlashCommand(id);
     await copy(command).then(
-      () => notify(`${failed ? `${failed}; ` : ""}copied ${command}: paste it in Claude Code${focusClaudePane(claude.placement) ? "" : "'s prompt"} (Ctrl+V) and press Enter`),
-      (err: Error) => notify(`copy failed: ${err.message}`),
+      () => notify(L().sessions.pasteIt(failed ?? "", command, focusClaudePane(claude.placement))),
+      (err: Error) => notify(L().sessions.copyFailed(err.message)),
     );
   };
 
@@ -1139,19 +1146,19 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const blocker = deleteBlocker(s.id, activeId, runningSessionIds());
     if (blocker) return notify(blocker);
     setConfirmation({
-      title: "Move this session to the trash?",
-      lines: [...headFor(s), "", "You can restore it from the trash (T)."],
+      title: L().sessions.trashTitle,
+      lines: [...headFor(s), "", L().sessions.trashRestore],
       onConfirm: () =>
         attempt(() => {
           trashSession(s, activeId);
           setLastTrashed(s);
           selectNeighbour();
-        }, "moved to the trash · u undo · T trash"),
+        }, L().sessions.trashed),
     });
   };
   /** The trash is read for the list's folders: this project's, or all (other folders: the filter leaves this one out). */
   const trashScope = all ? undefined : projectSlug(cwd);
-  const folderText = { this: "of this project", other: "of the other projects", all: "of all projects" }[shownFilter.folders];
+  const folderText = L().sessions.folders[shownFilter.folders];
   // The trash follows a change of the folders right away; the list with the next scan.
   const trashFolders = useRef(all);
   useEffect(() => {
@@ -1169,31 +1176,31 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
       restoreSession(slugOf(s), s.id);
       after?.();
       setLastTrashed(undefined);
-    }, "restored");
+    }, L().sessions.restored);
   const askPurge = (s: SessionSummary) =>
     setConfirmation({
-      title: "Delete this session for good?",
+      title: L().sessions.purgeTitle,
       lines: [
         ...headFor(s, { trash: dateTime(new Date(deletedAt.get(s.id) ?? 0).toISOString()) }),
         "",
-        "Transcript, file history and subagent data are removed.",
-        "This can't be undone.",
+        L().sessions.purgeRemoved,
+        L().sessions.cannotUndo,
       ],
       danger: true,
       onConfirm: () =>
         attempt(() => {
           purgeSession(slugOf(s), s.id, cwd);
           selectNeighbour();
-        }, "deleted for good"),
+        }, L().sessions.purged),
     });
   const askEmpty = () => {
     if (trash.length === 0) return;
     setConfirmation({
-      title: "Empty the trash?",
-      lines: [countHead(trash.length, "session", folderText), "", "They will be deleted for good.", "This can't be undone."],
+      title: L().sessions.emptyTitle,
+      lines: [countHead(L().counts.sessions(trash.length), folderText), "", L().sessions.emptyGone, L().sessions.cannotUndo],
       danger: true,
       // Only those shown: the filter may hide some of the trash.
-      onConfirm: () => attempt(() => trash.forEach((e) => purgeSession(e.slug, e.id, cwd)), "trash emptied"),
+      onConfirm: () => attempt(() => trash.forEach((e) => purgeSession(e.slug, e.id, cwd)), L().sessions.emptied),
     });
   };
 
@@ -1208,13 +1215,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   /** Asks, then moves a session whose folder is gone into this project folder. */
   const askMove = (s: SessionSummary) =>
     setConfirmation({
-      title: "Move this session here?",
-      lines: [...headFor(s), "", truncate(`into ${tilde(cwd)}`, 56), "Its paths are rewritten; claude --resume continues it here."],
+      title: L().sessions.moveTitle,
+      lines: [...headFor(s), "", truncate(L().sessions.into(tilde(cwd)), 56), L().sessions.rewritten],
       onConfirm: () =>
         attempt(() => {
           moveSession(s, cwd);
           setSelectedId(s.id);
-        }, "moved here"),
+        }, L().sessions.moved),
     });
   // /cco:account: the active session, once the scan has found it (or has finished without it).
   const handledRequest = useRef<number>(undefined);
@@ -1223,7 +1230,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const s = sessions.find(isActive);
     if (!s && progress) return;
     handledRequest.current = accountRequest.at;
-    if (!s) return notify("no session here to continue in another account");
+    if (!s) return notify(L().sessions.noSessionForAccount);
     setSelectedId(s.id);
     // Read now: the view may have just been shown, before its first look at the running sessions.
     flow.askAccount(s, runningSessions().get(s.id), situationOf(s).dir, accountRequest.query);
@@ -1234,11 +1241,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
     const dir = tilde(dirname(file));
     const one = targets.length === 1 ? targets[0] : undefined;
     return [
-      ...(one ? headFor(one) : [countHead(targets.length, "marked session", folderText)]),
+      ...(one ? headFor(one) : [countHead(L().counts.markedSessions(targets.length), folderText)]),
       "",
-      `to ${basename(file)}`,
+      L().sessions.to(basename(file)),
       // The end of the folder's path names it best.
-      dir.length > 53 ? `in …${dir.slice(-52)}` : `in ${dir}`,
+      dir.length > 53 ? L().sessions.inFolder(`…${dir.slice(-52)}`) : L().sessions.inFolder(dir),
     ];
   };
   const runExport = (targets: SessionSummary[], opts: ExportOptions) => {
@@ -1256,22 +1263,22 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   };
   const runImport = (file: string) => {
     setImportFrom(undefined);
-    setRun({ title: "Import", status: "running", text: "Importing", detail: tilde(file) });
+    setRun({ title: L().sessions.import, status: "running", text: L().sessions.importing, detail: tilde(file) });
     // A moment for the dialog to show; the import itself runs at once.
     setTimeout(() => {
       try {
         const result = importArchive(file, cwd);
         const lines = [
-          ...result.imported.map((s) => `  ✓ ${s.title}${s.from ? ` (new id ${s.id.slice(0, 8)})` : ""}`),
+          ...result.imported.map((s) => `  ✓ ${s.title}${s.from ? L().sessions.newId(s.id.slice(0, 8)) : ""}`),
           ...result.skipped.map((s) => `  – ${s.title}: ${s.reason}`),
         ].slice(0, 8);
         const summary = importSummary(result);
-        setRun({ title: "Import", status: "done", text: summary[0]!.toUpperCase() + summary.slice(1), lines });
+        setRun({ title: L().sessions.import, status: "done", text: summary[0]!.toUpperCase() + summary.slice(1), lines });
         // Written just now, the imported sessions are the newest: the first of them is selected.
         if (result.imported[0]) setSelectedId(result.imported[0].id);
         refresh();
       } catch (err) {
-        setRun({ title: "Import", status: "failed", text: "Nothing was imported", lines: [(err as Error).message] });
+        setRun({ title: L().sessions.import, status: "failed", text: L().sessions.nothingImported, lines: [(err as Error).message] });
       }
     }, 50);
   };
@@ -1298,9 +1305,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
           const target = filter.nextMark(mark);
           return target !== undefined && select(target);
         }
-        if ((input === "d" || key.delete) && session) return session.remote ? notify("a remote session lives on claude.ai: archive it there") : session.account ? notify(OWN_ONLY) : askDelete(session);
+        if ((input === "d" || key.delete) && session) return session.remote ? notify(L().sessions.remoteDelete) : session.account ? notify(OWN_ONLY()) : askDelete(session);
         if (input === "u") {
-          if (!lastTrashed) return notify("nothing to undo");
+          if (!lastTrashed) return notify(L().sessions.nothingToUndo);
           const s = lastTrashed;
           return restore(s, () => setSelectedId(s.id));
         }
@@ -1310,8 +1317,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         if (input === "c" && session) {
           const command = resumeCommand(session);
           return void copy(command).then(
-            () => notify(`copied: ${command}`),
-            (err: Error) => notify(`copy failed: ${err.message}`),
+            () => notify(L().sessions.copied(command)),
+            (err: Error) => notify(L().sessions.copyFailed(err.message)),
           );
         }
       }
@@ -1331,21 +1338,21 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
   );
 
   let preview;
-  if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
-  else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
-  else if (filter.none) preview = <Text dimColor>No session matches the filter</Text>;
-  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, "sessions", sessions.length, range.requested).join("\n")}</Text>;
+  if (trashOpen && !session) preview = <Text dimColor>{L().sessions.trashEmpty}</Text>;
+  else if (!sessions) preview = <Text dimColor>{L().sessions.reading}</Text>;
+  else if (filter.none) preview = <Text dimColor>{L().sessions.noMatch}</Text>;
+  else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, L().loadMore.sessions, sessions.length, range.requested).join("\n")}</Text>;
   else if (onImport)
     preview = (
       <Text dimColor>
         {[
-          all ? "No Claude Code sessions found." : `No Claude Code session found for ${cwd}.`,
+          all ? L().sessions.noneFoundAll : L().sessions.noneFoundHere(cwd),
           "",
-          `Enter or a double click imports sessions from a cco-session-export zip archive into ${tilde(cwd)}.`,
+          L().sessions.importHint(tilde(cwd)),
         ].join("\n")}
       </Text>
     );
-  else if (!session) preview = <Text dimColor>{all ? "No Claude Code sessions found" : `No Claude Code session found for ${cwd}`}</Text>;
+  else if (!session) preview = <Text dimColor>{all ? L().sessions.noneAll : L().sessions.noneHere(cwd)}</Text>;
   else
     preview = (
       <Preview
@@ -1355,43 +1362,44 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         width={previewWidth}
         height={bodyHeight}
         onWheel={(d) => scroll.by(d)}
-        onLink={(url) => notify(`opened ${url}`)}
+        onLink={(url) => notify(L().chat.opened(url))}
       />
     );
 
+  const f = L().sessions.footer;
   const footer = trashOpen
     ? [
-        { text: "↑↓ session", priority: 4 },
-        { text: "PgUp/Dn scroll", priority: 1 },
-        { text: "u restore", priority: 4 },
-        { text: "x delete", priority: 3 },
-        { text: "X empty", priority: 2 },
-        { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
-        { text: "T trash", on: true },
+        { text: f.session, priority: 4 },
+        { text: L().chat.footer.scroll, priority: 1 },
+        { text: f.restore, priority: 4 },
+        { text: f.delete, priority: 3 },
+        { text: f.empty, priority: 2 },
+        { text: f.filter, on: filterIsSet(shownFilter, ownDir), priority: 2 },
+        { text: f.trash, on: true },
       ]
     : [
-        { text: "↑↓ session", priority: 4 },
-        { text: "PgUp/Dn scroll", priority: 1 },
+        { text: f.session, priority: 4 },
+        { text: L().chat.footer.scroll, priority: 1 },
         ...markFooter(favorites.isMarked(session && sessionKey(session)), markedCount),
         ...filter.footer,
         {
           text: onLoadMore
-            ? "↵ load more"
+            ? f.loadMore
             : onImport
-              ? "↵ import"
+              ? f.import
               : session?.remote
-                ? "↵ open…"
+                ? f.open
                 : session
                 ? enterLabel(situationOf(session).situation)
-                : "↵ start",
+                : f.start,
           priority: 3,
         },
-        { text: "c copy resume", priority: 2 },
-        { text: "d delete", priority: 2 },
-        ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
-        { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
-        { text: "T trash", priority: 2 },
-        { text: "1-6/tab view", priority: 1 },
+        { text: f.copyResume, priority: 2 },
+        { text: f.deleteSession, priority: 2 },
+        ...(lastTrashed ? [{ text: f.undo, priority: 3 }] : []),
+        { text: f.filter, on: filterIsSet(shownFilter, ownDir), priority: 2 },
+        { text: f.trash, priority: 2 },
+        { text: L().chat.footer.views, priority: 1 },
       ];
 
   return (
@@ -1402,13 +1410,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         status={
           <Text dimColor={!focused}>
             {trashOpen ? (
-              <Text color="red">TRASH · {plural(trash.length, "session")}</Text>
+              <Text color="red">{L().sessions.trash(L().counts.sessions(trash.length))}</Text>
             ) : sessions ? (
-              `${filter.count(sessions.length)} ${sessions.length === 1 ? "session" : "sessions"}`
+              L().counts.sessions(sessions.length).replace(String(sessions.length), filter.count(sessions.length))
             ) : (
               "…"
             )}
-            {progress && <Text color="yellow">{` · reading ${progress.done}/${progress.total}`}</Text>}
+            {progress && <Text color="yellow">{L().sessions.readingProgress(progress.done, progress.total)}</Text>}
             {remoteRead.error && !trashOpen && <Text color="yellow">{` · ${remoteRead.error}`}</Text>}
             {session && !progress && ` · ${scroll.position}`}
             {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
@@ -1433,7 +1441,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
             selected={index}
             centre={trashOpen ? "trash" : restoredShown.current}
             height={listHeight}
-            empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
+            empty={trashOpen ? L().sessions.trashIsEmpty : (filter.empty ?? (sessions ? L().sessions.noSessions : "…"))}
             itemKey={entryId}
             time={listedAt}
             // The account's bar stays in its colour on the selected row too.
@@ -1540,7 +1548,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onTrash
         <ExportDialog
           layout={layout}
           lines={exporting.lines}
-          warning={exporting.sessions.some((s) => isActive(s) || running.has(sessionKey(s))) ? "A running session is exported as it stands now." : undefined}
+          warning={exporting.sessions.some((s) => isActive(s) || running.has(sessionKey(s))) ? L().sessions.runningExport : undefined}
           initial={exporting.opts}
           onExport={(opts) => runExport(exporting.sessions, opts)}
           onClose={() => setExporting(undefined)}

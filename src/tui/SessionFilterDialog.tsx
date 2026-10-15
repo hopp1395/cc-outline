@@ -7,7 +7,8 @@ import { otherAccounts } from "../accountContinue.js";
 import type { SessionsFolders } from "../settings.js";
 import { accountChosen, type SessionFilter } from "../sessionFilter.js";
 import { Dialog, type Layout } from "./layout.js";
-import { legendCell, legendCellWidth, SESSION_LEGEND, type LegendMark } from "./sessionLegend.js";
+import { legendCell, legendCellWidth, sessionLegend, type LegendMark } from "./sessionLegend.js";
+import { L } from "../i18n/index.js";
 
 const MAX_WIDTH = 60;
 
@@ -22,7 +23,7 @@ export function filterAccounts(accounts: Account[], own: string): FilterAccount[
   const others = otherAccounts(accounts, own);
   const mine = accounts.find((a) => !others.includes(a));
   return [
-    { dir: own, label: `${mine?.email ?? "this account"} (${basename(own)}) · this account` },
+    { dir: own, label: `${mine?.email ?? L().filterDialog.thisAccount} (${basename(own)}) · ${L().filterDialog.thisAccount}` },
     ...others.map((a) => ({ dir: a.dir, label: `${a.email} (${basename(a.dir)})` })),
   ];
 }
@@ -30,6 +31,7 @@ export function filterAccounts(accounts: Account[], own: string): FilterAccount[
 /** The marks of the list in short, as many to a line as fit in `width` columns. */
 export function legendLines(width: number): string[] {
   // A column of marks, then what each says: in two columns of pairs where they fit, else one a line.
+  const SESSION_LEGEND = sessionLegend();
   const markWidth = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
   const cell = (m: LegendMark) => legendCell(m, markWidth);
   const cellWidth = Math.max(...SESSION_LEGEND.map((m) => legendCellWidth(m, markWidth)));
@@ -98,10 +100,10 @@ export function SessionFilterDialog({
     if (row.kind === "background") return setFilter({ ...filter, background: filter.background === "hide" ? "show" : "hide" });
     if (row.kind === "folder") {
       const folders = toggleFolder(filter.folders, row.which);
-      return folders ? setFilter({ ...filter, folders }) : setNotice("one folder stays checked");
+      return folders ? setFilter({ ...filter, folders }) : setNotice(L().filterDialog.oneFolder);
     }
     const chosen = accountChosen(filter, row.dir);
-    if (chosen && filter.accounts.length === 1) return setNotice("one account stays checked");
+    if (chosen && filter.accounts.length === 1) return setNotice(L().filterDialog.oneAccount);
     // In the order offered, the own account first.
     const next = accounts.map((a) => a.dir).filter((dir) => (dir === row.dir ? !chosen : accountChosen(filter, dir)));
     setFilter({ ...filter, accounts: next });
@@ -136,19 +138,19 @@ export function SessionFilterDialog({
   return (
     <Dialog layout={layout} width={width} height={height}>
       <Text bold color="cyan" wrap="truncate">
-        Show sessions
+        {L().filterDialog.title}
       </Text>
       <Text> </Text>
-      <Text dimColor>Folders</Text>
-      {line(0, box(filter.folders !== "other"), `this folder (${folderName})`)}
-      {line(1, box(filter.folders !== "this"), "other folders")}
-      {withAccounts && <Text dimColor>Accounts</Text>}
+      <Text dimColor>{L().filterDialog.folders}</Text>
+      {line(0, box(filter.folders !== "other"), L().filterDialog.thisFolder(folderName))}
+      {line(1, box(filter.folders !== "this"), L().filterDialog.otherFolders)}
+      {withAccounts && <Text dimColor>{L().filterDialog.accounts}</Text>}
       {withAccounts && accounts.map((a, i) => line(accountsAt + i, box(accountChosen(filter, a.dir)), a.label))}
-      <Text dimColor>Others</Text>
-      {line(backgroundAt, box(filter.background !== "hide"), "Background (claude -p, SDK, daemon)")}
-      {remote && line(remoteAt, box(filter.remote !== "hide"), "Remote (Remote Control, claude.ai)")}
+      <Text dimColor>{L().filterDialog.others}</Text>
+      {line(backgroundAt, box(filter.background !== "hide"), L().filterDialog.background)}
+      {remote && line(remoteAt, box(filter.remote !== "hide"), L().filterDialog.remote)}
       <Text> </Text>
-      <Text dimColor>Marks in the list</Text>
+      <Text dimColor>{L().filterDialog.marks}</Text>
       {legend.map((l, i) => (
         <Text key={`legend-${i}`} wrap="truncate">
           {l}
@@ -159,10 +161,10 @@ export function SessionFilterDialog({
         {notice ?? " "}
       </Text>
       <Text wrap="truncate">
-        <Text color="yellow">↑↓</Text> row{"  "}
-        <Text color="yellow">Space</Text> switch{"  "}
-        <Text color="yellow">Enter</Text> apply{"  "}
-        <Text color="yellow">Esc</Text> cancel
+        <Text color="yellow">↑↓</Text> {L().filterDialog.row}{"  "}
+        <Text color="yellow">Space</Text> {L().filterDialog.switch}{"  "}
+        <Text color="yellow">Enter</Text> {L().filterDialog.apply}{"  "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}
       </Text>
     </Dialog>
   );

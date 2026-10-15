@@ -22,7 +22,8 @@ import { VERSION } from "../version.js";
 import { ACCOUNT_COLORS, type AccountColorName } from "../account.js";
 import { avatarLead } from "../avatar.js";
 import { entryGroups, periodLabel, periodOf, ruleText, separatorsAt, type Period } from "./days.js";
-import { PINNED_LABEL, type PinnedRows } from "../pinned.js";
+import type { PinnedRows } from "../pinned.js";
+import { L } from "../i18n/index.js";
 import { centredBadge } from "./Preview.js";
 
 /** `text` followed by spaces up to `width` columns. */
@@ -172,9 +173,9 @@ export function makeScroll(
 
 /** The status text for a view at `scroll` (see `Scroll.position`). */
 export function scrollPosition(scroll: number, max: number, lineCount: number, height: number): string {
-  if (lineCount <= height) return "all";
-  if (scroll <= 0) return "top";
-  if (scroll >= max) return "end";
+  if (lineCount <= height) return L().layout.all;
+  if (scroll <= 0) return L().layout.top;
+  if (scroll >= max) return L().layout.end;
   return `${scroll + 1}–${scroll + height}/${lineCount}`;
 }
 
@@ -225,8 +226,8 @@ export function markKeys(input: string, key: Key): "toggle" | 1 | -1 | undefined
 /** Help-line items for marks: highlighted while the selected entry is marked. */
 export function markFooter(currentMarked: boolean, markedCount: number): FooterItem[] {
   return [
-    { text: "␣ mark", on: currentMarked },
-    ...(markedCount > 0 ? [{ text: "⇧↑↓ marked", priority: 2 }] : []),
+    { text: L().layout.mark, on: currentMarked },
+    ...(markedCount > 0 ? [{ text: L().layout.marked, priority: 2 }] : []),
   ];
 }
 
@@ -448,7 +449,7 @@ const TABS: { key: string; label: string; mode: Mode }[] = [
   { key: "6", label: "Settings", mode: "settings" },
 ];
 /** A tab's text; in the compact view only the open one has its name, the others just their number. */
-const tabText = (tab: (typeof TABS)[number], short = false) => (short ? ` ${tab.key} ` : ` ${tab.key} ${tab.label} `);
+const tabText = (tab: (typeof TABS)[number], short = false) => (short ? ` ${tab.key} ` : ` ${tab.key} ${L().tabs[tab.mode]} `);
 
 /** The tabs shown while `mode` is open: a hidden view shows its tab only while it is open (opened by a /cco:… command). */
 function shownTabs(settings: Settings, mode: Mode) {
@@ -491,7 +492,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       <Text>
         {lead}
         <Text> </Text>
-        <Text inverse bold>{` ${viewer.role} `}</Text>
+        <Text inverse bold>{` ${L().layout[viewer.role]} `}</Text>
         <Text dimColor={!focused}>{` ${truncate(viewer.title, VIEWER_TITLE_WIDTH)}`}</Text>
       </Text>
     );
@@ -539,9 +540,6 @@ export interface FooterItem {
 }
 
 const SEPARATOR = "  ";
-const INFO_ITEM: FooterItem = { text: "i info" };
-const MORE_ITEM: FooterItem = { text: "i more" };
-const QUIT_ITEM: FooterItem = { text: "q quit" };
 
 const itemWidth = (item: FooterItem) => stringWidth(item.text) + (item.on ? 2 : 0);
 const lineWidth = (items: FooterItem[]) =>
@@ -554,9 +552,9 @@ const lineWidth = (items: FooterItem[]) =>
  * the terminal cuts it off.
  */
 export function fitFooter(items: FooterItem[], width: number): FooterItem[] {
-  const all = [...items, INFO_ITEM, QUIT_ITEM];
+  const all = [...items, { text: L().layout.info }, { text: L().layout.quit }];
   if (lineWidth(all) <= width) return all;
-  const tail = [MORE_ITEM, QUIT_ITEM];
+  const tail = [{ text: L().layout.more }, { text: L().layout.quit }];
   const dropOrder = items
     .map((item, index) => ({ index, item }))
     .filter(({ item }) => !item.on)
@@ -603,10 +601,10 @@ function ReloadStatus() {
   if (status === "loading")
     return (
       <Text>
-        <Spinner active /> reloading… ·{" "}
+        <Spinner active /> {L().layout.reloading} ·{" "}
       </Text>
     );
-  return status === "done" ? <Text color="green">reloaded · </Text> : null;
+  return status === "done" ? <Text color="green">{L().layout.reloaded}</Text> : null;
 }
 
 /**
@@ -663,7 +661,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
     ? typeof footer === "string"
       ? footer
       : fitFooter([{ text: paneSwitchKey("left"), priority: 3 }, ...footer], layout.columns)
-    : `${paneSwitchKey("right")} focus cco`;
+    : L().layout.focusCco(paneSwitchKey("right"));
   return (
     <Box flexDirection="column" width={layout.columns} height={layout.rows}>
       <Box width={layout.columns} backgroundColor={background}>
@@ -672,7 +670,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
             <Text wrap="truncate">
               <Tabs mode={mode} focused={focused} />
               <Text> </Text>
-              {update.notice && <Text color="green">{`updated to v${update.notice} · restart Claude Code for the plugin · `}</Text>}
+              {update.notice && <Text color="green">{L().layout.updated(update.notice)}</Text>}
               <ReloadStatus />
               {!layout.compact && status}
             </Text>
@@ -881,7 +879,7 @@ export function nextWindow(prev: WindowState | undefined, count: number, row: nu
 export function MoreRow({ arrow, count, jumpKey, group }: { arrow: string; count: number; jumpKey: string; group?: string }) {
   return (
     <Text dimColor wrap="truncate">
-      {` ${arrow} ${count} more${group ? ` · ${group}` : ""}  `}
+      {` ${arrow} ${L().layout.moreEntries(count)}${group ? ` · ${group}` : ""}  `}
       <Text color="yellow">{jumpKey}</Text>
     </Text>
   );
@@ -982,8 +980,8 @@ function PinnedList<T>({ pinned, separators, ...props }: ListProps<T> & { pinned
   let previous: string | undefined;
   order.forEach((i, at) => {
     if (at < count) {
-      heads.push(at === 0 ? [PINNED_LABEL] : undefined);
-      tops.push(PINNED_LABEL);
+      heads.push(at === 0 ? [L().layout.pinned] : undefined);
+      tops.push(L().layout.pinned);
       return;
     }
     const key = keyOf.get(i);
@@ -1064,7 +1062,7 @@ export const flipOrder = (order: ListOrder): ListOrder => (order === "newest-fir
 
 /** The help line item of s: the current order, highlighted when it is not the list's default. */
 export function orderFooter(order: ListOrder, byDefault: ListOrder): FooterItem {
-  return { text: order === "newest-first" ? "s newest first" : "s oldest first", on: order !== byDefault, priority: 3 };
+  return { text: order === "newest-first" ? L().layout.newestFirst : L().layout.oldestFirst, on: order !== byDefault, priority: 3 };
 }
 
 function ListRows<T>({ items, selected, height, empty, itemKey, render, lead, onPick, onClick, heads, tops, copies = 0, centre }: ListProps<T> & RowsProps) {

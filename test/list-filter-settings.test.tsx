@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk, tick } from "./helpers/ink.js";
 import type { Layout } from "../src/tui/layout.js";
-import { SETTING_ROWS, SettingsView } from "../src/tui/SettingsView.js";
+import { settingRows, SettingsView } from "../src/tui/SettingsView.js";
 
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
 const cwd = join(tmpdir(), "cco-filter-project");
@@ -34,8 +34,8 @@ describe("list filter in the settings", () => {
     let typing = false;
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active onTyping={(t) => (typing = t)} />);
     // Below the settings: the account entries (how they are found, how to add one), the four reset actions and the Releases note (no releases known offline).
-    const total = SETTING_ROWS.length + 8;
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    const total = settingRows().length + 8;
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
     await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Filter");
     expect(typing).toBe(true);
@@ -56,21 +56,21 @@ describe("list filter in the settings", () => {
 
   it("shows a hint when nothing matches, and Esc in the dialog drops the filter", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
     await view.press(CTRL_F);
     await tick();
     await type(view, "zzzqqq");
     await expect.poll(view.frame, { timeout: 2000 }).toContain("⌕  zzzqqq");
     expect(view.frame()).toContain("No matches");
     await view.press("\u001b");
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
     expect(view.frame()).not.toContain("No matches");
     view.unmount();
   });
 
   it("shows only the separators of groups with a match", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
     await view.press(CTRL_F);
     await tick();
     await type(view, "wrap");
@@ -83,7 +83,7 @@ describe("list filter in the settings", () => {
 
   it("opens with the filter used last, selected, so typing replaces it", async () => {
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active />);
-    await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
+    await expect.poll(view.frame, { timeout: 2000 }).toContain(settingRows()[0].label);
     await view.press(CTRL_F);
     await tick();
     await type(view, "wrap");

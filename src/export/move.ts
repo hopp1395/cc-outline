@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
+import { L } from "../i18n/index.js";
 import { removeFavorite } from "../favorites.js";
 import { forgetScroll } from "../positions.js";
 import { forgetSessionView } from "../sessionViews.js";
@@ -25,7 +26,7 @@ export function moveSession(s: SessionSummary, cwd: string): void {
   const newDir = join(root, "projects", slugTo);
   const ids = [...(s.continues ?? []), s.id];
   const taken = ids.find((id) => existsSync(join(newDir, `${id}.jsonl`)));
-  if (taken) throw new Error(`session ${taken.slice(0, 8)} is in this folder already`);
+  if (taken) throw new Error(L().core.inFolder(taken.slice(0, 8)));
   const relocation: Relocation = { from: s.cwd, to: cwd, claudeTo: root, slugFrom: basename(oldDir), slugTo, ids: new Map() };
   // Read before anything moves: the marks are found through the session's turns and plans.
   const cco = s.cwd ? sessionCcoData(loadSession(s), s.cwd, cwd) : undefined;

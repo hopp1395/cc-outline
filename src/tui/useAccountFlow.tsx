@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { L } from "../i18n/index.js";
 import { basename, join } from "node:path";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Account } from "../account.js";
@@ -54,20 +55,22 @@ export interface Pairing {
 
 /** The pairing's progress dialog: starting Claude Code, waiting for it (Esc cancels), or why it failed. */
 export function pairingProgress(pairing: Pairing, now: number, onCancel: () => void, onClose: () => void): Progress {
-  const title = "Attach the viewer";
+  const t = L().flow;
+  const title = t.attachTitle;
   if (pairing.failed) return { title, status: "failed", ...pairing.failed, onClose };
-  if (pairing.where === undefined) return { title, status: "running", text: "Starting Claude Code", onCancel };
+  if (pairing.where === undefined) return { title, status: "running", text: t.starting, onCancel };
   const total = PAIR_TIMEOUT_MS / 1000;
   const waited = Math.min(total, Math.floor((now - pairing.started) / 1000));
-  return { title, status: "running", text: "Waiting for Claude Code", detail: `${waited} of ${total} s · the viewer moves next to it once it runs`, onCancel };
+  return { title, status: "running", text: t.waiting, detail: t.waited(waited, total), onCancel };
 }
 
-const progressSteps = (steps: StepResult[]) => steps.map((r) => ({ label: r.step.label, status: r.status, output: r.output }));
+const progressSteps = (steps: StepResult[]) => steps.map((r) => ({ label: L().steps.names[r.step.label] ?? r.step.label, status: r.status, output: r.output }));
 
 /** Continuing a session in another account (or preparing it for a new one), until its Claude Code starts there. */
-export function continueProgress(account: Account, steps: StepResult[], session: string, title = `Continue in ${account.email}`): Progress {
+export function continueProgress(account: Account, steps: StepResult[], session: string, title = L().flow.continueIn(account.email)): Progress {
   const step = currentStep(progressSteps(steps));
-  const verb = step?.label === "copying the session" ? "Copying" : "Installing the cco plugin";
+  const copying = currentStep(steps.map((r) => ({ label: r.step.label, status: r.status, output: r.output })))?.label === "copying the session";
+  const verb = copying ? L().flow.copying : L().flow.installing;
   return { title, status: "running", text: verb, step, detail: session };
 }
 
@@ -138,7 +141,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
     const { message, target } = await resumeForPairing(s.id, dir, truncate(title, 30));
     if (!target) {
       cancelPairing(dir, s.id);
-      return setPairing((p) => (p === started ? { ...started, failed: { text: "Claude Code did not start", lines: [message] } } : p));
+      return setPairing((p) => (p === started ? { ...started, failed: { text: L().flow.notStarted, lines: [message] } } : p));
     }
     setPairing((p) => (p === started ? { ...started, where: target } : p));
   };
@@ -148,7 +151,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
   const cancelWait = () => {
     if (pairing) withdraw(pairing);
     setPairing(undefined);
-    notify("pairing cancelled; Claude Code keeps running in its window");
+    notify(L().flow.cancelled);
   };
   // Waiting: pairs once the session's Claude Code registers itself, gives up after PAIR_TIMEOUT_MS.
   useEffect(() => {
@@ -166,8 +169,8 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
         clearInterval(timer);
         withdraw(pairing);
         const failed = {
-          text: `Claude Code did not show up within ${PAIR_TIMEOUT_MS / 1000} s`,
-          lines: ["The viewer stays as it was; the Claude Code started keeps running in its window."],
+          text: L().flow.timeout(PAIR_TIMEOUT_MS / 1000),
+          lines: [L().flow.stays],
         };
         return setPairing((p) => (p === pairing ? { ...pairing, failed } : p));
       }
@@ -192,18 +195,18 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
    * then how (`askHow`).
    */
   const askAccount = (s: SessionSummary, claude: RunningSession | undefined, dir: string, query?: string) => {
-    if (others.length === 0) return notify("no other Claude account is signed in here");
+    if (others.length === 0) return notify(L().flow.noOther);
     const named = query ? matchAccount(others, query) : undefined;
-    if (query && !named) notify(`no other account matches “${query}”`);
+    if (query && !named) notify(L().flow.noMatch(query));
     const only = named ?? (others.length === 1 ? others[0] : undefined);
     if (only) return askHow(s, only, claude, dir);
     setChoice({
-      title: "Continue in which account?",
+      title: L().flow.which,
       lines: headOf(s, claude, dir),
       options: others.map((a) => ({
         id: a.dir,
         label: a.email,
-        detail: truncate(`${tilde(a.dir)}${pluginSteps(a.dir).length ? " · gets the cco plugin" : ""}`, 56),
+        detail: truncate(`${tilde(a.dir)}${pluginSteps(a.dir).length ? L().flow.getsPlugin : ""}`, 56),
       })),
       initial: 0,
       onChoose: (id) => {
@@ -220,11 +223,11 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
     const lines = [
       ...headOf(s, claude, dir),
       "",
-      truncate(`A copy continues in ${account.email}, in a new window`, HEAD_WIDTH),
-      ...(plugin.length ? ["with the cco plugin installed there first"] : []),
-      "This session and its viewer stay as they are.",
+      truncate(L().flow.copyContinues(account.email), HEAD_WIDTH),
+      ...(plugin.length ? [L().flow.pluginFirst] : []),
+      L().flow.staysAsIs,
     ];
-    setConfirmation({ title: `Continue in ${truncate(account.email, 44)}?`, lines, onConfirm: () => void runContinue({ session: s, account, fromEmail }, dir) });
+    setConfirmation({ title: L().flow.continueAsk(truncate(account.email, 44)), lines, onConfirm: () => void runContinue({ session: s, account, fromEmail }, dir) });
   };
 
   /** The plugin could not be installed: says why, and on Esc asks whether to go on without it. */
@@ -234,16 +237,16 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
     setRun({
       title,
       status: "failed",
-      text: "The cco plugin could not be installed there",
-      lines: [...failureLines(progressSteps(steps)), "Nothing else has happened. Esc: go on without it, or stop."],
-      copy: () => void copy(commands.join("\n")).then(() => notify("copied the commands")),
+      text: L().flow.pluginFailed,
+      lines: [...failureLines(progressSteps(steps)), L().flow.nothingElse],
+      copy: () => void copy(commands.join("\n")).then(() => notify(L().flow.copiedCommands)),
       onClose: () =>
         setChoice({
-          title: "Go on without the cco plugin?",
+          title: L().flow.goOnTitle,
           lines: head,
           options: [
-            { id: "go", label: "Go on without it", detail: "the viewer there does not follow /clear, /resume or the end" },
-            { id: "stop", label: "Stop here", detail: "nothing has changed" },
+            { id: "go", label: L().flow.goOn, detail: L().flow.goOnDetail },
+            { id: "stop", label: L().flow.stop, detail: L().flow.stopDetail },
           ],
           initial: 0,
           onChoose: (id) => {
@@ -264,9 +267,9 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
       return setRun({
         title,
         status: "done",
-        text: "Start it by hand",
-        lines: ["No Windows Terminal or tmux to open a window in. Run in a terminal:", `  ${command}`, `in ${tilde(dir)}`],
-        copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
+        text: L().flow.byHand,
+        lines: [L().flow.noTerminal, `  ${command}`, L().flow.in(tilde(dir))],
+        copy: () => void copy(command).then(() => notify(L().flow.copied(command))),
       });
     }
     notify(resumeInNewWindow(id, dir, truncate(name, 30), "new", account.dir, fresh));
@@ -276,15 +279,15 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
   const runContinue = async (plan: ContinuePlan, dir: string) => {
     const { account } = plan;
     const s = plan.session!;
-    const title = `Continue in ${account.email}`;
+    const title = L().flow.continueIn(account.email);
     const name = truncate(sessionTitle(s), 40);
     const result = await continueInAccount(plan, (steps) => setRun(continueProgress(account, steps, name)));
     if (result.kind === "plugin-failed") {
-      return pluginFailed(result.steps, title, [...headOf(s, undefined, dir).slice(0, -1), truncate(`to continue in ${account.email}`, HEAD_WIDTH)], () =>
+      return pluginFailed(result.steps, title, [...headOf(s, undefined, dir).slice(0, -1), truncate(L().flow.toContinue(account.email), HEAD_WIDTH)], () =>
         void runContinue({ ...plan, skipPlugin: true }, dir),
       );
     }
-    if (result.kind === "failed") return setRun({ title, status: "failed", text: "The session was not continued there", lines: [result.message] });
+    if (result.kind === "failed") return setRun({ title, status: "failed", text: L().flow.notContinued, lines: [result.message] });
     setRun(undefined);
     onCopied?.();
     if (result.copy) startThere(result.copy.id, account, dir, title, sessionTitle(s), false);
@@ -292,13 +295,13 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
 
   /** Starts a new session in `account`, in the folder `dir`, in a new window. The cco plugin is installed there first if it lacks it. */
   const startNew = async (account: Account, dir: string, skipPlugin = false) => {
-    const title = `New session in ${account.email}`;
+    const title = L().flow.newTitle(account.email);
     const result = await continueInAccount({ account, fromEmail, skipPlugin }, (steps) => setRun(continueProgress(account, steps, tilde(dir), title)));
     if (result.kind === "plugin-failed")
-      return pluginFailed(result.steps, title, [truncate(`a new session in ${account.email}`, HEAD_WIDTH), truncate(`in ${tilde(dir)}`, HEAD_WIDTH)], () => void startNew(account, dir, true));
-    if (result.kind === "failed") return setRun({ title, status: "failed", text: "No session was started", lines: [result.message] });
+      return pluginFailed(result.steps, title, [truncate(L().flow.newIn(account.email), HEAD_WIDTH), truncate(L().flow.in(tilde(dir)), HEAD_WIDTH)], () => void startNew(account, dir, true));
+    if (result.kind === "failed") return setRun({ title, status: "failed", text: L().flow.noneStarted, lines: [result.message] });
     setRun(undefined);
-    startThere(randomUUID(), account, dir, title, "new session", true);
+    startThere(randomUUID(), account, dir, title, L().flow.newSession, true);
   };
 
   /**
@@ -308,24 +311,25 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
   const accountMenu = (account: Account, cwd: string, own: OwnSession | undefined, noSession?: string) => {
     const active = account.dir === accountState.current?.dir;
     const blocker = accountDeleteBlocker(account.dir, accountState.current?.dir);
-    const plugin = pluginSteps(account.dir).length > 0 ? " · gets the cco plugin" : "";
+    const t = L().flow;
+    const plugin = pluginSteps(account.dir).length > 0 ? t.getsPlugin : "";
     setChoice({
-      title: `What to do in ${truncate(account.email, 40)}?`,
+      title: t.whatIn(truncate(account.email, 40)),
       lines: [
         `${accountBar(account, accountState, accountColor)} ${truncate(`${account.email} · ${tilde(account.dir)}`, HEAD_WIDTH - 2)}`,
-        active ? "the account of the Claude Code this viewer follows" : "another account",
+        active ? t.thisAccount : t.anotherAccount,
         ...(own ? ["", ...headOf(own.summary, own.claude, own.dir)] : []),
       ],
       options: [
         {
           id: "continue",
-          label: truncate(`Continue it in ${account.email}…`, HEAD_WIDTH - 4),
-          detail: `a copy, in a new window${plugin}`,
-          disabled: active ? "it is this session's account" : own ? undefined : (noSession ?? "there is no session to continue"),
+          label: truncate(t.continueItIn(account.email), HEAD_WIDTH - 4),
+          detail: t.aCopy(plugin),
+          disabled: active ? t.sameAccount : own ? undefined : (noSession ?? t.noSession),
         },
-        { id: "new", label: "Start a new session there", detail: truncate(`in ${tilde(cwd)}, in a new window${plugin}`, HEAD_WIDTH) },
-        { id: "folder", label: "Open its config folder", detail: truncate(tilde(account.dir), HEAD_WIDTH) },
-        { id: "trash", label: "Move this account to the trash…", detail: "its folder and start scripts; they can be restored", disabled: blocker, danger: true },
+        { id: "new", label: t.startNew, detail: truncate(t.startNewDetail(tilde(cwd), plugin), HEAD_WIDTH) },
+        { id: "folder", label: t.openFolder, detail: truncate(tilde(account.dir), HEAD_WIDTH) },
+        { id: "trash", label: t.trashAccount, detail: t.trashAccountDetail, disabled: blocker, danger: true },
       ],
       initial: !active && own ? 0 : 1,
       onChoose: (id) => {
@@ -335,7 +339,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
         if (id === "trash") return askTrash(account);
         if (id === "folder") {
           openInDefaultApp(account.dir);
-          notify(`opened ${tilde(account.dir)}`);
+          notify(t.opened(tilde(account.dir)));
         }
       },
     });
@@ -349,7 +353,6 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
     setTrashChanged((n) => n + 1);
   };
   const failed = (title: string, text: string, err: unknown) => setRun({ title, status: "failed", text, lines: [(err as Error).message] });
-  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   /**
    * Moves `account` to the trash after two confirmations: what moves, then its folder name typed. Refused with the
@@ -357,22 +360,23 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
    */
   const askTrash = (account: Account) => {
     const blocker = accountDeleteBlocker(account.dir, accountState.current?.dir);
-    if (blocker) return notify(`can't delete: ${blocker}`);
+    const t = L().flow;
+    if (blocker) return notify(t.cantDelete(blocker));
     const plan = accountTrashPlan(account);
     setConfirmation({
-      title: "Move this account to the trash?",
+      title: t.trashTitle,
       danger: true,
       lines: [
         accountLine(account),
-        ...(account.organization ? [truncate(`organization ${account.organization}`, HEAD_WIDTH)] : []),
-        `${count(plan.sessions, "session")} · ${sizeText(plan.size)}`,
-        ...(plan.scripts.length ? plan.scripts.map((f) => truncate(`script  ${tilde(f)}`, HEAD_WIDTH)) : ["no start script found"]),
+        ...(account.organization ? [truncate(t.organization(account.organization), HEAD_WIDTH)] : []),
+        `${L().counts.sessions(plan.sessions)} · ${sizeText(plan.size)}`,
+        ...(plan.scripts.length ? plan.scripts.map((f) => truncate(t.script(tilde(f)), HEAD_WIDTH)) : [t.noScript]),
         "",
-        `It can be restored from the trash (${trashHint}).`,
+        t.restorable(trashHint),
       ],
       onConfirm: () =>
         setTyped({
-          title: "Really move it to the trash?",
+          title: t.reallyTrash,
           lines: [accountLine(account)],
           word: basename(account.dir),
           onConfirm: () => {
@@ -380,9 +384,9 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
               const entry = trashAccount(account, accountState.current?.dir);
               setLastTrashed(entry.id);
               changed();
-              notify(`moved to the trash · u undo · ${trashHint} trash`);
+              notify(t.trashed(trashHint));
             } catch (err) {
-              failed("Move to the trash", "The account was not moved", err);
+              failed(t.trashFailedTitle, t.trashFailed, err);
             }
           },
         }),
@@ -395,9 +399,9 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
       const entry = restoreAccount(id);
       if (id === lastTrashed) setLastTrashed(undefined);
       changed();
-      notify(`restored ${entry.account.email}`);
+      notify(L().flow.restored(entry.account.email));
     } catch (err) {
-      failed("Restore the account", "The account was not restored", err);
+      failed(L().flow.restoreFailedTitle, L().flow.restoreFailed, err);
     }
   };
   /** u after a move to the trash: brings it back. False when there is nothing to undo. */
@@ -409,29 +413,30 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
 
   /** Deletes an account in the trash for good, after two confirmations. */
   const askPurge = (entry: AccountTrashEntry, cwd: string) => {
+    const t = L().flow;
     const head = truncate(`${entry.account.email} · ${tilde(entry.folder.from)}`, HEAD_WIDTH);
     setConfirmation({
-      title: "Delete this account for good?",
+      title: t.purgeTitle,
       danger: true,
       lines: [
         head,
-        `${count(entry.sessions, "session")} · ${sizeText(entry.size)}${entry.scripts.length ? ` · ${count(entry.scripts.length, "script")}` : ""}`,
+        `${L().counts.sessions(entry.sessions)} · ${sizeText(entry.size)}${entry.scripts.length ? ` · ${t.scripts(entry.scripts.length)}` : ""}`,
         "",
-        "Its login, sessions and settings are deleted.",
-        "This can't be undone.",
+        t.purgeDeleted,
+        t.cannotUndo,
       ],
       onConfirm: () =>
         setTyped({
-          title: "Really delete it for good?",
+          title: t.reallyPurge,
           lines: [head],
           word: basename(entry.folder.from),
           onConfirm: () => {
             try {
               purgeAccount(entry.id, cwd);
               changed();
-              notify(`deleted ${entry.account.email} for good`);
+              notify(t.purged(entry.account.email));
             } catch (err) {
-              failed("Delete the account", "The account was not deleted", err);
+              failed(t.purgeFailedTitle, t.purgeFailed, err);
             }
           },
         }),
@@ -441,23 +446,24 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
   /** Empties the accounts trash, after two confirmations (the second: `delete` typed). */
   const askEmpty = (entries: AccountTrashEntry[], cwd: string) => {
     if (entries.length === 0) return;
-    const accounts = count(entries.length, "account");
+    const t = L().flow;
+    const accounts = L().counts.accounts(entries.length);
     setConfirmation({
-      title: "Empty the accounts trash?",
+      title: t.emptyTitle,
       danger: true,
-      lines: [accounts, "", "They are deleted for good, with their logins,", "sessions and settings. This can't be undone."],
+      lines: [accounts, "", ...t.emptyLines],
       onConfirm: () =>
         setTyped({
-          title: "Really empty the trash?",
+          title: t.reallyEmpty,
           lines: [accounts],
-          word: "delete",
+          word: t.emptyWord,
           onConfirm: () => {
             try {
               emptyAccountTrash(cwd);
               changed();
-              notify("accounts trash emptied");
+              notify(t.emptied);
             } catch (err) {
-              failed("Empty the trash", "The trash was not emptied", err);
+              failed(t.emptyFailedTitle, t.emptyFailed, err);
             }
           },
         }),
@@ -480,29 +486,30 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
     try {
       void prepareAdded(command, dir, cwd, writeAccountFiles(command, dir, binDir));
     } catch (err) {
-      setRun({ title: `Add ${command}`, status: "failed", text: "The account was not added", lines: [(err as Error).message] });
+      setRun({ title: L().flow.addTitle(command), status: "failed", text: L().flow.notAdded, lines: [(err as Error).message] });
     }
   };
 
   const prepareAdded = async (command: string, dir: string, cwd: string, scripts: StartScript[], skipPlugin = false) => {
-    const title = `Add ${command}`;
+    const t = L().flow;
+    const title = t.addTitle(command);
     const account: Account = { dir, file: join(dir, ".claude.json"), email: basename(dir) };
     const result = await continueInAccount({ account, fromEmail, skipPlugin }, (steps) => setRun(continueProgress(account, steps, tilde(dir), title)));
     if (result.kind === "plugin-failed")
-      return pluginFailed(result.steps, title, [truncate(`the new account ${command}`, HEAD_WIDTH), truncate(tilde(dir), HEAD_WIDTH)], () => void prepareAdded(command, dir, cwd, scripts, true));
-    if (result.kind === "failed") return setRun({ title, status: "failed", text: "cco could not be prepared there", lines: [result.message] });
-    const written = [truncate(`folder  ${tilde(dir)}`, HEAD_WIDTH), ...scripts.map((s) => truncate(`script  ${tilde(s.file)}`, HEAD_WIDTH))];
+      return pluginFailed(result.steps, title, [truncate(t.newAccount(command), HEAD_WIDTH), truncate(tilde(dir), HEAD_WIDTH)], () => void prepareAdded(command, dir, cwd, scripts, true));
+    if (result.kind === "failed") return setRun({ title, status: "failed", text: t.notPrepared, lines: [result.message] });
+    const written = [truncate(t.folder(tilde(dir)), HEAD_WIDTH), ...scripts.map((s) => truncate(t.script(tilde(s.file)), HEAD_WIDTH))];
     const started = scriptInNewWindow(scripts[0]!.file, cwd, command);
     if (started) {
       notify(started);
-      return setRun({ title, status: "done", text: "Sign in there with /login", lines: [...written, "", "A new window runs it; once signed in, the account shows here."] });
+      return setRun({ title, status: "done", text: t.signIn, lines: [...written, "", t.newWindow] });
     }
     setRun({
       title,
       status: "done",
-      text: "Start it by hand",
-      lines: [...written, "", `No Windows Terminal or tmux: run ${command} in a terminal`, "and sign in with /login."],
-      copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
+      text: t.byHand,
+      lines: [...written, "", t.runByHand(command), t.andSignIn],
+      copy: () => void copy(command).then(() => notify(t.copied(command))),
     });
   };
 

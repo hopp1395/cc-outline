@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk, tick } from "./helpers/ink.js";
 import { versionLabels, type Layout } from "../src/tui/layout.js";
-import { repairProgress, SETTING_ROWS, SettingsView, updateProgress } from "../src/tui/SettingsView.js";
+import { repairProgress, settingRows, SettingsView, updateProgress } from "../src/tui/SettingsView.js";
 import { UpdateContext, type Update, type UpdateRun } from "../src/tui/useUpdate.js";
 import { UPDATE_STEPS } from "../src/update.js";
 import { VERSION } from "../src/version.js";
@@ -226,7 +226,7 @@ describe("releases in the settings", () => {
       </UpdateContext.Provider>,
     );
     await expect.poll(view.frame, { timeout: 2000 }).toContain("The update check is off");
-    expect(SETTING_ROWS.some((r) => r.key === "updateMode")).toBe(true);
+    expect(settingRows().some((r) => r.key === "updateMode")).toBe(true);
     view.unmount();
   });
 });

@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import sliceAnsi from "slice-ansi";
+import { L } from "../i18n/index.js";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { openInDefaultApp } from "../open.js";
 import { AreaContext, inArea, Spinner } from "./layout.js";
@@ -139,8 +140,8 @@ const BADGE_OFF = "\u001b[39m\u001b[49m";
 export function moreBadge(to: "top" | "end", count: number, width: number): string {
   const arrow = to === "top" ? "↑" : "↓";
   const key = to === "top" ? "ctrl+Home" : "ctrl+End";
-  const more = `${arrow} ${count} more`;
-  const unit = `${more} ${count === 1 ? "line" : "lines"}`;
+  const more = L().preview.more(arrow, count);
+  const unit = `${more} ${L().preview.lines(count)}`;
   const label = [`${unit} (${key})`, unit].find((l) => l.length + 2 <= width) ?? more;
   return centredBadge(label, width);
 }
@@ -245,8 +246,8 @@ export function Preview({
     if (!text) return false;
     const count = text.split("\n").length;
     copy(text).then(
-      () => setCopied(`copied ${count === 1 ? "1 line" : `${count} lines`}`),
-      () => setCopied("copy failed"),
+      () => setCopied(L().preview.copied(count)),
+      () => setCopied(L().preview.copyFailed),
     );
     return true;
   };

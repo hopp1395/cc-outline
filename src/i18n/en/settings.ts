@@ -1,0 +1,582 @@
+/** The Settings view: groups, value names, every setting's texts, the Reset and Releases entries. */
+export const settings = {
+  /** The groups' names, the list's separators. */
+  groups: {
+    Start: "Start",
+    General: "General",
+    Account: "Account",
+    Chat: "Chat",
+    Changes: "Changes",
+    Plan: "Plan",
+    Sessions: "Sessions",
+    Monitor: "Monitor",
+    Settings: "Settings",
+    Reset: "Reset",
+    Releases: "Releases",
+  },
+  /** How values are named in the list and the details; a value not named here shows as it is. */
+  values: {
+    on: "on",
+    off: "off",
+    remember: "remember",
+    always: "always",
+    never: "never",
+    right: "right",
+    left: "left",
+    window: "window",
+    list: "list",
+    details: "details",
+    both: "both",
+    auto: "auto",
+    single: "single",
+    stacked: "stacked",
+    compact: "compact",
+    full: "full",
+    "oldest-first": "oldest-first",
+    "newest-first": "newest-first",
+    oldest: "oldest",
+    newest: "newest",
+    this: "this",
+    other: "other",
+    all: "all",
+    current: "current",
+    show: "show",
+    hide: "hide",
+    today: "today",
+    "7d": "7 days",
+    "30d": "30 days",
+    "90d": "90 days",
+    unlimited: "unlimited",
+    hidden: "hidden",
+    narrow: "narrow",
+    normal: "normal",
+    wide: "wide",
+    wider: "wider",
+    email: "email",
+    folder: "folder",
+    recent: "recent",
+    system: "system",
+  } as Record<string, string>,
+  default: "default",
+  yourOwn: "your own",
+  chosen: (n: number) => `${n} chosen`,
+  valuesHeading: "Values",
+  also: (key: string) => `Also ${key}.`,
+  legendHeading: "Marks in the Sessions list",
+  inView: (key: string, view: string) => `${key} in ${view}`,
+
+  reset: {
+    restart: {
+      label: "restart the viewer",
+      description:
+        "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (`npm install -g`, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. `r` in the other views does the same. Asks first unless confirm quit is off.",
+    },
+    doctor: {
+      label: "doctor: check and repair",
+      description:
+        "Checks what cco needs: the installation (npm, the plugin and its version, the path the plugin starts cco by), cco's files in `~/.claude/cco` (of processes that have ended, unfinished writes, files that are no valid JSON, the trash), the settings, the terminal and whether the plugin's hooks run. `Enter` asks, then checks; nothing is changed by that. The report shows below, and `Enter` then offers to repair what it can; some findings name a command to run yourself. `cco doctor` in a shell does the same (`--fix` repairs), `/cco:doctor` shows the report in Claude Code.",
+    },
+    settings: {
+      label: "all settings to default",
+      description: "Sets every setting above back to its default and removes the marks ★ of the settings. `R` does the same from any setting; `r` resets only the selected one.",
+    },
+    data: {
+      label: "saved data of this project",
+      description:
+        "Deletes what cco remembers for this project: the marks ★ of turns, files, plans, sessions and days, the selected entry and scroll position of every list, the view and placement of each session, and whether the viewer was open when Claude Code last exited. The settings stay, and nothing of Claude Code is touched: transcripts, sessions and git are as before. The views reload empty.",
+    },
+    changed: "Changed",
+    noneChanged: "  none: every setting is at its default",
+    marked: "Marked",
+    saved: "Saved",
+    nothingSaved: "  nothing saved for this project",
+    asksFirst: "`Enter` asks before anything is changed.",
+    header: (label: string) => `Reset: ${label}`,
+    changedCount: (n: number) => `${n} changed`,
+    markedCount: (n: number) => `${n} marked`,
+    savedFiles: (n: number) => `${n} of 4 files saved`,
+    askSettingsTitle: "Reset all settings?",
+    differ: (n: number, of: number) => `${n} of ${of} differ from the default:`,
+    allDefault: "Every setting is at its default.",
+    marksRemoved: (n: number) => `The marks ★ of ${n} ${n === 1 ? "entry" : "entries"} are removed.`,
+    askDataTitle: "Delete the saved data of this project?",
+    dataStays: "Settings, transcripts and git stay.",
+  },
+
+  doctor: {
+    title: "Doctor",
+    checking: "Checking",
+    repairHeading: "Repair",
+    repairing: "Repairing…",
+    notChecked: "Not checked yet. `Enter` asks, then checks.",
+    repairOffer: (n: number) => `\`Enter\` asks, then repairs ${n} of them. \`F5\` checks again.`,
+    nothingToRepair: "Nothing to repair. `Enter` or `F5` checks again.",
+    checkingHeader: "checking…",
+    checkedAt: (count: string, time: string) => `${count} · checked ${time}`,
+    notCheckedHeader: "not checked yet",
+    askTitle: "Run the doctor?",
+    askLines: ["Checks the installation, cco's files in ~/.claude/cco, the settings, the terminal and the hooks.", "Nothing is changed: repairs are offered with the report."],
+    askRepair: (n: number) => `Repair ${n} ${n === 1 ? "finding" : "findings"}?`,
+    repairTitle: "Repair",
+    repairFailed: (failed: number, of: number) => `${failed} of ${of} ${of === 1 ? "repair" : "repairs"} failed`,
+    reportShows: "The report shows what is left.",
+  },
+
+  restart: {
+    askTitle: "Restart the viewer?",
+    opensAgain: (detail: string) => `It opens again here, in this view, with ${detail}.`,
+    keepsRunning: "Claude Code keeps running; restart it for changes to the plugin.",
+    running: (installed: string, running: string) => `v${installed} (running v${running})`,
+  },
+
+  update: {
+    title: (target: string) => `Update cco to v${target}`,
+    updating: "Updating",
+    stoppedAt: (step: string) => `The update stopped at ${step}`,
+    runRest: "Run the rest by hand, then reopen the viewer.",
+    updatedTo: (target: string) => `Updated to v${target}`,
+    restartForPlugin: "Restart Claude Code for the plugin.",
+    restarting: "Restarting",
+    stopped: "The update stopped. Run the rest by hand (`c` copies it), then close the viewer with `q` and open it again:",
+    done: (target: string) =>
+      `Updated to v${target}. The viewer opens again with it; if it does not, close it with \`q\` and open it again. Restart Claude Code for the plugin.`,
+    updatingNow: "Updating…",
+    isOut: (target: string, version: string) => `v${target} is out; this is v${version}. \`Enter\` asks, then runs:`,
+    thenReopens: "Then the viewer opens again with the new version. The plugin (hooks, `/cco:…` commands) takes effect when Claude Code restarts.",
+    installed: (target: string, version: string) => `v${target} is installed; this viewer still runs v${version}. \`Enter\` opens it again with the new version.`,
+    dev: (target: string, version: string, root: string) =>
+      `v${target} is out; this is v${version}, run from \`${root}\` (\`npm link\` or \`npx\`), which cco does not update. Update the checkout, or install the release (\`c\` copies it):`,
+    noNotes: "No notes for this release.",
+    asking: "Asking npm and GitHub…",
+    checkOff: "The update check is off (General: update), so cco has not asked GitHub for the release notes. `F5` checks once.",
+    unreachable: "npm and GitHub could not be reached. `F5` tries again.",
+    askTitle: (target: string) => `Update cco to v${target}?`,
+    thenReopensShort: "Then the viewer opens again with the new version.",
+    entryRelease: (version: string, title: string) => `v${version}${title}`,
+    checkingEntry: "checking…",
+    releaseNotes: "release notes",
+    updateTo: (target: string) => `update to v${target}`,
+    restartWith: (target: string) => `restart with v${target}`,
+    out: (target: string) => `v${target} is out`,
+    update: "update",
+    installedMark: "installed",
+    newMark: "new",
+    asOf: (day: string) => `as of ${day}`,
+    releasesHeader: "Releases",
+    updateMode: (mode: string) => `update ${mode}`,
+    devInstall: (version: string) => `development install · v${version}`,
+    installedVersion: (version: string) => `installed v${version}`,
+    newer: (n: number) => `${n} newer ${n === 1 ? "release" : "releases"}`,
+  },
+
+  account: {
+    details: "how accounts are found",
+    add: "how to add an account",
+    none: "no account found",
+    header: (label: string) => `Account: ${label}`,
+    found: (n: number) => `${n} ${n === 1 ? "account" : "accounts"} found`,
+    howFound:
+      "cco looks for accounts in the config folders of Claude Code: the one of this viewer (`CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.claude` and every folder `~/.claude*` in your home folder. A folder counts as an account when its `.claude.json` names one (`oauthAccount`).",
+    thisViewer: "This viewer",
+    notSet: "not set",
+    configFolder: "config folder",
+    ccoFiles: "cco's files",
+    accountsFound: (n: number) => `Accounts found (${n})`,
+    noneFound: "none",
+    lookedUp: "The account of a Claude Code you attach to is looked up through the file `sessions/<pid>.json` in these folders.",
+    noAccount:
+      "No account found for this Claude Code: its config folder has no `.claude.json` with a signed-in account. Sign in with `/login` in Claude Code; the list updates within 30 seconds, or at once with `F5`.",
+    active: "● active: the account of the Claude Code this viewer follows",
+    another: "○ another account found",
+    email: "email",
+    name: "name",
+    organization: "organization",
+    billing: "billing",
+    seat: "seat",
+    rateLimitTier: "rate limit tier",
+    readFrom: "read from",
+    colour: (badge: string, chosen: boolean) => `colour: ${badge}${chosen ? ", chosen" : ", from the email"}`,
+    avatar: "avatar",
+    noAvatar: (fallback: string) => `none, "${fallback}"`,
+    showsWhere: "The colour and the avatar show in the top bar, the avatar also in the title, while this is the active account.",
+  },
+
+  addAccount: {
+    intro:
+      "Claude Code keeps its login, sessions, settings and plugins in one config folder: `~/.claude`, or the folder `CLAUDE_CONFIG_DIR` names. A second account is a second folder, started with that variable set. cco finds every `~/.claude*` folder that is signed in.",
+    enterHeading: "Enter sets one up",
+    asks: "It asks for a command (e.g. `cw`) and a folder (`.claude-cw`), checks the command's name, then:",
+    step1: "1. creates the folder in your home folder;",
+    step2: (bin: string, windows: boolean) =>
+      `2. writes start scripts next to claude, in ${bin}: ${windows ? "`cw.cmd` for cmd and PowerShell and `cw` for Git Bash" : "`cw`, executable"};`,
+    step3: "3. installs the cco plugin there and gives it cco's settings;",
+    step4: "4. runs the script in a new window: sign in there with `/login`. The account then shows here (within 30 s, or at once with `F5`).",
+    byHand: "By hand",
+    cmdFile: "cmd and PowerShell: a file `cw.cmd` in a folder on the PATH:",
+    bashFile: "Git Bash: a file `cw` (no ending) in the same folder:",
+    unixFile: "A file `cw` in a folder on the PATH (e.g. `~/.local/bin`), made executable with `chmod +x cw`:",
+    thenRun: "Then run `cw`, sign in with `/login`, and add cco there:",
+    avoid: "Names to avoid",
+    avoidWindows:
+      "A shell runs its own commands before files on the PATH. In PowerShell aliases win: `cp` runs Copy-Item, not `cp.cmd`; so do `sc` (Set-Content), `r`, `h`, `gc`, `where` and many more. cmd has built-ins such as `copy`, `dir` and `start`, Bash such as `test` and `type`. And a program of the same name earlier on the PATH wins as well. `Get-Command cw -All` in PowerShell (`type -a cw` in Bash) lists what a name runs, the first one wins. Enter checks all of this, asking PowerShell for its aliases, your profile's included.",
+    avoidUnix:
+      "A shell runs its built-ins and aliases before files on the PATH (`test`, `type`, …), and a program of the same name earlier on the PATH wins as well. `type -a cw` lists what a name runs, the first one wins. Enter checks the built-ins and the PATH.",
+  },
+
+  view: {
+    entries: (count: string) => `${count} entries · `,
+    copied: "copied · ",
+    changed: (n: number) => ` · ${n} changed`,
+    checkingUpdates: " · checking for updates…",
+    empty: "No settings",
+    noMatch: "No setting matches the filter",
+    footer: {
+      setting: "↑↓ setting",
+      repair: "↵ repair",
+      check: "F5 check",
+      checkNow: "↵ check",
+      reset: "↵ reset",
+      update: "↵ update",
+      restart: "↵ restart",
+      copyCommands: "c copy commands",
+      actions: "↵ actions…",
+      delete: "d delete",
+      addAccount: "↵ add an account…",
+      reload: "F5 reload",
+      choose: "↵ choose…",
+      change: "↵ change",
+      default: "r default",
+      resetAll: "R reset all",
+      views: "1-6/tab view",
+    },
+    settingHeader: (value: string, def: string) => `${value} · default ${def}`,
+  },
+
+  /** Texts shared by several rows. */
+  common: {
+    tab: "tab",
+    tabDescription: (name: string, what: string, number: string) =>
+      `Whether the ${name} view (${what}) has a tab. Hide a view you do not use, and the tab bar gets shorter. Hidden, it keeps its number: \`${number}\` does nothing, and the other views keep theirs (with Plan hidden, Sessions stays \`4\`). A \`/cco:…\` command or \`--view\` that names it still opens it, and its tab shows while it is open. Settings (\`6\`) cannot be hidden, and at least one other view stays shown.`,
+    tabOn: (number: string) => `show its tab; \`${number}\` and \`Tab\` reach it`,
+    tabOff: (number: string) => `hide it; \`${number}\` and \`Tab\` skip it`,
+    order: "order",
+    orderDescription: (view: string, what: string) =>
+      `Whether the ${view} list shows the newest or the oldest ${what} at the top. Oldest first reads like Claude Code, from the top down; newest first puts the latest right under the tabs, where a long list starts. The keys follow what you see: \`↑/↓\` go up and down the list, \`Home\` and \`g\` to the top, \`End\` and \`G\` to the bottom.`,
+    oldestFirst: (what: string) => `oldest at the top, newest at the bottom: new ${what} appear below`,
+    newestFirst: (what: string) => `newest at the top, oldest at the bottom: new ${what} appear at the top`,
+    range: "range",
+    rangeDescription: (view: string, what: string, dated: string) =>
+      `How far back the ${view} list reaches when it is read: the ${what} ${dated} today or in the days before it, counted in calendar days from midnight. A short range opens faster when there are many transcripts: those last written before it are not read. The list shows the newest at the top and ends with "↓ more ↓", which reads the rest until the viewer restarts.`,
+    rangeAll: "the whole history, without ↓ more ↓; the first read takes longer with many transcripts",
+    rangeToday: (first: string) => `only today, since ${first} 00:00`,
+    rangeDays: (days: number, first: string) => `today and the ${days} days before, since ${first} 00:00`,
+    detailOf: {
+      Chat: "`Enter` shows the full prompt and `a` a subagent's page",
+      Changes: "`Enter` shows the whole file",
+      Plan: "`Enter` shows the plan's changes",
+      Monitor: "`Enter` shows the response table",
+    } as Record<string, string>,
+    share: (percent: number, min: number, max: number) => `${percent} % of the pane, ${min}–${max} columns`,
+    widthDescription: (view: string, suits: string) =>
+      `How wide the ${view} list is; the preview takes the rest of the pane. ${suits} The preview keeps at least 20 columns, so in a narrow pane the wider steps stop there. At the ends one of them takes the whole pane: hidden to read the preview in full width, full to read the list's entries uncut.`,
+    widthHidden: "the list is folded away, the preview takes the whole pane; `↑` `↓` still switch entries",
+    widthNarrow: (share: string) => `${share}: more room for the preview`,
+    widthWider: (share: string) => `${share}: the list and the preview share the pane`,
+    widthFullDetail: (detail: string) => `the list takes the whole pane, without a preview; ${detail} over the whole pane, \`Esc\` goes back to the list`,
+    widthFull: "the list takes the whole pane, without a preview",
+    widthKeys: (view: string) => `\`<\`, \`>\` and \`|\` in ${view}`,
+    widthNotes: [
+      "`<` and `>` step one width at a time, from hidden to full. `|` goes from a width to hidden, and on the next press back to that width; the press after that goes to full, and the next back again. After a restart, the width before is not known: `|` then goes from hidden to narrow and from full to wider.",
+      "Every step is stored here, hidden and full too: the view starts as you left it.",
+    ],
+    widthSettingsNote: "With hidden, this list is gone as soon as you choose it; `|` or `>` brings it back.",
+    listWidth: "list width",
+    wrap: "wrap",
+    wrapDescription: (what: string) => `Whether long lines ${what} wrap at the edge of the pane; off, they are cut and \`Ctrl+←/→\` scrolls sideways.`,
+    wrapOn: "wrap at the edge; nothing is cut off",
+    wrapOff: (off: string) => `cut at the edge, \`Ctrl+←/→\` scrolls; ${off}`,
+  },
+
+  rows: {
+    language: {
+      label: "language",
+      description:
+        "The language of the viewer and of cco's output in a shell (`cco doctor`, `cco open`). system follows the operating system: German if it is set to German, else English. What Claude writes, the release notes and the plugin's commands stay as they are.",
+      system: (lang: string) => `the operating system's language, here ${lang}`,
+      en: "English",
+      de: "German",
+      note: "Takes effect at once, in every view.",
+    },
+    autoOpen: {
+      label: "auto open",
+      description:
+        "Whether the viewer opens by itself when Claude Code starts (also with `--resume` and `--continue`). The focus stays in Claude Code, and a Claude Code that already has a viewer gets no second one. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
+      remember:
+        "reopen it only if it was open when Claude Code last exited in the project: closed with `q` in one project, it stays closed there and still opens in the others",
+      always: "open it on every start, in every project; in the chat, unless another view was open last (e.g. Changes, where you left it)",
+      never: "never open it by itself; `/cco:chat`, `/cco:git` and the other `/cco:…` commands still do",
+      needs: (terminal: string) => `Needs the plugin's hooks, and Windows Terminal or tmux (here: ${terminal}).`,
+      needsNone: "Needs the plugin's hooks, and Windows Terminal or tmux; neither is found here, so it does not open.",
+      nextStart: "Takes effect at the next start of Claude Code.",
+    },
+    placement: {
+      label: "placement",
+      description:
+        "Where the viewer opens, when Claude Code starts and with `/cco:…` commands. right and left suit a wide screen, where both fit side by side; window keeps Claude Code at full width, for a narrow one. `p` in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
+      right: "a pane right of Claude Code; each takes half of the tab",
+      left: "the same, left of Claude Code",
+      windowWt: "a Windows Terminal window of its own, one per Claude Code; Claude Code keeps the whole tab, `Alt+Tab` switches",
+      windowTmux: "a tmux window of its own next to Claude Code's; Claude Code keeps the whole window, your prefix and `n` or `p` (`Ctrl+b n`) switch",
+      focus: "A window takes the focus from Claude Code: Windows Terminal cannot hand it back to another window.",
+      next: "Takes effect the next time the viewer opens; a running viewer stays where it is.",
+      /** The placements as the placement dialog (p) names them. */
+      meanings: {
+        right: "a pane right of Claude Code",
+        left: "a pane left of Claude Code",
+        window: "a window of its own (in tmux: a tmux window)",
+      } as Record<string, string>,
+    },
+    confirmQuit: {
+      label: "confirm quit",
+      description:
+        "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether `r` (in the other views) and restart the viewer (Reset, below) ask before the viewer restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
+      on: "ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no",
+      off: "close at the first `q` or `Esc`; restart the viewer restarts without asking",
+    },
+    compactView: {
+      label: "compact",
+      description:
+        "A layout for small screens or a narrow pane next to Claude Code, where list and preview side by side leave both too narrow. The list widths you chose (`<`, `>`) are kept and apply again with off; `i` still lists the keys that the help line shows otherwise.",
+      off: "list and preview side by side, with the help line and the status; the widths of `<`, `>` and `|` apply",
+      stacked:
+        "the list above the preview, both as wide as the pane (the list's columns: `<` and `>`, its height: compact split); `Enter` opens details in the preview as usual; no help line, no status, the tabs shortened to their number, the preview's header one line",
+      single:
+        "one column: the list, and `Enter` (or `|`, in every view) shows the preview over the whole pane, `Esc` (or `|`) goes back; no help line, no status, the tabs shortened to their number, the preview's header one line",
+    },
+    compactColumns: {
+      label: "compact columns",
+      description:
+        "With compact stacked: how many columns the list above the preview has, so more entries fit in its few rows. Set with `<` and `>` as well, which change the width in the other layouts. The entries run down the first column, then down the next.",
+      "1": "one column of entries, the most each can show",
+      "2": "two columns, filled one after the other: the first from top to bottom, then the second",
+      "3": "three columns; the entries are cut after a third of the pane",
+      "4": "four columns; for a wide pane with short entries",
+    },
+    compactSplit: {
+      label: "compact split",
+      description: "With compact stacked: the share of the pane's height that the list takes; the preview gets the rest.",
+      "10%": "the list is a few rows high (at least three), the preview gets nearly everything",
+      "20%": "a fifth of the height for the list; about six rows in a pane of 30",
+      "30%": "a good third for the list, e.g. with two or three columns of longer entries",
+      "40%": "the list gets more rows, the preview a bit less than two thirds",
+      "50%": "half and half; for long lists, such as the sessions of a month",
+    },
+    marquee: {
+      label: "marquee",
+      description:
+        "Whether the selected list entry scrolls sideways when it is too long for the list, at most 250 columns, then from the start. Useful in a narrow pane, where prompts, paths and session titles are cut.",
+      on: "the selected entry scrolls to its end and starts over; the others are cut with …",
+      off: "every entry is cut with …, e.g. Fix the date separa…; the preview's header shows it in full",
+    },
+    dateSeparators: {
+      label: "date separators",
+      description: (example: string) =>
+        `Whether Chat, Plan, Sessions and the trash show a line with the date (── ${example} ──) above each day's entries, unless all of them are from today; the entries then show only their time. The Monitor's days get a line per year (── 2025 ──) once they reach into another year. Off, Sessions and the trash show the date in each row again.`,
+      on: (yesterday: string) => `a line per day, e.g. ── ${yesterday} ── above yesterday's entries; the rows show only 14:32`,
+      off: (date: string) => `no lines; Sessions and the trash show ${date} 14:32 in each row`,
+    },
+    pinnedFavorites: {
+      label: "pinned favorites",
+      description:
+        "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (`Space`) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place, with their ★ as well. `↑↓` and `Home`/`End` follow the rows on screen, through both copies; `Shift+↑/↓` only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
+      on: "marked entries once more at the top, under ── ★ Pinned ──, and in their place below, both with ★",
+      off: "marked entries only in their place, with ★; `Shift+↑/↓` jumps between them",
+    },
+    rememberPositions: {
+      label: "remember positions",
+      description:
+        "Whether every list keeps its selected entry and the scroll position of each entry across restarts of the viewer. Switching entries keeps positions either way while the viewer runs.",
+      on: "store them per project, e.g. Changes reopens on the same file, scrolled to the same hunk",
+      off: "start fresh after each restart: the newest turn in Chat, the first entry elsewhere, each scrolled to the top",
+      stored: (file: string) => `Stored in \`${file}\`; switching off keeps the file.`,
+      atStart: "Takes effect when the viewer starts.",
+    },
+    rememberView: {
+      label: "view per session",
+      description:
+        "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer with `/cco:open` or without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names.",
+      on: "reopen the session's last view, e.g. a session left in Changes comes back in Changes after `claude --resume`",
+      off: "start in the chat, or the view shown last in the project",
+      stored: (file: string) => `Stored per project in \`${file}\`.`,
+    },
+    mouse: {
+      label: "mouse",
+      description: (select: string) =>
+        `Whether the viewer takes the mouse: a click on a tab switches to it, a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what \`Enter\` does, and the wheel scrolls the preview (or moves through the list). A drag in the preview selects lines and copies them when released. While it is on, the terminal leaves clicks to the viewer: ${select}.`,
+      selectWt: "select text with `Shift+drag`",
+      selectTmux: "select text with `Shift+drag`, or your terminal's modifier (`Option` in iTerm2)",
+      selectOther: "select text with `Shift+drag` in Windows Terminal (in tmux, with `Shift` or your terminal's modifier)",
+      on: "clicks and wheel go to the viewer",
+      offTmux: "tmux and the terminal keep the mouse, as in any other pane",
+      off: "the terminal keeps the mouse: a drag selects text, `Ctrl+click` opens links",
+    },
+    filterIn: {
+      label: "filter in",
+      description:
+        "What the list filter (`Ctrl+F`) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). For example, with the details, `src/tui` in Sessions finds the sessions that changed a file there, although no row shows it. Every word must match, in any order; `*` stands for any characters, `?` for one. In the filter dialog, `^L` and `^D` switch them on and off, which changes this setting.",
+      list: "what the rows show, e.g. a prompt, a file path or a session's title",
+      details: "what the previews add, e.g. a session's changed files or a plan's text",
+      both: "rows and details: finds the most, also entries that only mention the words somewhere",
+    },
+    updateMode: {
+      label: "update",
+      description:
+        "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries at the end of the list show the notes of each version and run the update. With auto, the viewer also opens the update here as soon as the check finds one and asks whether to install it. Choose on to update when it suits you, off without network access.",
+      on: "ask npm and GitHub when the viewer starts; a newer version shows in the top bar (v0.7.0 → 0.8.0), and you update when you like",
+      off: "no network requests; `F5` here still checks once",
+      auto: "as on, and once the check finds a newer version, the viewer opens it here and asks whether to install it, once per start",
+      notes: ["`F5` in Settings checks once either way.", "The answer is kept in `~/.claude/cco/releases.json`, so the notes also show offline."],
+    },
+    accountColor: {
+      label: "colour in the top bar",
+      description:
+        "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings; the viewers of the other accounts read it from there and show this account in it too.",
+      auto: "a colour from the email",
+      off: "the \"cco\" keeps the colour of the bar",
+    },
+    accountAvatar: {
+      label: "avatar",
+      description:
+        "What stands at the left of the top bar instead of \"cco\", on the account's colour, so you tell the accounts apart by more than colour: up to six columns of letters, symbols or emojis (an emoji takes two). It also stands in the account's entries here and in the Accounts view, before the sessions of the account in the Sessions view (with the other accounts listed) and at the end of the terminal title. `Enter` opens a list of avatars, each with what it shows, and a field for your own. Like the colour, it is stored in this folder's settings; the viewers of the other accounts read it from there.",
+      none: 'the "cco"',
+      emojis: (hint: string) => `Emojis: ${hint}. Emojis joined from several (a person with a laptop, a flag) are not offered: some terminals draw their parts apart.`,
+    },
+    accountTitle: {
+      label: "avatar in the title",
+      description: "Whether the terminal's window and tab title ends with the account's avatar, e.g. `✳ orders · 🦊`. Without an avatar it is the session's title alone.",
+      on: "the title ends with the avatar of the account",
+      off: "the title is the session's title alone",
+    },
+    viewAccounts: {
+      label: "accounts view",
+      description:
+        "Whether the Accounts view (the accounts found, their plugin, what runs there and the project's sessions in each) is reachable with `0`, a click on the \"cco\" at the left of the top bar, and `←` `→` / `Tab`. The \"cco\" stays either way, in the account's colour. `/cco:accounts` opens the view also while it is off, as `--view` does for a hidden tab.",
+      on: "`0`, the click on \"cco\" and `Tab` reach it",
+      off: "`0` and the click do nothing, `Tab` skips it",
+    },
+    accountsListWidth: {
+      label: "accounts list width",
+      suits: "The Accounts view (`0`, or a click on the \"cco\" at the left of the top bar) lists the accounts by email: a wider list shows long emails in full, a narrower one leaves the details more room.",
+    },
+    accountsOrder: {
+      label: "accounts order",
+      description: "The order of the Accounts view's list below the active account, which always comes first.",
+      email: "by email, e.g. jan@work.com before me@home.de",
+      folder: "by the config folder's name, e.g. .claude before .claude-work",
+      recent: "the account used last first: the latest prompt in its `history.jsonl`, else when its `.claude.json` was written",
+    },
+    viewChat: { what: "the session's turns, rendered as Markdown" },
+    chatListWidth: { suits: "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code." },
+    showTools: {
+      label: "tool calls",
+      description:
+        "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame, and what Claude did in the browser (Claude in Chrome, the desktop app's Browser pane) in a cyan one, with numbered screenshots that a click or `o` / `O` opens; otherwise they are tool calls like the others.",
+      off: "hide them; Claude's text reads as one answer",
+      compact: "a line each, with the result, e.g. ⚙ Read src/app.ts · 120 lines, ⚙ Edit src/app.ts · +4 −2, ⚙ Bash Run the tests · ✓ · 38 lines",
+      full: "also the command, the last 10 lines of its output, and the first 5 files a search found",
+    },
+    showThinking: {
+      label: "thinking",
+      description:
+        "Whether the chat shows Claude's thinking blocks: what it considered before an answer or a tool call. Useful to see why Claude took a path; the turns get much longer.",
+      on: "show them where Claude thought, between the text",
+      off: "hide them; only what Claude wrote to you",
+    },
+    showAgents: {
+      label: "agents",
+      description:
+        "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. `a` in Chat opens what a subagent did.",
+      on: "show them, e.g. an Explore agent searching the code, with its status",
+      off: "hide them; `a` still opens what they did",
+    },
+    chatWrap: { what: "in the chat", off: "useful for wide tables and code blocks" },
+    chatOrder: { what: "turns" },
+    viewGit: { what: "the changed files with their diffs" },
+    gitListWidth: { suits: "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room." },
+    wrap: { what: "in diffs", off: "long lines of code keep their shape and indentation" },
+    gitNestedRepos: {
+      label: "sub-repositories",
+      description:
+        "Whether Changes also shows the git repositories in the folders below: repositories inside the project's repository, submodules, worktrees, or the repositories of a folder that is none itself. They are searched up to 3 levels below the repository's top level (or the folder, when it is none), leaving out hidden folders, `node_modules`, `bin` and `obj`, also when the repository ignores them; `F5` searches again, and the view does every 30 s. Each repository gets a line with its path and branch above its files, also the only one; one without changes shows no changes, whose preview names its branch and last commits. The first 10 are read every 2 s; ↓ more ↓ at the end of the list reads the others, every 10 s.",
+      on: "every repository found, e.g. ── tools/bar · main ── above the files changed there; a nested repository or submodule no longer shows as one entry of the repository around it",
+      off: "only the repository the folder is in, as one group",
+    },
+    viewPlan: { what: "the plans Claude presented in plan mode" },
+    planListWidth: { suits: "A wider list shows more of each plan's title; a narrower one leaves the plan text more room." },
+    planWrap: { what: "of plans", off: "useful for wide tables and code blocks" },
+    planOrder: { what: "plans" },
+    viewSessions: { what: "the overview of past sessions" },
+    sessionsListWidth: {
+      suits: "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room.",
+    },
+    sessionsFolders: {
+      label: "folders",
+      description:
+        "The project folders whose sessions the Sessions view lists: this one, the others, or all with sessions in `~/.claude/projects`. Other folders help to find a session started elsewhere; each row then names its project. The trash follows this choice. The active session always shows. `Enter` here or `a` in Sessions opens the filter with this setting, the accounts and the background sessions.",
+      this: (name: string) => `only this one, ${name}`,
+      other: (name: string) => `every folder but ${name}`,
+      all: "all project folders",
+    },
+    sessionsAccounts: {
+      label: "accounts",
+      description:
+        "The Claude accounts whose sessions the Sessions view lists, of those signed in on this machine (the `~/.claude*` folders): this one, all, or those checked in the filter. With other accounts, every row starts with a bar in its account's colour (gray for an account whose colour is off), the preview names the account, whether the session runs there and whether it has the cco plugin, and `Enter` offers to continue it there, in a new window under that account. Their sessions can be marked, not deleted, renamed, exported or moved. The trash always shows this account's.",
+      current: "this account's only",
+      all: "every account found, also one signed in later",
+    },
+    sessionsBackground: {
+      label: "background",
+      description:
+        "Whether the Sessions view lists the sessions that ran in the background: started with `claude -p` or the Agent SDK (a script, a CI run), or run by the Claude Code daemon. They are marked ◌ before their title, and the preview says how they ran (for a session the daemon runs, with `claude attach`).",
+      show: "with the others, marked ◌",
+      hide: "leave them out: only the sessions typed in a terminal",
+    },
+    sessionsRemote: {
+      label: "remote",
+      description:
+        "Whether the Sessions view lists the Remote Control sessions of this account that run on another machine (a Claude Code started with `claude remote-control` or `/remote-control`, as the Claude app lists them). They are marked ◈ before their title; a session of this machine that is connected shows ⇄. Only with the remote API setting on.",
+      show: "with the others, marked ◈",
+      hide: "leave them out: only the sessions on this machine",
+    },
+    remoteApi: {
+      label: "remote API",
+      description:
+        "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the remote control setting.",
+      on: "Remote Control sessions are listed in Sessions, and the preview shows their prompts",
+      off: "nothing is asked of claude.ai",
+    },
+    remoteControl: {
+      label: "remote control",
+      description:
+        "Experimental, with the remote API on. Lets cco steer a Remote Control session like the Claude app: send it a prompt and stop what Claude does, from the `Enter` dialog in Sessions or with `Enter` on the last turn of a remote session's own viewer. It writes to claude.ai through the same undocumented interface, so a change there can make a prompt go nowhere; what was sent shows in the chat once the session has it.",
+      on: "`Enter` on a remote session offers to send a prompt or to interrupt it",
+      off: "remote sessions are only shown, nothing is sent",
+    },
+    pinnedSessions: {
+      label: "pinned sessions",
+      description:
+        "Whether the Sessions view shows the active session (●) and those running in another Claude Code (▶) in the Pinned group at the top, marked or not, so they stay at hand however far down the list their last prompt puts them. This works with pinned favorites off too: the group then holds only them; with it on, they mix with the marked sessions in the order of the list. A session that ends leaves the group. A filter applies to them too.",
+      on: "the active and running sessions once more at the top, under ── ★ Pinned ──, with ● or ▶",
+      off: "they show only in their place in the list, with ● or ▶",
+    },
+    sessionsRange: { what: "sessions", dated: "started" },
+    viewMonitor: { what: "response speed, wait and errors over the day" },
+    monitorListWidth: { suits: "The days need little room, so narrow leaves the charts and the response table more columns." },
+    monitorRange: {
+      what: "days",
+      dated: "with responses",
+      note: "The usual values (the median of the 30 days before a day) come from the days read, so a short range has fewer of them.",
+    },
+    settingsListWidth: { suits: "A wider list cuts fewer labels; a narrower one leaves the descriptions more room." },
+  },
+};

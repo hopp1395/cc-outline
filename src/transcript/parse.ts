@@ -1,5 +1,6 @@
 import { BOX_END, BOX_START_CYAN } from "../render/markdown.js";
 import { browserItems, browserTitle, isBrowserTool, navigates } from "./chrome.js";
+import { L } from "../i18n/index.js";
 import { escapeMd, fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
 import { addFileChange, addToolCall, emptyStats, usageCounts, type TurnStats } from "./turnStats.js";
 
@@ -293,7 +294,7 @@ export function taskNotification(text: string): TaskNotification | undefined {
     taskId: tag(text, "task-id"),
     toolUseId: tag(text, "tool-use-id"),
     status,
-    summary: tag(text, "summary") ?? `Background task ${status}`,
+    summary: tag(text, "summary") ?? L().transcript.backgroundTask(status),
     // An agent that handed back its report says so here instead of repeating it.
     result: HANDED_BACK.test(tag(text, "result") ?? "") ? undefined : tag(text, "result"),
     tokens: tagNumber(text, "subagent_tokens") ?? tagNumber(text, "total_tokens"),
@@ -371,7 +372,7 @@ function queuedPrompt(entry: Entry): string | undefined {
 
 /** "[Image]" or "[3 images]": stands in for a prompt of pasted images without text. */
 export function imagesLabel(count: number): string {
-  return count === 1 ? "[Image]" : `[${count} images]`;
+  return count === 1 ? L().transcript.image : L().transcript.images(count);
 }
 
 /** The text of prompt content blocks; images alone become `imagesLabel`, so such a prompt still starts a turn. */
@@ -450,7 +451,7 @@ export function shellOutput(text: string): string | undefined {
       .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
       .trimEnd();
   const output = [part("bash-stdout"), part("bash-stderr")].filter((s) => s.trim()).join("\n");
-  if (!output) return "*(no output)*";
+  if (!output) return L().transcript.noOutput;
   // A fence longer than any run of backticks in the output.
   return fence(output);
 }
@@ -646,12 +647,12 @@ export class TranscriptParser {
       turn = this.afterCompact
         ? {
             id: "start",
-            prompt: "Continued from an earlier session",
+            prompt: L().transcript.continuedFrom,
             timestamp: entry.timestamp,
             blocks: [],
             continuation: { sessionId: entry.sessionId, ...(this.lastCompact ? { compact: this.lastCompact } : {}) },
           }
-        : { id: "start", prompt: "(session start)", timestamp: entry.timestamp, blocks: [] };
+        : { id: "start", prompt: L().transcript.sessionStart, timestamp: entry.timestamp, blocks: [] };
       this.turns.push(turn);
     }
     // Each line of a message carries its stop reason; the last one says whether Claude stopped or calls a tool.
@@ -825,10 +826,10 @@ export class TranscriptParser {
     const agent = from ? this.agents.find((a) => a.agentId === from) : undefined;
     const handback = origin.handback === true || agent !== undefined;
     const result = peerText(origin);
-    const name = agent ? `"${agent.description}"` : from ?? "an agent";
+    const name = agent ? `"${agent.description}"` : from ?? L().transcript.anAgent;
     this.turns.push({
       id: entry.uuid ?? String(this.turns.length),
-      prompt: handback ? `Agent ${name} reported back` : `Message from ${name}`,
+      prompt: handback ? L().transcript.reportedBack(name) : L().transcript.messageFrom(name),
       timestamp: entry.timestamp,
       blocks: [],
       notification: { kind: handback ? "handback" : "message", from, toolUseId: agent?.id, status: "completed", summary: "", result: result || undefined },
@@ -888,7 +889,7 @@ export class TranscriptParser {
     this.lastCompact = undefined;
     this.backgrounded = false;
     this.takesAttachments = false;
-    this.turns.push({ id: `continued-${next}`, prompt: `Session continues in ${next.slice(0, 8)}`, timestamp: entry.timestamp, blocks: [], done: true, continuation });
+    this.turns.push({ id: `continued-${next}`, prompt: L().transcript.continuesIn(next.slice(0, 8)), timestamp: entry.timestamp, blocks: [], done: true, continuation });
     return true;
   }
 
@@ -911,7 +912,7 @@ export class TranscriptParser {
     if (!last && this.afterCompact) {
       this.turns.push({
         id: "start",
-        prompt: "Continued from an earlier session",
+        prompt: L().transcript.continuedFrom,
         timestamp: entry.timestamp,
         blocks: [block],
         continuation: { sessionId: entry.sessionId, ...(this.lastCompact ? { compact: this.lastCompact } : {}) },
@@ -921,7 +922,7 @@ export class TranscriptParser {
     const auto = this.lastCompact?.trigger === "auto";
     this.turns.push({
       id: entry.uuid ?? String(this.turns.length),
-      prompt: auto ? "Conversation compacted automatically" : "Conversation compacted",
+      prompt: auto ? L().transcript.compactedAuto : L().transcript.compacted,
       timestamp: entry.timestamp,
       blocks: [block],
       compacted: true,
@@ -1015,7 +1016,9 @@ function rejectionFeedback(text: string): string | undefined {
 }
 
 /** The line naming the browser page the actions below it (or the navigation above it) ran on. */
-const pageLine = (page: string) => `*on ${escapeMd(page)}*`;
+const pageLine = (page: string) => L().tools.on(escapeMd(page));
+/** Whether a part of a frame is a page line. */
+const isPageLine = (part: string) => part.startsWith(L().tools.on("").slice(0, -1));
 
 /** A screenshot of a turn: numbered from 1 in the turn, the browser call whose result holds it, and its place among that result's images. */
 export interface Screenshot {
@@ -1075,7 +1078,7 @@ export function turnMarkdown(
   const closeFrame = () => {
     if (!frame) return;
     closeItems();
-    const counts = [plural(frame.actions, "action"), ...(frame.shots ? [plural(frame.shots, "screenshot")] : [])];
+    const counts = [L().tools.actions(frame.actions), ...(frame.shots ? [L().tools.screenshots(frame.shots)] : [])];
     parts.push(`${BOX_START_CYAN}${frame.title} · ${counts.join(" · ")}\n${frame.parts.join("\n\n")}\n${BOX_END}`);
     frame = undefined;
   };
@@ -1104,7 +1107,7 @@ export function turnMarkdown(
         b,
         (line) => {
           // A page line right after another (a navigation lands before the page has its title) replaces it.
-          if (open.items.length === 0 && open.parts.length > 0 && open.parts.at(-1)!.startsWith("*on ")) open.parts.pop();
+          if (open.items.length === 0 && open.parts.length > 0 && isPageLine(open.parts.at(-1)!)) open.parts.pop();
           closeItems();
           open.parts.push(line);
         },
@@ -1126,7 +1129,6 @@ export function turnMarkdown(
   return parts.join("\n\n");
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Marks the start of a running agent's status in the rendered answer; the chat spins it. */
 export const AGENT_RUNNING_MARK = "⠿";
@@ -1140,30 +1142,31 @@ const AGENT_STATUS_ICON: Record<AgentStatus, string> = {
 
 /** "3 min 10 s", "45 s" */
 export function formatMs(ms: number): string {
+  const t = L().transcript;
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} s`;
+  if (s < 60) return t.seconds(s);
   const m = Math.floor(s / 60);
-  return m < 60 ? `${m} min ${String(s % 60).padStart(2, "0")} s` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+  return m < 60 ? t.minutes(m, String(s % 60).padStart(2, "0")) : t.hours(Math.floor(m / 60), String(m % 60).padStart(2, "0"));
 }
 
 /** "139k tokens" */
 export function formatTokens(n: number): string {
-  return n >= 1000 ? `${Math.round(n / 1000)}k tokens` : `${n} tokens`;
+  return L().transcript.tokens(n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 }
 
 /** The status line of an agent: "✓ completed · 3 min 10 s · 30 tool uses · 139k tokens". */
 export function agentStatusLine(agent: AgentRun): string {
   return [
-    `${AGENT_STATUS_ICON[agent.status]} ${agent.status}`,
+    `${AGENT_STATUS_ICON[agent.status]} ${L().transcript.status[agent.status] ?? agent.status}`,
     ...(agent.durationMs !== undefined ? [formatMs(agent.durationMs)] : []),
-    ...(agent.toolUses !== undefined ? [`${agent.toolUses} tool use${agent.toolUses === 1 ? "" : "s"}`] : []),
+    ...(agent.toolUses !== undefined ? [L().chat.toolUses(agent.toolUses)] : []),
     ...(agent.tokens !== undefined ? [formatTokens(agent.tokens)] : []),
   ].join(" · ");
 }
 
 /** The heading of an agent: "Explore · Anwendungsstruktur erheben · sonnet · background". */
 export function agentTitle(agent: AgentRun): string {
-  return [agent.type ?? "agent", agent.description, ...(agent.model ? [agent.model] : []), ...(agent.background ? ["background"] : [])].join(" · ");
+  return [agent.type ?? L().transcript.agent, agent.description, ...(agent.model ? [agent.model] : []), ...(agent.background ? [L().transcript.background] : [])].join(" · ");
 }
 
 /** An agent in the answer: its title, then its status on a line of its own. */

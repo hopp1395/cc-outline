@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import stringWidth from "string-width";
 import { ALL_AVATAR_PRESETS, AVATAR_MAX_WIDTH, AVATAR_PRESETS, avatarProblem, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
 import { editLine, insertable, lineOf } from "../filter.js";
@@ -12,18 +13,23 @@ const MAX_WIDTH = 56;
 /** A row of the dialog: a group's heading, or an option (the default, a preset). */
 type DialogRow = { heading: string } | { avatar: string; meaning: string };
 
-/** The default, then the presets by group. */
-const ROWS: DialogRow[] = [
-  { heading: "Default" },
-  { avatar: "", meaning: `the "${DEFAULT_AVATAR}"` },
-  ...AVATAR_PRESETS.flatMap((g): DialogRow[] => [{ heading: g.group }, ...g.presets]),
-];
+/** The default, then the presets by group, in the current language. */
+const rowsOf = (): DialogRow[] => {
+  const t = L().dialogs.avatar;
+  return [
+    { heading: t.default },
+    { avatar: "", meaning: t.defaultMeaning(DEFAULT_AVATAR) },
+    ...AVATAR_PRESETS.flatMap((g): DialogRow[] => [{ heading: t.groups[g.group] ?? g.group }, ...g.presets.map((p) => ({ ...p, meaning: t.meanings[p.meaning] ?? p.meaning }))]),
+  ];
+};
+const ROWS = rowsOf();
 const OPTIONS = ROWS.flatMap((r) => ("avatar" in r ? [r.avatar] : []));
 /** The index past the options: the text field for one's own. */
 const OWN = OPTIONS.length;
 
 /** The rows of `ROWS` shown in `height` rows, so that the option `selected` (or, on the text field, the last) is among them. */
 function visibleRows(height: number, selected: number): DialogRow[] {
+  const ROWS = rowsOf();
   if (ROWS.length <= height) return ROWS;
   const target = ROWS.findIndex((r) => "avatar" in r && r.avatar === OPTIONS[Math.min(selected, OWN - 1)]);
   const start = Math.max(0, Math.min(ROWS.length - height, target - Math.floor(height / 2)));
@@ -83,7 +89,7 @@ export function AvatarDialog({
   return (
     <Dialog layout={layout} width={width} height={fixed + rows.length}>
       <Text bold color="cyan" wrap="truncate">
-        Avatar in the top bar
+        {L().dialogs.avatar.title}
       </Text>
       <Text> </Text>
       {rows.map((r) => {
@@ -108,7 +114,7 @@ export function AvatarDialog({
       })}
       <Text> </Text>
       <Text dimColor={selected !== OWN} wrap="truncate">
-        Your own, up to {AVATAR_MAX_WIDTH} columns:
+        {L().dialogs.avatar.own(AVATAR_MAX_WIDTH)}
       </Text>
       {selected === OWN ? <LineField line={line} width={width} /> : <Text dimColor>{`› ${line.text}`}</Text>}
       <Text color="red" wrap="truncate">
@@ -119,9 +125,9 @@ export function AvatarDialog({
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">↑↓</Text> choose{"  "}
-        <Text color="yellow">Enter</Text> take{"  "}
-        <Text color="yellow">Esc</Text> cancel
+        <Text color="yellow">↑↓</Text> {L().dialog.choose}{"  "}
+        <Text color="yellow">Enter</Text> {L().dialog.take}{"  "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}
       </Text>
     </Dialog>
   );

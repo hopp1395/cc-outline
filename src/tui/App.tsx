@@ -1,5 +1,6 @@
 import { Box, useApp, useInput, useStdout } from "ink";
 import { basename } from "node:path";
+import wrapAnsi from "wrap-ansi";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
@@ -12,6 +13,9 @@ import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
 import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
 import { ChatView } from "./ChatView.js";
+import { ChoiceDialog } from "./ChoiceDialog.js";
+import { applyLanguage, L, messagesOf, resolveLanguage } from "../i18n/index.js";
+import { markLanguageAsked, shouldAskLanguage } from "../languagePrompt.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
@@ -29,7 +33,7 @@ import { isEmptySession } from "./resumeChoice.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
 import { SessionsView } from "./SessionsView.js";
 import { AccountsView } from "./AccountsView.js";
-import { restartDetail, SettingsView } from "./SettingsView.js";
+import { restartDetail, SettingsView, shortValueName } from "./SettingsView.js";
 import { useTerminalTitle } from "./title.js";
 import { AccountContext, useAccounts } from "./useAccount.js";
 import { UpdateContext, useUpdate } from "./useUpdate.js";
@@ -98,6 +102,10 @@ const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0
 
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach, remoteId, observe = false }: Props) {
   const { exit } = useApp();
+  // The texts follow the language setting at once: the views mount afresh in the new language (their positions are stored).
+  const [languageSetting, setLanguageSetting] = useSetting("language");
+  applyLanguage(languageSetting);
+  const lang = resolveLanguage(languageSetting);
   const [startedAt] = useState(Date.now);
   // Each view's list has its own width (< and >); the dialogs take the normal one.
   const layoutOf = useLayouts();
@@ -108,10 +116,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [reloading, setReloading] = useState<{ mode: Mode; done: boolean }>();
   // The chat and the plan view share the transcript: a reload of either reads it afresh.
   const transcriptReload = reloads.chat + reloads.plan;
+  // A new language reads the transcript again too: the parser writes some texts (tool results, notices) as it reads.
+  const languageReads = useRef<{ lang: string; count: number }>({ lang, count: 0 });
+  if (languageReads.current.lang !== lang) languageReads.current = { lang, count: languageReads.current.count + 1 };
   const opened = useSessionPath(cwd, sessionId, claudePid, transcriptReload);
   // Parsed once for the chat and the plan view; a remote viewer's from the session's events on claude.ai.
-  const local = useTranscript(remoteId ? undefined : opened, transcriptReload);
-  const remote = useRemoteTranscript(remoteId, transcriptReload);
+  const local = useTranscript(remoteId ? undefined : opened, transcriptReload + languageReads.current.count);
+  const remote = useRemoteTranscript(remoteId, transcriptReload + languageReads.current.count);
   const transcript = remoteId ? remote : local;
   // The transcript read now: the session may have continued in another one.
   const path = remoteId ? remotePath(remoteId) : (transcript.file ?? opened);
@@ -241,7 +252,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   request.current = onRequest;
   // The viewer's own session can continue in another account (Accounts view, /cco:account).
   const continuable = claudePid !== undefined && !sessionId && path !== undefined;
-  const noSession = continuable ? undefined : sessionId ? "a viewer of one session (--session) continues none" : !claudePid ? "this viewer follows no Claude Code: attach it in Sessions" : "there is no session yet";
+  const noSession = continuable ? undefined : sessionId ? L().app.noSessionFixed : !claudePid ? L().app.noSessionUnpaired : L().app.noSessionYet;
   // A viewer of one session takes no requests of cco open: those belong to the project's viewer.
   useViewerControl({ cwd, claudePid, followActive: !fixed, control: !fixed, onView: (...args) => request.current(...args), onSessionEnd: exit });
 
@@ -260,8 +271,16 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     },
   });
 
+  // Once per machine, on a German system with no language chosen: whether cco should speak German. It comes before
+  // the notes of an update and the update's offer, which then show in the language chosen.
+  const [languageAsked, setLanguageAsked] = useState(() => !fixed && shouldAskLanguage(readSettings().language));
+  const answerLanguage = (german: boolean) => {
+    markLanguageAsked(german ? "system" : "en");
+    if (!german) setLanguageSetting("en");
+    setLanguageAsked(false);
+  };
   // After an update: the notes of every version since the one run before, until closed.
-  const whatsNewOpen = update.whatsNew.length > 0;
+  const whatsNewOpen = update.whatsNew.length > 0 && !languageAsked;
   // Views take no keys while a dialog of the app is open.
   // A remote viewer with remote control has a prompt line below the chat, as Claude Code does; it has the keys
   // at first, Esc or Tab hand them to the chat, Tab or i back. The chat leaves it the rows it takes.
@@ -270,15 +289,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [composing, setComposing] = useState(true);
   const [composerRows, setComposerRows] = useState(3);
   const typingInComposer = composer && composing;
-  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
+  const blocked = languageAsked || infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
   useEffect(() => {
-    if (!update.offer || offered.current) return;
+    if (!update.offer || offered.current || languageAsked) return;
     offered.current = true;
     showView("settings", "update", true);
-  }, [update.offer]);
+  }, [update.offer, languageAsked]);
 
   // /cco:update: Settings on the update entry, a check now whatever the setting says, then the update found, asked for.
   const [updateChecked, setUpdateChecked] = useState<number>();
@@ -353,16 +372,16 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     // A viewer of one session (--session) was not opened by cco open, which cannot reopen it.
     if (fixed || restarting.current) return;
     restarting.current = true;
-    const title = "Restart the viewer";
-    progress.host.set("restart", { title, status: "running", text: "Restarting" });
+    const title = L().app.restartTitle;
+    progress.host.set("restart", { title, status: "running", text: L().app.restarting });
     setTimeout(() => {
       if (moveViewer(cwd, mode, placement ?? resolvePlacement(cwd, sessionOf(path)), claudePid)) return exit();
       restarting.current = false;
       progress.host.set("restart", {
         title,
         status: "failed",
-        text: "The viewer did not reopen",
-        lines: [REOPEN_BY_HAND],
+        text: L().app.notReopened,
+        lines: [REOPEN_BY_HAND()],
         onClose: () => progress.host.set("restart", undefined),
       });
     }, TIMING.restartDelay);
@@ -387,7 +406,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }, [reloading]);
   // The transcript is read synchronously; it is loaded once it reports the reload.
   useEffect(() => {
-    if (transcriptReload > 0 && transcript.loaded === transcriptReload) finishReload(reloading?.mode === "plan" ? "plan" : "chat");
+    if (transcriptReload > 0 && transcript.loaded === transcriptReload + languageReads.current.count) finishReload(reloading?.mode === "plan" ? "plan" : "chat");
   }, [transcript.loaded]);
   // A reload still running is not started again.
   const reload = () => {
@@ -429,7 +448,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const next = stepFold(width, folds[mode], step);
     setFold(mode, next.state);
     if (next.width !== width) updateSettings({ [key]: next.width });
-    setNotice({ text: `width: ${next.width}` });
+    setNotice({ text: L().app.width(shortValueName(next.width)) });
   };
   // | goes to an end and back to the width before, to the other end next time.
   const toggleWidth = () => {
@@ -442,13 +461,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const next = toggleFold(width, folds[mode], before.current[mode]);
     setFold(mode, next.state);
     if (next.width !== width) updateSettings({ [key]: next.width });
-    setNotice({ text: `width: ${next.width}` });
+    setNotice({ text: L().app.width(shortValueName(next.width)) });
   };
 
   // Ctrl+C (taken out before Ink, see ctrlC.ts) copies the preview's selection again, else says how to quit.
   const copySelection = useRef<{ current?: () => boolean }>({}).current;
   useEffect(() => onCtrlC(() => {
-    if (!copySelection.current?.()) setNotice({ text: "Ctrl+C does not quit: q does" });
+    if (!copySelection.current?.()) setNotice({ text: L().app.ctrlC });
   }), []);
 
   // The chosen place is remembered for the followed session; the viewer then reopens there and quits.
@@ -459,7 +478,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
+    if (languageAsked || modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -505,7 +524,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <CopySelectionContext.Provider value={copySelection}>
     <ViewerRoleContext.Provider value={fixed ? { role: composer ? "controlling" : "observing", title: sessionTitle } : undefined}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
-        <Fragment key={generation}>
+        <Fragment key={`${generation}-${lang}`}>
         <Box display={mode === "chat" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("chat")}>
           <MouseContext.Provider value={mouseFor("chat")}>
@@ -660,8 +679,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <ConfirmDialog
             layout={layout}
             confirmation={{
-              title: "Quit cco?",
-              lines: [fixed ? "The window closes; Sessions opens another one (Enter)." : "The pane closes; a /cco:… command opens it again."],
+              title: L().app.quitTitle,
+              lines: [fixed ? L().app.quitWindow : L().app.quitPane],
               onConfirm: exit,
             }}
             onClose={() => setQuitAsked(false)}
@@ -671,14 +690,30 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
           <ConfirmDialog
             layout={layout}
             confirmation={{
-              title: "Restart the viewer?",
-              lines: [`It opens again here, in this view, with ${restartDetail(update.root)}.`, "Claude Code keeps running; restart it for changes to the plugin."],
+              title: L().settings.restart.askTitle,
+              lines: [L().settings.restart.opensAgain(restartDetail(update.root)), L().settings.restart.keepsRunning],
               onConfirm: restartViewer,
             }}
             onClose={() => setRestartAsked(false)}
           />
         )}
         {progress.dialog}
+        {languageAsked && (
+          <ChoiceDialog
+            layout={layout}
+            choice={{
+              title: L().languageDialog.title,
+              lines: [...wrapAnsi(L().languageDialog.question, Math.min(64, layout.columns - 4) - 4, { hard: true }).split("\n"), " ", L().languageDialog.hint],
+              options: [
+                { id: "de", label: L().languageDialog.yes, detail: L().languageDialog.yesDetail },
+                { id: "en", label: L().languageDialog.no, detail: messagesOf("en").languageDialog.noDetail },
+              ],
+              initial: 0,
+              onChoose: (id) => answerLanguage(id === "de"),
+            }}
+            onClose={() => answerLanguage(false)}
+          />
+        )}
       </Box>
     </ViewerRoleContext.Provider>
     </CopySelectionContext.Provider>

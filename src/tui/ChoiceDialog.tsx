@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import { Dialog, type Layout } from "./layout.js";
 import type { ChoiceOption } from "./resumeChoice.js";
 
@@ -71,7 +72,7 @@ export function ChoiceDialog<T extends string>({
         const rule =
           i === zone ? (
             <Text key={`${o.id}-zone`} color="red" wrap="truncate">
-              {`── Danger zone ${"─".repeat(Math.max(0, width - 20))}`}
+              {`── ${L().dialog.dangerZone} ${"─".repeat(Math.max(0, width - 8 - L().dialog.dangerZone.length))}`}
             </Text>
           ) : null;
         const label = (
@@ -92,10 +93,10 @@ export function ChoiceDialog<T extends string>({
       })}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">↑↓</Text> choose{"   "}
-        <Text color="yellow">Enter</Text> ok{"   "}
-        <Text color="yellow">{options.map((_, i) => i + 1).join(" ")}</Text> take{"   "}
-        <Text color="yellow">Esc</Text> cancel
+        <Text color="yellow">↑↓</Text> {L().dialog.choose}{"   "}
+        <Text color="yellow">Enter</Text> {L().dialog.ok}{"   "}
+        <Text color="yellow">{options.map((_, i) => i + 1).join(" ")}</Text> {L().dialog.take}{"   "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}
       </Text>
     </Dialog>
   );

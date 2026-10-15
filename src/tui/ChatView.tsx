@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { Text, useInput } from "ink";
+import { L } from "../i18n/index.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
@@ -79,7 +80,7 @@ interface Props {
 
 /** t steps through the tool levels: off → compact → full → off. */
 const nextToolLevel = (level: ToolLevel): ToolLevel => TOOL_LEVELS[(TOOL_LEVELS.indexOf(level) + 1) % TOOL_LEVELS.length];
-const toolsFooter = (level: ToolLevel) => (level === "off" ? "t tools" : `t tools: ${level}`);
+const toolsFooter = (level: ToolLevel) => L().chat.tools(level === "off" ? "off" : L().settings.values[level] ?? level);
 
 const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
 
@@ -102,8 +103,7 @@ export function spinnerMarks(lines: string[]): { line: number; col: number }[] {
  */
 export function workingLine(turn: Turn, tools: ToolLevel): string {
   const calls = tools === "off" ? turn.blocks.filter((b) => b.kind === "tool").length : 0;
-  const count = calls > 0 ? ` · ${calls} tool call${calls === 1 ? "" : "s"}` : "";
-  return dim(`${AGENT_RUNNING_MARK} Claude is working…${count}`);
+  return dim(`${AGENT_RUNNING_MARK} ${L().chat.working(calls)}`);
 }
 
 /** The subagents a turn started, or for a notification the one it reports on. */
@@ -121,29 +121,30 @@ function agentView(
   width: number,
   opts: { tools: ToolLevel; thinking: boolean; wrap: boolean; live: boolean },
 ): { header: string[]; lines: string[] } {
-  const where = place.count > 1 ? ` · ${place.index + 1} of ${place.count}` : "";
+  const t = L().chat;
+  const where = place.count > 1 ? t.agentOf(place.index + 1, place.count) : "";
   const full = previewHeader(agentTitle(agent), width, {
     marker: magenta("◆ "),
     style: (t) => `\u001b[1m${t}\u001b[22m`,
     // The header does not spin; the body's "is working…" line does.
     details: [agentStatusLine(agent).replace(AGENT_RUNNING_MARK, "▶") + where],
   });
-  const header = [...full.slice(0, -1), rule(width, place.count > 1 ? "a/A agent · esc back" : "a/esc back")];
+  const header = [...full.slice(0, -1), rule(width, place.count > 1 ? t.agentBack : t.agentBackOne)];
   const quote = (text: string) => text.split("\n").map((l) => `> ${l}`).join("\n");
   const parts: string[] = [];
   if (sub.turns.length > 0) {
-    sub.turns.forEach((t, i) => {
-      parts.push(`**${i === 0 ? "Task" : "Message"}**`, quote(t.prompt));
-      const body = turnMarkdown(t, { tools: opts.tools, thinking: opts.thinking, agents: true });
+    sub.turns.forEach((turn, i) => {
+      parts.push(`**${i === 0 ? t.task : t.message}**`, quote(turn.prompt));
+      const body = turnMarkdown(turn, { tools: opts.tools, thinking: opts.thinking, agents: true });
       if (body) parts.push(body);
     });
   } else {
-    if (agent.prompt) parts.push("**Task**", quote(agent.prompt));
-    if (agent.result) parts.push("**Result**", agent.result);
+    if (agent.prompt) parts.push(`**${t.task}**`, quote(agent.prompt));
+    if (agent.result) parts.push(`**${t.result}**`, agent.result);
   }
   const lines = parts.length ? renderMarkdown(parts.join("\n\n"), width, opts.wrap) : [];
-  if (agent.status === "running" && opts.live) lines.push("", dim(`${AGENT_RUNNING_MARK} ${agent.type ?? "Agent"} is working…`));
-  else if (!sub.file && agent.status !== "running") lines.push("", dim("(the subagent's own transcript was not found)"));
+  if (agent.status === "running" && opts.live) lines.push("", dim(`${AGENT_RUNNING_MARK} ${t.agentWorking(agent.type ?? t.agent)}`));
+  else if (!sub.file && agent.status !== "running") lines.push("", dim(t.noSubTranscript));
   return { header, lines };
 }
 
@@ -152,8 +153,8 @@ const NOTIFICATION_COLOR: Record<string, string> = { completed: "green", failed:
 
 /** What ended a turn early, shown below its answer. */
 function interruptLine(turn: Turn): string | undefined {
-  if (turn.interrupted === "tool") return red("⊘ Interrupted by user during a tool call");
-  if (turn.interrupted === "user") return red("⊘ Interrupted by user");
+  if (turn.interrupted === "tool") return red(L().chat.interruptedTool);
+  if (turn.interrupted === "user") return red(L().chat.interruptedUser);
   return undefined;
 }
 
@@ -167,21 +168,21 @@ const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(
 export function recapLines(text: string, width: number, wrap: boolean): string[] {
   const bar = yellow("▌ ");
   const body = renderMarkdown(text, Math.max(10, width - 2), wrap).map((l) => bar + `\u001b[3m${l}\u001b[23m`);
-  return [bar + yellow(bold("※ Recap")), ...body];
+  return [bar + yellow(bold(L().chat.recap)), ...body];
 }
 
 /** A message from another agent, set apart from Claude's reaction below it: a heading and a bar down its left side. */
 export function peerLines(n: TaskNotification, width: number, wrap: boolean): string[] {
   const bar = magenta("▌ ");
-  const title = n.kind === "handback" ? "◆ Report" : "✉ Message";
+  const title = n.kind === "handback" ? L().chat.report : L().chat.peerMessage;
   const body = renderMarkdown(n.result ?? "", Math.max(10, width - 2), wrap).map((l) => bar + l);
-  return [bar + magenta(bold(title)) + (n.kind === "message" && n.from ? dim(` · from ${n.from}`) : ""), ...body];
+  return [bar + magenta(bold(title)) + (n.kind === "message" && n.from ? dim(L().chat.from(n.from)) : ""), ...body];
 }
 
 /** "/compact · 217k → 10k tokens · 43 s": what a compaction reported. */
 export function compactLine(info: CompactInfo): string {
   const sizes = info.preTokens !== undefined && info.postTokens !== undefined ? `${kTokens(info.preTokens)} → ${formatTokens(info.postTokens)}` : undefined;
-  return [info.trigger === "auto" ? "compacted automatically" : "/compact", sizes, info.durationMs !== undefined ? formatMs(info.durationMs) : undefined]
+  return [info.trigger === "auto" ? L().chat.compactedAuto : "/compact", sizes, info.durationMs !== undefined ? formatMs(info.durationMs) : undefined]
     .filter(Boolean)
     .join(" · ");
 }
@@ -189,7 +190,7 @@ export function compactLine(info: CompactInfo): string {
 /** The summary a compaction left: a heading with what it reported, then the summary. */
 export function compactLines(text: string, info: CompactInfo | undefined, width: number, wrap: boolean): string[] {
   // No bar like the recap's: the summary is usually the whole answer, so there is nothing to set it apart from.
-  return [blue(bold("⟳ Compact summary")) + (info ? dim(` · ${compactLine(info)}`) : ""), "", ...renderMarkdown(text, width, wrap)];
+  return [blue(bold(L().chat.compactSummary)) + (info ? dim(` · ${compactLine(info)}`) : ""), "", ...renderMarkdown(text, width, wrap)];
 }
 
 /**
@@ -269,11 +270,10 @@ export function promptHeader(prompt: string, width: number, height: number, atta
     ...header.slice(0, -1),
     ...(summary ? ["  " + dim(truncate(summary, width - 2))] : []),
     ...statsRows(stats),
-    rule(width, cut || summary ? "↵ full prompt" : undefined),
+    rule(width, cut || summary ? L().chat.fullPrompt : undefined),
   ];
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
 
 /** The stats lines below a header, the first marked with `$` like the prompt with `❯`. */
@@ -307,11 +307,11 @@ export function turnStatsLines(turn: Turn, agents: AgentRun[], width: number, no
   const agentTokens = agents.reduce((sum, a) => sum + (a.tokens ?? 0), 0);
   const parts = [
     ...(Number.isFinite(ms) && ms >= 0 ? [dim(formatMs(ms))] : []),
-    ...(turn.interrupted ? [red("⊘ interrupted")] : []),
+    ...(turn.interrupted ? [red(L().chat.interrupted)] : []),
     ...(s.output > 0 ? [dim(`↓ ${formatCount(s.output)}`)] : []),
     ...(s.context > 0 ? [dim(`ctx ${formatCount(s.context)}`)] : []),
     ...(shown.length ? [dim(shown.map(([m]) => shortModel(m)).join(" + "))] : []),
-    ...(s.tools > 0 ? [dim(plural(s.tools, "tool"))] : []),
+    ...(s.tools > 0 ? [dim(L().chat.tool(s.tools))] : []),
     ...(agents.length > 0 && !turn.notification ? [dim(`+ ◆${agents.length}${agentTokens > 0 ? ` ${formatCount(agentTokens)}` : ""}`)] : []),
   ];
   const files = Object.values(s.files);
@@ -319,8 +319,8 @@ export function turnStatsLines(turn: Turn, agents: AgentRun[], width: number, no
   const changed = files.length - created;
   const fileParts = files.length
     ? [
-        dim("files ") + [...(created ? [green(`+${created}`)] : []), ...(changed ? [yellow(`~${changed}`)] : [])].join(" "),
-        dim("lines ") + green(`+${s.added}`) + " " + red(`−${s.removed}`),
+        dim(L().chat.files) + [...(created ? [green(`+${created}`)] : []), ...(changed ? [yellow(`~${changed}`)] : [])].join(" "),
+        dim(L().chat.lines) + green(`+${s.added}`) + " " + red(`−${s.removed}`),
       ]
     : [];
   return [fitParts(parts, width), ...(fileParts.length ? [fitParts(fileParts, width)] : [])].filter((l) => l);
@@ -347,11 +347,11 @@ export function turnDetailLines(turn: Turn, agents: AgentRun[], width: number, c
   const group = (title: string, summary = "") => ["", bold(title) + (summary ? "  " + summary : "")];
 
   const ms = turnDuration(turn, now);
-  const span = turn.timestamp ? `${time(turn.timestamp)} – ${now !== undefined ? "running" : s.end ? time(s.end) : "?"}` : "";
+  const span = turn.timestamp ? `${time(turn.timestamp)} – ${now !== undefined ? L().chat.running : s.end ? time(s.end) : "?"}` : "";
   const when = [
     ...(span ? [span] : []),
     ...(Number.isFinite(ms) && ms >= 0 ? [formatMs(ms)] : []),
-    ...(turn.interrupted ? [red("⊘ interrupted")] : []),
+    ...(turn.interrupted ? [red(L().chat.interrupted)] : []),
   ];
 
   const models = Object.entries(s.models)
@@ -380,18 +380,18 @@ export function turnDetailLines(turn: Turn, agents: AgentRun[], width: number, c
 
   const lines = [
     ...(when.length ? [when.join(dot)] : []),
-    ...(tokens.length ? [...group("Tokens"), ...tokens.map((l) => "  " + l)] : []),
-    ...(tools.length ? [...group("Tools", dim(String(s.tools))), "  " + tools.map(([name, n]) => `${name} ${dim(String(n))}`).join(dot)] : []),
+    ...(tokens.length ? [...group(L().chat.tokens), ...tokens.map((l) => "  " + l)] : []),
+    ...(tools.length ? [...group(L().chat.toolsHeading, dim(String(s.tools))), "  " + tools.map(([name, n]) => `${name} ${dim(String(n))}`).join(dot)] : []),
     ...(shownAgents.length
       ? [
-          ...group("Agents", dim([String(shownAgents.length), ...(agentTokens > 0 ? [formatCount(agentTokens)] : [])].join(" · "))),
+          ...group(L().chat.agents, dim([String(shownAgents.length), ...(agentTokens > 0 ? [formatCount(agentTokens)] : [])].join(" · "))),
           ...shownAgents.flatMap((a) => [`  ◆ ${a.type ?? "agent"} ${dim(`"${a.description}"`)}`, "    " + dim(agentStatusLine(a))]),
         ]
       : []),
     ...(files.length
       ? [
           ...group(
-            "Files",
+            L().chat.filesHeading,
             [...(created ? [green(`+${created}`)] : []), ...(changed ? [yellow(`~${changed}`)] : [])].join(" ") + dot + green(`+${s.added}`) + " " + red(`−${s.removed}`),
           ),
           ...files.map((f) => {
@@ -404,7 +404,7 @@ export function turnDetailLines(turn: Turn, agents: AgentRun[], width: number, c
       : []),
   ];
   return [
-    cyan("$ ") + bold("Details"),
+    cyan("$ ") + bold(L().chat.details),
     rule(width),
     ...lines.flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
   ];
@@ -415,7 +415,7 @@ export function attachmentSummary(attachments: Attachment[]): string | undefined
   if (attachments.length === 0) return undefined;
   const images = attachments.filter((a) => a.kind === "image").length;
   const parts = [
-    ...(images > 0 ? [plural(images, "image")] : []),
+    ...(images > 0 ? [L().chat.images(images)] : []),
     ...attachments.filter((a) => a.kind !== "image").map(attachmentName),
   ];
   return "📎 " + parts.join(" · ");
@@ -424,14 +424,14 @@ export function attachmentSummary(attachments: Attachment[]): string | undefined
 function attachmentName(a: Attachment): string {
   switch (a.kind) {
     case "image":
-      return "image";
+      return L().chat.image;
     case "file":
       return "@" + a.path.replace(/\\/g, "/");
     case "directory":
       return "@" + a.path.replace(/\\/g, "/").replace(/\/?$/, "/");
     case "selection": {
-      const lines = a.lines !== undefined ? plural(a.lines, "line") : "lines";
-      return `${lines} selected${a.file ? ` in ${a.file.replace(/\\/g, "/")}` : ""}`;
+      const lines = a.lines !== undefined ? L().chat.linesCount(a.lines) : L().chat.linesWord;
+      return L().chat.selected(lines, a.file?.replace(/\\/g, "/"));
     }
   }
 }
@@ -443,19 +443,19 @@ function attachmentLines(attachments: Attachment[], cwd: string): string[] {
   const lines = attachments.map((a) => {
     if (a.kind !== "image") return "  " + attachmentName(a);
     image++;
-    return `  image ${image}  ${dim(a.path ? displayPath(a.path, cwd) : "(only in the transcript)")}`;
+    return `  ${L().chat.imageAt(image)}  ${dim(a.path ? displayPath(a.path, cwd) : L().chat.onlyInTranscript)}`;
   });
-  const hint = attachments.some((a) => a.kind === "image") ? [dim("  o opens the images")] : [];
-  return ["", "\u001b[1m📎 Attachments\u001b[22m", ...lines, ...hint];
+  const hint = attachments.some((a) => a.kind === "image") ? [dim(L().chat.opensImages)] : [];
+  return ["", `\u001b[1m${L().chat.attachments}\u001b[22m`, ...lines, ...hint];
 }
 
 /** What is known about where the session went on: the ids, the compaction, the background, how to resume it. */
 export function continuationDetails(c: Continuation): string[] {
   const compact = c.compact;
   return [
-    `session ${c.fromSessionId ? shortId(c.fromSessionId) : "(earlier, not found)"} → ${c.sessionId ? shortId(c.sessionId) : "?"}`,
+    L().chat.sessionFromTo(c.fromSessionId ? shortId(c.fromSessionId) : L().chat.earlierNotFound, c.sessionId ? shortId(c.sessionId) : "?"),
     ...(compact ? [compactLine(compact)] : []),
-    ...(c.backgrounded ? ["sent to the background, run by the Claude Code daemon"] : []),
+    ...(c.backgrounded ? [L().chat.backgrounded] : []),
     ...(c.sessionId ? [`claude --resume ${c.sessionId}`] : []),
   ];
 }
@@ -469,7 +469,7 @@ export function continuationHeader(title: string, c: Continuation, width: number
 function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[]; lines: string[] } {
   if (turn.continuation) {
     return {
-      header: [blue("⤷ ") + bold("Session continued") + dim(" · ↵/esc back to answer"), rule(width)],
+      header: [blue("⤷ ") + bold(L().chat.continued) + dim(L().chat.backToAnswer), rule(width)],
       lines: [turn.prompt, "", ...continuationDetails(turn.continuation)].flatMap((l) => wrapAnsi(l, width, { hard: true }).split("\n")),
     };
   }
@@ -478,7 +478,7 @@ function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[];
   const usage = n
     ? [
         ...(n.durationMs !== undefined ? [formatMs(n.durationMs)] : []),
-        ...(n.toolUses !== undefined ? [plural(n.toolUses, "tool use")] : []),
+        ...(n.toolUses !== undefined ? [L().chat.toolUses(n.toolUses)] : []),
         ...(n.tokens !== undefined ? [formatTokens(n.tokens)] : []),
       ].join(" · ")
     : "";
@@ -490,7 +490,7 @@ function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[];
       ]
     : [];
   return {
-    header: [cyan("❯ ") + `\u001b[1m${n?.kind === "handback" ? "Agent report" : n?.kind === "message" ? "Message" : n ? "Task notification" : "Prompt"}\u001b[22m` + dim(" · ↵/esc back to answer"), rule(width)],
+    header: [cyan("❯ ") + `\u001b[1m${n?.kind === "handback" ? L().chat.agentReport : n?.kind === "message" ? L().chat.notificationMessage : n ? L().chat.taskNotification : L().chat.prompt}\u001b[22m` + dim(L().chat.backToAnswer), rule(width)],
     lines: [
       ...wrapAnsi(turn.prompt, width, { hard: true, trim: false }).split("\n"),
       ...result,
@@ -584,7 +584,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     if (!current) return [];
     const body = answerLines(current, { tools: showTools, thinking: showThinking, agents: showAgents }, previewWidth, wrap);
     const status = isRunning(current) ? workingLine(current, showTools) : interruptLine(current);
-    const lines = body.length ? body : status ? [] : [dim("(no text output yet)")];
+    const lines = body.length ? body : status ? [] : [dim(L().chat.noOutput)];
     return status ? [...lines, ...(lines.length ? [""] : []), status] : lines;
   }, [current, version, previewWidth, showTools, showThinking, showAgents, wrap, liveSession]);
   const answer = useMemo(() => ({ header: answerHeader, lines: answerBody }), [answerHeader, answerBody]);
@@ -745,11 +745,11 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     try {
       file = turnImageFile(turn.transcript ?? path, turn, index);
     } catch (err) {
-      return notify(`could not read the image: ${(err as Error).message}`);
+      return notify(L().chat.readImageFailed((err as Error).message));
     }
-    if (!file) return notify(`image ${index + 1} is no longer available`);
+    if (!file) return notify(L().chat.imageGone(index + 1));
     openInDefaultApp(file);
-    notify(`opened image ${index + 1}`);
+    notify(L().chat.openedImage(index + 1));
   };
   // The screenshots of the turn's browser actions, numbered as the answer marks them ([▣ 3]).
   const shots = useMemo(() => (current ? turnScreenshots(current) : []), [current, version]);
@@ -764,11 +764,11 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     try {
       file = screenshotFile(current.transcript ?? path, shot);
     } catch (err) {
-      return notify(`could not read the screenshot: ${(err as Error).message}`);
+      return notify(L().chat.readShotFailed((err as Error).message));
     }
-    if (!file) return notify(`screenshot ${shot.n} is no longer available`);
+    if (!file) return notify(L().chat.shotGone(shot.n));
     openInDefaultApp(file);
-    notify(`opened screenshot ${shot.n}`);
+    notify(L().chat.openedShot(shot.n));
   };
   /** Mouse wheel over the answer: like Ctrl+↑/↓, scrolling up leaves the live end and scrolling back down rejoins it. */
   const wheel = (delta: number) => {
@@ -791,7 +791,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       if (filter.handleKey(input, key)) return;
       // a / A step through the turn's subagents and, past the last / first, back to the answer.
       if (input === "a" || input === "A") {
-        if (currentAgents.length === 0) return notify("no subagents in this turn");
+        if (currentAgents.length === 0) return notify(L().chat.noAgents);
         const next = agentIndex === undefined ? (input === "a" ? 0 : currentAgents.length - 1) : agentIndex + (input === "a" ? 1 : -1);
         return showAgent(next >= 0 && next < currentAgents.length ? next : undefined);
       }
@@ -829,25 +829,26 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       if (input === "f") {
         if (follow) setFollow(false);
         else select(last);
-        return notify(follow ? "follow off" : "follow on");
+        return notify(follow ? L().chat.followOff : L().chat.followOn);
       }
       if (input === "s") return setOrder(flipOrder);
       // o lists the prompt's pasted images and the turn's screenshots to open one.
-      if (input === "o") return images.length ? setImagesOpen(true) : notify("no images in this turn");
+      if (input === "o") return images.length ? setImagesOpen(true) : notify(L().chat.noImages);
       if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
         const md = stripBoxes(turnMarkdown(current, { tools: "off", thinking: false, browser: false }));
         copy(md).then(
-          () => notify("copied Markdown to clipboard"),
-          (err: Error) => notify(`copy failed: ${err.message}`),
+          () => notify(L().chat.copied),
+          (err: Error) => notify(L().chat.copyFailed(err.message)),
         );
       }
     },
     { isActive: active && !filter.open && !imagesOpen },
   );
 
-  const session = path ? basename(path, ".jsonl").slice(0, 8) : "none";
+  const f = L().chat.footer;
+  const session = path ? basename(path, ".jsonl").slice(0, 8) : L().chat.none;
 
   return (
     <>
@@ -857,10 +858,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       status={
         // Full brightness on the focused (blue) bar, dimmed otherwise.
         <Text dimColor={!focused}>
-          session {session} · {filter.count(turns.length)} turns · {scroll.position}
+          {L().chat.status(session, filter.count(turns.length), scroll.position)}
           {markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
           {/* Options (follow, tools, thinking, wrap) show as highlighted keys in the help line, not here. */}
-          {!wrap && hscroll > 0 && ` · → ${Math.min(hscroll, maxHscroll)} cols`}
+          {!wrap && hscroll > 0 && L().chat.cols(Math.min(hscroll, maxHscroll))}
         </Text>
       }
       list={
@@ -876,7 +877,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           filter={filter.banner}
           selected={selected}
           height={listHeight}
-          empty={filter.empty ?? "Waiting for prompts…"}
+          empty={filter.empty ?? L().chat.waiting}
           itemKey={(t, i) => t.id + i}
           time={(t) => t.timestamp}
           render={(t, isSelected) => {
@@ -931,7 +932,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         path ? (
           <Preview
             onWheel={wheel}
-            onLink={(url) => notify(`opened ${url}`)}
+            onLink={(url) => notify(L().chat.opened(url))}
             // The marks number the screenshots of the answer; a subagent's page and the prompt have their own.
             onShot={detailOpen ? undefined : (n) => openShot(shots[n - 1])}
             header={header}
@@ -945,34 +946,34 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             spinner={spinners.length ? { at: spinners, active } : undefined}
           />
         ) : (
-          <Text dimColor>No Claude Code session found for {cwd}</Text>
+          <Text dimColor>{L().chat.noSession(cwd)}</Text>
         )
       }
       footer={
         flash ??
         (agentPage ? [
-          { text: "↑↓ turn", priority: 4 },
-          { text: "PgUp/Dn scroll", priority: 1 },
-          { text: currentAgents.length > 1 ? "a/A agent" : "a agent", on: true },
+          { text: f.turn, priority: 4 },
+          { text: f.scroll, priority: 1 },
+          { text: currentAgents.length > 1 ? f.agents : f.agent, on: true },
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
-          { text: "h think", on: showThinking, priority: 2 },
+          { text: f.think, on: showThinking, priority: 2 },
         ] : [
-          { text: "↑↓ turn", priority: 4 },
-          { text: "PgUp/Dn scroll", priority: 1 },
-          ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
+          { text: f.turn, priority: 4 },
+          { text: f.scroll, priority: 1 },
+          ...(wrap ? [] : [{ text: f.side, priority: 4 }]),
           // On a remote session's last turn, Enter sends to it.
-          { text: "↵ prompt", on: promptOpen },
-          { text: "f follow", on: follow },
+          { text: f.prompt, on: promptOpen },
+          { text: f.follow, on: follow },
           ...filter.footer,
           orderFooter(order, "oldest-first"),
           ...markFooter(favorites.isMarked(current?.id), markedCount),
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
-          { text: "h think", on: showThinking, priority: 2 },
-          { text: "w wrap", on: wrap, priority: 2 },
-          { text: "c copy", priority: 2 },
-          ...(images.length > 0 ? [{ text: `o ${plural(images.length, "image")}`, priority: 3 }] : []),
-          ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
-          { text: "1-6/tab view", priority: 1 },
+          { text: f.think, on: showThinking, priority: 2 },
+          { text: f.wrap, on: wrap, priority: 2 },
+          { text: f.copy, priority: 2 },
+          ...(images.length > 0 ? [{ text: f.images(images.length), priority: 3 }] : []),
+          ...(currentAgents.length > 0 ? [{ text: f.agentCount(currentAgents.length), priority: 3 }] : []),
+          { text: f.views, priority: 1 },
         ])
       }
     />

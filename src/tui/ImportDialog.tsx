@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import stringWidth from "string-width";
+import { L } from "../i18n/index.js";
 import { useState } from "react";
 import { editLine, insertable, lineOf, type LineState } from "../filter.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -43,13 +44,13 @@ export function ImportDialog({
   return (
     <Dialog layout={layout} width={width} height={11}>
       <Text bold color="cyan" wrap="truncate">
-        Import sessions
+        {L().dialogs.import.title}
       </Text>
       <Text> </Text>
-      <Text wrap="truncate">The backups in a cco-session-export zip archive.</Text>
-      <Text wrap="truncate">into {into}</Text>
+      <Text wrap="truncate">{L().dialogs.import.what}</Text>
+      <Text wrap="truncate">{L().dialogs.import.into(into)}</Text>
       <Text dimColor wrap="truncate">
-        Sessions that are there already are skipped.
+        {L().dialogs.import.skipped}
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
@@ -69,9 +70,9 @@ export function ImportDialog({
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">Enter</Text> import{"   "}
-        <Text color="yellow">Esc</Text> cancel{"   "}
-        <Text color="yellow">^U</Text> clear
+        <Text color="yellow">Enter</Text> {L().dialogs.import.import}{"   "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}{"   "}
+        <Text color="yellow">^U</Text> {L().dialog.clear}
       </Text>
     </Dialog>
   );

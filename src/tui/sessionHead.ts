@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { barColorOfAccount, type Account, type AccountColorName, type AccountColorSetting } from "../account.js";
+import { L } from "../i18n/index.js";
 import { otherAccounts } from "../accountContinue.js";
 import { isCommand } from "../transcript/parse.js";
 import type { SessionSummary } from "../transcript/sessions.js";
@@ -54,12 +55,6 @@ export function accountBar(account: Account, accounts: Pick<AccountState, "own">
 /** What the head says of where a session stands; `trash` names when it went there. */
 export type HeadState = "current" | "active" | "inactive" | { trash: string };
 
-const STATE_TEXT: Record<"current" | "active" | "inactive", string> = {
-  current: "this viewer's session",
-  active: "runs in a Claude Code",
-  inactive: "runs nowhere",
-};
-
 /** What every dialog about a session needs to describe it: the accounts found and the colour chosen here. */
 export interface HeadContext {
   accounts: Pick<AccountState, "accounts" | "own">;
@@ -74,7 +69,7 @@ export function accountOfSession(s: Pick<SessionSummary, "account">, accounts: P
 
 /** The line naming an account: its bar, its email and, for the viewer's own, that it is this one. */
 export function accountLine(account: Account, ctx: HeadContext, own: boolean): string {
-  return `${accountBar(account, ctx.accounts, ctx.accountColor)} ${truncate(`${account.email}${own ? " · this account" : ""}`, HEAD_WIDTH - 2)}`;
+  return `${accountBar(account, ctx.accounts, ctx.accountColor)} ${truncate(`${account.email}${own ? L().head.thisAccount : ""}`, HEAD_WIDTH - 2)}`;
 }
 
 /**
@@ -85,12 +80,12 @@ export function sessionHead(s: SessionSummary, ctx: HeadContext, where: { dir: s
   const account = ctx.accounts.accounts.length >= 2 ? accountOfSession(s, ctx.accounts) : undefined;
   return [
     truncate(sessionTitle(s), HEAD_WIDTH),
-    [span(s.start, s.end), plural(s.prompts.length, "prompt"), plural(s.files.length, "file")].filter(Boolean).join(" · "),
+    [span(s.start, s.end), L().counts.prompts(s.prompts.length), L().counts.files(s.files.length)].filter(Boolean).join(" · "),
     ...(account ? [accountLine(account, ctx, !s.account)] : []),
-    truncate(`${where.gone ? "folder gone:" : "in"} ${tilde(where.dir)}`, HEAD_WIDTH),
-    typeof where.state === "string" ? STATE_TEXT[where.state] : `in the trash since ${where.state.trash}`,
+    truncate(`${where.gone ? L().head.folderGone : L().head.in} ${tilde(where.dir)}`, HEAD_WIDTH),
+    typeof where.state === "string" ? L().head.state[where.state] : L().head.trashSince(where.state.trash),
   ];
 }
 
 /** The line of a dialog about several sessions, in place of the head. */
-export const countHead = (n: number, what: string, where?: string) => `${plural(n, what)}${where ? ` · ${where}` : ""}`;
+export const countHead = (count: string, where?: string) => `${count}${where ? ` · ${where}` : ""}`;

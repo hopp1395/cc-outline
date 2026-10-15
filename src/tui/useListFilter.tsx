@@ -1,5 +1,6 @@
 import type { Key } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { L } from "../i18n/index.js";
 import { compileFilter, filterIndices, lineOf, nearestShown, stepShown, type FilterText, type LineState } from "../filter.js";
 import type { FilterIn } from "../settings.js";
 import { FilterDialog } from "./FilterDialog.js";
@@ -237,9 +238,9 @@ export function useListFilter<T>({ items, text, deps = [], selected, select, rev
     },
     handleKey,
     count: (total) => (shown ? `${matched}/${total}` : String(total)),
-    empty: shown?.length === 0 && items.length > 0 ? "No matches" : undefined,
-    banner: shown ? { query: query.trim(), count: `${matched} of ${counted}` } : undefined,
-    footer: shown || !enabled ? [] : [{ text: "^F filter", priority: 2 }],
+    empty: shown?.length === 0 && items.length > 0 ? L().filter.noMatches : undefined,
+    banner: shown ? { query: query.trim(), count: L().filter.count(matched ?? 0, counted ?? 0) } : undefined,
+    footer: shown || !enabled ? [] : [{ text: L().filter.footer, priority: 2 }],
     dialog:
       line && enabled ? (
         <FilterDialog

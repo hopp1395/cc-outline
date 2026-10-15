@@ -1,5 +1,6 @@
 import { Text, useInput } from "ink";
 import { basename } from "node:path";
+import { L } from "../i18n/index.js";
 import { useEffect, useMemo, useState } from "react";
 import stringWidth from "string-width";
 import { ACCOUNT_COLORS, accountUsedAt, avatarOfAccount, colorOfAccount, hasChosenColor, type Account } from "../account.js";
@@ -14,7 +15,7 @@ import { bold, dim, EntryText, handleNavigation, List, markFooter, markKeys, pre
 import { doubleClicks } from "./openKey.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
 import { useOnReload } from "./reload.js";
-import { accountLines, avatarBadge, colorBadge, tilde } from "./SettingsView.js";
+import { accountLines, avatarBadge, colorBadge, shortValueName, tilde } from "./SettingsView.js";
 import { useAccountState, type AccountState } from "./useAccount.js";
 import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
@@ -66,21 +67,22 @@ const ORDERS: Record<AccountsOrder, (a: Account, b: Account) => number> = {
 function trashedLines(t: AccountTrashEntry): string[] {
   const field = (name: string, value: string | undefined) => (value ? [`  ${dim(`${name}:`)} ${value}`] : []);
   const a = t.account;
+  const m = L().accounts;
   return [
-    heading("Account"),
-    ...field("name", a.name),
-    ...field("organization", [a.organization, a.organizationType && `(${a.organizationType})`].filter(Boolean).join(" ")),
-    ...field("billing", a.billing),
-    ...field("seat", a.seat),
+    heading(m.account),
+    ...field(m.name, a.name),
+    ...field(m.organization, [a.organization, a.organizationType && `(${a.organizationType})`].filter(Boolean).join(" ")),
+    ...field(m.billing, a.billing),
+    ...field(m.seat, a.seat),
     "",
-    heading("In the trash"),
-    ...field("deleted", when(t.deletedAt)),
-    ...field("folder", tilde(t.folder.from)),
-    ...field("size", `${sizeText(t.size)} · ${plural(t.sessions, "session")}`),
-    ...(t.scripts.length ? t.scripts.map((s) => `  ${dim("script:")} ${tilde(s.from)}`) : [dim("  no start script moved with it")]),
-    ...field("kept in", tilde(t.folder.to)),
+    heading(m.inTrash),
+    ...field(m.deleted, when(t.deletedAt)),
+    ...field(m.folder, tilde(t.folder.from)),
+    ...field(m.size, `${sizeText(t.size)} · ${L().counts.sessions(t.sessions)}`),
+    ...(t.scripts.length ? t.scripts.map((s) => `  ${dim(m.script)} ${tilde(s.from)}`) : [dim(m.noScript)]),
+    ...field(m.keptIn, tilde(t.folder.to)),
     "",
-    dim("u: restore it (refused while its folder or a script exists again). x: delete it for good. X: empty the trash."),
+    dim(m.trashHelp),
   ];
 }
 
@@ -97,7 +99,6 @@ const when = (ms: number) => {
   const d = new Date(ms);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, sessionPath, noSession, claudePid, onTrashOpen }: Props) {
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
@@ -176,7 +177,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
         previewHeader(trashed.account.email, previewWidth, {
           marker: "○ ",
           style: bold,
-          details: [red(`in the trash since ${when(trashed.deletedAt)} · u restores it`), tilde(trashed.folder.from)],
+          details: [red(L().accounts.trashSince(when(trashed.deletedAt))), tilde(trashed.folder.from)],
         }),
         headerHeight,
       );
@@ -186,55 +187,56 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
       previewHeader(account.email, previewWidth, {
         marker,
         style: bold,
-        details: [isCurrent(account) ? green("active: the account of the Claude Code this viewer follows") : dim("another account"), tilde(account.dir)],
+        details: [isCurrent(account) ? green(L().accounts.active) : dim(L().accounts.another), tilde(account.dir)],
       }),
       headerHeight,
     );
   }, [account, trashed, state.current?.dir, previewWidth, headerHeight]);
 
   const lines = useMemo(() => {
-    if (!entry) return [dim(trashOpen ? "The trash is empty." : "No account matches the filter")];
+    const m = L().accounts;
+    if (!entry) return [dim(trashOpen ? m.trashEmpty : m.noMatch)];
     if (entry.kind === "trashed") return trashedLines(entry.entry);
     if (entry.kind !== "account") return accountLines({ account: entry.kind }, state, settings, previewWidth);
     const a = entry.account;
     const field = (name: string, value: string | undefined) => (value ? [`  ${dim(`${name}:`)} ${value}`] : []);
-    const out: string[] = [heading("Account")];
+    const out: string[] = [heading(m.account)];
     out.push(
-      ...field("name", a.name),
-      ...field("organization", [a.organization, a.organizationType && `(${a.organizationType})`].filter(Boolean).join(" ")),
-      ...field("billing", a.billing),
-      ...field("seat", a.seat),
-      ...field("rate limit tier", a.rateLimitTier),
-      ...field("read from", tilde(a.file)),
-      `  ${dim("colour:")} ${colorBadge(colorOfAccount(a, state, settings.accountColor))}${hasChosenColor(a, state, settings.accountColor) ? " chosen" : dim(" from the email")}`,
-      `  ${dim("avatar:")} ${avatarOfAccount(a, state, settings.accountAvatar) ? avatarBadge(avatarOfAccount(a, state, settings.accountAvatar)!, colorOfAccount(a, state, settings.accountColor)) : dim(`none, "${DEFAULT_AVATAR}"`)}`,
+      ...field(m.name, a.name),
+      ...field(m.organization, [a.organization, a.organizationType && `(${a.organizationType})`].filter(Boolean).join(" ")),
+      ...field(m.billing, a.billing),
+      ...field(m.seat, a.seat),
+      ...field(m.rateLimitTier, a.rateLimitTier),
+      ...field(m.readFrom, tilde(a.file)),
+      `  ${dim(m.colour)} ${colorBadge(colorOfAccount(a, state, settings.accountColor))}${hasChosenColor(a, state, settings.accountColor) ? m.chosen : dim(m.fromEmail)}`,
+      `  ${dim(m.avatar)} ${avatarOfAccount(a, state, settings.accountAvatar) ? avatarBadge(avatarOfAccount(a, state, settings.accountAvatar)!, colorOfAccount(a, state, settings.accountColor)) : dim(m.noAvatar(DEFAULT_AVATAR))}`,
     );
-    out.push("", heading("cco plugin"));
+    out.push("", heading(m.plugin));
     if (details) {
       const p = details.plugin;
       out.push(
-        p.installed ? (p.enabled ? `  ${green("✓")} installed and enabled` : `  ${yellow("!")} installed, but disabled`) : `  ${red("✗")} not installed: no hooks there, it gets installed when a session continues there`,
-        ...field("marketplace", p.source ?? (p.marketplace ? "known" : "not added")),
+        p.installed ? (p.enabled ? `  ${green("✓")} ${m.enabled}` : `  ${yellow("!")} ${m.disabled}`) : `  ${red("✗")} ${m.notInstalled}`,
+        ...field(m.marketplace, p.source ?? (p.marketplace ? m.known : m.notAdded)),
       );
     }
-    out.push("", heading(`Running now (${running.length})`));
-    if (running.length === 0) out.push(dim("  no Claude Code runs with this account"));
+    out.push("", heading(m.runningNow(running.length)));
+    if (running.length === 0) out.push(dim(m.noneRunning));
     for (const r of running) {
-      const what = r.activity === "busy" ? yellow("working") : r.activity === "waiting" ? yellow("waiting for input") : dim("idle");
+      const what = r.activity === "busy" ? yellow(m.working) : r.activity === "waiting" ? yellow(m.waiting) : dim(m.idle);
       const project = r.cwd ? basename(r.cwd) : "?";
-      out.push(`  ${green("▶")} ${project} · ${what} · ${dim(`${r.name ?? r.sessionId.slice(0, 8)} · pid ${r.pid}${r.kind === "bg" ? " · background" : ""}`)}`);
+      out.push(`  ${green("▶")} ${project} · ${what} · ${dim(`${r.name ?? r.sessionId.slice(0, 8)} · pid ${r.pid}${r.kind === "bg" ? m.background : ""}`)}`);
     }
     if (details) {
       const s = details.sessions;
-      out.push("", heading(`Sessions of ${basename(cwd)} (${s.count})`));
-      if (s.newest) out.push(...field("last written", when(s.newest.at)), ...field("newest", s.newest.title));
-      if (s.continuedIn) out.push(`  ${magenta("⇢")} ${plural(s.continuedIn, "session")} continued in another account`);
-      if (s.continuedFrom) out.push(`  ${magenta("⇠")} ${plural(s.continuedFrom, "session")} continued from another account`);
-      if (!s.count) out.push(dim("  none in this project folder"));
+      out.push("", heading(m.sessionsOf(basename(cwd), s.count)));
+      if (s.newest) out.push(...field(m.lastWritten, when(s.newest.at)), ...field(m.newest, s.newest.title));
+      if (s.continuedIn) out.push(`  ${magenta("⇢")} ${m.continuedIn(L().counts.sessions(s.continuedIn))}`);
+      if (s.continuedFrom) out.push(`  ${magenta("⇠")} ${m.continuedFrom(L().counts.sessions(s.continuedFrom))}`);
+      if (!s.count) out.push(dim(m.noneHere));
     }
     out.push("");
-    if (isCurrent(a)) out.push(dim("This is the account of the Claude Code the viewer follows."));
-    out.push(dim("Enter: continue this session there, start a new session there (with or without the viewer), or open its config folder. d: move it to the trash (T shows the trash)."));
+    if (isCurrent(a)) out.push(dim(m.isCurrent));
+    out.push(dim(m.help));
     return out;
   }, [entry, trashOpen, state, settings.accountColor, settings.accountAvatar, details, running, previewWidth, cwd]);
 
@@ -286,9 +288,9 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
         status={
           <Text dimColor={!focused}>
             {trashOpen ? (
-              <Text color="red">TRASH · {plural(trash.length, "account")}</Text>
+              <Text color="red">{L().accounts.trash(L().counts.accounts(trash.length))}</Text>
             ) : (
-              `${filter.count(state.accounts.length)} ${state.accounts.length === 1 ? "account" : "accounts"}`
+              L().counts.accounts(state.accounts.length).replace(String(state.accounts.length), filter.count(state.accounts.length))
             )}
             {entry && ` · ${scroll.position}`}
             {!trashOpen && markedCount > 0 && <Text color="yellow"> · ★ {markedCount}</Text>}
@@ -305,12 +307,12 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
             selected={index}
             centre={true}
             height={listHeight}
-            empty={trashOpen ? "The trash is empty" : (filter.empty ?? "No accounts")}
+            empty={trashOpen ? L().accounts.trashIsEmpty : (filter.empty ?? L().accounts.noAccounts)}
             itemKey={keyOf}
             render={(e, isSelected) => {
-              if (e.kind === "none") return <Text color="yellow">no account found: /login in Claude Code</Text>;
-              if (e.kind === "details") return <Text dimColor={!isSelected}>how accounts are found</Text>;
-              if (e.kind === "add") return <Text dimColor={!isSelected}>how to add an account</Text>;
+              if (e.kind === "none") return <Text color="yellow">{L().accounts.noneFound}</Text>;
+              if (e.kind === "details") return <Text dimColor={!isSelected}>{L().settings.account.details}</Text>;
+              if (e.kind === "add") return <Text dimColor={!isSelected}>{L().settings.account.add}</Text>;
               if (e.kind === "trashed") {
                 const t = e.entry;
                 const folder = basename(t.folder.from);
@@ -358,27 +360,27 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
           flash ??
           (trashOpen
             ? [
-                { text: "↑↓ account", priority: 4 },
+                { text: L().accounts.footer.account, priority: 4 },
                 ...(trashed
                   ? [
-                      { text: "u restore", priority: 4 },
-                      { text: "x delete for good", priority: 3 },
+                      { text: L().accounts.footer.restore, priority: 4 },
+                      { text: L().accounts.footer.purge, priority: 3 },
                     ]
                   : []),
-                ...(trash.length ? [{ text: "X empty", priority: 2 }] : []),
-                { text: "T trash", on: true, priority: 3 },
-                { text: "Esc back", priority: 2 },
+                ...(trash.length ? [{ text: L().accounts.footer.empty, priority: 2 }] : []),
+                { text: L().accounts.footer.trash, on: true, priority: 3 },
+                { text: L().accounts.footer.back, priority: 2 },
               ]
             : [
-            { text: "↑↓ account", priority: 4 },
-            { text: "PgUp/Dn scroll", priority: 1 },
+            { text: L().accounts.footer.account, priority: 4 },
+            { text: L().chat.footer.scroll, priority: 1 },
             ...markFooter(favorites.isMarked(account?.dir), markedCount),
             ...filter.footer,
-            ...(account ? [{ text: "↵ actions…", priority: 3 }] : entry?.kind === "add" ? [{ text: "↵ add an account…", priority: 3 }] : []),
-            ...(account ? [{ text: "d delete", priority: 2 }] : []),
-            { text: `s order: ${order}`, on: order !== "email", priority: 2 },
-            { text: "T trash", priority: 2 },
-            { text: "0-6/tab view", priority: 1 },
+            ...(account ? [{ text: L().accounts.footer.actions, priority: 3 }] : entry?.kind === "add" ? [{ text: L().accounts.footer.add, priority: 3 }] : []),
+            ...(account ? [{ text: L().accounts.footer.delete, priority: 2 }] : []),
+            { text: L().accounts.footer.order(shortValueName(order)), on: order !== "email", priority: 2 },
+            { text: L().accounts.footer.trash, priority: 2 },
+            { text: L().accounts.footer.views, priority: 1 },
           ])
         }
       />

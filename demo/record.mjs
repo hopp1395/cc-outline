@@ -28,6 +28,8 @@ process.env.CLAUDE_CONFIG_DIR = configDir;
 const home = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
 process.env.USERPROFILE = process.env.HOME = root;
 process.env.WT_SESSION = "demo";
+// The images show English, whatever language the machine runs in (setting language: system).
+process.env.LC_ALL = "en_US.UTF-8";
 delete process.env.TMUX;
 // The images show no update check: the viewer finds neither npm nor GitHub.
 globalThis.fetch = () => Promise.reject(new Error("no network in the demo"));

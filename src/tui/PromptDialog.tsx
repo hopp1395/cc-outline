@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import stringWidth from "string-width";
 import { editLine, type LineState } from "../filter.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -129,10 +130,10 @@ export function PromptDialog({
       })}
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="yellow">Enter</Text> send{"  "}
-        <Text color="yellow">^J</Text> new line{"  "}
-        <Text color="yellow">Esc</Text> close, keep it{"  "}
-        <Text color="yellow">^U</Text> clear
+        <Text color="yellow">Enter</Text> {L().promptDialog.send}{"  "}
+        <Text color="yellow">^J</Text> {L().promptDialog.newLine}{"  "}
+        <Text color="yellow">Esc</Text> {L().promptDialog.close}{"  "}
+        <Text color="yellow">^U</Text> {L().dialog.clear}
       </Text>
     </Dialog>
   );

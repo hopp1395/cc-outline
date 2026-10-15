@@ -1,4 +1,5 @@
 import { tmpdir } from "node:os";
+import { L } from "../src/i18n/index.js";
 import { join } from "node:path";
 import { Box } from "ink";
 import { describe, expect, it } from "vitest";
@@ -40,7 +41,7 @@ describe("the head of a session's dialogs", () => {
   it("leaves the account out with a single account, and counts several sessions in one line", () => {
     const ctx = { accounts: { accounts: [me], own: me.dir }, accountColor: "auto" as const };
     expect(sessionHead(session, ctx, { dir: "/x", gone: false, state: "current" })).toHaveLength(4);
-    expect(countHead(3, "marked session", "of this project")).toBe("3 marked sessions · of this project");
+    expect(countHead(L().counts.markedSessions(3), "of this project")).toBe("3 marked sessions · of this project");
   });
 
   it("keeps only the selected option's detail where the dialog would not fit", async () => {

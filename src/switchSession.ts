@@ -1,5 +1,6 @@
 import { proc } from "./proc.js";
 import { detectTerminal } from "./open.js";
+import { L } from "./i18n/index.js";
 import type { Placement } from "./settings.js";
 import type { RunningSession } from "./transcript/trash.js";
 
@@ -18,24 +19,25 @@ import type { RunningSession } from "./transcript/trash.js";
  */
 export async function switchToSession(session: RunningSession, titles: string[]): Promise<string> {
   const names = [...new Set([session.name, ...titles].filter((t): t is string => !!t))];
-  const attach = session.kind === "bg" && session.jobId ? ` · runs in the background: claude attach ${session.jobId}` : "";
+  const t = L().core;
+  const attach = session.kind === "bg" && session.jobId ? t.background(session.jobId) : "";
   if (detectTerminal() === "tmux") {
     const pane = await tmuxPaneOf(session.pid);
-    if (!pane) return `its tmux pane was not found${attach}`;
+    if (!pane) return t.noPane(attach);
     await run("tmux", ["switch-client", "-t", pane, ";", "select-window", "-t", pane, ";", "select-pane", "-t", pane]);
-    return "switched to its tmux pane";
+    return t.switchedPane;
   }
   if (process.platform === "win32") {
-    if (!names.length) return `the session has no name to find its tab by${attach}`;
+    if (!names.length) return t.noName(attach);
     const found = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(TAB_SCRIPT)], {
       CCO_TAB_TITLES: names.join("\n"),
     });
     const count = Number(found?.trim());
-    if (count === 1) return "switched to its Windows Terminal tab";
-    if (count > 1) return `${count} tabs are named “${names[0]}”: switch by hand`;
-    return found === undefined ? "its tab could not be looked up" : `no tab named “${names[0]}” found${attach}`;
+    if (count === 1) return t.switchedTab;
+    if (count > 1) return t.manyTabs(count, names[0]!);
+    return found === undefined ? t.noLookup : t.noTab(names[0]!, attach);
   }
-  return `the session runs in another Claude Code${attach}`;
+  return t.elsewhere(attach);
 }
 
 /** The command that makes a running Claude Code continue `sessionId`; /resume takes an id or a search term. */
@@ -57,7 +59,7 @@ export function resumeHereMethod(terminal = detectTerminal(), platform: NodeJS.P
  */
 export async function resumeInClaude(claudePid: number, sessionId: string, typer?: ConsoleTyper): Promise<{ typed: boolean; message: string }> {
   const result = await typeInClaude(claudePid, resumeSlashCommand(sessionId), typer);
-  return result.typed ? { typed: true, message: "continuing it in this Claude Code" } : result;
+  return result.typed ? { typed: true, message: L().core.continuing } : result;
 }
 
 /**
@@ -67,16 +69,16 @@ export async function resumeInClaude(claudePid: number, sessionId: string, typer
 export async function typeInClaude(claudePid: number, text: string, typer?: ConsoleTyper): Promise<{ typed: boolean; message: string }> {
   if (detectTerminal() !== "tmux") {
     const console = typer ?? prepareConsoleInput(claudePid);
-    if (!console) return { typed: false, message: "no tmux to type it in" };
-    return (await console.type(text)) ? { typed: true, message: `typed ${text}` } : { typed: false, message: "it could not be typed into Claude Code" };
+    if (!console) return { typed: false, message: L().core.noTmux };
+    return (await console.type(text)) ? { typed: true, message: L().core.typed(text) } : { typed: false, message: L().core.notTyped };
   }
   const pane = await tmuxPaneOf(claudePid);
-  if (!pane) return { typed: false, message: "its tmux pane was not found" };
+  if (!pane) return { typed: false, message: L().core.paneGone };
   const typed =
     (await run("tmux", ["send-keys", "-t", pane, "C-l"])) !== undefined &&
     (await run("tmux", ["send-keys", "-t", pane, "-l", text])) !== undefined;
   await new Promise((resolve) => setTimeout(resolve, 150));
-  if (!typed || (await run("tmux", ["send-keys", "-t", pane, "Enter"])) === undefined) return { typed: false, message: "the command could not be typed into its pane" };
+  if (!typed || (await run("tmux", ["send-keys", "-t", pane, "Enter"])) === undefined) return { typed: false, message: L().core.paneNotTyped };
   await run("tmux", ["select-pane", "-t", pane]);
   return { typed: true, message: `typed ${text}` };
 }

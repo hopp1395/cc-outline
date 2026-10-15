@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
+import { L } from "../i18n/index.js";
 import { removeFavorite } from "../favorites.js";
 import { isAlive } from "../viewer.js";
 import { claudeDir, writeJson } from "./locate.js";
@@ -114,8 +115,8 @@ function removeIfEmpty(dir: string): void {
 
 /** Why a session may not be deleted, or undefined when it may. */
 export function deleteBlocker(id: string, activeId: string | undefined, running: Set<string>): string | undefined {
-  if (id === activeId) return "the active session can't be deleted";
-  if (running.has(id)) return "the session is running in another Claude Code";
+  if (id === activeId) return L().core.activeSession;
+  if (running.has(id)) return L().core.runningSession;
   return undefined;
 }
 
@@ -130,7 +131,7 @@ export function trashSession(summary: SessionSummary, activeId?: string): TrashE
   const projectDir = dirname(summary.path);
   const slug = basename(projectDir);
   const target = join(trashDir(slug), summary.id);
-  if (existsSync(target)) throw new Error("a session with this id is already in the trash");
+  if (existsSync(target)) throw new Error(L().core.inTrash);
   const entry: TrashEntry = {
     id: summary.id,
     slug,
@@ -175,9 +176,9 @@ export function listTrash(slug?: string): TrashEntry[] {
 /** Moves a session back from the trash. Refuses, without moving anything, if one of its places is taken again. */
 export function restoreSession(slug: string, id: string): void {
   const entry = listTrash(slug).find((e) => e.id === id);
-  if (!entry) throw new Error("not in the trash");
+  if (!entry) throw new Error(L().core.notInTrash);
   const taken = entry.items.find((i) => existsSync(i.from));
-  if (taken) throw new Error(`can't restore: ${taken.from} exists again`);
+  if (taken) throw new Error(L().core.existsAgain(taken.from));
   for (const { from, to } of entry.items) if (existsSync(to)) move(to, from);
   rmSync(join(trashDir(slug), id), { recursive: true, force: true });
   removeIfEmpty(trashDir(slug));

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { L } from "../i18n/index.js";
 import { basename, dirname, join, resolve } from "node:path";
 import { claudeDir, inClaudeDir } from "../transcript/locate.js";
 import type { SessionSummary } from "../transcript/sessions.js";
@@ -28,7 +29,7 @@ export interface AccountCopy {
  */
 export function copyToAccount(s: SessionSummary, target: string): AccountCopy {
   const root = claudeDir();
-  if (sameDir(root, target)) throw new Error("the session is in this account already");
+  if (sameDir(root, target)) throw new Error(L().core.sameAccount);
   const session = loadSession(s);
   const slug = basename(dirname(s.path));
   const chain = [...(s.continues ?? []), s.id];

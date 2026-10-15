@@ -1,5 +1,6 @@
 import { closeSync, openSync, readFileSync, writeSync } from "node:fs";
 import { promisify } from "node:util";
+import { L } from "../i18n/index.js";
 import { deflateRaw, inflateRawSync } from "node:zlib";
 
 /**
@@ -161,12 +162,12 @@ export function readZip(file: string): ZipEntry[] {
       break;
     }
   }
-  if (end < 0) throw new Error("not a zip archive");
+  if (end < 0) throw new Error(L().core.notZip);
   const count = buf.readUInt16LE(end + 10);
   let at = buf.readUInt32LE(end + 16);
   const entries: ZipEntry[] = [];
   for (let n = 0; n < count; n++) {
-    if (buf.readUInt32LE(at) !== 0x02014b50) throw new Error("damaged zip archive");
+    if (buf.readUInt32LE(at) !== 0x02014b50) throw new Error(L().core.damaged);
     const flags = buf.readUInt16LE(at + 8);
     const method = buf.readUInt16LE(at + 10);
     const time = buf.readUInt16LE(at + 12);
@@ -189,8 +190,8 @@ export function readZip(file: string): ZipEntry[] {
         const local = offset + 30 + buf.readUInt16LE(offset + 26) + buf.readUInt16LE(offset + 28);
         const body = buf.subarray(local, local + compressed);
         const raw = method === STORE ? Buffer.from(body) : method === DEFLATE ? inflateRawSync(body) : undefined;
-        if (!raw) throw new Error(`${name}: unsupported compression`);
-        if (crc32(raw) !== crc) throw new Error(`${name}: checksum mismatch`);
+        if (!raw) throw new Error(L().core.compression(name));
+        if (crc32(raw) !== crc) throw new Error(L().core.checksum(name));
         return raw;
       },
     });

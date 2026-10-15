@@ -7,7 +7,7 @@ import { renderInk } from "./helpers/ink.js";
 import { accountColorName, type Account } from "../src/account.js";
 import { DEFAULT_SETTINGS, readSettings, settingsFile } from "../src/settings.js";
 import type { Layout } from "../src/tui/layout.js";
-import { SETTING_ROWS, settingLines, SettingsView, settingsEntries } from "../src/tui/SettingsView.js";
+import { settingRows, settingLines, SettingsView, settingsEntries } from "../src/tui/SettingsView.js";
 import { AccountContext, type AccountState } from "../src/tui/useAccount.js";
 
 const layout: Layout = { columns: 130, rows: 40, listWidth: 44, previewWidth: 82, bodyHeight: 36 };
@@ -27,7 +27,7 @@ afterEach(() => {
 
 describe("Account group in the settings", () => {
   it("has the account's settings, automatic, without an avatar and on by default", () => {
-    const keys = SETTING_ROWS.filter((r) => r.group === "Account").map((r) => r.key);
+    const keys = settingRows().filter((r) => r.group === "Account").map((r) => r.key);
     expect(keys).toEqual(["accountColor", "accountAvatar", "accountTitle", "viewAccounts", "accountsListWidth", "accountsOrder"]);
     expect(DEFAULT_SETTINGS).toMatchObject({ accountTitle: true, accountColor: "auto", accountAvatar: "" });
   });
@@ -152,7 +152,7 @@ describe("Account group in the settings", () => {
   });
 
   it("lists the avatars one per line, each followed by its meaning", () => {
-    const row = SETTING_ROWS.find((r) => r.key === "accountAvatar")!;
+    const row = settingRows().find((r) => r.key === "accountAvatar")!;
     const lines = settingLines(row, "🦊", 80, { now: new Date(), cwd }).map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""));
     expect(lines).toContain('○ cco (default)  the "cco"');
     // The meanings in one column, after the widest value.

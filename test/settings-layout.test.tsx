@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
 import type { Layout } from "../src/tui/layout.js";
-import { SETTING_ROWS, SettingsView, shortValueName } from "../src/tui/SettingsView.js";
+import { settingRows, SettingsView, shortValueName } from "../src/tui/SettingsView.js";
 import { DEFAULT_SETTINGS } from "../src/settings.js";
 
 const cwd = join(tmpdir(), "cco-settings-layout-project");
@@ -43,7 +43,7 @@ describe("Settings list", () => {
 
   it("shows every setting's label in full with its value at the right end", async () => {
     const lines = await listLines(30);
-    for (const row of SETTING_ROWS) {
+    for (const row of settingRows()) {
       const value = shortValueName(DEFAULT_SETTINGS[row.key]);
       const line = lines.find((l) => l.startsWith(row.label + " ") && l.endsWith(" " + value));
       expect(line, `${row.group}: ${row.label}`).toBeDefined();

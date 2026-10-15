@@ -1,5 +1,6 @@
 import { SessionReader, type SessionSummary } from "../transcript/sessions.js";
 import { listEvents, listSessions, type RemoteSession } from "./api.js";
+import { L } from "../i18n/index.js";
 import { RemoteError } from "./credentials.js";
 import { toTranscript } from "./toTranscript.js";
 
@@ -27,7 +28,7 @@ export function remoteSummary(s: RemoteSession): SessionSummary {
 
 /** What a failure of the remote API says in the top bar, short. */
 export function describeRemoteError(err: unknown): string {
-  return err instanceof RemoteError ? err.message : `remote sessions failed: ${(err as Error).message}`;
+  return err instanceof RemoteError ? err.message : L().remote.failed((err as Error).message);
 }
 
 /** The remote sessions of one account, listed and, one at a time, read through their events. */

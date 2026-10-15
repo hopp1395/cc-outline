@@ -4,14 +4,14 @@ import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, ACCOUNTS_ORDER_VALUES, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_VALUES, SESSIONS_BACKGROUND_VALUES, SESSIONS_REMOTE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { ALL_AVATAR_PRESETS, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
 import { AvatarDialog } from "./AvatarDialog.js";
-import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
+import { legendMark, sessionLegend } from "./sessionLegend.js";
 import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { filterSettings, sessionFilter } from "../sessionFilter.js";
 import { otherAccounts } from "../accountContinue.js";
@@ -40,6 +40,9 @@ import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
 import { useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
 import { TIMING } from "../timing.js";
+import { L, language, LANGUAGE_NAMES, systemLanguage, type Language } from "../i18n/index.js";
+import type { Messages } from "../i18n/en.js";
+import { TOOL_LEVELS } from "../transcript/tools.js";
 
 interface Props {
   layout: Layout;
@@ -70,31 +73,13 @@ interface ResetAction {
   description: string;
 }
 
-export const RESET_ACTIONS: ResetAction[] = [
-  {
-    id: "restart",
-    label: "restart the viewer",
-    description:
-      "Closes the viewer and opens it again in the same place and view, with the version of cco installed now: after an update by hand (`npm install -g`, a rebuild of a linked checkout) or when it misbehaves. The plugin's hooks and commands are loaded by Claude Code; they change only when Claude Code restarts. `r` in the other views does the same. Asks first unless confirm quit is off.",
-  },
-  {
-    id: "doctor",
-    label: "doctor: check and repair",
-    description:
-      "Checks what cco needs: the installation (npm, the plugin and its version, the path the plugin starts cco by), cco's files in `~/.claude/cco` (of processes that have ended, unfinished writes, files that are no valid JSON, the trash), the settings, the terminal and whether the plugin's hooks run. `Enter` asks, then checks; nothing is changed by that. The report shows below, and `Enter` then offers to repair what it can; some findings name a command to run yourself. `cco doctor` in a shell does the same (`--fix` repairs), `/cco:doctor` shows the report in Claude Code.",
-  },
-  {
-    id: "settings",
-    label: "all settings to default",
-    description: "Sets every setting above back to its default and removes the marks ★ of the settings. `R` does the same from any setting; `r` resets only the selected one.",
-  },
-  {
-    id: "data",
-    label: "saved data of this project",
-    description:
-      "Deletes what cco remembers for this project: the marks ★ of turns, files, plans, sessions and days, the selected entry and scroll position of every list, the view and placement of each session, and whether the viewer was open when Claude Code last exited. The settings stay, and nothing of Claude Code is touched: transcripts, sessions and git are as before. The views reload empty.",
-  },
-];
+const RESET_IDS: ResetAction["id"][] = ["restart", "doctor", "settings", "data"];
+
+/** The Reset entries in the current language. */
+export function resetActions(): ResetAction[] {
+  const texts = L().settings.reset;
+  return RESET_IDS.map((id) => ({ id, ...texts[id] }));
+}
 
 /** What a setting's texts can depend on: today for dates, the project for paths, the terminal for its keys and names. */
 export interface TextContext {
@@ -120,10 +105,16 @@ const wrapText = (text: string, width: number, indent = "", marks = true) =>
     .split("\n")
     .map((l) => indent + l);
 
+/** The groups of the list, by the name the code knows them by; shown in the current language (`groupName`). */
+type Group = keyof Messages["settings"]["groups"];
+
+/** A group's name as the list shows it. */
+export const groupName = (group: string): string => L().settings.groups[group as Group] ?? group;
+
 interface Row {
   key: keyof Settings;
   /** Area the setting belongs to, the list's separator above it. */
-  group: string;
+  group: Group;
   label: string;
   description: Text;
   /** The values in the order Enter steps through them, each with what it does, with an example where one helps. */
@@ -155,526 +146,414 @@ const daysAgo = (days: number, now: Date) => dayLabel(dayOf(new Date(now.getFull
 /** "Thu 24 Sep" for the first day `range` covers. */
 const firstDay = (range: ListRange, now: Date) => dayLabel(dayOf(rangeStart(range, now))!, "other", now.getTime());
 
-const UPDATE_MEANINGS: Record<UpdateMode, Text> = {
-  on: "ask npm and GitHub when the viewer starts; a newer version shows in the top bar (v0.7.0 → 0.8.0), and you update when you like",
-  off: "no network requests; `F5` here still checks once",
-  auto: "as on, and once the check finds a newer version, the viewer opens it here and asks whether to install it, once per start",
-};
-
-const COMPACT_MEANINGS: Record<CompactView, Text> = {
-  off: "list and preview side by side, with the help line and the status; the widths of `<`, `>` and `|` apply",
-  stacked:
-    "the list above the preview, both as wide as the pane (the list's columns: `<` and `>`, its height: compact split); `Enter` opens details in the preview as usual; no help line, no status, the tabs shortened to their number, the preview's header one line",
-  single:
-    "one column: the list, and `Enter` (or `|`, in every view) shows the preview over the whole pane, `Esc` (or `|`) goes back; no help line, no status, the tabs shortened to their number, the preview's header one line",
-};
-
-const COLUMNS_MEANINGS: Record<(typeof COMPACT_COLUMNS_VALUES)[number], Text> = {
-  "1": "one column of entries, the most each can show",
-  "2": "two columns, filled one after the other: the first from top to bottom, then the second",
-  "3": "three columns; the entries are cut after a third of the pane",
-  "4": "four columns; for a wide pane with short entries",
-};
-
-const SPLIT_MEANINGS: Record<(typeof COMPACT_SPLIT_VALUES)[number], Text> = {
-  "10%": "the list is a few rows high (at least three), the preview gets nearly everything",
-  "20%": "a fifth of the height for the list; about six rows in a pane of 30",
-  "30%": "a good third for the list, e.g. with two or three columns of longer entries",
-  "40%": "the list gets more rows, the preview a bit less than two thirds",
-  "50%": "half and half; for long lists, such as the sessions of a month",
-};
-
-const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], Text> = {
-  remember: "reopen it only if it was open when Claude Code last exited in the project: closed with `q` in one project, it stays closed there and still opens in the others",
-  always: "open it on every start, in every project; in the chat, unless another view was open last (e.g. Changes, where you left it)",
-  never: "never open it by itself; `/cco:chat`, `/cco:git` and the other `/cco:…` commands still do",
-};
-
-export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], string> = {
-  right: "a pane right of Claude Code",
-  left: "a pane left of Claude Code",
-  window: "a window of its own (in tmux: a tmux window)",
-};
-
-/** The placements as the details explain them: the pane's size, and how to get to a window in this terminal. */
-const PLACEMENT_DETAILS: Record<(typeof PLACEMENT_VALUES)[number], Text> = {
-  right: "a pane right of Claude Code; each takes half of the tab",
-  left: "the same, left of Claude Code",
-  window: (c) =>
-    c.terminal === "wt"
-      ? "a Windows Terminal window of its own, one per Claude Code; Claude Code keeps the whole tab, `Alt+Tab` switches"
-      : c.terminal === "tmux"
-        ? "a tmux window of its own next to Claude Code's; Claude Code keeps the whole window, your prefix and `n` or `p` (`Ctrl+b n`) switch"
-        : PLACEMENT_MEANINGS.window,
-};
-
-const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
-  list: "what the rows show, e.g. a prompt, a file path or a session's title",
-  details: "what the previews add, e.g. a session's changed files or a plan's text",
-  both: "rows and details: finds the most, also entries that only mention the words somewhere",
-};
-
-/** How to select text while the viewer has the mouse, in this terminal. */
-function selectText(terminal: Terminal | undefined): string {
-  if (terminal === "wt") return "select text with `Shift+drag`";
-  if (terminal === "tmux") return "select text with `Shift+drag`, or your terminal's modifier (`Option` in iTerm2)";
-  return "select text with `Shift+drag` in Windows Terminal (in tmux, with `Shift` or your terminal's modifier)";
+/** The meaning of each value of a choice, from the row's texts by value. */
+function meanings<V extends string>(values: readonly V[], texts: Record<V, Text>): Row["values"] {
+  return values.map((v) => [v, texts[v]]);
 }
 
+/** The placements as the placement dialog (p) names them. */
+export const placementMeaning = (placement: (typeof PLACEMENT_VALUES)[number]): string => L().settings.rows.placement.meanings[placement] ?? placement;
+
 /** The first row of a view's group: whether the view has a tab. */
-function viewTab(key: keyof Settings, name: string, number: string, what: string): Row {
+function viewTab(key: keyof Settings, group: Group, number: string, what: string): Row {
+  const t = L().settings.common;
   return {
     key,
-    group: name,
-    label: "tab",
-    description: `Whether the ${name} view (${what}) has a tab. Hide a view you do not use, and the tab bar gets shorter. Hidden, it keeps its number: \`${number}\` does nothing, and the other views keep theirs (with Plan hidden, Sessions stays \`4\`). A \`/cco:…\` command or \`--view\` that names it still opens it, and its tab shows while it is open. Settings (\`6\`) cannot be hidden, and at least one other view stays shown.`,
-    values: ON_OFF(`show its tab; \`${number}\` and \`Tab\` reach it`, `hide it; \`${number}\` and \`Tab\` skip it`),
+    group,
+    label: t.tab,
+    description: t.tabDescription(groupName(group), what, number),
+    values: ON_OFF(t.tabOn(number), t.tabOff(number)),
   };
 }
 
 /** The last row of a view's group: which end of its list is at the top. */
-function listOrder(key: keyof Settings, view: string, what: string): Row {
+function listOrder(key: keyof Settings, group: Group, what: string): Row {
+  const t = L().settings.common;
   return {
     key,
-    group: view,
-    label: "order",
-    description: `Whether the ${view} list shows the newest or the oldest ${what} at the top. Oldest first reads like Claude Code, from the top down; newest first puts the latest right under the tabs, where a long list starts. The keys follow what you see: \`↑/↓\` go up and down the list, \`Home\` and \`g\` to the top, \`End\` and \`G\` to the bottom.`,
+    group,
+    label: t.order,
+    description: t.orderDescription(groupName(group), what),
     values: [
-      ["oldest-first", `oldest at the top, newest at the bottom: new ${what} appear below`],
-      ["newest-first", `newest at the top, oldest at the bottom: new ${what} appear at the top`],
+      ["oldest-first", t.oldestFirst(what)],
+      ["newest-first", t.newestFirst(what)],
     ],
-    viewKey: `\`s\` in ${view}`,
+    viewKey: L().settings.inView("`s`", groupName(group)),
   };
 }
 
 /** A view's row for how far back its list reaches at first. */
-function listRange(key: keyof Settings, view: string, what: string, dated: string): Row {
+function listRange(key: keyof Settings, group: Group, what: string, dated: string): Row {
+  const t = L().settings.common;
   return {
     key,
-    group: view,
-    label: "range",
-    description: `How far back the ${view} list reaches when it is read: the ${what} ${dated} today or in the days before it, counted in calendar days from midnight. A short range opens faster when there are many transcripts: those last written before it are not read. The list shows the newest at the top and ends with "↓ more ↓", which reads the rest until the viewer restarts.`,
+    group,
+    label: t.range,
+    description: t.rangeDescription(groupName(group), what, dated),
     values: RANGE_VALUES.map((v): [string, Text] => [
       v,
-      v === "all"
-        ? "the whole history, without ↓ more ↓; the first read takes longer with many transcripts"
-        : v === "today"
-          ? (c) => `only today, since ${firstDay(v, c.now)} 00:00`
-          : (c) => `today and the ${Number.parseInt(v, 10) - 1} days before, since ${firstDay(v, c.now)} 00:00`,
+      v === "all" ? t.rangeAll : v === "today" ? (c) => t.rangeToday(firstDay(v, c.now)) : (c) => t.rangeDays(Number.parseInt(v, 10) - 1, firstDay(v, c.now)),
     ]),
   };
 }
 
-/** What Enter opens in each view whose detail can show over the whole pane. */
-const DETAIL_OF: Record<string, string> = {
-  Chat: "`Enter` shows the full prompt and `a` a subagent's page",
-  Changes: "`Enter` shows the whole file",
-  Plan: "`Enter` shows the plan's changes",
-  Monitor: "`Enter` shows the response table",
-};
-
 /** A view's row for the width of its list, next to the preview; `suits` says what a wider list is good for there. */
-function listWidthRow(key: keyof Settings, group: string, label: string, view: string, suits: string): Row {
-  const share = (w: ColumnWidth) => `${LIST_WIDTHS[w].share * 100} % of the pane, ${LIST_WIDTHS[w].min}–${LIST_WIDTHS[w].max} columns`;
+function listWidthRow(key: keyof Settings, group: Group, label: string, suits: string): Row {
+  const t = L().settings.common;
+  const view = groupName(group);
+  const share = (w: ColumnWidth) => t.share(LIST_WIDTHS[w].share * 100, LIST_WIDTHS[w].min, LIST_WIDTHS[w].max);
+  const detail = t.detailOf[group];
   return {
     key,
     group,
     label,
-    description: `How wide the ${view} list is; the preview takes the rest of the pane. ${suits} The preview keeps at least 20 columns, so in a narrow pane the wider steps stop there. At the ends one of them takes the whole pane: hidden to read the preview in full width, full to read the list's entries uncut.`,
+    description: t.widthDescription(view, suits),
     values: [
-      ["hidden", "the list is folded away, the preview takes the whole pane; `↑` `↓` still switch entries"],
-      ["narrow", `${share("narrow")}: more room for the preview`],
+      ["hidden", t.widthHidden],
+      ["narrow", t.widthNarrow(share("narrow"))],
       ["normal", share("normal")],
       ["wide", share("wide")],
-      ["wider", `${share("wider")}: the list and the preview share the pane`],
-      [
-        "full",
-        DETAIL_OF[view]
-          ? `the list takes the whole pane, without a preview; ${DETAIL_OF[view]} over the whole pane, \`Esc\` goes back to the list`
-          : "the list takes the whole pane, without a preview",
-      ],
+      ["wider", t.widthWider(share("wider"))],
+      ["full", detail ? t.widthFullDetail(detail) : t.widthFull],
     ],
-    viewKey: `\`<\`, \`>\` and \`|\` in ${view}`,
-    notes: [
-      "`<` and `>` step one width at a time, from hidden to full. `|` goes from a width to hidden, and on the next press back to that width; the press after that goes to full, and the next back again. After a restart, the width before is not known: `|` then goes from hidden to narrow and from full to wider.",
-      "Every step is stored here, hidden and full too: the view starts as you left it.",
-      ...(view === "Settings" ? ["With hidden, this list is gone as soon as you choose it; `|` or `>` brings it back."] : []),
-    ],
+    viewKey: t.widthKeys(view),
+    notes: [...t.widthNotes, ...(group === "Settings" ? [t.widthSettingsNote] : [])],
   };
 }
 
 /** A view's wrap setting: long lines wrap at the pane's edge or are cut and scroll sideways. */
-function wrapRow(key: keyof Settings, group: string, what: string, off: string): Row {
+function wrapRow(key: keyof Settings, group: Group, what: string, off: string): Row {
+  const t = L().settings.common;
   return {
     key,
     group,
-    label: "wrap",
-    description: `Whether long lines ${what} wrap at the edge of the pane; off, they are cut and \`Ctrl+←/→\` scrolls sideways.`,
-    values: ON_OFF("wrap at the edge; nothing is cut off", `cut at the edge, \`Ctrl+←/→\` scrolls; ${off}`),
-    viewKey: `\`w\` in ${group}`,
+    label: t.wrap,
+    description: t.wrapDescription(what),
+    values: ON_OFF(t.wrapOn, t.wrapOff(off)),
+    viewKey: L().settings.inView("`w`", groupName(group)),
   };
 }
 
-/** Every setting the view offers, by group; the list and the details come from here. */
-export const SETTING_ROWS: Row[] = [
-  {
-    key: "autoOpen",
-    group: "Start",
-    label: "auto open",
-    description:
-      "Whether the viewer opens by itself when Claude Code starts (also with `--resume` and `--continue`). The focus stays in Claude Code, and a Claude Code that already has a viewer gets no second one. With remember, the viewer is where you left it: open in the projects you want it in, closed in the others.",
-    values: AUTO_OPEN_VALUES.map((v) => [v, AUTO_OPEN_MEANINGS[v]]),
-    notes: [
-      (c) =>
-        c.terminal
-          ? `Needs the plugin's hooks, and Windows Terminal or tmux (here: ${c.terminal === "wt" ? "Windows Terminal" : "tmux"}).`
-          : "Needs the plugin's hooks, and Windows Terminal or tmux; neither is found here, so it does not open.",
-      "Takes effect at the next start of Claude Code.",
-    ],
-  },
-  {
-    key: "placement",
-    group: "Start",
-    label: "placement",
-    description:
-      "Where the viewer opens, when Claude Code starts and with `/cco:…` commands. right and left suit a wide screen, where both fit side by side; window keeps Claude Code at full width, for a narrow one. `p` in the viewer moves it to another place and remembers that place for the session; this setting is for sessions without one.",
-    values: PLACEMENT_VALUES.map((v) => [v, PLACEMENT_DETAILS[v]]),
-    notes: [
-      (c) => (c.terminal === "tmux" ? "" : "A window takes the focus from Claude Code: Windows Terminal cannot hand it back to another window."),
-      "Takes effect the next time the viewer opens; a running viewer stays where it is.",
-    ],
-  },
-  {
-    key: "confirmQuit",
-    group: "General",
-    label: "confirm quit",
-    description:
-      "Whether `q` and `Esc` ask before the viewer closes, so a key meant for Claude Code but typed in the viewer's pane does not close it, and whether `r` (in the other views) and restart the viewer (Reset, below) ask before the viewer restarts. The viewer still closes by itself when the session ends; `/cco:chat` opens it again. `/cco:restart` never asks.",
-    values: ON_OFF("ask first: Quit cco? or Restart the viewer? `Enter` yes, `Esc` no", "close at the first `q` or `Esc`; restart the viewer restarts without asking"),
-  },
-  {
-    key: "compactView",
-    group: "General",
-    label: "compact",
-    description:
-      "A layout for small screens or a narrow pane next to Claude Code, where list and preview side by side leave both too narrow. The list widths you chose (`<`, `>`) are kept and apply again with off; `i` still lists the keys that the help line shows otherwise.",
-    values: COMPACT_VIEW_VALUES.map((v) => [v, COMPACT_MEANINGS[v]]),
-  },
-  {
-    key: "compactColumns",
-    group: "General",
-    label: "compact columns",
-    description:
-      "With compact stacked: how many columns the list above the preview has, so more entries fit in its few rows. Set with `<` and `>` as well, which change the width in the other layouts. The entries run down the first column, then down the next.",
-    values: COMPACT_COLUMNS_VALUES.map((v) => [v, COLUMNS_MEANINGS[v]]),
-  },
-  {
-    key: "compactSplit",
-    group: "General",
-    label: "compact split",
-    description: "With compact stacked: the share of the pane's height that the list takes; the preview gets the rest.",
-    values: COMPACT_SPLIT_VALUES.map((v) => [v, SPLIT_MEANINGS[v]]),
-  },
-  {
-    key: "marquee",
-    group: "General",
-    label: "marquee",
-    description:
-      "Whether the selected list entry scrolls sideways when it is too long for the list, at most 250 columns, then from the start. Useful in a narrow pane, where prompts, paths and session titles are cut.",
-    values: ON_OFF(
-      "the selected entry scrolls to its end and starts over; the others are cut with …",
-      "every entry is cut with …, e.g. Fix the date separa…; the preview's header shows it in full",
-    ),
-  },
-  {
-    key: "dateSeparators",
-    group: "General",
-    label: "date separators",
-    description:
-      "Whether Chat, Plan, Sessions and the trash show a line with the date (── Mon 28 Sep 2026 ──) above each day's entries, unless all of them are from today; the entries then show only their time. The Monitor's days get a line per year (── 2025 ──) once they reach into another year. Off, Sessions and the trash show the date in each row again.",
-    values: ON_OFF(
-      (c) => `a line per day, e.g. ── ${daysAgo(1, c.now)} ── above yesterday's entries; the rows show only 14:32`,
-      (c) => `no lines; Sessions and the trash show ${dayOf(new Date(c.now.getFullYear(), c.now.getMonth(), c.now.getDate() - 1).getTime())!.slice(5)} 14:32 in each row`,
-    ),
-  },
-  {
-    key: "pinnedFavorites",
-    group: "General",
-    label: "pinned favorites",
-    description:
-      "Whether every list (Chat, Changes, Plan, Sessions, Monitor and Settings) shows its marked entries (`Space`) once more at the top, under ── ★ Pinned ──, in the order of the list, and below that the whole list, after a plain line or its first date separator, where they keep their place, with their ★ as well. `↑↓` and `Home`/`End` follow the rows on screen, through both copies; `Shift+↑/↓` only the pinned ones. Following the newest entry selects it in its place in the list. A filter applies to them too. Sessions and the Monitor pin only what their range has read; Sessions also pins the active and running sessions while pinned sessions is on. Useful to keep a few entries at hand in a long list: the turn with the task you work on, a file you keep checking, the settings you change often.",
-    values: ON_OFF(
-      "marked entries once more at the top, under ── ★ Pinned ──, and in their place below, both with ★",
-      "marked entries only in their place, with ★; `Shift+↑/↓` jumps between them",
-    ),
-  },
-  {
-    key: "rememberPositions",
-    group: "General",
-    label: "remember positions",
-    description: "Whether every list keeps its selected entry and the scroll position of each entry across restarts of the viewer. Switching entries keeps positions either way while the viewer runs.",
-    values: ON_OFF(
-      "store them per project, e.g. Changes reopens on the same file, scrolled to the same hunk",
-      "start fresh after each restart: the newest turn in Chat, the first entry elsewhere, each scrolled to the top",
-    ),
-    notes: [(c) => `Stored in \`${tilde(positionsFile(c.cwd))}\`; switching off keeps the file.`, "Takes effect when the viewer starts."],
-  },
-  {
-    key: "rememberView",
-    group: "General",
-    label: "view per session",
-    description:
-      "Whether each session comes back in the view it was shown in last (Chat, Changes, Plan, Sessions or Settings): when Claude Code starts or resumes it, when you start the viewer with `/cco:open` or without `--view`, and when the viewer follows it after `/resume`. A `/cco:…` command still opens the view it names.",
-    values: ON_OFF(
-      "reopen the session's last view, e.g. a session left in Changes comes back in Changes after `claude --resume`",
-      "start in the chat, or the view shown last in the project",
-    ),
-    notes: [(c) => `Stored per project in \`${tilde(sessionViewsFile(c.cwd))}\`.`],
-  },
-  {
-    key: "mouse",
-    group: "General",
-    label: "mouse",
-    description: (c) =>
-      `Whether the viewer takes the mouse: a click on a tab switches to it, a click on a web address opens it in the browser, a click in a list selects the entry, a double click does what \`Enter\` does, and the wheel scrolls the preview (or moves through the list). A drag in the preview selects lines and copies them when released. While it is on, the terminal leaves clicks to the viewer: ${selectText(c.terminal)}.`,
-    values: ON_OFF("clicks and wheel go to the viewer", (c) =>
-      c.terminal === "tmux" ? "tmux and the terminal keep the mouse, as in any other pane" : "the terminal keeps the mouse: a drag selects text, `Ctrl+click` opens links",
-    ),
-  },
-  {
-    key: "filterIn",
-    group: "General",
-    label: "filter in",
-    description:
-      "What the list filter (`Ctrl+F`) looks at. The list: what an entry's row shows (prompt, file path, plan or session title, day, setting name). The details: what its preview adds (attached files and subagents, the plan text and feedback, a session's prompts, files and branch, the models of a day, a setting's description). For example, with the details, `src/tui` in Sessions finds the sessions that changed a file there, although no row shows it. Every word must match, in any order; `*` stands for any characters, `?` for one. In the filter dialog, `^L` and `^D` switch them on and off, which changes this setting.",
-    values: FILTER_IN_VALUES.map((v) => [v, FILTER_IN_MEANINGS[v]]),
-  },
-  {
-    key: "updateMode",
-    group: "General",
-    label: "update",
-    description:
-      "Whether the viewer asks npm for the latest version of cco and GitHub for the release notes when it starts. A newer version shows in the top bar, and the Releases entries at the end of the list show the notes of each version and run the update. With auto, the viewer also opens the update here as soon as the check finds one and asks whether to install it. Choose on to update when it suits you, off without network access.",
-    values: UPDATE_VALUES.map((v) => [v, UPDATE_MEANINGS[v]]),
-    notes: ["`F5` in Settings checks once either way.", "The answer is kept in `~/.claude/cco/releases.json`, so the notes also show offline."],
-  },
-  {
-    key: "accountColor",
-    group: "Account",
-    label: "colour in the top bar",
-    description:
-      "The background of the \"cco\" at the left of the top bar, so you see at a glance which Claude account this Claude Code runs with. It shows whenever the Claude Code the viewer follows is signed in to an account; with several (config folders `~/.claude*`, for example `~/.claude-work` and `~/.claude-personal` started with `CLAUDE_CONFIG_DIR`) the colours tell them apart. The colours are the console's 16, so they look as in your terminal's colour scheme. auto takes one from the email (red, green, yellow, magenta, cyan or a bright one of them, never blue like the focus bar), so an account has the same colour on every machine; a fixed one overrides it for the account of this viewer's config folder. It is stored in this folder's settings; the viewers of the other accounts read it from there and show this account in it too.",
-    values: [
-      ["auto", "a colour from the email"],
-      ["off", "the \"cco\" keeps the colour of the bar"],
-      ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, ""]),
-    ],
-    look: (value) => (ACCOUNT_COLOR_NAMES.includes(value as AccountColorName) ? colorBadge(value as AccountColorName) : undefined),
-  },
-  {
-    key: "accountAvatar",
-    group: "Account",
-    label: "avatar",
-    description:
-      "What stands at the left of the top bar instead of \"cco\", on the account's colour, so you tell the accounts apart by more than colour: up to six columns of letters, symbols or emojis (an emoji takes two). It also stands in the account's entries here and in the Accounts view, before the sessions of the account in the Sessions view (with the other accounts listed) and at the end of the terminal title. `Enter` opens a list of avatars, each with what it shows, and a field for your own. Like the colour, it is stored in this folder's settings; the viewers of the other accounts read it from there.",
-    values: [["", 'the "cco"'], ...ALL_AVATAR_PRESETS.map((p): [string, string] => [p.avatar, p.meaning])],
-    dialog: "avatar",
-    inline: true,
-    notes: [() => `Emojis: ${emojiInputHint()}. Emojis joined from several (a person with a laptop, a flag) are not offered: some terminals draw their parts apart.`],
-  },
-  {
-    key: "accountTitle",
-    group: "Account",
-    label: "avatar in the title",
-    description: "Whether the terminal's window and tab title ends with the account's avatar, e.g. `✳ orders · 🦊`. Without an avatar it is the session's title alone.",
-    values: ON_OFF("the title ends with the avatar of the account", "the title is the session's title alone"),
-  },
-  {
-    key: "viewAccounts",
-    group: "Account",
-    label: "accounts view",
-    description:
-      "Whether the Accounts view (the accounts found, their plugin, what runs there and the project's sessions in each) is reachable with `0`, a click on the \"cco\" at the left of the top bar, and `←` `→` / `Tab`. The \"cco\" stays either way, in the account's colour. `/cco:accounts` opens the view also while it is off, as `--view` does for a hidden tab.",
-    values: ON_OFF("`0`, the click on \"cco\" and `Tab` reach it", "`0` and the click do nothing, `Tab` skips it"),
-  },
-  listWidthRow(
-    "accountsListWidth",
-    "Account",
-    "accounts list width",
-    "Accounts",
-    "The Accounts view (`0`, or a click on the \"cco\" at the left of the top bar) lists the accounts by email: a wider list shows long emails in full, a narrower one leaves the details more room.",
-  ),
-  {
-    key: "accountsOrder",
-    group: "Account",
-    label: "accounts order",
-    description: "The order of the Accounts view's list below the active account, which always comes first.",
-    values: [
-      ["email", "by email, e.g. jan@work.com before me@home.de"],
-      ["folder", "by the config folder's name, e.g. .claude before .claude-work"],
-      ["recent", "the account used last first: the latest prompt in its `history.jsonl`, else when its `.claude.json` was written"],
-    ],
-    viewKey: "`s` in Accounts",
-  },
-  viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
-  listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
-  {
-    key: "showTools",
-    group: "Chat",
-    label: "tool calls",
-    description:
-      "How much the chat shows of Claude's tool calls (reads, edits, commands, searches) between the text. compact shows what Claude did at a glance, full also what came out. With it off, Claude's questions and your answers (AskUserQuestion) still show, in a yellow frame, and what Claude did in the browser (Claude in Chrome, the desktop app's Browser pane) in a cyan one, with numbered screenshots that a click or `o` / `O` opens; otherwise they are tool calls like the others.",
-    values: [
-      ["off", "hide them; Claude's text reads as one answer"],
-      ["compact", "a line each, with the result, e.g. ⚙ Read src/app.ts · 120 lines, ⚙ Edit src/app.ts · +4 −2, ⚙ Bash Run the tests · ✓ · 38 lines"],
-      ["full", "also the command, the last 10 lines of its output, and the first 5 files a search found"],
-    ],
-    viewKey: "`t` in Chat",
-  },
-  {
-    key: "showThinking",
-    group: "Chat",
-    label: "thinking",
-    description: "Whether the chat shows Claude's thinking blocks: what it considered before an answer or a tool call. Useful to see why Claude took a path; the turns get much longer.",
-    values: ON_OFF("show them where Claude thought, between the text", "hide them; only what Claude wrote to you"),
-    viewKey: "`h` in Chat",
-  },
-  {
-    key: "showAgents",
-    group: "Chat",
-    label: "agents",
-    description:
-      "Whether the chat shows the subagents Claude started, where it started them: type, task, model, and whether they are running, finished or failed, with their duration, tool uses and tokens. `a` in Chat opens what a subagent did.",
-    values: ON_OFF("show them, e.g. an Explore agent searching the code, with its status", "hide them; `a` still opens what they did"),
-  },
-  wrapRow("chatWrap", "Chat", "in the chat", "useful for wide tables and code blocks"),
-  listOrder("chatOrder", "Chat", "turns"),
-  viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
-  listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room."),
-  wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),
-  {
-    key: "gitNestedRepos",
-    group: "Changes",
-    label: "sub-repositories",
-    description:
-      "Whether Changes also shows the git repositories in the folders below: repositories inside the project's repository, submodules, worktrees, or the repositories of a folder that is none itself. They are searched up to 3 levels below the repository's top level (or the folder, when it is none), leaving out hidden folders, `node_modules`, `bin` and `obj`, also when the repository ignores them; `F5` searches again, and the view does every 30 s. Each repository gets a line with its path and branch above its files, also the only one; one without changes shows no changes, whose preview names its branch and last commits. The first 10 are read every 2 s; ↓ more ↓ at the end of the list reads the others, every 10 s.",
-    values: ON_OFF(
-      "every repository found, e.g. ── tools/bar · main ── above the files changed there; a nested repository or submodule no longer shows as one entry of the repository around it",
-      "only the repository the folder is in, as one group",
-    ),
-  },
-  viewTab("viewPlan", "Plan", "3", "the plans Claude presented in plan mode"),
-  listWidthRow("planListWidth", "Plan", "list width", "Plan", "A wider list shows more of each plan's title; a narrower one leaves the plan text more room."),
-  wrapRow("planWrap", "Plan", "of plans", "useful for wide tables and code blocks"),
-  listOrder("planOrder", "Plan", "plans"),
-  { ...viewTab("viewSessions", "Sessions", "4", "the overview of past sessions"), legend: true },
-  listWidthRow("sessionsListWidth", "Sessions", "list width", "Sessions", "A wider list shows more of each session's title or first prompt, also in the trash; a narrower one leaves the prompts and files of the preview more room."),
-  {
-    key: "sessionsFolders",
-    group: "Sessions",
-    label: "folders",
-    description:
-      "The project folders whose sessions the Sessions view lists: this one, the others, or all with sessions in `~/.claude/projects`. Other folders help to find a session started elsewhere; each row then names its project. The trash follows this choice. The active session always shows. `Enter` here or `a` in Sessions opens the filter with this setting, the accounts and the background sessions.",
-    values: [
-      ["this", (c) => `only this one, ${basename(c.cwd) || c.cwd}`],
-      ["other", (c) => `every folder but ${basename(c.cwd) || c.cwd}`],
-      ["all", "all project folders"],
-    ],
-    dialog: "sessions",
-    legend: true,
-    viewKey: "`a` in Sessions",
-  },
-  {
-    key: "sessionsAccounts",
-    group: "Sessions",
-    label: "accounts",
-    description:
-      "The Claude accounts whose sessions the Sessions view lists, of those signed in on this machine (the `~/.claude*` folders): this one, all, or those checked in the filter. With other accounts, every row starts with a bar in its account's colour (gray for an account whose colour is off), the preview names the account, whether the session runs there and whether it has the cco plugin, and `Enter` offers to continue it there, in a new window under that account. Their sessions can be marked, not deleted, renamed, exported or moved. The trash always shows this account's.",
-    values: [
-      ["current", "this account's only"],
-      ["all", "every account found, also one signed in later"],
-    ],
-    ownName: (value) => `${value.split(ACCOUNT_DIRS_SEPARATOR).length} chosen`,
-    ownMeaning: (value) => value.split(ACCOUNT_DIRS_SEPARATOR).map(tilde).join(", "),
-    dialog: "sessions",
-    legend: true,
-    viewKey: "`a` in Sessions",
-  },
-  {
-    key: "sessionsBackground",
-    group: "Sessions",
-    label: "background",
-    description:
-      "Whether the Sessions view lists the sessions that ran in the background: started with `claude -p` or the Agent SDK (a script, a CI run), or run by the Claude Code daemon. They are marked ◌ before their title, and the preview says how they ran (for a session the daemon runs, with `claude attach`).",
-    values: [
-      ["show", "with the others, marked ◌"],
-      ["hide", "leave them out: only the sessions typed in a terminal"],
-    ],
-    dialog: "sessions",
-    legend: true,
-    inline: true,
-    viewKey: "`a` in Sessions",
-  },
-  {
-    key: "sessionsRemote",
-    group: "Sessions",
-    label: "remote",
-    description:
-      "Whether the Sessions view lists the Remote Control sessions of this account that run on another machine (a Claude Code started with `claude remote-control` or `/remote-control`, as the Claude app lists them). They are marked ◈ before their title; a session of this machine that is connected shows ⇄. Only with the remote API setting on.",
-    values: [
-      ["show", "with the others, marked ◈"],
-      ["hide", "leave them out: only the sessions on this machine"],
-    ],
-    dialog: "sessions",
-    legend: true,
-    inline: true,
-    viewKey: "`a` in Sessions",
-  },
-  {
-    key: "remoteApi",
-    group: "Sessions",
-    label: "remote API",
-    description:
-      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the remote control setting.",
-    values: ON_OFF("Remote Control sessions are listed in Sessions, and the preview shows their prompts", "nothing is asked of claude.ai"),
-  },
-  {
-    key: "remoteControl",
-    group: "Sessions",
-    label: "remote control",
-    description:
-      "Experimental, with the remote API on. Lets cco steer a Remote Control session like the Claude app: send it a prompt and stop what Claude does, from the `Enter` dialog in Sessions or with `Enter` on the last turn of a remote session's own viewer. It writes to claude.ai through the same undocumented interface, so a change there can make a prompt go nowhere; what was sent shows in the chat once the session has it.",
-    values: ON_OFF("`Enter` on a remote session offers to send a prompt or to interrupt it", "remote sessions are only shown, nothing is sent"),
-  },
-  {
-    key: "pinnedSessions",
-    group: "Sessions",
-    label: "pinned sessions",
-    description:
-      "Whether the Sessions view shows the active session (●) and those running in another Claude Code (▶) in the Pinned group at the top, marked or not, so they stay at hand however far down the list their last prompt puts them. This works with pinned favorites off too: the group then holds only them; with it on, they mix with the marked sessions in the order of the list. A session that ends leaves the group. A filter applies to them too.",
-    values: ON_OFF(
-      "the active and running sessions once more at the top, under ── ★ Pinned ──, with ● or ▶",
-      "they show only in their place in the list, with ● or ▶",
-    ),
-  },
-  listRange("sessionsRange", "Sessions", "sessions", "started"),
-  viewTab("viewMonitor", "Monitor", "5", "response speed, wait and errors over the day"),
-  listWidthRow("monitorListWidth", "Monitor", "list width", "Monitor", "The days need little room, so narrow leaves the charts and the response table more columns."),
-  {
-    ...listRange("monitorRange", "Monitor", "days", "with responses"),
-    notes: ["The usual values (the median of the 30 days before a day) come from the days read, so a short range has fewer of them."],
-  },
-  listWidthRow("settingsListWidth", "Settings", "list width", "Settings", "A wider list cuts fewer labels; a narrower one leaves the descriptions more room."),
-];
+/** Every setting the view offers, by group, in the current language; the list and the details come from here. */
+export function settingRows(): Row[] {
+  const lang = language();
+  if (rowsOf?.lang !== lang) rowsOf = { lang, rows: buildRows(L().settings) };
+  return rowsOf.rows;
+}
+let rowsOf: { lang: Language; rows: Row[] } | undefined;
 
-const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v === "" ? DEFAULT_AVATAR : v in RANGE_NAMES ? RANGE_NAMES[v as keyof typeof RANGE_NAMES] : v);
+function buildRows(m: Messages["settings"]): Row[] {
+  const r = m.rows;
+  const t = m.common;
+  return [
+    {
+      key: "autoOpen",
+      group: "Start",
+      label: r.autoOpen.label,
+      description: r.autoOpen.description,
+      values: meanings(AUTO_OPEN_VALUES, r.autoOpen),
+      notes: [(c) => (c.terminal ? r.autoOpen.needs(c.terminal === "wt" ? "Windows Terminal" : "tmux") : r.autoOpen.needsNone), r.autoOpen.nextStart],
+    },
+    {
+      key: "placement",
+      group: "Start",
+      label: r.placement.label,
+      description: r.placement.description,
+      values: [
+        ["right", r.placement.right],
+        ["left", r.placement.left],
+        ["window", (c) => (c.terminal === "wt" ? r.placement.windowWt : c.terminal === "tmux" ? r.placement.windowTmux : r.placement.meanings.window)],
+      ],
+      notes: [(c) => (c.terminal === "tmux" ? "" : r.placement.focus), r.placement.next],
+    },
+    {
+      key: "language",
+      group: "General",
+      label: r.language.label,
+      description: r.language.description,
+      values: [
+        ["system", () => r.language.system(LANGUAGE_NAMES[systemLanguage()])],
+        ["en", r.language.en],
+        ["de", r.language.de],
+      ],
+      notes: [r.language.note],
+      inline: true,
+    },
+    {
+      key: "confirmQuit",
+      group: "General",
+      label: r.confirmQuit.label,
+      description: r.confirmQuit.description,
+      values: ON_OFF(r.confirmQuit.on, r.confirmQuit.off),
+    },
+    {
+      key: "compactView",
+      group: "General",
+      label: r.compactView.label,
+      description: r.compactView.description,
+      values: meanings(COMPACT_VIEW_VALUES, r.compactView),
+    },
+    {
+      key: "compactColumns",
+      group: "General",
+      label: r.compactColumns.label,
+      description: r.compactColumns.description,
+      values: meanings(COMPACT_COLUMNS_VALUES, r.compactColumns),
+    },
+    {
+      key: "compactSplit",
+      group: "General",
+      label: r.compactSplit.label,
+      description: r.compactSplit.description,
+      values: meanings(COMPACT_SPLIT_VALUES, r.compactSplit),
+    },
+    {
+      key: "marquee",
+      group: "General",
+      label: r.marquee.label,
+      description: r.marquee.description,
+      values: ON_OFF(r.marquee.on, r.marquee.off),
+    },
+    {
+      key: "dateSeparators",
+      group: "General",
+      label: r.dateSeparators.label,
+      description: () => r.dateSeparators.description(dayLabel("2026-09-28", "always")),
+      values: ON_OFF(
+        (c) => r.dateSeparators.on(daysAgo(1, c.now)),
+        (c) => r.dateSeparators.off(dayOf(new Date(c.now.getFullYear(), c.now.getMonth(), c.now.getDate() - 1).getTime())!.slice(5)),
+      ),
+    },
+    {
+      key: "pinnedFavorites",
+      group: "General",
+      label: r.pinnedFavorites.label,
+      description: r.pinnedFavorites.description,
+      values: ON_OFF(r.pinnedFavorites.on, r.pinnedFavorites.off),
+    },
+    {
+      key: "rememberPositions",
+      group: "General",
+      label: r.rememberPositions.label,
+      description: r.rememberPositions.description,
+      values: ON_OFF(r.rememberPositions.on, r.rememberPositions.off),
+      notes: [(c) => r.rememberPositions.stored(tilde(positionsFile(c.cwd))), r.rememberPositions.atStart],
+    },
+    {
+      key: "rememberView",
+      group: "General",
+      label: r.rememberView.label,
+      description: r.rememberView.description,
+      values: ON_OFF(r.rememberView.on, r.rememberView.off),
+      notes: [(c) => r.rememberView.stored(tilde(sessionViewsFile(c.cwd)))],
+    },
+    {
+      key: "mouse",
+      group: "General",
+      label: r.mouse.label,
+      description: (c) => r.mouse.description(c.terminal === "wt" ? r.mouse.selectWt : c.terminal === "tmux" ? r.mouse.selectTmux : r.mouse.selectOther),
+      values: ON_OFF(r.mouse.on, (c) => (c.terminal === "tmux" ? r.mouse.offTmux : r.mouse.off)),
+    },
+    {
+      key: "filterIn",
+      group: "General",
+      label: r.filterIn.label,
+      description: r.filterIn.description,
+      values: meanings(FILTER_IN_VALUES, r.filterIn),
+    },
+    {
+      key: "updateMode",
+      group: "General",
+      label: r.updateMode.label,
+      description: r.updateMode.description,
+      values: meanings(UPDATE_VALUES, r.updateMode),
+      notes: r.updateMode.notes,
+    },
+    {
+      key: "accountColor",
+      group: "Account",
+      label: r.accountColor.label,
+      description: r.accountColor.description,
+      values: [
+        ["auto", r.accountColor.auto],
+        ["off", r.accountColor.off],
+        ...ACCOUNT_COLOR_NAMES.map((name): [string, string] => [name, ""]),
+      ],
+      look: (value) => (ACCOUNT_COLOR_NAMES.includes(value as AccountColorName) ? colorBadge(value as AccountColorName) : undefined),
+    },
+    {
+      key: "accountAvatar",
+      group: "Account",
+      label: r.accountAvatar.label,
+      description: r.accountAvatar.description,
+      values: [["", r.accountAvatar.none], ...ALL_AVATAR_PRESETS.map((p): [string, string] => [p.avatar, L().dialogs.avatar.meanings[p.meaning] ?? p.meaning])],
+      dialog: "avatar",
+      inline: true,
+      notes: [() => r.accountAvatar.emojis(emojiInputHint())],
+    },
+    {
+      key: "accountTitle",
+      group: "Account",
+      label: r.accountTitle.label,
+      description: r.accountTitle.description,
+      values: ON_OFF(r.accountTitle.on, r.accountTitle.off),
+    },
+    {
+      key: "viewAccounts",
+      group: "Account",
+      label: r.viewAccounts.label,
+      description: r.viewAccounts.description,
+      values: ON_OFF(r.viewAccounts.on, r.viewAccounts.off),
+    },
+    listWidthRow("accountsListWidth", "Account", r.accountsListWidth.label, r.accountsListWidth.suits),
+    {
+      key: "accountsOrder",
+      group: "Account",
+      label: r.accountsOrder.label,
+      description: r.accountsOrder.description,
+      values: meanings(ACCOUNTS_ORDER_VALUES, r.accountsOrder),
+      viewKey: m.inView("`s`", L().tabs.accounts),
+    },
+    viewTab("viewChat", "Chat", "1", r.viewChat.what),
+    listWidthRow("chatListWidth", "Chat", t.listWidth, r.chatListWidth.suits),
+    {
+      key: "showTools",
+      group: "Chat",
+      label: r.showTools.label,
+      description: r.showTools.description,
+      values: meanings(TOOL_LEVELS, r.showTools),
+      viewKey: m.inView("`t`", groupName("Chat")),
+    },
+    {
+      key: "showThinking",
+      group: "Chat",
+      label: r.showThinking.label,
+      description: r.showThinking.description,
+      values: ON_OFF(r.showThinking.on, r.showThinking.off),
+      viewKey: m.inView("`h`", groupName("Chat")),
+    },
+    {
+      key: "showAgents",
+      group: "Chat",
+      label: r.showAgents.label,
+      description: r.showAgents.description,
+      values: ON_OFF(r.showAgents.on, r.showAgents.off),
+    },
+    wrapRow("chatWrap", "Chat", r.chatWrap.what, r.chatWrap.off),
+    listOrder("chatOrder", "Chat", r.chatOrder.what),
+    viewTab("viewGit", "Changes", "2", r.viewGit.what),
+    listWidthRow("gitListWidth", "Changes", t.listWidth, r.gitListWidth.suits),
+    wrapRow("wrap", "Changes", r.wrap.what, r.wrap.off),
+    {
+      key: "gitNestedRepos",
+      group: "Changes",
+      label: r.gitNestedRepos.label,
+      description: r.gitNestedRepos.description,
+      values: ON_OFF(r.gitNestedRepos.on, r.gitNestedRepos.off),
+    },
+    viewTab("viewPlan", "Plan", "3", r.viewPlan.what),
+    listWidthRow("planListWidth", "Plan", t.listWidth, r.planListWidth.suits),
+    wrapRow("planWrap", "Plan", r.planWrap.what, r.planWrap.off),
+    listOrder("planOrder", "Plan", r.planOrder.what),
+    { ...viewTab("viewSessions", "Sessions", "4", r.viewSessions.what), legend: true },
+    listWidthRow("sessionsListWidth", "Sessions", t.listWidth, r.sessionsListWidth.suits),
+    {
+      key: "sessionsFolders",
+      group: "Sessions",
+      label: r.sessionsFolders.label,
+      description: r.sessionsFolders.description,
+      values: [
+        ["this", (c) => r.sessionsFolders.this(basename(c.cwd) || c.cwd)],
+        ["other", (c) => r.sessionsFolders.other(basename(c.cwd) || c.cwd)],
+        ["all", r.sessionsFolders.all],
+      ],
+      dialog: "sessions",
+      legend: true,
+      viewKey: m.inView("`a`", groupName("Sessions")),
+    },
+    {
+      key: "sessionsAccounts",
+      group: "Sessions",
+      label: r.sessionsAccounts.label,
+      description: r.sessionsAccounts.description,
+      values: [
+        ["current", r.sessionsAccounts.current],
+        ["all", r.sessionsAccounts.all],
+      ],
+      ownName: (value) => m.chosen(value.split(ACCOUNT_DIRS_SEPARATOR).length),
+      ownMeaning: (value) => value.split(ACCOUNT_DIRS_SEPARATOR).map(tilde).join(", "),
+      dialog: "sessions",
+      legend: true,
+      viewKey: m.inView("`a`", groupName("Sessions")),
+    },
+    {
+      key: "sessionsBackground",
+      group: "Sessions",
+      label: r.sessionsBackground.label,
+      description: r.sessionsBackground.description,
+      values: meanings(SESSIONS_BACKGROUND_VALUES, r.sessionsBackground),
+      dialog: "sessions",
+      legend: true,
+      inline: true,
+      viewKey: m.inView("`a`", groupName("Sessions")),
+    },
+    {
+      key: "sessionsRemote",
+      group: "Sessions",
+      label: r.sessionsRemote.label,
+      description: r.sessionsRemote.description,
+      values: meanings(SESSIONS_REMOTE_VALUES, r.sessionsRemote),
+      dialog: "sessions",
+      legend: true,
+      inline: true,
+      viewKey: m.inView("`a`", groupName("Sessions")),
+    },
+    {
+      key: "remoteApi",
+      group: "Sessions",
+      label: r.remoteApi.label,
+      description: r.remoteApi.description,
+      values: ON_OFF(r.remoteApi.on, r.remoteApi.off),
+    },
+    {
+      key: "remoteControl",
+      group: "Sessions",
+      label: r.remoteControl.label,
+      description: r.remoteControl.description,
+      values: ON_OFF(r.remoteControl.on, r.remoteControl.off),
+    },
+    {
+      key: "pinnedSessions",
+      group: "Sessions",
+      label: r.pinnedSessions.label,
+      description: r.pinnedSessions.description,
+      values: ON_OFF(r.pinnedSessions.on, r.pinnedSessions.off),
+    },
+    listRange("sessionsRange", "Sessions", r.sessionsRange.what, r.sessionsRange.dated),
+    viewTab("viewMonitor", "Monitor", "5", r.viewMonitor.what),
+    listWidthRow("monitorListWidth", "Monitor", t.listWidth, r.monitorListWidth.suits),
+    { ...listRange("monitorRange", "Monitor", r.monitorRange.what, r.monitorRange.dated), notes: [r.monitorRange.note] },
+    listWidthRow("settingsListWidth", "Settings", t.listWidth, r.settingsListWidth.suits),
+  ];
+}
+
+/** A value as the details name it: on/off, the range's days, the avatar's stand-in, in the current language. */
+const valueName = (v: string | boolean, key?: keyof Settings): string => {
+  const names = L().settings.values;
+  if (v === "all" && (key === "sessionsRange" || key === "monitorRange")) return names.unlimited;
+  if (typeof v === "boolean") return v ? names.on : names.off;
+  if (v === "") return DEFAULT_AVATAR;
+  if (v in LANGUAGE_NAMES) return LANGUAGE_NAMES[v as Language];
+  return names[v] ?? v;
+};
 
 /** A value as the list shows it: the order values without "-first", so the labels keep their room. */
-export const shortValueName = (v: string | boolean) => (v === "newest-first" ? "newest" : v === "oldest-first" ? "oldest" : valueName(v));
+export const shortValueName = (v: string | boolean, key?: keyof Settings) =>
+  v === "newest-first" ? L().settings.values.newest : v === "oldest-first" ? L().settings.values.oldest : valueName(v, key);
 
 /** A row's value as the list shows it; one of one's own by the row's `ownName`. */
 const rowValueName = (row: Row, v: string | boolean) =>
-  typeof v === "string" && row.ownName && !row.values.some(([value]) => value === v) ? row.ownName(v) : shortValueName(v);
+  typeof v === "string" && row.ownName && !row.values.some(([value]) => value === v) ? row.ownName(v) : shortValueName(v, row.key);
 
 /** The value after `current` in the row's order, wrapping around. */
 /** Whether `key` is the setting of the only view besides Settings that is still shown. */
@@ -697,18 +576,19 @@ export function tilde(path: string): string {
 /** The preview of a reset action: what it does, and what it would change or delete right now. */
 function resetLines(action: ResetAction, changed: string[], marked: number, saved: { name: string; path: string }[], width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
+  const t = L().settings.reset;
   const lines = [...wrap(action.description), ""];
   if (action.id === "settings") {
-    lines.push(bold("Changed"));
-    if (changed.length === 0) lines.push(dim("  none: every setting is at its default"));
+    lines.push(bold(t.changed));
+    if (changed.length === 0) lines.push(dim(t.noneChanged));
     for (const name of changed) lines.push(...wrap(name, "  "));
-    if (marked > 0) lines.push("", bold("Marked"), `  ${marked} ★`);
+    if (marked > 0) lines.push("", bold(t.marked), `  ${marked} ★`);
   } else {
-    lines.push(bold("Saved"));
-    if (saved.length === 0) lines.push(dim("  nothing saved for this project"));
+    lines.push(bold(t.saved));
+    if (saved.length === 0) lines.push(dim(t.nothingSaved));
     for (const d of saved) lines.push(...wrap(d.name, "  "), ...wrap(dim(tilde(d.path)), "    "));
   }
-  lines.push("", dim(codeMarks("`Enter` asks before anything is changed.")));
+  lines.push("", dim(codeMarks(t.asksFirst)));
   return lines;
 }
 
@@ -742,42 +622,44 @@ export interface DoctorChecking {
 /** The check's progress dialog: the group being checked. */
 export function checkProgress(checking: DoctorChecking): Progress {
   const at = DOCTOR_GROUPS.indexOf(checking.current);
-  return { title: "Doctor", status: "running", text: "Checking", step: { label: checking.current, at: at + 1, of: DOCTOR_GROUPS.length } };
+  return { title: L().settings.doctor.title, status: "running", text: L().settings.doctor.checking, step: { label: L().doctor.groups[checking.current] ?? checking.current, at: at + 1, of: DOCTOR_GROUPS.length } };
 }
 
 /** The doctor's details: what it does, the repair while it runs, then the report of the last check (the dialog shows a check under way). */
 function doctorLines(action: ResetAction, check: DoctorCheck | undefined, checking: DoctorChecking | undefined, run: DoctorRun | undefined, width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
+  const t = L().settings.doctor;
   const lines = [...wrap(action.description)];
   if (run) {
-    lines.push("", bold("Repair"));
+    lines.push("", bold(t.repairHeading));
     for (const r of run.results) {
       const mark = r.status === "done" ? GREEN("✓") : r.status === "failed" ? RED("✗") : r.status === "running" ? YELLOW("●") : dim("○");
       lines.push(...wrap(`${mark} ${r.step.command ?? r.step.label}`, "  "));
       if (r.status === "running" || r.status === "failed") for (const l of outputTail(r.output, 12)) lines.push(...wrapText(dim(l), width, "      ", false));
     }
-    if (run.status === "running") lines.push("", dim("Repairing…"));
+    if (run.status === "running") lines.push("", dim(t.repairing));
   }
   if (checking) return lines;
-  if (!check) return [...lines, "", dim(codeMarks("Not checked yet. `Enter` asks, then checks."))];
+  if (!check) return [...lines, "", dim(codeMarks(t.notChecked))];
   lines.push(...wrapIndented(reportLines(check.findings, true), width), "");
   const repairable = countFindings(check.findings).repairable;
-  lines.push(dim(codeMarks(repairable > 0 ? `\`Enter\` asks, then repairs ${repairable} of them. \`F5\` checks again.` : "Nothing to repair. `Enter` or `F5` checks again.")));
+  lines.push(dim(codeMarks(repairable > 0 ? t.repairOffer(repairable) : t.nothingToRepair)));
   return lines;
 }
 
 export function settingLines(row: Row, current: string | boolean, width: number, context: TextContext): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
+  const m = L().settings;
   const lines = [...wrap(textOf(row.description, context)), ""];
-  lines.push(bold("Values"));
+  lines.push(bold(m.valuesHeading));
   // A text of one's own (the avatar) is none of the values on offer.
   const own = typeof current === "string" && !row.values.some(([v]) => v === current);
   if (row.inline) {
     // One line each, the meaning after the value, the meanings in a column.
     const entries: [string, string, boolean][] = [
-      ...(own ? [[row.ownName?.(current as string) ?? (current as string), row.ownMeaning?.(current as string) ?? "your own", true] as [string, string, boolean]] : []),
+      ...(own ? [[row.ownName?.(current as string) ?? (current as string), row.ownMeaning?.(current as string) ?? m.yourOwn, true] as [string, string, boolean]] : []),
       ...row.values.map(([value, meaning]): [string, string, boolean] => [
-        valueName(value) + (value === DEFAULT_SETTINGS[row.key] ? " (default)" : ""),
+        valueName(value, row.key) + (value === DEFAULT_SETTINGS[row.key] ? ` (${m.default})` : ""),
         textOf(meaning, context),
         value === current,
       ]),
@@ -788,7 +670,7 @@ export function settingLines(row: Row, current: string | boolean, width: number,
       const padded = name + " ".repeat(column - stringWidth(name));
       lines.push(selected ? `\u001b[32m● ${padded}\u001b[39m  ${meaning}` : `${dim("○")} \u001b[90m${padded}\u001b[39m  ${dim(meaning)}`);
     }
-  } else if (own) lines.push("", `\u001b[32m● ${row.ownName?.(current as string) ?? current}\u001b[39m`, ...wrap(row.ownMeaning?.(current as string) ?? "your own", "  "));
+  } else if (own) lines.push("", `\u001b[32m● ${row.ownName?.(current as string) ?? current}\u001b[39m`, ...wrap(row.ownMeaning?.(current as string) ?? m.yourOwn, "  "));
   let compact = false;
   for (const [value, meaning] of row.inline ? [] : row.values) {
     const selected = value === current;
@@ -803,17 +685,18 @@ export function settingLines(row: Row, current: string | boolean, width: number,
     compact = false;
     // A blank line below the heading and between the values: most take two or three lines with their example.
     lines.push("");
-    const name = valueName(value) + (value === DEFAULT_SETTINGS[row.key] ? " (default)" : "");
+    const name = valueName(value, row.key) + (value === DEFAULT_SETTINGS[row.key] ? ` (${m.default})` : "");
     // The value on a line of its own, what it does indented below it.
     // Names in colour, so they stand out from their descriptions: the current one green, the others gray.
     lines.push(selected ? `\u001b[32m● ${name}\u001b[39m` : `${dim("○")} \u001b[90m${name}\u001b[39m`, ...wrap(textOf(meaning, context), "  "));
   }
-  if (row.viewKey) lines.push("", dim(codeMarks(`Also ${row.viewKey}.`)));
+  if (row.viewKey) lines.push("", dim(codeMarks(m.also(row.viewKey))));
   for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
   if (row.legend) {
     // The marks in a column, what each says wrapped beside it.
+    const SESSION_LEGEND = sessionLegend();
     const column = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
-    lines.push("", bold("Marks in the Sessions list"));
+    lines.push("", bold(m.legendHeading));
     for (const m of SESSION_LEGEND) {
       // Without a mark (the project's name): the name in its colour on a line of its own, what it says below.
       if (!m.mark) {
@@ -849,7 +732,8 @@ const colorNameOf = (account: Account, state: AccountState, chosen: Settings["ac
 
 /** The label of an Account entry in the list. */
 function accountLabel(e: AccountEntry, state: AccountState): string {
-  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : e.account === "add" ? "how to add an account" : "no account found";
+  const t = L().settings.account;
+  if (!("dir" in e)) return e.account === "details" ? t.details : e.account === "add" ? t.add : t.none;
   const account = state.accounts.find((a) => a.dir === e.dir);
   // The active account is marked; the folder tells accounts with the same email apart.
   return `${e.dir === state.current?.dir ? "● " : "○ "}${account?.email ?? e.dir} (${basename(e.dir)})`;
@@ -863,46 +747,47 @@ const accountOf = (e: AccountEntry, state: AccountState): Account | undefined =>
 export function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const field = (name: string, value: string | undefined) => (value ? wrap(`${name}: ${value}`) : []);
+  const t = L().settings.account;
   if (e.account === "add") return addAccountLines(width);
   if (e.account === "details") {
     const searched = state.accounts.map((a) => `${tilde(a.dir)}  ${a.email}`);
     return [
-      ...wrap("cco looks for accounts in the config folders of Claude Code: the one of this viewer (`CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.claude` and every folder `~/.claude*` in your home folder. A folder counts as an account when its `.claude.json` names one (`oauthAccount`)."),
+      ...wrap(t.howFound),
       "",
-      bold("This viewer"),
-      ...field("CLAUDE_CONFIG_DIR", process.env.CLAUDE_CONFIG_DIR ? tilde(process.env.CLAUDE_CONFIG_DIR) : "not set"),
-      ...field("config folder", tilde(state.own)),
-      ...field("cco's files", tilde(join(state.own, "cco"))),
+      bold(t.thisViewer),
+      ...field("CLAUDE_CONFIG_DIR", process.env.CLAUDE_CONFIG_DIR ? tilde(process.env.CLAUDE_CONFIG_DIR) : t.notSet),
+      ...field(t.configFolder, tilde(state.own)),
+      ...field(t.ccoFiles, tilde(join(state.own, "cco"))),
       "",
-      bold(`Accounts found (${state.accounts.length})`),
-      ...(searched.length > 0 ? searched.flatMap((l) => wrap(l, "  ")) : wrap("none", "  ")),
+      bold(t.accountsFound(state.accounts.length)),
+      ...(searched.length > 0 ? searched.flatMap((l) => wrap(l, "  ")) : wrap(t.noneFound, "  ")),
       "",
-      ...wrap(dim("The account of a Claude Code you attach to is looked up through the file `sessions/<pid>.json` in these folders.")),
+      ...wrap(dim(t.lookedUp)),
     ];
   }
   const account = accountOf(e, state);
   if (!account) {
-    return wrap("No account found for this Claude Code: its config folder has no `.claude.json` with a signed-in account. Sign in with `/login` in Claude Code; the list updates within 30 seconds, or at once with `F5`.");
+    return wrap(t.noAccount);
   }
   const color = colorNameOf(account, state, settings.accountColor);
   const fixed = hasChosenColor(account, state, settings.accountColor);
   const avatar = avatarOfAccount(account, state, settings.accountAvatar);
   return [
-    state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
+    state.current?.dir === account.dir ? GREEN(t.active) : dim(t.another),
     "",
-    ...field("email", account.email),
-    ...field("name", account.name),
-    ...field("organization", [account.organization, account.organizationType && `(${account.organizationType})`].filter(Boolean).join(" ")),
-    ...field("billing", account.billing),
-    ...field("seat", account.seat),
-    ...field("rate limit tier", account.rateLimitTier),
+    ...field(t.email, account.email),
+    ...field(t.name, account.name),
+    ...field(t.organization, [account.organization, account.organizationType && `(${account.organizationType})`].filter(Boolean).join(" ")),
+    ...field(t.billing, account.billing),
+    ...field(t.seat, account.seat),
+    ...field(t.rateLimitTier, account.rateLimitTier),
     "",
-    ...field("config folder", tilde(account.dir)),
-    ...field("read from", tilde(account.file)),
-    `colour: ${colorBadge(color)}${fixed ? ", chosen" : ", from the email"}`,
-    `avatar: ${avatar ? avatarBadge(avatar, color) : dim(`none, "${DEFAULT_AVATAR}"`)}`,
+    ...field(t.configFolder, tilde(account.dir)),
+    ...field(t.readFrom, tilde(account.file)),
+    t.colour(colorBadge(color), fixed),
+    `${t.avatar}: ${avatar ? avatarBadge(avatar, color) : dim(t.noAvatar(DEFAULT_AVATAR))}`,
     "",
-    ...wrap(dim("The colour and the avatar show in the top bar, the avatar also in the title, while this is the active account.")),
+    ...wrap(dim(t.showsWhere)),
   ];
 }
 
@@ -915,37 +800,34 @@ export function addAccountLines(width: number, platform: NodeJS.Platform = proce
   const code = (lines: string[]) => lines.map((l) => `    ${codeMarks(`\`${l}\``)}`);
   const bin = tilde(claudeBinDir().dir);
   const windows = platform === "win32";
+  const t = L().settings.addAccount;
   return [
-    ...wrap("Claude Code keeps its login, sessions, settings and plugins in one config folder: `~/.claude`, or the folder `CLAUDE_CONFIG_DIR` names. A second account is a second folder, started with that variable set. cco finds every `~/.claude*` folder that is signed in."),
+    ...wrap(t.intro),
     "",
-    bold("Enter sets one up"),
-    ...wrap("It asks for a command (e.g. `cw`) and a folder (`.claude-cw`), checks the command's name, then:", "  "),
-    ...wrap(`1. creates the folder in your home folder;`, "  "),
-    ...wrap(`2. writes start scripts next to claude, in ${bin}: ${windows ? "`cw.cmd` for cmd and PowerShell and `cw` for Git Bash" : "`cw`, executable"};`, "  "),
-    ...wrap("3. installs the cco plugin there and gives it cco's settings;", "  "),
-    ...wrap("4. runs the script in a new window: sign in there with `/login`. The account then shows here (within 30 s, or at once with `F5`).", "  "),
+    bold(t.enterHeading),
+    ...wrap(t.asks, "  "),
+    ...wrap(t.step1, "  "),
+    ...wrap(t.step2(bin, windows), "  "),
+    ...wrap(t.step3, "  "),
+    ...wrap(t.step4, "  "),
     "",
-    bold("By hand"),
+    bold(t.byHand),
     ...(windows
       ? [
-          ...wrap("cmd and PowerShell: a file `cw.cmd` in a folder on the PATH:", "  "),
+          ...wrap(t.cmdFile, "  "),
           ...code(["@echo off", "setlocal", 'set "CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-cw"', "call claude %*"]),
-          ...wrap("Git Bash: a file `cw` (no ending) in the same folder:", "  "),
+          ...wrap(t.bashFile, "  "),
           ...code(["#!/usr/bin/env bash", 'export CLAUDE_CONFIG_DIR="$USERPROFILE\\.claude-cw"', 'exec claude "$@"']),
         ]
       : [
-          ...wrap("A file `cw` in a folder on the PATH (e.g. `~/.local/bin`), made executable with `chmod +x cw`:", "  "),
+          ...wrap(t.unixFile, "  "),
           ...code(["#!/usr/bin/env bash", 'export CLAUDE_CONFIG_DIR="$HOME/.claude-cw"', 'exec claude "$@"']),
         ]),
-    ...wrap("Then run `cw`, sign in with `/login`, and add cco there:", "  "),
+    ...wrap(t.thenRun, "  "),
     ...code([`cw plugin marketplace add ${marketplaceSource()}`, "cw plugin install cco@cc-outline"]),
     "",
-    bold("Names to avoid"),
-    ...wrap(
-      windows
-        ? "A shell runs its own commands before files on the PATH. In PowerShell aliases win: `cp` runs Copy-Item, not `cp.cmd`; so do `sc` (Set-Content), `r`, `h`, `gc`, `where` and many more. cmd has built-ins such as `copy`, `dir` and `start`, Bash such as `test` and `type`. And a program of the same name earlier on the PATH wins as well. `Get-Command cw -All` in PowerShell (`type -a cw` in Bash) lists what a name runs, the first one wins. Enter checks all of this, asking PowerShell for its aliases, your profile's included."
-        : "A shell runs its built-ins and aliases before files on the PATH (`test`, `type`, …), and a program of the same name earlier on the PATH wins as well. `type -a cw` lists what a name runs, the first one wins. Enter checks the built-ins and the PATH.",
-    ),
+    bold(t.avoid),
+    ...wrap(windows ? t.avoidWindows : t.avoidUnix),
   ];
 }
 
@@ -956,7 +838,7 @@ export type AccountEntry = { account: "none" | "details" | "add" } | { account: 
 type Entry = Row | ReleaseEntry | ResetAction | AccountEntry;
 
 /** The group an entry is listed under. */
-const groupOf = (e: Entry): string => ("key" in e ? e.group : "account" in e ? "Account" : "id" in e ? "Reset" : "Releases");
+const groupOf = (e: Entry): string => groupName("key" in e ? e.group : "account" in e ? "Account" : "id" in e ? "Reset" : "Releases");
 
 const keyOf = (e: Entry): string =>
   "key" in e ? e.key : "account" in e ? ("dir" in e ? `account:${e.dir}` : `account:${e.account}`) : "id" in e ? `reset:${e.id}` : e.kind === "release" ? `release:${e.release.tag}` : e.kind;
@@ -985,19 +867,19 @@ const YELLOW = (s: string) => `\u001b[33m${s}\u001b[39m`;
 /** The last `n` lines a command wrote, without colours and with progress lines (\r) reduced to their last state. */
 const newerReleases = (update: Update) => update.releases.filter((r) => compareVersions(r.version, VERSION) > 0);
 const day = (iso?: string) => (iso ? iso.slice(0, 10) : undefined);
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The update's progress dialog: the step running, then the restart, or where it stopped. */
 export function updateProgress(run: UpdateRun, copy?: () => void, onClose?: () => void): Progress {
-  const steps: ProgressStep[] = run.steps.map((s) => ({ label: s.step.label, status: s.status, output: s.output }));
-  const title = `Update cco to v${run.target}`;
-  if (run.status === "running") return { title, status: "running", text: "Updating", step: currentStep(steps) };
+  const steps: ProgressStep[] = run.steps.map((s) => ({ label: L().steps.names[s.step.label] ?? s.step.label, status: s.status, output: s.output }));
+  const t = L().settings.update;
+  const title = t.title(run.target);
+  if (run.status === "running") return { title, status: "running", text: t.updating, step: currentStep(steps) };
   if (run.status === "failed")
     return {
       title,
       status: "failed",
-      text: `The update stopped at ${stepText(currentStep(steps))}`,
-      lines: [...failureLines(steps), "Run the rest by hand, then reopen the viewer."],
+      text: t.stoppedAt(stepText(currentStep(steps)) ?? ""),
+      lines: [...failureLines(steps), t.runRest],
       copy,
       onClose,
     };
@@ -1005,11 +887,11 @@ export function updateProgress(run: UpdateRun, copy?: () => void, onClose?: () =
     return {
       title,
       status: "done",
-      text: `Updated to v${run.target}`,
-      lines: [REOPEN_BY_HAND, "Restart Claude Code for the plugin."],
+      text: t.updatedTo(run.target),
+      lines: [REOPEN_BY_HAND(), t.restartForPlugin],
       onClose,
     };
-  return { title, status: "waiting", text: "Restarting", detail: `Updated to v${run.target}` };
+  return { title, status: "waiting", text: t.restarting, detail: t.updatedTo(run.target) };
 }
 
 /** The commands of the repairs that failed, to run by hand. */
@@ -1020,25 +902,27 @@ export function failedRepairCommands(run: DoctorRun): string[] {
 /** The repair's progress dialog: the step running, or the steps that failed (c copies their commands, if any). */
 export function repairProgress(run: DoctorRun, copy?: () => void, onClose?: () => void): Progress {
   const steps: ProgressStep[] = run.results.map((r) => ({ label: r.step.label, status: r.status, output: r.output }));
-  const title = "Repair";
+  const t = L().settings.doctor;
+  const title = t.repairTitle;
   if (run.status === "failed") {
     const failed = steps.filter((s) => s.status === "failed").length;
     return {
       title,
       status: "failed",
-      text: `${failed} of ${plural(steps.length, "repair")} failed`,
-      lines: [...failureLines(steps), "The report shows what is left."],
+      text: t.repairFailed(failed, steps.length),
+      lines: [...failureLines(steps), t.reportShows],
       copy: failedRepairCommands(run).length > 0 ? copy : undefined,
       onClose,
     };
   }
-  return { title, status: "running", text: "Repairing", step: currentStep(steps) };
+  return { title, status: "running", text: t.repairing.replace("…", ""), step: currentStep(steps) };
 }
 
 /** The update entry's details: what Enter does, the steps while they run, then the notes of the newer releases. */
 function updateLines(update: Update, width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const { state, run } = update;
+  const t = L().settings.update;
   const commands = UPDATE_STEPS.map((s) => `  ${codeSpan(s.command)}`);
   const lines: string[] = [];
   if (run) {
@@ -1049,22 +933,22 @@ function updateLines(update: Update, width: number): string[] {
     }
     lines.push("");
     if (run.status === "failed")
-      lines.push(...wrap("The update stopped. Run the rest by hand (`c` copies it), then close the viewer with `q` and open it again:"), ...remainingCommands(run.steps).map((c) => `  ${codeSpan(c)}`));
+      lines.push(...wrap(t.stopped), ...remainingCommands(run.steps).map((c) => `  ${codeSpan(c)}`));
     else if (run.status === "done")
-      lines.push(...wrap(`Updated to v${run.target}. The viewer opens again with it; if it does not, close it with \`q\` and open it again. Restart Claude Code for the plugin.`));
-    else lines.push(dim("Updating…"));
+      lines.push(...wrap(t.done(run.target)));
+    else lines.push(dim(t.updatingNow));
   } else if (state.kind === "update") {
     lines.push(
-      ...wrap(`v${state.target} is out; this is v${VERSION}. \`Enter\` asks, then runs:`),
+      ...wrap(t.isOut(state.target, VERSION)),
       ...commands,
       "",
-      ...wrap(dim("Then the viewer opens again with the new version. The plugin (hooks, `/cco:…` commands) takes effect when Claude Code restarts.")),
+      ...wrap(dim(t.thenReopens)),
     );
   } else if (state.kind === "restart") {
-    lines.push(...wrap(`v${state.target} is installed; this viewer still runs v${VERSION}. \`Enter\` opens it again with the new version.`));
+    lines.push(...wrap(t.installed(state.target, VERSION)));
   } else if (state.kind === "dev") {
     lines.push(
-      ...wrap(`v${state.target} is out; this is v${VERSION}, run from \`${tilde(update.root)}\` (\`npm link\` or \`npx\`), which cco does not update. Update the checkout, or install the release (\`c\` copies it):`),
+      ...wrap(t.dev(state.target, VERSION, tilde(update.root))),
       ...commands,
     );
   }
@@ -1073,39 +957,37 @@ function updateLines(update: Update, width: number): string[] {
 }
 
 function releaseLines(release: Release, width: number): string[] {
-  return release.body.trim() ? renderMarkdown(release.body, width) : [dim("No notes for this release.")];
+  return release.body.trim() ? renderMarkdown(release.body, width) : [dim(L().settings.update.noNotes)];
 }
 
 /** The details while no release notes are known. */
 function releasesNote(update: Update, width: number): string[] {
-  const text = update.checking
-    ? "Asking npm and GitHub…"
-    : update.mode === "off" && update.checkedAt === undefined
-      ? "The update check is off (General: update), so cco has not asked GitHub for the release notes. `F5` checks once."
-      : "npm and GitHub could not be reached. `F5` tries again.";
+  const t = L().settings.update;
+  const text = update.checking ? t.asking : update.mode === "off" && update.checkedAt === undefined ? t.checkOff : t.unreachable;
   return wrapText(text, width);
 }
 
 /** What a restart runs: the version on disk, which differs from the running one after an update. */
 export function restartDetail(root: string): string {
   const installed = root ? installedVersion(root) : undefined;
-  return installed && installed !== VERSION ? `v${installed} (running v${VERSION})` : `v${installed ?? VERSION}`;
+  return installed && installed !== VERSION ? L().settings.restart.running(installed, VERSION) : `v${installed ?? VERSION}`;
 }
 
 /** The list: the settings, the reset actions, then the releases (the last group, since it grows). */
 export function settingsEntries(update: Update, accounts: AccountState = { accounts: [], multiple: false, own: "" }): Entry[] {
   // The Account group sits after General: its info entries come before its settings.
-  const first = SETTING_ROWS.findIndex((r) => r.group === "Account");
-  const last = first + SETTING_ROWS.filter((r) => r.group === "Account").length - 1;
+  const rows = settingRows();
+  const first = rows.findIndex((r) => r.group === "Account");
+  const last = first + rows.filter((r) => r.group === "Account").length - 1;
   const items: AccountEntry[] = accounts.accounts.length > 0 ? accounts.accounts.map((a): AccountEntry => ({ account: "item", dir: a.dir })) : [{ account: "none" }];
   return [
-    ...SETTING_ROWS.slice(0, first),
+    ...rows.slice(0, first),
     ...items,
-    ...SETTING_ROWS.slice(first, last + 1),
+    ...rows.slice(first, last + 1),
     { account: "details" },
     { account: "add" },
-    ...SETTING_ROWS.slice(last + 1),
-    ...RESET_ACTIONS,
+    ...rows.slice(last + 1),
+    ...resetActions(),
     ...releaseEntries(update),
   ];
 }
@@ -1119,6 +1001,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     return () => clearTimeout(timer);
   }, [flash]);
   const flow = useAccountFlow({ layout, claudePid, notify: setFlash });
+  const u = L().settings.update;
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
   const focused = useFocused();
   const [isDoubleClick] = useState(() => doubleClicks());
@@ -1173,14 +1056,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     items: listEntries,
     text: (e) =>
       "key" in e
-        ? { list: haystack([rowValueName(e, settings[e.key]), e.group, e.label]), details: plainMarks(textOf(e.description, context)) }
+        ? { list: haystack([rowValueName(e, settings[e.key]), groupName(e.group), e.label]), details: plainMarks(textOf(e.description, context)) }
         : "account" in e
-          ? { list: haystack(["Account", accountLabel(e, accountState)]), details: accountLines(e, accountState, settings, 80).join("\n") }
+          ? { list: haystack([groupName("Account"), accountLabel(e, accountState)]), details: accountLines(e, accountState, settings, 80).join("\n") }
         : "id" in e
-          ? { list: haystack(["Reset", e.label]), details: plainMarks(e.description) }
+          ? { list: haystack([groupName("Reset"), e.label]), details: plainMarks(e.description) }
           : e.kind === "release"
-            ? { list: haystack(["Releases", e.release.tag, e.release.title]), details: e.release.body }
-            : { list: haystack(["Releases", entryLabel(e)]), details: "" },
+            ? { list: haystack([groupName("Releases"), e.release.tag, e.release.title]), details: e.release.body }
+            : { list: haystack([groupName("Releases"), entryLabel(e)]), details: "" },
     deps: [settings, update.releases, update.state, context, accountState],
     selected: index,
     select: (i) => select(i),
@@ -1211,38 +1094,38 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     return () => clearTimeout(timer);
   }, [copied]);
 
-  const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
+  const changed = settingRows().filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
   const canReset = changed.length > 0 || marked > 0;
   const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
   const findings = doctorCheck?.findings ?? [];
   const repairs = repairsOf(findings);
   const newer = newerReleases(update);
-  const asOf = update.stale && update.checkedAt ? `as of ${day(new Date(update.checkedAt).toISOString())}` : undefined;
+  const asOf = update.stale && update.checkedAt ? u.asOf(day(new Date(update.checkedAt).toISOString())!) : undefined;
 
   function entryLabel(e: ReleaseEntry): string {
-    if (e.kind === "release") return `v${e.release.version}${e.release.title !== e.release.tag ? ` ${e.release.title}` : ""}`;
-    if (e.kind === "releases") return update.checking ? "checking…" : "release notes";
+    if (e.kind === "release") return u.entryRelease(e.release.version, e.release.title !== e.release.tag ? ` ${e.release.title}` : "");
+    if (e.kind === "releases") return update.checking ? u.checkingEntry : u.releaseNotes;
     const { state, run } = update;
-    if (run) return `update to v${run.target}`;
-    if (state.kind === "restart") return `restart with v${state.target}`;
-    if (state.kind === "dev") return `v${state.target} is out`;
-    return state.kind === "update" ? `update to v${state.target}` : "update";
+    if (run) return u.updateTo(run.target);
+    if (state.kind === "restart") return u.restartWith(state.target);
+    if (state.kind === "dev") return u.out(state.target);
+    return state.kind === "update" ? u.updateTo(state.target) : u.update;
   }
 
   function releaseHeader(e: ReleaseEntry): string[] {
     if (e.kind === "release") {
       const r = e.release;
       const cmp = compareVersions(r.version, VERSION);
-      const details = [[day(r.date), cmp === 0 ? "installed" : cmp > 0 ? "new" : undefined, asOf].filter(Boolean).join(" · ")];
+      const details = [[day(r.date), cmp === 0 ? u.installedMark : cmp > 0 ? u.newMark : undefined, asOf].filter(Boolean).join(" · ")];
       return previewHeader(entryLabel(e), previewWidth, { marker: "◆ ", style: bold, details: r.url ? [...details, r.url] : details });
     }
-    if (e.kind === "releases") return previewHeader("Releases", previewWidth, { marker: "◆ ", style: bold, details: [`update ${update.mode}`] });
-    const detail = update.install === "dev" ? `development install · v${VERSION}` : `installed v${VERSION}`;
+    if (e.kind === "releases") return previewHeader(u.releasesHeader, previewWidth, { marker: "◆ ", style: bold, details: [u.updateMode(shortValueName(update.mode))] });
+    const detail = update.install === "dev" ? u.devInstall(VERSION) : u.installedVersion(VERSION);
     const title = entryLabel(e);
     return previewHeader(title[0].toUpperCase() + title.slice(1), previewWidth, {
       marker: "↑ ",
       style: bold,
-      details: [[detail, newer.length > 0 ? plural(newer.length, "newer release") : undefined, asOf].filter(Boolean).join(" · ")],
+      details: [[detail, newer.length > 0 ? u.newer(newer.length) : undefined, asOf].filter(Boolean).join(" · ")],
     });
   }
 
@@ -1250,35 +1133,35 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     () =>
       fitHeader(
         reset
-          ? previewHeader(reset.id === "doctor" ? "Doctor" : `Reset: ${reset.label}`, previewWidth, {
+          ? previewHeader(reset.id === "doctor" ? L().settings.doctor.title : L().settings.reset.header(reset.label), previewWidth, {
               marker: reset.id === "doctor" ? "✚ " : "↺ ",
               style: bold,
               details: [
                 reset.id === "doctor"
                   ? doctorChecking
-                    ? "checking…"
+                    ? L().settings.doctor.checkingHeader
                     : doctorCheck
-                      ? `${countText(findings)} · checked ${new Date(doctorCheck.at).toTimeString().slice(0, 5)}`
-                      : "not checked yet"
+                      ? L().settings.doctor.checkedAt(countText(findings), new Date(doctorCheck.at).toTimeString().slice(0, 5))
+                      : L().settings.doctor.notCheckedHeader
                   : reset.id === "settings"
-                    ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}`
+                    ? L().settings.reset.changedCount(changed.length) + (marked > 0 ? ` · ${L().settings.reset.markedCount(marked)}` : "")
                     : reset.id === "data"
-                      ? `${saved.length} of 4 files saved`
+                      ? L().settings.reset.savedFiles(saved.length)
                       : restartDetail(update.root),
               ],
             })
           : accountEntry
-            ? previewHeader(`Account: ${accountLabel(accountEntry, accountState)}`, previewWidth, {
+            ? previewHeader(L().settings.account.header(accountLabel(accountEntry, accountState)), previewWidth, {
                 marker: "◉ ",
                 style: bold,
-                details: [`${accountState.accounts.length} ${accountState.accounts.length === 1 ? "account" : "accounts"} found`],
+                details: [L().settings.account.found(accountState.accounts.length)],
               })
           : release
             ? releaseHeader(release)
-            : previewHeader(`${row!.group}: ${row!.label}`, previewWidth, {
+            : previewHeader(`${groupName(row!.group)}: ${row!.label}`, previewWidth, {
                 marker: "⚙ ",
                 style: bold,
-                details: [`${valueName(current!)} · default ${valueName(DEFAULT_SETTINGS[row!.key])}`],
+                details: [L().settings.view.settingHeader(valueName(current!, row!.key), valueName(DEFAULT_SETTINGS[row!.key], row!.key))],
               }),
         headerHeight,
       ),
@@ -1289,7 +1172,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       reset
         ? reset.id === "doctor"
           ? doctorLines(reset, doctorCheck, doctorChecking, doctorRun, previewWidth)
-          : resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
+          : resetLines(reset, changed.map((r) => `${groupName(r.group)} ${r.label}`), marked, saved, previewWidth)
         : accountEntry
           ? accountLines(accountEntry, accountState, settings, previewWidth)
         : release
@@ -1308,12 +1191,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const select = (i: number) => setSelectedKey(entries[Math.max(0, Math.min(entries.length - 1, i))]);
   const askResetSettings = () =>
     setConfirmation({
-      title: "Reset all settings?",
+      title: L().settings.reset.askSettingsTitle,
       lines: [
         ...(changed.length > 0
-          ? [`${changed.length} of ${SETTING_ROWS.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")]
-          : ["Every setting is at its default."]),
-        ...(marked > 0 ? [`The marks ★ of ${marked} ${marked === 1 ? "entry" : "entries"} are removed.`] : []),
+          ? [L().settings.reset.differ(changed.length, settingRows().length), changed.map((r) => `${groupName(r.group)} ${r.label}`).join(", ")]
+          : [L().settings.reset.allDefault]),
+        ...(marked > 0 ? [L().settings.reset.marksRemoved(marked)] : []),
       ],
       onConfirm: () => {
         set({ ...DEFAULT_SETTINGS });
@@ -1322,8 +1205,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     });
   const askResetData = () =>
     setConfirmation({
-      title: "Delete the saved data of this project?",
-      lines: [...saved.map((d) => `· ${d.name}`), "Settings, transcripts and git stay."],
+      title: L().settings.reset.askDataTitle,
+      lines: [...saved.map((d) => `· ${d.name}`), L().settings.reset.dataStays],
       danger: true,
       onConfirm: () => onResetData?.(),
     });
@@ -1342,16 +1225,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   }
   const askCheck = () =>
     setConfirmation({
-      title: "Run the doctor?",
-      lines: [
-        "Checks the installation, cco's files in ~/.claude/cco, the settings, the terminal and the hooks.",
-        "Nothing is changed: repairs are offered with the report.",
-      ],
+      title: L().settings.doctor.askTitle,
+      lines: L().settings.doctor.askLines,
       onConfirm: () => void runCheck(),
     });
   const askRepair = () =>
     setConfirmation({
-      title: `Repair ${plural(countFindings(findings).repairable, "finding")}?`,
+      title: L().settings.doctor.askRepair(countFindings(findings).repairable),
       lines: repairs.map((r) => `· ${r.label}`),
       onConfirm: () => {
         setRepairDialog(true);
@@ -1364,8 +1244,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     });
   const askRestart = () =>
     setConfirmation({
-      title: "Restart the viewer?",
-      lines: [`It opens again here, in this view, with ${restartDetail(update.root)}.`, "Claude Code keeps running; restart it for changes to the plugin."],
+      title: L().settings.restart.askTitle,
+      lines: [L().settings.restart.opensAgain(restartDetail(update.root)), L().settings.restart.keepsRunning],
       onConfirm: () => onRestart?.(),
     });
   // Like q: with confirm quit off, no question. The app shows the restart's progress.
@@ -1375,8 +1255,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const askUpdate = () =>
     state.kind === "update" &&
     setConfirmation({
-      title: `Update cco to v${state.target}?`,
-      lines: [...UPDATE_STEPS.map((s) => s.command), "Then the viewer opens again with the new version."],
+      title: L().settings.update.askTitle(state.target),
+      lines: [...UPDATE_STEPS.map((s) => s.command), L().settings.update.thenReopensShort],
       onConfirm: () => {
         setUpdateDialog(true);
         update.start();
@@ -1467,43 +1347,44 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if ("id" in e) return { value: e.id === "doctor" ? "✚" : "↺", label: e.label };
     if (e.kind === "release") {
       const cmp = compareVersions(e.release.version, VERSION);
-      return { value: cmp === 0 ? "installed" : cmp > 0 ? "new" : "", color: cmp === 0 ? "green" : "yellow", label: entryLabel(e) };
+      return { value: cmp === 0 ? u.installedMark : cmp > 0 ? u.newMark : "", color: cmp === 0 ? "green" : "yellow", label: entryLabel(e) };
     }
     if (e.kind === "update") return { value: state.kind === "restart" ? "↻" : "↑", color: "yellow", label: entryLabel(e) };
     return { value: "", label: entryLabel(e) };
   };
 
+  const f = L().settings.view.footer;
   const entryFooter = reset
     ? reset.id === "doctor"
       ? repairs.length > 0
         ? [
-            { text: "↵ repair", priority: 4 },
-            { text: "F5 check", priority: 3 },
+            { text: f.repair, priority: 4 },
+            { text: f.check, priority: 3 },
           ]
-        : [{ text: "↵ check", priority: 4 }]
-      : [{ text: "↵ reset", priority: 4 }]
+        : [{ text: f.checkNow, priority: 4 }]
+      : [{ text: f.reset, priority: 4 }]
     : onUpdate
       ? [
-          ...(canUpdate ? [{ text: "↵ update", priority: 4 }] : state.kind === "restart" ? [{ text: "↵ restart", priority: 4 }] : []),
-          { text: "c copy commands", priority: 3 },
+          ...(canUpdate ? [{ text: f.update, priority: 4 }] : state.kind === "restart" ? [{ text: f.restart, priority: 4 }] : []),
+          { text: f.copyCommands, priority: 3 },
         ]
       : accountEntry
         ? [
             ...("dir" in accountEntry
               ? [
-                  { text: "↵ actions…", priority: 4 },
-                  { text: "d delete", priority: 2 },
+                  { text: f.actions, priority: 4 },
+                  { text: f.delete, priority: 2 },
                 ]
               : accountEntry.account === "add"
-                ? [{ text: "↵ add an account…", priority: 4 }]
+                ? [{ text: f.addAccount, priority: 4 }]
                 : []),
-            { text: "F5 reload", priority: 2 },
+            { text: f.reload, priority: 2 },
           ]
         : release
-        ? [{ text: "F5 check", priority: 2 }]
+        ? [{ text: f.check, priority: 2 }]
         : [
-            { text: row?.dialog ? "↵ choose…" : "↵ change", priority: 4 },
-            { text: "r default", priority: 3 },
+            { text: row?.dialog ? f.choose : f.change, priority: 4 },
+            { text: f.default, priority: 3 },
           ];
   return (
     <>
@@ -1513,11 +1394,11 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         status={
           <Text dimColor={!focused}>
             {/* The filter's count first: the path can be long. */}
-            {filter.shown && `${filter.count(listEntries.length)} entries · `}
-            {copied && <Text color="green">copied · </Text>}
+            {filter.shown && L().settings.view.entries(filter.count(listEntries.length))}
+            {copied && <Text color="green">{L().settings.view.copied}</Text>}
             {tilde(settingsFile())}
-            {changed.length > 0 && <Text color="yellow">{` · ${changed.length} changed`}</Text>}
-            {update.checking && ` · checking for updates…`}
+            {changed.length > 0 && <Text color="yellow">{L().settings.view.changed(changed.length)}</Text>}
+            {update.checking && L().settings.view.checkingUpdates}
           </Text>
         }
         list={
@@ -1531,7 +1412,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             filter={filter.banner}
             selected={index}
             height={listHeight}
-            empty={filter.empty ?? "No settings"}
+            empty={filter.empty ?? L().settings.view.empty}
             itemKey={keyOf}
             group={groupOf}
             render={(e, isSelected) => {
@@ -1559,7 +1440,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
         }
         preview={
           filter.none ? (
-            <Text dimColor>No setting matches the filter</Text>
+            <Text dimColor>{L().settings.view.noMatch}</Text>
           ) : (
             <Preview
               header={header}
@@ -1572,12 +1453,12 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           )
         }
         footer={flash ?? [
-          { text: "↑↓ setting", priority: 4 },
+          { text: f.setting, priority: 4 },
           ...entryFooter,
           ...markFooter(favorites.isMarked(entryKey), marked),
           ...filter.footer,
-          ...(canReset ? [{ text: "R reset all", priority: 2 }] : []),
-          { text: "1-6/tab view", priority: 1 },
+          ...(canReset ? [{ text: f.resetAll, priority: 2 }] : []),
+          { text: f.views, priority: 1 },
         ]}
       />
       {confirmation && (

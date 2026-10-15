@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, isViewShown, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
-import { codeMarks, isLastView, nextValue, plainMarks, RESET_ACTIONS, SETTING_ROWS, settingLines, textOf } from "../src/tui/SettingsView.js";
+import { codeMarks, isLastView, nextValue, plainMarks, resetActions, settingRows, settingLines, textOf } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
 
@@ -148,28 +148,28 @@ describe("settings", () => {
 
 describe("settings view", () => {
   it("offers every setting once, with its default among the values", () => {
-    expect(SETTING_ROWS.map((r) => r.key).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
-    for (const row of SETTING_ROWS) expect(row.values.map(([v]) => v)).toContain(DEFAULT_SETTINGS[row.key]);
+    expect(settingRows().map((r) => r.key).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
+    for (const row of settingRows()) expect(row.values.map(([v]) => v)).toContain(DEFAULT_SETTINGS[row.key]);
   });
 
   it("steps through the values and wraps around", () => {
-    const autoOpen = SETTING_ROWS.find((r) => r.key === "autoOpen")!;
+    const autoOpen = settingRows().find((r) => r.key === "autoOpen")!;
     expect(nextValue(autoOpen, "remember")).toBe("always");
     expect(nextValue(autoOpen, "always")).toBe("never");
     expect(nextValue(autoOpen, "never")).toBe("remember");
-    const marquee = SETTING_ROWS.find((r) => r.key === "marquee")!;
+    const marquee = settingRows().find((r) => r.key === "marquee")!;
     expect(nextValue(marquee, true)).toBe(false);
   });
 
   const plain = (lines: string[]) => lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
   const details = (key: string, terminal?: "wt" | "tmux") => {
-    const row = SETTING_ROWS.find((r) => r.key === key)!;
+    const row = settingRows().find((r) => r.key === key)!;
     return plain(settingLines(row, DEFAULT_SETTINGS[row.key], 2000, { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app"), terminal }));
   };
 
   it("writes every setting's details in each terminal, without empty notes", () => {
     for (const terminal of ["wt", "tmux", undefined] as const)
-      for (const row of SETTING_ROWS) {
+      for (const row of settingRows()) {
         const text = details(row.key, terminal);
         expect(text, row.key).not.toMatch(/undefined|\[object|\n\n\n/);
         for (const [value] of row.values) expect(text, row.key).toContain(`${typeof value === "boolean" ? (value ? "on" : "off") : ""}`);
@@ -179,24 +179,24 @@ describe("settings view", () => {
   it("marks keys, commands and paths in pairs of backticks and shows none of them", () => {
     const context = { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app") };
     for (const terminal of ["wt", "tmux", undefined] as const)
-      for (const row of SETTING_ROWS) {
+      for (const row of settingRows()) {
         const texts = [row.description, ...row.values.map(([, meaning]) => meaning), ...(row.notes ?? []), row.viewKey ?? ""].map((t) => textOf(t, { ...context, terminal }));
         for (const text of texts) expect(text.split("`").length % 2, `${row.key}: ${text}`).toBe(1);
         expect(details(row.key, terminal), row.key).not.toContain("`");
       }
-    for (const action of RESET_ACTIONS) expect(action.description.split("`").length % 2, action.id).toBe(1);
+    for (const action of resetActions()) expect(action.description.split("`").length % 2, action.id).toBe(1);
   });
 
   it("shows the marked parts like inline code in the chat, also within dimmed notes", () => {
     expect(codeMarks("press `q` to quit")).toBe("press \u001b[33mq\u001b[39m to quit");
     expect(plainMarks("press `q` to quit")).toBe("press q to quit");
-    const row = SETTING_ROWS.find((r) => r.key === "updateMode")!;
+    const row = settingRows().find((r) => r.key === "updateMode")!;
     const lines = settingLines(row, "auto", 2000, { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app") });
     expect(lines.join("\n")).toContain("\u001b[33mF5\u001b[39m in Settings");
   });
 
   it("lists the account colours one per line, each name once, on its colour", () => {
-    const row = SETTING_ROWS.find((r) => r.key === "accountColor")!;
+    const row = settingRows().find((r) => r.key === "accountColor")!;
     const lines = settingLines(row, "redBright", 2000, { now: new Date(2026, 8, 30, 15), cwd: join(tmpdir(), "my-app") });
     const text = plain(lines);
     expect(text).toContain("○  black \n○  red ");

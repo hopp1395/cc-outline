@@ -1,5 +1,6 @@
 import { Text, useInput, usePaste } from "ink";
 import { useState } from "react";
+import { L } from "../i18n/index.js";
 import { editLine, insertable, lineOf } from "../filter.js";
 import { LineField } from "./FilterDialog.js";
 import { Dialog, type Layout } from "./layout.js";
@@ -54,17 +55,17 @@ export function TypedConfirmDialog({ layout, confirmation, onClose }: { layout: 
       ))}
       <Text> </Text>
       <Text wrap="truncate">
-        Type <Text color="red" bold>{confirmation.word}</Text> to confirm:
+        {L().dialog.typeBefore}<Text color="red" bold>{confirmation.word}</Text>{L().dialog.typeAfter}
       </Text>
       <LineField line={line} width={width} />
       <Text color="red" wrap="truncate">
-        {wrong ? `  That is not ${confirmation.word}` : " "}
+        {wrong ? L().dialog.notWord(confirmation.word) : " "}
       </Text>
       <Text> </Text>
       <Text wrap="truncate">
-        <Text color="red">Enter</Text> confirm{"  "}
-        <Text color="yellow">Esc</Text> cancel{"  "}
-        <Text color="yellow">^U</Text> clear
+        <Text color="red">Enter</Text> {L().dialog.confirm}{"  "}
+        <Text color="yellow">Esc</Text> {L().dialog.cancel}{"  "}
+        <Text color="yellow">^U</Text> {L().dialog.clear}
       </Text>
     </Dialog>
   );

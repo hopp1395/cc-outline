@@ -1,5 +1,6 @@
 import { proc } from "./proc.js";
 import { homedir } from "node:os";
+import { L } from "./i18n/index.js";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Placement } from "./settings.js";
@@ -10,7 +11,7 @@ import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
 import { remoteWindow, runningRemoteViewer } from "./remote/viewer.js";
 
-const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor", accounts: "accounts" };
+const viewName = (view: Mode) => L().open.views[view] ?? view;
 
 /**
  * The CLI to start the viewer and `cco open` with. This module can end up in a
@@ -92,13 +93,13 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
     const args = ["-w", window, "new-tab", "--title", title, "-d", dir, process.execPath, CLI, "claude", "--config-dir", account, "--", sessionFlag(fresh), sessionId];
     // No windowsHide: wt would apply the hidden start to the new window, which then never shows.
     proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: withClaudeDir(independentEnv(), account) }).unref();
-    return "started in a new Windows Terminal window";
+    return L().open.startedWt;
   }
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId, configDir, fresh)], { stdio: "ignore", detached: true }).unref();
-    return "started in a new tmux window";
+    return L().open.startedTmux;
   }
-  return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir, process.platform, fresh)} in ${dir}`;
+  return L().open.runByHand(resumeShellCommand(sessionId, configDir, process.platform, fresh), dir);
 }
 
 /**
@@ -115,15 +116,15 @@ export function openRemoteViewer(id: string, title: string): string {
       ? ["-w", window, "focus-tab", "-t", "0"]
       : ["-w", window, "new-tab", "--title", title, process.execPath, CLI, "watch", "--remote", id, "--config-dir", claudeDir()];
     proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
-    return running ? "its viewer is in front" : "opened in a window of its own";
+    return running ? L().open.viewerFront : L().open.openedOwn;
   }
   if (terminal === "tmux") {
     const command = [process.execPath, CLI, "watch", "--remote", id, "--config-dir", claudeDir()].map(shellQuote).join(" ");
     const args = running ? ["select-window", "-t", window] : ["new-window", "-n", window, command];
     proc.spawn("tmux", args, { stdio: "ignore", detached: true, env: independentEnv() }).unref();
-    return running ? "its viewer is in front" : "opened in a tmux window";
+    return running ? L().open.viewerFront : L().open.openedTmux;
   }
-  return `no Windows Terminal or tmux: run cco watch --remote ${id}`;
+  return L().open.runRemote(id);
 }
 
 /** What an observer is opened for: a session of this machine (in its folder and config folder), or a remote one. */
@@ -158,11 +159,11 @@ export function openObserver(target: ObserverTarget, title: string, window: stri
   if (terminal === "wt") {
     // A name of its own makes a new window; no windowsHide, see resumeInNewWindow.
     proc.spawn("wt", ["-w", window, "new-tab", "--title", title, ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
-    return "observing it in a new window";
+    return L().open.observing;
   }
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", window, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
-    return "observing it in a new tmux window";
+    return L().open.observingTmux;
   }
   return undefined;
 }
@@ -187,12 +188,12 @@ export function scriptInNewWindow(script: string, dir: string, title: string): s
   if (terminal === "wt") {
     // cmd /k runs the .cmd and stays; no windowsHide, see resumeInNewWindow.
     proc.spawn("wt", ["-w", "new", "new-tab", "--title", title, "-d", dir, "cmd", "/k", script], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
-    return "started in a new Windows Terminal window";
+    return L().open.startedWt;
   }
   if (terminal === "tmux") {
     const shell = process.env.SHELL || "sh";
     proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, `unset ${SESSION_BOUND_VARS.join(" ")} CLAUDE_CONFIG_DIR; ${shellQuote(script)}; exec ${shell}`], { stdio: "ignore", detached: true, env }).unref();
-    return "started in a new tmux window";
+    return L().open.startedTmux;
   }
   return undefined;
 }
@@ -251,10 +252,9 @@ export async function resumeForPairing(sessionId: string, dir: string, title: st
       resolve(err ? undefined : String(stdout).trim() || undefined),
     ),
   );
-  return pane ? { message: "started in a new tmux window", target: pane } : { message: "the tmux window could not be opened" };
+  return pane ? { message: L().open.startedTmux, target: pane } : { message: L().open.tmuxFailed };
 }
 
-const PLACE_NAMES: Record<Placement, string> = { right: "", left: " on the left", window: " in a window of its own" };
 
 export interface OpenOptions {
   /** Leave the keyboard focus where it is (in Claude Code); not possible for a Windows Terminal window. */
@@ -280,12 +280,6 @@ export interface OpenOptions {
   target?: string;
 }
 
-/** What `cco open` says it asked a running viewer to do. */
-const ACTION_DONE: Record<ViewerAction, string> = {
-  restart: "cco is open; it restarts in the same place and view with the version installed now.",
-  update: "cco is open; it checks for an update and asks in the settings view whether to install it.",
-  account: "cco is open; it asks in the sessions view which account to continue this session in.",
-};
 
 /**
  * Opens the viewer next to the current terminal pane (Windows Terminal or
@@ -295,9 +289,10 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   const { claudePid, action } = opts;
   if (!opts.replace && runningViewer(cwd, claudePid) !== undefined) {
     requestView(cwd, view, claudePid, opts.select, action);
-    if (action) return ACTION_DONE[action];
+    // What `cco open` says it asked a running viewer to do.
+    if (action) return L().open.actions[action] ?? action;
     // Without a view (/cco:open) it keeps the one it shows.
-    return view ? `cco is already open; switched it to the ${VIEW_NAMES[view]} view.` : "cco is already open.";
+    return view ? L().open.switched(viewName(view)) : L().open.alreadyOpen;
   }
   const terminal = detectTerminal();
   const chosen = opts.placement ?? resolvePlacement(cwd, sessionOfProcess(cwd, claudePid)?.session_id);
@@ -325,8 +320,8 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   // The viewer follows the session of this Claude Code process, not whichever session of the project is newest.
   if (claudePid) viewer.push("--claude-pid", String(claudePid));
 
-  const where = PLACE_NAMES[placement];
-  const label = view ? ` ${VIEW_NAMES[view]}` : "";
+  const where = L().open.places[placement] ?? "";
+  const label = view ? ` ${viewName(view)}` : "";
   if (terminal === "tmux") {
     const cmd = viewer.map(shellQuote).join(" ");
     // -d leaves the current pane active; -b puts the new pane before (left of) it.
@@ -338,7 +333,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
         ? ["new-window", ...keep, ...(pane ? ["-a", "-t", pane] : []), "-n", "cco", "-c", cwd, cmd]
         : ["split-window", "-h", ...(placement === "left" ? ["-b"] : []), ...keep, ...(pane ? ["-t", pane] : []), "-c", cwd, cmd];
     proc.spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
-    return placement === "window" ? `Opened cco${label} in a tmux window.` : `Opened cco${label} in a tmux pane${where}.`;
+    return placement === "window" ? L().open.tmuxWindow(label) : L().open.tmuxPane(label, where);
   }
   if (terminal === "wt") {
     let args: string[];
@@ -353,11 +348,11 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
     }
     // windowsHide asks Windows to start hidden, which Windows Terminal applies to a new window: only for panes.
     proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: placement !== "window" }).unref();
-    if (tabless) return `Opened cco${label} in a Windows Terminal window: this Claude Code has no terminal tab to dock to.`;
-    if (away) return `Opened cco${label} in a Windows Terminal window: Claude was busy, and the pane would have opened in whichever tab is active now. Press p in it to dock it.`;
-    return placement === "window" ? `Opened cco${label} in a Windows Terminal window.` : `Opened cco${label} in a Windows Terminal pane${where}.`;
+    if (tabless) return L().open.tabless(label);
+    if (away) return L().open.away(label);
+    return placement === "window" ? L().open.wtWindow(label) : L().open.wtPane(label, where);
   }
-  return `No supported terminal detected (Windows Terminal or tmux). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
+  return L().open.noTerminal(String(view), cwd);
 }
 
 /** The session the Claude Code process `claudePid` (else the project) is in, from the hook's state files. */

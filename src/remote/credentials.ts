@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { readAccount } from "../account.js";
+import { L } from "../i18n/index.js";
 import { claudeDir, readJson } from "../transcript/locate.js";
 
 /** Why the remote API cannot be asked, or what it answered. */
@@ -51,10 +52,10 @@ interface Credentials {
 export function readLogin(dir = claudeDir(), now = Date.now()): RemoteLogin {
   const oauth = readJson<Credentials>(join(dir, ".credentials.json"))?.claudeAiOauth;
   const token = oauth?.accessToken;
-  if (typeof token !== "string" || token === "") throw new RemoteError("no-login", "no login found in .credentials.json (start Claude Code and run /login)");
-  if (typeof oauth?.expiresAt === "number" && oauth.expiresAt <= now) throw new RemoteError("expired", "the login has expired: start Claude Code or run /login");
-  if (!Array.isArray(oauth?.scopes) || !oauth.scopes.includes(SESSIONS_SCOPE)) throw new RemoteError("no-scope", `the login lacks the scope ${SESSIONS_SCOPE}: run /login`);
+  if (typeof token !== "string" || token === "") throw new RemoteError("no-login", L().remote.noLogin);
+  if (typeof oauth?.expiresAt === "number" && oauth.expiresAt <= now) throw new RemoteError("expired", L().remote.expired);
+  if (!Array.isArray(oauth?.scopes) || !oauth.scopes.includes(SESSIONS_SCOPE)) throw new RemoteError("no-scope", L().remote.noScope(SESSIONS_SCOPE));
   const org = readAccount(dir)?.organizationId;
-  if (!org) throw new RemoteError("no-org", "no organisation found in .claude.json");
+  if (!org) throw new RemoteError("no-org", L().remote.noOrg);
   return { token, org };
 }
