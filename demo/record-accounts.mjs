@@ -24,6 +24,8 @@ process.env.USERPROFILE = process.env.HOME = root;
 // The start scripts go next to claude: here the demo's ~/.local/bin.
 process.env.PATH = [bin, process.env.PATH].join(delimiter);
 process.env.WT_SESSION = "demo";
+// The images show English, whatever language the machine runs in (setting language: system).
+process.env.LC_ALL = "en_US.UTF-8";
 delete process.env.TMUX;
 globalThis.fetch = () => Promise.reject(new Error("no network in the demo"));
 

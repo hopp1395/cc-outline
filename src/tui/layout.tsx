@@ -173,9 +173,9 @@ export function makeScroll(
 
 /** The status text for a view at `scroll` (see `Scroll.position`). */
 export function scrollPosition(scroll: number, max: number, lineCount: number, height: number): string {
-  if (lineCount <= height) return "all";
-  if (scroll <= 0) return "top";
-  if (scroll >= max) return "end";
+  if (lineCount <= height) return L().layout.all;
+  if (scroll <= 0) return L().layout.top;
+  if (scroll >= max) return L().layout.end;
   return `${scroll + 1}–${scroll + height}/${lineCount}`;
 }
 

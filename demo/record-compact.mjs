@@ -21,6 +21,8 @@ process.env.CLAUDE_CONFIG_DIR = configDir;
 const home = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
 process.env.USERPROFILE = process.env.HOME = root;
 process.env.WT_SESSION = "demo";
+// The images show English, whatever language the machine runs in (setting language: system).
+process.env.LC_ALL = "en_US.UTF-8";
 delete process.env.TMUX;
 globalThis.fetch = () => Promise.reject(new Error("no network in the demo"));
 // The demo starts in the stacked layout; the single column is chosen in the Settings view.

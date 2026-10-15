@@ -422,6 +422,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 |---|---|---|---|
 | Start: auto open | `remember` / `always` / `never` | `always` | – |
 | Start: placement | `right` / `left` / `window` | `right` | `p` in any view |
+| General: language | system / English / Deutsch | system | – |
 | General: confirm quit | on / off | on | – |
 | General: compact (layout for small screens) | off / single / stacked | off | – |
 | General: compact columns (stacked list) | 1 / 2 / 3 / 4 | 2 | `<` `>` with compact stacked |
@@ -471,6 +472,7 @@ The Settings view (`6`, or `/cco:settings`) lists every option under a line with
 What they do:
 - **auto open** decides whether the viewer opens by itself when Claude Code starts: only if it was open when Claude Code last exited in the project (`remember`), on every start in every project (`always`), or never (`never`). See [Opening on start](#how-it-works).
 - **placement** is where the viewer opens for sessions that have no place of their own: docked right or left of Claude Code, or in a window. `p` in the viewer moves it and remembers the place for the session (see [Usage](#usage)).
+- **language** sets the language of the viewer and of cco's output in a shell (`cco --help`, `cco doctor`, `cco open`): English or German. `system` follows the operating system (`LC_ALL`, `LC_MESSAGES` or `LANG`, else the system's locale): German where it is set to German (`de-DE`, `de-AT`, `de-CH`, …), English everywhere else. A change applies at once in every view. The keys stay the same in both languages; what Claude writes, the release notes, exported files and the plugin's `/cco:…` commands stay as they are. On a German system, the viewer asks once, when it first starts with no language chosen, whether cco should speak German: *Ja, Deutsch* keeps `system`, *Nein, English* (or `Esc`) sets `English`. The answer is kept in `~/.claude/cco/language.json`, for every account on the machine; *all settings to default* does not ask again.
 - **confirm quit** makes `q` and `Esc` ask before the viewer closes, and `r` and *restart the viewer* in the Reset group ask before it restarts.
 - **compact** `single` is for a small screen or a narrow pane: one column that shows the list, and `Enter` (a detail) or `|` (in every view) shows the preview over the whole pane, `Esc` or `|` goes back. The help line, the status and the version are left out (`i` lists the keys), the tabs are shortened to their number and the preview's header takes one line. `<` and `>` do nothing then; the list widths you chose apply again with `off`. `stacked` shows the list above the preview, both as wide as the pane, with a rule between them; the list takes *compact split* of the height (10% to 50%) and has *compact columns* columns, filled one after the other like a newspaper, which `<` and `>` change (up to four). Everything else of `single` applies too, except that nothing opens over the pane and `|` does nothing.
 - **marquee** lets the selected list entry scroll when it is too long; off, it is cut with `…` like the others.

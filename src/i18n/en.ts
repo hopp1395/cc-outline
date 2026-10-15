@@ -43,6 +43,9 @@ export const en = {
     quitPane: "The pane closes; a /cco:… command opens it again.",
   },
   layout: {
+    all: "all",
+    top: "top",
+    end: "end",
     updated: (version: string) => `updated to v${version} · restart Claude Code for the plugin · `,
     info: "i info",
     more: "i more",

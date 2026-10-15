@@ -32,7 +32,6 @@ function keysOf(mode: Mode): [string, string][] {
 const VIEWER_KEYS = new Set(["1 – 6", "Tab → ⇧Tab ←", "p", "r"]);
 
 const MAX_WIDTH = 78;
-const LABEL_WIDTH = 11;
 const KEY_WIDTH = 13;
 
 /** Replaces the home directory with ~. */
@@ -65,6 +64,9 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   // Border (2) and padding (2).
   const inner = width - 4;
+  const t = L().info;
+  // As wide as the longest label of the language, a space after it.
+  const LABEL_WIDTH = Math.max(11, ...[t.project, t.session, t.transcript, t.gitRepo, t.terminal, t.settings].map((l) => stringWidth(l) + 1));
   const valueWidth = inner - LABEL_WIDTH;
 
   const row = (label: string, value: string) => (
@@ -79,7 +81,6 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     </Text>
   );
 
-  const t = L().info;
   const keys = oneSession ? keysOf(mode).filter(([k]) => !VIEWER_KEYS.has(k)) : keysOf(mode);
   const half = Math.ceil(keys.length / 2);
   const columnWidth = Math.floor(inner / 2);
@@ -87,7 +88,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     entry ? (
       <>
         <Text color="yellow">{entry[0].padEnd(KEY_WIDTH)}</Text>
-        <Text>{entry[1].padEnd(columnWidth - KEY_WIDTH).slice(0, columnWidth - KEY_WIDTH)}</Text>
+        <Text>{entry[1].slice(0, columnWidth - KEY_WIDTH - 1).padEnd(columnWidth - KEY_WIDTH)}</Text>
       </>
     ) : null;
 
