@@ -869,7 +869,7 @@ const day = (iso?: string) => (iso ? iso.slice(0, 10) : undefined);
 
 /** The update's progress dialog: the step running, then the restart, or where it stopped. */
 export function updateProgress(run: UpdateRun, copy?: () => void, onClose?: () => void): Progress {
-  const steps: ProgressStep[] = run.steps.map((s) => ({ label: s.step.label, status: s.status, output: s.output }));
+  const steps: ProgressStep[] = run.steps.map((s) => ({ label: L().steps.names[s.step.label] ?? s.step.label, status: s.status, output: s.output }));
   const t = L().settings.update;
   const title = t.title(run.target);
   if (run.status === "running") return { title, status: "running", text: t.updating, step: currentStep(steps) };
