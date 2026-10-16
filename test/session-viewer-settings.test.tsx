@@ -8,6 +8,7 @@ import { readFavorites } from "../src/favorites.js";
 import {
   DEFAULT_SETTINGS,
   isViewShown,
+  ownSettingsFile,
   readMainSettings,
   readSettings,
   resetSessionViewerSettings,
@@ -110,7 +111,8 @@ describe("the Settings view of a viewer of one session", () => {
     const view = renderInk(<SettingsView cwd={cwd} layout={layout} active oneSession />, layout);
     await until(() => view.frame().includes("confirm quit"));
     expect(view.frame()).not.toContain("auto open");
-    expect(view.frame()).toContain("settings.session-viewer.json");
+    // The status names the file it writes (cut where the temp folder is long).
+    expect(ownSettingsFile()).toBe(sessionViewerSettingsFile());
     await view.press("\r");
     await expect.poll(() => readSettings().confirmQuit).toBe(false);
     expect(readMainSettings().confirmQuit).toBe(true);
