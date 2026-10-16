@@ -24,6 +24,11 @@ export interface RcViewerSituation {
   remote?: { control: boolean; pending?: PendingRequest };
   /** One of this machine's sessions: the Claude Code it runs in. */
   running?: RunningSession;
+  /**
+   * One of this machine's sessions connected to claude.ai (Remote Control, ⇄): whether cco may send to it there
+   * (setting steer remote), and what it waits for, read from there.
+   */
+  bridge?: { control: boolean; pending?: PendingRequest };
   /** Why a prompt cannot be typed into its Claude Code (`localBlocked`); undefined when it can. */
   promptBlocked?: string;
   /** Its folder is gone: it cannot continue. */
@@ -71,10 +76,24 @@ export function rcViewerOptions(s: RcViewerSituation): { options: ChoiceOption<R
     options.push({ id: "window", label: "Continue it in a new Claude Code window", detail: "claude --resume", disabled: s.folderMissing ? "its folder is gone" : s.terminal ? undefined : NO_TERMINAL });
     preferred = ["window", "viewer"];
   } else {
-    options.push({ id: "switch", label: "Bring its terminal to the front", detail: s.state === "waiting" ? "Claude waits there for your answer" : "the tab or pane its Claude Code runs in", disabled: switchBlocked(s) });
-    options.push({ id: "prompt", label: "Write a prompt", detail: working ? "typed in once you send it; Claude takes it in when it can" : "in the line below the chat, typed into its Claude Code", disabled: s.promptBlocked });
-    if (working) options.push({ id: "interrupt", label: "Interrupt Claude", detail: "Esc, typed into its Claude Code", disabled: s.promptBlocked });
-    preferred = s.state === "idle" ? ["prompt", "switch"] : ["switch", "prompt"];
+    // Connected to claude.ai with steer remote on: what it waits for is answered here, prompts go there.
+    const through = s.bridge?.control ? "through claude.ai" : undefined;
+    const answers = s.state === "waiting" && s.bridge !== undefined;
+    if (answers) options.push(answerOption(s.bridge!.pending, s.bridge!.control ? undefined : "steer remote is off (Settings of a viewer)"));
+    options.push({
+      id: "switch",
+      label: "Bring its terminal to the front",
+      detail: s.state === "waiting" ? (answers ? "or answer it there" : "Claude waits there for your answer") : "the tab or pane its Claude Code runs in",
+      disabled: switchBlocked(s),
+    });
+    options.push({
+      id: "prompt",
+      label: "Write a prompt",
+      detail: through ? `in the line below the chat, ${through}` : working ? "typed in once you send it; Claude takes it in when it can" : "in the line below the chat, typed into its Claude Code",
+      disabled: s.promptBlocked,
+    });
+    if (working) options.push({ id: "interrupt", label: "Interrupt Claude", detail: through ? `stops what Claude does, ${through}` : "Esc, typed into its Claude Code", disabled: s.promptBlocked });
+    preferred = s.state === "idle" ? ["prompt", "switch"] : answers ? ["answer", "switch"] : ["switch", "prompt"];
   }
   options.push(...viewerOptions(s.viewers, s.terminal));
   options.push({ id: "copy", label: "Copy the command", detail: s.command });

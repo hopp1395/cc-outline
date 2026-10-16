@@ -179,17 +179,21 @@ export function useRunning(visible: boolean, accounts: string[]): Map<string, Ru
  * id claude.ai lists it under (`bridge-session` entries); failing that, a remote one may name the local id somewhere in
  * its data. `connected` holds the ids of this machine's sessions that are remote too (⇄).
  */
-export function mergeRemote(read: SessionSummary[], remote: SessionSummary[]): { merged: SessionSummary[]; connected: Set<string> } {
+export function mergeRemote(
+  read: SessionSummary[],
+  remote: SessionSummary[],
+): { merged: SessionSummary[]; connected: Set<string>; twins: Map<string, SessionSummary> } {
   const local = new Set(read.filter((s) => !s.account).map((s) => s.id));
   const byBridge = new Map<string, string>();
   for (const s of read) if (!s.account) for (const id of s.bridgeIds ?? []) byBridge.set(id, s.id);
-  const twins = new Set<string>();
+  // Each local session connected to claude.ai, with the remote session it is there.
+  const twins = new Map<string, SessionSummary>();
   const alone = remote.filter((r) => {
     const twin = [...(byBridge.has(r.id) ? [byBridge.get(r.id)!] : []), ...(r.remote?.refs?.filter((id) => local.has(id)) ?? [])];
-    for (const id of twin) twins.add(id);
+    for (const id of twin) twins.set(id, r);
     return twin.length === 0;
   });
-  return { merged: alone.length ? byLastActive([...read, ...alone]) : read, connected: twins };
+  return { merged: alone.length ? byLastActive([...read, ...alone]) : read, connected: new Set(twins.keys()), twins };
 }
 
 /** The session viewers that run, read every second while `visible`; the list only changes when they do. */

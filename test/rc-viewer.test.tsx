@@ -363,6 +363,18 @@ describe("the Remote Control Viewer's Enter dialog", () => {
     expect(first({ ...ended, terminal: false })).toBe("viewer");
   });
 
+  it("answers a waiting session of this machine connected to claude.ai there, its terminal next", () => {
+    const pending = { requestId: "r1", toolName: "Bash", toolUseId: "t1", input: { command: "ls" }, suggestions: [], needsInteraction: true, sequence: 1 };
+    const waiting = { ...base, state: "waiting" as const, bridge: { control: true, pending } };
+    expect(ids(waiting)).toEqual(["answer", "switch", "prompt", "viewer", "copy"]);
+    expect(first(waiting)).toBe("answer");
+    // Steer remote off: answered in its terminal.
+    expect(first({ ...waiting, bridge: { control: false, pending } })).toBe("switch");
+    // Not waiting: as any session of this machine, prompts go through claude.ai.
+    const idle = rcViewerOptions({ ...base, bridge: { control: true } });
+    expect(idle.options.find((o) => o.id === "prompt")?.detail).toBe("in the line below the chat, through claude.ai");
+  });
+
   it("answers what a remote session waits for, and sends nothing while steer remote is off", () => {
     const pending = { requestId: "r1", toolName: "Bash", toolUseId: "t1", input: { command: "ls" }, suggestions: [], needsInteraction: true, sequence: 1 };
     const remote: RcViewerSituation = { state: "waiting", remote: { control: true, pending }, terminal: true, viewers: 0, command: "https://claude.ai/code/x" };
@@ -518,6 +530,41 @@ describe("answering a remote session in the Remote Control Viewer", () => {
     updateSettings({ remoteApi: false, remoteControl: false });
     remote.fetch = realFetch;
     process.env = { ...saved };
+  });
+
+  it("answers a session of this machine connected to claude.ai (⇄) through claude.ai, its chat read from its transcript", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-bridge-"));
+    mkdirSync(projectDir(cwd), { recursive: true });
+    const ts = new Date().toISOString();
+    writeFileSync(
+      join(projectDir(cwd), "s-local.jsonl"),
+      [
+        { type: "user", uuid: "l-u", timestamp: ts, cwd, message: { role: "user", content: "ask me a colour" } },
+        { type: "bridge-session", sessionId: "s-local", bridgeSessionId: String(entry.id) },
+        { type: "custom-title", customTitle: "local twin", sessionId: "s-local" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n") + "\n",
+    );
+    mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s-local", status: "waiting", cwd }));
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    // Listed once, as the session of this machine; its question comes from claude.ai.
+    await until(() => view.frame().includes("local twin") && view.frame().includes("Welche Farbe magst du?"));
+    expect(view.frame()).not.toContain("rc-test");
+    await until(() => view.frame().includes("ask me a colour"));
+    expect(view.frame()).toContain("ask me a colour");
+    await view.press("\r");
+    await until(() => view.frame().includes("What to do with this session?"));
+    expect(view.frame()).toContain("›  Answer Claude's question");
+    expect(view.frame()).toContain("Bring its terminal to the front");
+    await view.press("\r");
+    await until(() => view.frame().includes("Claude asks ·"));
+    await view.press(" ");
+    await view.press("\r");
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0]).toMatchObject({ type: "control_response", response: { response: { updatedInput: { answers: { "Welche Farbe magst du?": "Blau" } } } } });
+    view.unmount();
   });
 
   it("lists it as waiting, and Enter answers its question in the prompt line's place", async () => {

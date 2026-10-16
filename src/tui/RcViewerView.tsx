@@ -119,8 +119,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const remote = useRemoteSessions(visible, remoteApi);
   // Sessions that run but were not read (no prompt yet, nothing written today) stand in with what their Claude Code tells.
   const seen = useRef<SeenStates>(new Map());
-  const entries = useMemo(() => {
-    const { merged } = mergeRemote(read ?? [], remote.sessions);
+  const { entries, twins } = useMemo(() => {
+    const { merged, twins } = mergeRemote(read ?? [], remote.sessions);
     const known = new Set(merged.map(sessionKey));
     const standIns: SessionSummary[] = [];
     for (const [key, run] of running) {
@@ -130,7 +130,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       const dir = account ? inClaudeDir(account, () => projectDir(run.cwd!)) : projectDir(run.cwd);
       standIns.push(runningStandIn(id, run, join(dir, `${id}.jsonl`), account));
     }
-    return rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart);
+    return { entries: rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart), twins };
   }, [read, remote.sessions, running, now, dayStart]);
 
   // Kept by key: the entries move between the groups as their sessions change.
@@ -176,7 +176,10 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // The selected session's turns: a local one from its transcript, a remote one from claude.ai.
   const session = entry?.session;
   const local = useTranscript(session && !session.remote ? session.path : undefined);
-  const remoteRead = useRemoteTranscript(session?.remote ? session.id : undefined);
+  // A session of this machine connected to claude.ai (⇄): what it waits for is read there, and with steer remote on,
+  // the prompt line sends there.
+  const bridge = session && !session.remote && !session.account ? twins.get(session.id) : undefined;
+  const remoteRead = useRemoteTranscript(session?.remote ? session.id : bridge?.id);
   const transcript = session?.remote ? remoteRead : local;
   const path = !session ? undefined : session.remote ? remotePath(session.id) : (local.file ?? session.path);
   const live = entry !== undefined && (entry.state === "busy" || entry.state === "waiting");
@@ -187,7 +190,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [composerRows, setComposerRows] = useState(3);
   const typingInComposer = composing && column === "chat" && session !== undefined;
   const localChannel = useLocalPrompt(session && !session.remote ? entry?.running : undefined, typingInComposer);
-  const remoteId = session?.remote ? session.id : undefined;
+  const remoteId = session?.remote ? session.id : bridge && remoteControl ? bridge.id : undefined;
   const remoteChannel = useMemo((): PromptChannel | undefined => {
     if (!remoteId) return undefined;
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
@@ -200,7 +203,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   }, [remoteId, remoteControl]);
   // An ended session of this machine continues from the Enter dialog.
   const channel: PromptChannel = remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: "not running: Enter continues it in a new window" });
-  const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : undefined;
+  const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
   const canCompose = session !== undefined && (!channel.blocked || pending !== undefined);
   // The chat and the lists leave the prompt line its rows.
   const layout = session ? shorter(full, composerRows) : full;
@@ -236,6 +239,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       state: e.state,
       remote: s.remote && { control: remoteControl, pending: s.remote.pending ?? (s.id === remoteId ? remoteRead.pending[0] : undefined) },
       running: e.running,
+      bridge: e === entry && bridge ? { control: remoteControl, pending } : undefined,
       promptBlocked: s.remote ? undefined : channel.blocked,
       folderMissing: !s.remote && !existsSync(dir),
       terminal: detectTerminal() !== undefined,
