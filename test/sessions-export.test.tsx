@@ -52,7 +52,7 @@ describe("export in the Sessions view", () => {
     await until(() => view.frame().includes("second question"));
     await view.press("\r");
     await until(() => view.frame().includes("Export it"));
-    await view.press("5");
+    await view.press("6");
     await until(() => view.frame().includes("Tool calls"));
     expect(view.frame()).toContain("markdown · llm · json · backup");
     expect(view.frame()).toContain("cco-session-export.zip");
@@ -84,7 +84,7 @@ describe("export in the Sessions view", () => {
     await until(() => view.frame().includes("third question"));
     await view.press("\r");
     await until(() => view.frame().includes("Export 2 marked sessions"));
-    await view.press("5");
+    await view.press("6");
     await until(() => view.frame().includes("Tool calls"));
     expect(view.frame()).toContain("2 marked sessions");
     await view.press("\r");
@@ -99,7 +99,7 @@ describe("export in the Sessions view", () => {
     rmSync(join(projectDir(cwd), "aaaaaaaa-1.jsonl"));
     await view.press("\r");
     await until(() => view.frame().includes("Import sessions…"));
-    await view.press("6");
+    await view.press("7");
     await until(() => view.frame().includes("Sessions that are there already"));
     expect(view.frame()).toContain("cco-session-export.zip");
     await view.press("\r");

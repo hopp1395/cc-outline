@@ -65,7 +65,8 @@ export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
 export function openInDefaultApp(file: string, platform: NodeJS.Platform = process.platform): void {
   // explorer.exe hands the file to its default app, with no shell quoting involved.
   const command = platform === "win32" ? "explorer.exe" : platform === "darwin" ? "open" : "xdg-open";
-  const child = proc.spawn(command, [file], { stdio: "ignore", detached: true, windowsHide: true });
+  // No windowsHide: explorer applies the hidden start to the window it opens for a folder, which then never shows.
+  const child = proc.spawn(command, [file], { stdio: "ignore", detached: true, windowsHide: false });
   child.on?.("error", () => {});
   child.unref();
 }

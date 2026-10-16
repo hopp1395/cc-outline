@@ -1023,6 +1023,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       foreign: s.account !== undefined,
       terminal: detectTerminal() !== undefined,
       viewers: viewersFor(s).length,
+      folder: tilde(dir),
       // A session the Claude Code daemon runs is attached to, not resumed.
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
     };
@@ -1126,6 +1127,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         return openViewer(s);
       case "viewer-front":
         return bringViewer(s);
+      case "folder":
+        return openInDefaultApp(dir);
       case "copy":
         return void copy(command).then(
           () => notify(`copied: ${command}`),
