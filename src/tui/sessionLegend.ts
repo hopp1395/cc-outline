@@ -37,6 +37,7 @@ export const SESSION_LEGEND: LegendMark[] = [
     short: "images",
     text: "with the count after it: images pasted into its prompts and images and PDFs its tools returned; `o` lists them with the @-mentioned files",
   },
+  { mark: "◇", color: "35", short: "workflows", text: "Claude started dynamic workflows there; `◇2` and up count them, the details list them" },
 ];
 
 /**
