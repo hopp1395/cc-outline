@@ -570,6 +570,8 @@ What you start and then wait for (the update, the doctor's check and repairs, ex
 - the settings file
 - the keys of the current view
 
+`←`, `→` or `Tab` switch to its second page, **Legend**: what the marks of the current view's list mean (`★` marked, `↳` queued, `✓` approved, `M` modified, …), two to a line. The dialog always opens on the keys.
+
 The dialog is modal: the view underneath takes no keys until you close it with `i` or `Esc`.
 
 ## Focus

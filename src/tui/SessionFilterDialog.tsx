@@ -1,13 +1,12 @@
 import { Text, useInput } from "ink";
 import { basename } from "node:path";
 import { useState, type ReactNode } from "react";
-import stringWidth from "string-width";
 import type { Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
 import type { SessionsFolders } from "../settings.js";
 import { accountChosen, type SessionFilter } from "../sessionFilter.js";
 import { Dialog, type Layout } from "./layout.js";
-import { legendCell, legendCellWidth, SESSION_LEGEND, type LegendMark } from "./sessionLegend.js";
+import { legendLines, SESSION_LEGEND } from "./legend.js";
 
 const MAX_WIDTH = 60;
 
@@ -25,23 +24,6 @@ export function filterAccounts(accounts: Account[], own: string): FilterAccount[
     { dir: own, label: `${mine?.email ?? "this account"} (${basename(own)}) · this account` },
     ...others.map((a) => ({ dir: a.dir, label: `${a.email} (${basename(a.dir)})` })),
   ];
-}
-
-/** The marks of the list in short, as many to a line as fit in `width` columns. */
-export function legendLines(width: number): string[] {
-  // A column of marks, then what each says: in two columns of pairs where they fit, else one a line.
-  const markWidth = Math.max(...SESSION_LEGEND.map((m) => stringWidth(m.mark)));
-  const cell = (m: LegendMark) => legendCell(m, markWidth);
-  const cellWidth = Math.max(...SESSION_LEGEND.map((m) => legendCellWidth(m, markWidth)));
-  const gap = 3;
-  if (2 * cellWidth + gap > width) return SESSION_LEGEND.map(cell);
-  const lines: string[] = [];
-  for (let i = 0; i < SESSION_LEGEND.length; i += 2) {
-    const [left, right] = [SESSION_LEGEND[i]!, SESSION_LEGEND[i + 1]];
-    const pad = " ".repeat(cellWidth - legendCellWidth(left, markWidth) + gap);
-    lines.push(right ? `${cell(left)}${pad}${cell(right)}` : cell(left));
-  }
-  return lines;
 }
 
 type Row = { kind: "folder"; which: "this" | "other" } | { kind: "account"; dir: string } | { kind: "background" } | { kind: "remote" };
@@ -127,7 +109,7 @@ export function SessionFilterDialog({
     );
   };
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
-  const legend = legendLines(width - 4);
+  const legend = legendLines(SESSION_LEGEND, width - 4);
   // Title, blank, three headings, the rows, blank, the legend's heading and lines, blank, notice, keys, plus the border.
   const height = 2 + (withAccounts ? 3 : 2) + rows.length + 2 + legend.length + 3 + 2;
   const accountsAt = 2;

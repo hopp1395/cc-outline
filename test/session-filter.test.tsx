@@ -8,7 +8,7 @@ import { readSettings, updateSettings } from "../src/settings.js";
 import { projectDir } from "../src/transcript/locate.js";
 import { SessionReader } from "../src/transcript/sessions.js";
 import type { Layout } from "../src/tui/layout.js";
-import { legendLines } from "../src/tui/SessionFilterDialog.js";
+import { legendLines, SESSION_LEGEND } from "../src/tui/legend.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 
 const layout: Layout = { columns: 120, rows: 26, listWidth: 40, previewWidth: 77, bodyHeight: 22 };
@@ -31,13 +31,13 @@ describe("background sessions in the transcript", () => {
 describe("the legend", () => {
   it("packs the marks into lines of the width given", () => {
     const plain = (l: string) => l.replace(/\u001b\[[0-9;]*m/g, "");
-    const lines = legendLines(40).map(plain);
+    const lines = legendLines(SESSION_LEGEND, 40).map(plain);
     expect(lines.length).toBeGreaterThan(2);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(40);
     // Too narrow for two columns: one mark a line, in a column.
     expect(lines).toContain("◌  background");
     // Wide enough, the pairs share a line.
-    expect(legendLines(52).map(plain)).toContain("◌  background           ∅  folder gone");
+    expect(legendLines(SESSION_LEGEND, 52).map(plain)).toContain("◌  background           ∅  folder gone");
   });
 });
 

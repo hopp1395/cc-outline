@@ -15,7 +15,7 @@ import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
-import { InfoDialog } from "./InfoDialog.js";
+import { InfoDialog, type InfoPage } from "./InfoDialog.js";
 import { MonitorView } from "./MonitorView.js";
 import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
@@ -144,6 +144,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     return initialMode ?? shownView(settings, (settings.rememberView ? readSessionView(cwd, sessionOf(path)) : undefined) ?? "chat");
   });
   const [infoOpen, setInfoOpen] = useState(false);
+  const [infoPage, setInfoPage] = useState<InfoPage>("keys");
   // Bumped by the project data reset: the views mount afresh and read the now empty files.
   const [generation, setGeneration] = useState(0);
   // p: where the viewer runs (right, left, own window).
@@ -475,6 +476,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
       else if (input === "q") quit();
+      // Two pages, keys and legend: ← → and Tab go to the other.
+      else if (key.leftArrow || key.rightArrow || key.tab) setInfoPage((p) => (p === "keys" ? "legend" : "keys"));
       return;
     }
     // A remote viewer's chat: Tab and i go back to the prompt line; the views switch with their number, ← and → there.
@@ -490,7 +493,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     }
     // Only q quits: Esc closes what is open and otherwise does nothing.
     if (input === "q") quit();
-    else if (input === "i") setInfoOpen(true);
+    else if (input === "i") {
+      setInfoPage("keys");
+      setInfoOpen(true);
+    }
     else if (input === "<" || input === ">") stepWidth(input === "<" ? -1 : 1);
     else if (input === "|") toggleWidth();
     // Only a viewer that follows the live session moves; one started with --session stays.
@@ -646,7 +652,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         </Box>
         </Fragment>
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
-        {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} oneSession={fixed} />}
+        {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} oneSession={fixed} page={infoPage} />}
         {composer && mode === "chat" && (
           <SessionComposer
             layout={layout}

@@ -16,7 +16,7 @@ import { readWorkflow, workflowDue } from "../src/transcript/workflows.js";
 import { turnAttachments } from "../src/attachments.js";
 import { ChatView, indentJson, notificationResult, spinnerMarks, turnAgents } from "../src/tui/ChatView.js";
 import type { Layout } from "../src/tui/layout.js";
-import { SESSION_LEGEND } from "../src/tui/sessionLegend.js";
+import { SESSION_LEGEND } from "../src/tui/legend.js";
 import { sessionLines } from "../src/tui/SessionsView.js";
 import { useTranscript, type Transcript } from "../src/tui/useTranscript.js";
 
