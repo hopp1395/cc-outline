@@ -28,12 +28,12 @@ describe("attachments of a prompt", () => {
     expect(p.turns[0].attachments).toEqual([
       { kind: "image", path: "C:\\up\\a.png" },
       { kind: "image", path: "C:\\up\\b.png" },
-      { kind: "file", path: "src\\Order.cs" },
-      { kind: "directory", path: "docs" },
+      { kind: "file", path: "src\\Order.cs", full: "W:\\shop\\src\\Order.cs" },
+      { kind: "directory", path: "docs", full: "W:\\shop\\docs" },
       { kind: "selection", lines: 12, file: "Foo.cs" },
     ]);
     expect(attachmentSummary(p.turns[0].attachments!)).toBe(
-      "📎 2 images · @src/Order.cs · @docs/ · 12 lines selected in Foo.cs",
+      "📎 2 pasted images · @src/Order.cs · @docs/ · 12 lines selected in Foo.cs",
     );
   });
 

@@ -1,7 +1,9 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { pastedNumbers, type AttachmentItem } from "../attachments.js";
 import type { PendingRequest } from "../remote/pending.js";
+import { imageAction, isBrowserTool } from "./chrome.js";
 import { IncrementalFile } from "./incremental.js";
 import { claudeDir, inClaudeDir, projectDir } from "./locate.js";
 import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
@@ -18,6 +20,12 @@ export interface SessionSummary {
   files: string[];
   /** Subagents Claude started; missing in summaries stored before they were recorded (trash manifests). */
   agents?: SessionAgent[];
+  /**
+   * What came with the prompts and what tools returned, oldest first: pasted
+   * images, @-mentions (one per path), images and PDFs of tool results; no
+   * image data. Missing in summaries stored before they were recorded.
+   */
+  attachments?: AttachmentItem[];
   /** Git branch of the last entry that recorded one. */
   branch?: string;
   /** Working directory Claude Code was started in (the first entry that recorded one). */
@@ -85,6 +93,8 @@ const EDIT_TOOLS: Record<string, string> = {
 
 interface RawEntry {
   type?: string;
+  message?: { content?: unknown };
+  toolUseResult?: unknown;
   timestamp?: string;
   gitBranch?: string;
   cwd?: string;
@@ -110,6 +120,10 @@ export class SessionReader {
   private files: string[] = [];
   private background?: SessionBackground;
   private bridgeIds: string[] = [];
+  /** Images and PDFs of tool results, in order. */
+  private results: AttachmentItem[] = [];
+  /** What names a call's images until its result comes: the file a Read read, a browser action, an MCP tool. */
+  private callLabels = new Map<string, string>();
   private summary?: SessionSummary;
 
   constructor(readonly path: string) {
@@ -134,6 +148,8 @@ export class SessionReader {
     this.title = this.branch = this.cwd = this.start = this.end = this.background = undefined;
     this.bridgeIds = [];
     this.files = [];
+    this.results = [];
+    this.callLabels.clear();
   }
 
   private consume(line: string): void {
@@ -163,6 +179,35 @@ export class SessionReader {
       // An entry in a shape the parser does not know must not stop the overview.
     }
     this.takeBlocks();
+    // Most lines hold no image: only those that might are looked at.
+    if (!entry.isSidechain && line.includes('"tool_result"') && (line.includes('"image"') || line.includes('"document"'))) this.takeResultFiles(entry);
+  }
+
+  /** Notes the images and PDFs of the tool results in `entry` (their data stays in the transcript). */
+  private takeResultFiles(entry: RawEntry): void {
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) return;
+    const prompt = this.parser.turns.at(-1)?.prompt;
+    for (const block of content as { type?: string; tool_use_id?: string; content?: unknown }[]) {
+      if (block?.type !== "tool_result" || !block.tool_use_id || !Array.isArray(block.content)) continue;
+      const read = (entry.toolUseResult as { file?: { filePath?: unknown } } | undefined)?.file?.filePath;
+      const label = typeof read === "string" ? baseName(read) : this.callLabels.get(block.tool_use_id);
+      this.callLabels.delete(block.tool_use_id);
+      (block.content as { type?: string }[]).forEach((b, index) => {
+        if (b?.type !== "image" && b?.type !== "document") return;
+        const kind = b.type === "document" ? "pdf" : "image";
+        this.results.push({
+          kind,
+          n: this.results.filter((r) => r.kind === kind).length + 1,
+          toolUseId: block.tool_use_id!,
+          index,
+          label: label ?? "tool result",
+          transcript: this.path,
+          ...(entry.timestamp ? { at: entry.timestamp } : {}),
+          ...(prompt ? { prompt: excerpt(prompt) } : {}),
+        });
+      });
+    }
   }
 
   /**
@@ -174,6 +219,11 @@ export class SessionReader {
     const turn = this.parser.turns.at(-1);
     if (!turn?.blocks.length) return;
     for (const b of turn.blocks) {
+      // Only these tools return images: what names them is kept until their result comes.
+      if (b.kind === "tool" && b.id && (b.name === "Read" || b.name.startsWith("mcp__"))) {
+        const path = (b.input as Record<string, unknown> | undefined)?.file_path;
+        this.callLabels.set(b.id, typeof path === "string" ? baseName(path) : isBrowserTool(b.name) ? imageAction(b.name, b.input, undefined) : toolName(b.name));
+      }
       if (b.kind !== "tool" || !EDIT_TOOLS[b.name]) continue;
       const file = (b.input as Record<string, unknown> | undefined)?.[EDIT_TOOLS[b.name]];
       if (typeof file === "string" && !this.files.includes(file)) this.files.push(file);
@@ -192,6 +242,7 @@ export class SessionReader {
         .map((t) => ({ text: t.prompt, timestamp: t.timestamp })),
       plans: this.parser.plans.map((p) => ({ ...p })),
       files: [...this.files],
+      attachments: this.attachments(),
       agents: this.parser.agents.map(({ description, type, status, started, durationMs }) => ({
         description,
         type,
@@ -209,6 +260,77 @@ export class SessionReader {
       ...(this.bridgeIds.length > 0 && { bridgeIds: [...this.bridgeIds] }),
     };
   }
+
+  /** The prompts' pasted images and @-mentions (one entry per path) with the images and PDFs of tool results, by time. */
+  private attachments(): AttachmentItem[] {
+    const items: AttachmentItem[] = [];
+    const mentions = new Map<string, Extract<AttachmentItem, { kind: "file" | "directory" }>>();
+    for (const t of this.parser.turns) {
+      const list = t.attachments ?? [];
+      if (list.length === 0) continue;
+      const at = t.timestamp ? { at: t.timestamp } : {};
+      const numbers = pastedNumbers(t.prompt, list.filter((a) => a.kind === "image").length);
+      let index = 0;
+      for (const a of list) {
+        if (a.kind === "image") {
+          const i = index++;
+          items.push({ kind: "pasted", n: numbers[i], uuid: t.id, index: i, ...(a.path ? { upload: a.path } : {}), transcript: this.path, ...at, prompt: excerpt(t.prompt) });
+        } else if (a.kind === "file" || a.kind === "directory") {
+          const full = a.full ?? (this.cwd && !isAbsolute(a.path) ? join(this.cwd, a.path) : a.path);
+          const seen = mentions.get(full);
+          if (seen) {
+            if (!seen.uuids?.includes(t.id)) seen.uuids = [...(seen.uuids ?? []), t.id];
+            continue;
+          }
+          const item = { kind: a.kind, path: a.path, full, ...at, uuids: [t.id] };
+          mentions.set(full, item);
+          items.push(item);
+        }
+      }
+    }
+    return byTime([...items, ...this.results.map((r) => ({ ...r }))]);
+  }
+}
+
+/** The first line of a prompt, cut to a length a list row can show. */
+const excerpt = (prompt: string) => {
+  const first = prompt.split("\n").find((l) => l.trim())?.trim() ?? "";
+  return first.length > 80 ? first.slice(0, 79) + "…" : first;
+};
+
+/** The file name of a path in either spelling. */
+const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+
+/** "claude-in-chrome · navigate" for "mcp__claude-in-chrome__navigate". */
+const toolName = (name: string) => {
+  const m = /^mcp__(.+?)__(.+)$/.exec(name);
+  return m ? `${m[1]} · ${m[2]}` : name;
+};
+
+/** `items` by time, those without one where they came. */
+const byTime = (items: AttachmentItem[]) =>
+  items.map((item, i) => ({ item, i })).sort((a, b) => (a.item.at && b.item.at ? a.item.at.localeCompare(b.item.at) : 0) || a.i - b.i).map((x) => x.item);
+
+/** What makes an attachment the same in two transcripts of a chain (the later starts with copies of the last entries). */
+function attachmentKey(a: AttachmentItem): string {
+  if (a.kind === "pasted") return `p ${a.uuid} ${a.index}`;
+  if ("toolUseId" in a) return `t ${a.toolUseId} ${a.index}`;
+  return `f ${a.full}`;
+}
+
+/** The attachments of two transcripts of a chain as one list: each once, mentions of a path joined, tool images numbered through. */
+function mergeAttachments(earlier: AttachmentItem[] | undefined, later: AttachmentItem[] | undefined): AttachmentItem[] | undefined {
+  if (!earlier && !later) return undefined;
+  const byKey = new Map<string, AttachmentItem>();
+  for (const a of [...(earlier ?? []), ...(later ?? [])]) {
+    const key = attachmentKey(a);
+    const seen = byKey.get(key);
+    if (!seen) byKey.set(key, { ...a });
+    else if ((seen.kind === "file" || seen.kind === "directory") && (a.kind === "file" || a.kind === "directory"))
+      seen.uuids = [...new Set([...(seen.uuids ?? []), ...(a.uuids ?? [])])];
+  }
+  const count = { image: 0, pdf: 0 };
+  return byTime([...byKey.values()]).map((a) => (a.kind === "image" || a.kind === "pdf" ? { ...a, n: ++count[a.kind] } : a));
 }
 
 const promptKey = (p: { text: string; timestamp?: string }) => `${p.timestamp ?? ""} ${p.text}`;
@@ -227,6 +349,7 @@ function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionS
     plans: [...earlier.plans, ...later.plans.filter((p) => !plans.has(p.id))],
     files: [...new Set([...earlier.files, ...later.files])],
     agents: [...(earlier.agents ?? []), ...(later.agents ?? []).filter((a) => !agents.has(agentKey(a)))],
+    attachments: mergeAttachments(earlier.attachments, later.attachments),
     branch: later.branch ?? earlier.branch,
     cwd: earlier.cwd ?? later.cwd,
     background: later.background ?? earlier.background,

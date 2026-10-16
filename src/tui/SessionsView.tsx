@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
+import { attachmentFile, attachmentTitle, type AttachmentItem } from "../attachments.js";
 import { describeRemoteError, RemoteSessions, remoteUrl } from "../remote/index.js";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionBackground, type SessionSummary } from "../transcript/sessions.js";
 import {
@@ -17,7 +18,8 @@ import {
   type SessionActivity,
   type TrashEntry,
 } from "../transcript/trash.js";
-import { detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
+import { AttachmentsDialog } from "./AttachmentsDialog.js";
+import { detectTerminal, focusSessionViewer, openInDefaultApp, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
 import { runningSessionViewers, viewersOf, viewerWindow, type SessionViewerInfo } from "../sessionViewers.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
@@ -127,6 +129,7 @@ const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
 const red = (s: string) => `\u001b[31m${s}\u001b[39m`;
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 const magenta = (s: string) => `\u001b[35m${s}\u001b[39m`;
+const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
 const heading = (s: string) => `\u001b[1;36m${s}\u001b[22;39m`;
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -192,6 +195,8 @@ export function sessionAccountLines(account: Account | undefined, color: Account
 const REMOTE_MARK = "◈";
 /** Viewers of the session run in windows of their own (`cco watch --session`, `--remote`); with a count from two on. */
 const VIEWED_MARK = "◎";
+/** How many images and PDFs a session has, in its row: "▣3". */
+const MEDIA_MARK = "▣";
 const CONNECTED_MARK = "⇄";
 
 /** The header's line about a remote session: what claude.ai says of it, and what could not be shown. */
@@ -226,8 +231,39 @@ function transcriptLocation(s: SessionSummary, trashed?: TrashEntry): string | u
   return trashed?.items.find((i) => i.from === s.path)?.to ?? s.path;
 }
 
-/** Transcript, plans, agents, changed files and prompts of a session, as lines of `width` columns. */
-export function sessionLines(s: SessionSummary, viewerCwd: string, width: number, separators = true, location?: string): string[] {
+/** The images and PDFs of a session (`▣n` in the list); its @-mentions do not count. */
+const mediaOf = (s: SessionSummary) => (s.attachments ?? []).filter((a) => a.kind !== "file" && a.kind !== "directory").length;
+
+/** A line of the Attachments section: symbol, time and what it is ("⎘ 14:32 [Image #1] · the prompt", "@ 15:02 src/Foo.cs (3×)"). */
+function attachmentLine(a: AttachmentItem, cwd: string, width: number): string {
+  const at = dim(time(a.at));
+  switch (a.kind) {
+    case "pasted":
+      return truncate(`  ${magenta("⎘")} ${at} ${cyan(`[Image #${a.n}]`)}${a.prompt ? dim(` · ${a.prompt}`) : ""}`, width);
+    case "image":
+    case "pdf":
+      return truncate(`  ${cyan(a.kind === "pdf" ? "▤" : "▣")} ${at} ${a.label}`, width);
+    default: {
+      const path = displayPath(a.full, cwd).replace(/\\/g, "/");
+      const times = (a.uuids?.length ?? 0) > 1 ? dim(` (${a.uuids!.length}×)`) : "";
+      return truncate(`  ${yellow("@")} ${at} ${a.kind === "directory" ? path.replace(/\/?$/, "/") : path}${times}`, width);
+    }
+  }
+}
+
+/**
+ * Transcript, plans, attachments, agents, changed files and prompts of a
+ * session, as lines of `width` columns. `rows`, if given, gets the line of
+ * each attachment (line index → index in `s.attachments`), for clicks.
+ */
+export function sessionLines(
+  s: SessionSummary,
+  viewerCwd: string,
+  width: number,
+  separators = true,
+  location?: string,
+  rows?: Map<number, number>,
+): string[] {
   // Paths are shown relative to the folder the session ran in.
   const cwd = s.cwd ?? viewerCwd;
   const lines: string[] = [];
@@ -246,6 +282,24 @@ export function sessionLines(s: SessionSummary, viewerCwd: string, width: number
     s.plans.length,
     timed(s.plans, (p) => p.timestamp, (p) => `  ${STATUS_ICON[p.status]} ${dim(time(p.timestamp))} ${truncate(planTitle(p.text), width - 10)}`),
   );
+  const attachments = s.attachments ?? [];
+  if (attachments.length > 0) {
+    const rendered = attachments.map((a) => attachmentLine(a, cwd, width));
+    const start = lines.length;
+    section(
+      "Attachments",
+      attachments.length,
+      [...timed(attachments.map((_, i) => i), (i) => attachments[i].at, (i) => rendered[i]), dim("  o lists them, a click opens one")],
+    );
+    // Day separators come between them: each attachment's line is found in order.
+    let from = start;
+    rendered.forEach((line, i) => {
+      const at = lines.indexOf(line, from);
+      if (at < 0) return;
+      rows?.set(at, i);
+      from = at + 1;
+    });
+  }
   const agents = s.agents ?? [];
   if (agents.length > 0) {
     section(
@@ -573,6 +627,7 @@ function sessionText(s: SessionSummary, gone: boolean, email?: string, backgroun
       ...(s.continues ?? []),
       ...s.prompts.map((p) => p.text),
       ...s.files,
+      ...(s.attachments ?? []).map((a) => (a.kind === "file" || a.kind === "directory" ? a.path : a.kind === "pasted" ? `[Image #${a.n}]` : a.label)),
       ...s.plans.map((p) => planTitle(p.text)),
       ...(s.agents ?? []).map((a) => a.description),
     ]),
@@ -747,6 +802,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   });
   // The app's progress dialog shows the export, the import or the wait for a Claude Code to attach to.
   const progressOpen = useProgressOpen();
+  // The dialog listing the selected session's attachments (o).
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   // Prompts and interrupts for remote sessions (setting remoteControl).
   // A request that the list no longer names was answered elsewhere.
   const remoteCtl = useRemoteControl(layout, (message) => notify(message), (id, requestId) => {
@@ -754,6 +811,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     return s ? s.remote?.pending?.requestId === requestId : undefined;
   });
   const dialogOpen =
+    attachmentsOpen ||
     remoteCtl.open || confirmation !== undefined || choice !== undefined || renaming !== undefined || exporting !== undefined || importFrom !== undefined || run !== undefined || flow.open || progressOpen || filterOpen;
   // Selection and each session's scroll position survive switching sessions and restarting the viewer.
   const positions = usePositions(cwd, "sessions");
@@ -874,11 +932,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       headerHeight,
     );
   }, [viewed, activeId, running, viewers, trashOpen, entry, previewWidth, headerHeight, transfers, withAccounts, accountState, accountColor]);
-  const lines = useMemo(
+  const { lines, attachmentRows } = useMemo(() => {
+    const rows = new Map<number, number>();
     // A remote session has no transcript on this machine.
-    () => (viewed ? sessionLines(viewed, cwd, previewWidth, separators, viewed.remote ? undefined : transcriptLocation(viewed, entry)) : []),
-    [viewed, cwd, previewWidth, separators, entry],
-  );
+    const lines = viewed ? sessionLines(viewed, cwd, previewWidth, separators, viewed.remote ? undefined : transcriptLocation(viewed, entry), rows) : [];
+    return { lines, attachmentRows: rows };
+  }, [viewed, cwd, previewWidth, separators, entry]);
+  // What came with the prompts and what tools returned; `o` lists them, a click on one's line opens it.
+  const attachments = viewed && !viewed.remote ? (viewed.attachments ?? []) : [];
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(session && sessionKey(session), lines.length, viewport);
 
@@ -900,6 +961,19 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     setFlash(msg);
     clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlash(undefined), 3000);
+  };
+  /** Opens one of the selected session's attachments; a trashed session's transcripts are read where the trash keeps them. */
+  const openAttachment = (item: AttachmentItem | undefined) => {
+    if (!item) return;
+    let file: string | undefined;
+    try {
+      file = attachmentFile(item, (t) => entry?.items.find((i) => i.from === t)?.to ?? t);
+    } catch (err) {
+      return notify(`could not read ${attachmentTitle(item)}: ${(err as Error).message}`);
+    }
+    if (!file) return notify(`${attachmentTitle(item)} is no longer available`);
+    openInDefaultApp(file);
+    notify(`opened ${attachmentTitle(item)}`);
   };
   /** Runs a trash operation, reporting a failure instead of throwing. */
   const attempt = (action: () => void, done: string) => {
@@ -1275,6 +1349,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       if (filter.handleKey(input, key)) return;
       if (input === "T") return toggleTrash(!trashOpen);
       if (input === "a") return setFilterOpen(true);
+      if (input === "o" && session) return attachments.length ? setAttachmentsOpen(true) : notify(session.remote ? "a remote session's attachments are on claude.ai" : "no attachments in this session");
       if (trashOpen) {
         if (key.escape) return toggleTrash(false);
         if (input === "u" && session) return restore(session, selectNeighbour);
@@ -1350,6 +1425,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         height={bodyHeight}
         onWheel={(d) => scroll.by(d)}
         onLink={(url) => notify(`opened ${url}`)}
+        onLineClick={(i) => {
+          const at = attachmentRows.get(i);
+          if (at !== undefined) openAttachment(attachments[at]);
+        }}
       />
     );
 
@@ -1358,6 +1437,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         { text: "↑↓ session", priority: 4 },
         { text: "PgUp/Dn scroll", priority: 1 },
         { text: "u restore", priority: 4 },
+        ...(attachments.length > 0 ? [{ text: "o attachments", priority: 2 }] : []),
         { text: "x delete", priority: 3 },
         { text: "X empty", priority: 2 },
         { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
@@ -1381,6 +1461,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
           priority: 3,
         },
         { text: "c copy resume", priority: 2 },
+        ...(attachments.length > 0 ? [{ text: "o attachments", priority: 2 }] : []),
         { text: "d delete", priority: 2 },
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
@@ -1447,6 +1528,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
               // Read from claude.ai (◈), or of this machine and connected to it (⇄).
               const waits = s.remote?.workerStatus === "requires_action";
               const remoteMark = s.remote ? `${REMOTE_MARK} ` : connected.has(s.id) ? `${CONNECTED_MARK} ` : "";
+              // Images and PDFs that came with its prompts or from its tools.
+              const media = mediaOf(s);
+              const mediaMark = media > 0 ? `${MEDIA_MARK}${media} ` : "";
               // A /rename title is bright, a first prompt standing in for it dim and quoted.
               // The quotes go around the cut text, so the closing one is never cut off.
               const quoted = titleIsPrompt(s);
@@ -1470,6 +1554,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
                     ))}
                   {/* Open in windows of their own (◎, ◎2). */}
                   {viewedCount(s) > 0 && <Text color="blue">{`${VIEWED_MARK}${viewedCount(s) > 1 ? viewedCount(s) : ""} `}</Text>}
+                  {mediaMark && <Text color="cyan">{mediaMark}</Text>}
                   {/* Ran in the background: before the project name. */}
                   {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&
@@ -1499,6 +1584,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
                           (remoteMark ? 2 : 0) -
                           (waits ? 2 : 0) -
                           (background ? 2 : 0) -
+                          mediaMark.length -
                           (all ? Math.min(12, projectName(s).length) + 1 : 0) -
                           (quoted ? 2 : 0),
                       )}
@@ -1541,6 +1627,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         />
       )}
       {importFrom !== undefined && <ImportDialog layout={layout} initial={importFrom} into={tilde(cwd)} onImport={runImport} onClose={() => setImportFrom(undefined)} />}
+      {attachmentsOpen && (
+        <AttachmentsDialog layout={layout} items={attachments} of="session" onOpen={openAttachment} onClose={() => setAttachmentsOpen(false)} />
+      )}
       {flow.element}
       {remoteCtl.element}
       {filter.dialog}

@@ -31,6 +31,12 @@ export const SESSION_LEGEND: LegendMark[] = [
   { mark: "⇄", color: "36", short: "connected", text: "a session of this machine that is connected to claude.ai (Remote Control), also in the Claude app" },
   { mark: "⚠", color: "33", short: "waits for you", text: "a remote session whose Claude waits for an answer (a permission or a question); its ◈ blinks while Claude works there" },
   { mark: "◎", color: "34", short: "session viewers", text: "session viewers of it run (Enter, open one); `◎2` and up count them" },
+  {
+    mark: "▣",
+    color: "36",
+    short: "images",
+    text: "with the count after it: images pasted into its prompts and images and PDFs its tools returned; `o` lists them with the @-mentioned files",
+  },
 ];
 
 /**

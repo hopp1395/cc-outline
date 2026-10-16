@@ -123,7 +123,7 @@ describe("session documents", () => {
     expect(text).toContain("- **Branch:** `main`");
     expect(text).toMatch(/## 1 · ❯ Prompt · 2026-10-02 \d\d:00/);
     expect(text).toContain("> Explain this screen");
-    expect(text).toContain("![Image 1](attachments/turn-001-image-1.png)");
+    expect(text).toContain("![Image #1](attachments/turn-001-image-1.png)");
     expect(text).toContain("↓ 1.2k tokens");
     expect(text).toContain("**⚙ Bash**");
     expect(text).toContain("**◆ Explore · Map the repo**");

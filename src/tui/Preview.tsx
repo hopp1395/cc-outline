@@ -3,7 +3,7 @@ import sliceAnsi from "slice-ansi";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { openInDefaultApp } from "../open.js";
 import { AreaContext, inArea, Spinner } from "./layout.js";
-import { linkAt, shotAt, stripAnsi } from "./links.js";
+import { linkAt, markAt, stripAnsi, type Mark } from "./links.js";
 import { MouseContext, useMouse } from "./mouse.js";
 import { highlightColumns, type Point, type Selection, selectedColumns, selectedText } from "./selection.js";
 import { useClipboard } from "./useClipboard.js";
@@ -52,8 +52,10 @@ interface Props {
   onJump?: (to: "top" | "end") => void;
   /** A link was clicked and opened; links open on release, so a drag that starts on one selects instead. */
   onLink?: (url: string) => void;
-  /** A click on a screenshot mark `[▣ n]` in the body; on release, like links. */
-  onShot?: (n: number) => void;
+  /** A click on a mark (`[Image #n]`, `[▣ n]`, `[▤ n]`) in the header or the body; on release, like links. */
+  onMark?: (mark: Mark) => void;
+  /** A click on body line `index` where there is no link or mark; on release, like links. */
+  onLineClick?: (index: number) => void;
 }
 
 /** Height left for the scrolling lines below `header`. */
@@ -194,7 +196,8 @@ export function Preview({
   onWheel,
   onJump,
   onLink,
-  onShot,
+  onMark,
+  onLineClick,
 }: Props) {
   const bodyHeight = bodyHeightBelow(header, height);
   const { from, to, above, below } = previewWindow(lines.length, scroll, bodyHeight);
@@ -216,7 +219,7 @@ export function Preview({
     return () => clearTimeout(timer);
   }, [copied]);
   // The press the left button is held since: where a drag selects from, and the link it opens if it is let go without one.
-  const press = useRef<{ region: Region; at?: Point; url?: string; shot?: number; dragged: boolean }>(undefined);
+  const press = useRef<{ region: Region; at?: Point; url?: string; mark?: Mark; line?: number; dragged: boolean }>(undefined);
   /** The cell of the lines under body row `bodyRow` and column `col`, kept within the lines shown. */
   const pointAt = (bodyRow: number, col: number): Point => {
     const index = Math.max(from, Math.min(to - 1, from + bodyRow - (above > 0 ? 1 : 0)));
@@ -276,7 +279,8 @@ export function Preview({
         else if (!held.dragged && held.url) {
           openInDefaultApp(held.url);
           onLink?.(held.url);
-        } else if (!held.dragged && held.shot !== undefined) onShot?.(held.shot);
+        } else if (!held.dragged && held.mark) onMark?.(held.mark);
+        else if (!held.dragged && held.line !== undefined) onLineClick?.(held.line);
         return;
       }
       // A drag from where there is nothing to select (the header's rule) no longer opens a link either.
@@ -314,13 +318,16 @@ export function Preview({
     if (below > 0 && bodyRow === bodyHeight - 1) return jump("end");
     if (at.row < header.length) {
       const url = linkAt(header, at.row, at.col, width);
-      press.current = { region: "header", at: at.row < headerLines ? headerPointAt(at.row, at.col) : undefined, url, dragged: false };
+      const mark = onMark ? markAt(header[at.row], at.col) : undefined;
+      press.current = { region: "header", at: at.row < headerLines ? headerPointAt(at.row, at.col) : undefined, url, mark, dragged: false };
       return;
     }
     const index = from + bodyRow - (above > 0 ? 1 : 0);
     if (index < from || index >= to) return;
     const point = pointAt(bodyRow, at.col);
-    press.current = { region: "body", at: point, url: linkAt(lines, index, point.col, width), shot: onShot ? shotAt(lines[index], point.col) : undefined, dragged: false };
+    const url = linkAt(lines, index, point.col, width);
+    const mark = onMark ? markAt(lines[index], point.col) : undefined;
+    press.current = { region: "body", at: point, url, mark, line: url || mark ? undefined : index, dragged: false };
   });
   const marked = (line: string, index: number, region: Region) => {
     const cols = selected?.region === region && selectedColumns(selected, index);

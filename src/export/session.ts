@@ -25,6 +25,8 @@ import { lastActive, type SessionSummary } from "../transcript/sessions.js";
 import { subagentFile } from "../transcript/subagents.js";
 import type { ToolLevel } from "../transcript/tools.js";
 import { VERSION } from "../version.js";
+import { pastedNumbers } from "../attachments.js";
+import { isBrowserTool } from "../transcript/chrome.js";
 
 /** How the subagents are exported: left out, their reports, or their reports and whole conversations. */
 export type AgentExport = "none" | "reports" | "full";
@@ -90,7 +92,7 @@ export function loadSubagent(session: LoadedSession, agent: AgentRun): Turn[] | 
 
 // --- Images -----------------------------------------------------------------------------------
 
-const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "application/pdf": "pdf" };
 
 interface ImageBlock {
   type?: string;
@@ -111,7 +113,7 @@ interface ImageData {
 }
 
 /**
- * Finds the images of a session's prompts and tool results: the copies Claude
+ * Finds the images of a session's prompts and the images and PDFs of its tool results: the copies Claude
  * Code keeps where they still exist, else the base64 data in the transcript,
  * which each transcript is read for once.
  */
@@ -130,7 +132,7 @@ export class ImageSource {
       return found;
     }
     for (const line of text.split("\n")) {
-      if (!line.includes('"image"')) continue;
+      if (!line.includes('"image"') && !line.includes('"document"')) continue;
       try {
         const entry = JSON.parse(line) as { uuid?: string; message?: { content?: unknown }; attachment?: { prompt?: unknown } };
         const content = entry.message?.content ?? entry.attachment?.prompt;
@@ -139,7 +141,7 @@ export class ImageSource {
         if (images.length && entry.uuid) found.prompts.set(entry.uuid, images);
         for (const b of content as { type?: string; tool_use_id?: string; content?: unknown }[]) {
           if (b?.type !== "tool_result" || !b.tool_use_id || !Array.isArray(b.content)) continue;
-          found.results.set(b.tool_use_id, (b.content as ImageBlock[]).filter((c) => c?.type === "image"));
+          found.results.set(b.tool_use_id, (b.content as ImageBlock[]).filter((c) => c?.type === "image" || c?.type === "document"));
         }
       } catch {
         continue;
@@ -168,7 +170,7 @@ export class ImageSource {
     return ImageSource.file(image.path) ?? (turn.transcript ? ImageSource.decode(this.of(turn.transcript).prompts.get(turn.id)?.[i]) : undefined);
   }
 
-  /** A browser screenshot of `turn`. */
+  /** An image (a browser's screenshot, a read image file) or a PDF a tool of `turn` returned. */
   screenshot(turn: Turn, shot: Screenshot): ImageData | undefined {
     const saved = ImageSource.file(shot.block.outcome?.images?.[shot.index]?.path);
     if (saved) return saved;
@@ -198,14 +200,18 @@ class Attachments {
 
   promptImages(turn: Turn, n: number): { label: string; file?: string }[] {
     const images = (turn.attachments ?? []).filter((a): a is Extract<Attachment, { kind: "image" }> => a.kind === "image");
+    // Named as Claude Code's placeholders in the prompt name them.
+    const numbers = pastedNumbers(turn.prompt, images.length);
     return images.map((image, i) => ({
-      label: `Image ${i + 1}`,
+      label: `Image #${numbers[i]}`,
       file: this.add(`${turn.id}#${i}`, `turn-${pad3(n)}-image-${i + 1}`, () => this.images.promptImage(turn, image, i)),
     }));
   }
 
+  /** A browser's screenshot as `turn-NNN-shot-n`, another tool's image as `turn-NNN-tool-image-n`, a PDF as `turn-NNN-pdf-n`. */
   screenshot(turn: Turn, n: number, shot: Screenshot): string | undefined {
-    return this.add(`${turn.id}#shot${shot.n}`, `turn-${pad3(n)}-shot-${shot.n}`, () => this.images.screenshot(turn, shot));
+    const kind = shot.kind === "pdf" ? "pdf" : isBrowserTool(shot.block.name) ? "shot" : "tool-image";
+    return this.add(`${turn.id}#${kind}${shot.n}`, `turn-${pad3(n)}-${kind}-${shot.n}`, () => this.images.screenshot(turn, shot));
   }
 }
 
@@ -433,7 +439,10 @@ export function sessionMarkdown(
         const inRun = shots.filter((sh) => run.includes(sh.block));
         const links = inRun.flatMap((sh) => {
           const file = attachments.screenshot(turn, n, sh);
-          return file ? [`![▣ ${sh.n}](${file})`] : [];
+          if (!file) return [];
+          // A PDF is linked, not shown.
+          const name = sh.block.outcome?.images?.[sh.index]?.name;
+          return [sh.kind === "pdf" ? `[▤ ${sh.n}${name ? ` ${escapeMd(name)}` : ""}](${file})` : `![▣ ${sh.n}](${file})`];
         });
         if (links.length) out.push(links.join("  \n"));
       }
@@ -511,12 +520,15 @@ function jsonBlock(
     }
     case "tool": {
       if (opts.tools === "off" && b.name !== "AskUserQuestion") return [];
-      const screenshots = shots
-        .filter((s) => s.block === b)
-        .flatMap((s) => {
-          const file = attachments.screenshot(turn, n, s);
-          return file ? [file] : [];
-        });
+      const filesOf = (kind: "image" | "pdf") =>
+        shots
+          .filter((s) => s.block === b && s.kind === kind)
+          .flatMap((s) => {
+            const file = attachments.screenshot(turn, n, s);
+            return file ? [file] : [];
+          });
+      const screenshots = filesOf("image");
+      const pdfs = filesOf("pdf");
       return [
         {
           type: "tool",
@@ -525,6 +537,7 @@ function jsonBlock(
           ...(opts.tools === "full" || b.name === "AskUserQuestion" ? { input: b.input } : {}),
           ...(b.outcome ? { outcome: opts.tools === "full" ? b.outcome : { status: b.outcome.status, summary: b.outcome.summary, answers: b.outcome.answers } } : {}),
           ...(screenshots.length ? { screenshots } : {}),
+          ...(pdfs.length ? { pdfs } : {}),
         },
       ];
     }
