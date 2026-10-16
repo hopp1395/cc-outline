@@ -1,16 +1,16 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { cliFile } from "./cliPath.js";
 import { detectTerminal } from "./open.js";
-import { DEFAULT_SETTINGS, readSettings, settingsFile, type Settings } from "./settings.js";
+import { DEFAULT_SETTINGS, isSessionViewerKey, readMainSettings, readSessionViewerSettings, sessionViewerSettingsFile, sessionViewerPart, settingsFile, type Settings } from "./settings.js";
 import { activeFile, claudeDir, claudeFile, claudePidFromEnv, projectDir, readJson, transcriptForSession, writeJson, type ActiveSession } from "./transcript/locate.js";
 import { runningSessions } from "./transcript/trash.js";
 import { readLogin, RemoteError } from "./remote/credentials.js";
 import { compareVersions, installKind, packageRoot, runCommand, type RunCommand } from "./update.js";
 import { VERSION } from "./version.js";
 import { isAlive } from "./viewer.js";
-import { observersDir } from "./observers.js";
+import { legacyObserversDir, sessionViewersDir } from "./sessionViewers.js";
 
 /** `ok` passes, `warn` is worth a look (or a repair), `error` keeps cco from working as it should; only errors fail `cco doctor`. */
 export type Severity = "ok" | "warn" | "error";
@@ -52,7 +52,7 @@ export interface DoctorOptions {
 
 const PLUGIN = "cco@cc-outline";
 /** The files in ~/.claude/cco that belong to no project. */
-const GLOBAL_FILES = new Set(["settings.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json"]);
+const GLOBAL_FILES = new Set(["settings.json", "settings.session-viewer.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json"]);
 /** A project's session marked ended this long ago is history: no viewer waits for it any more. */
 const ENDED_AGE_MS = 24 * 60 * 60 * 1000;
 /** A `.corrupt` copy is kept this long for a look, then counts as a leftover. */
@@ -162,6 +162,7 @@ function installation(root: string, version: string): Finding[] {
 
 const PID_FILE = /^([A-Za-z0-9-]+)\.(claude|viewer|control)-(\d+)\.json$/;
 const LEGACY_FILE = /^([A-Za-z0-9-]+)\.(viewer|control)\.json$/;
+const REMOTE_VIEWER_FILE = /^remote-[A-Za-z0-9_-]+\.viewer\.json$/;
 const RESTORE_FILE = /^([A-Za-z0-9-]+)\.restore\.json$/;
 const ACTIVE_FILE = /^[A-Za-z0-9-]+\.json$/;
 
@@ -221,6 +222,11 @@ function stateFiles(now: number): Finding[] {
       if (!isAlive(Number(pidFile[3]))) stale.push(path);
       continue;
     }
+    // The one viewer per remote session of before: its pid until it ended.
+    if (REMOTE_VIEWER_FILE.test(name)) {
+      if (!(typeof data.pid === "number" && isAlive(data.pid))) stale.push(path);
+      continue;
+    }
     const legacy = LEGACY_FILE.exec(name);
     if (legacy) {
       if (!legacyViewerAlive(legacy[1])) stale.push(path);
@@ -237,8 +243,8 @@ function stateFiles(now: number): Finding[] {
     }
   }
   const trash = trashOrphans();
-  // Observers register below the default folder, whichever account they read.
-  stale.push(...staleObservers());
+  // Session viewers register below the default folder, whichever account they read; in `observers/` before.
+  stale.push(...staleViewers(sessionViewersDir()), ...legacyObservers());
 
   const findings: Finding[] = [];
   const add = (paths: string[], text: string, id: string, label: string, apply: () => void) =>
@@ -255,9 +261,8 @@ function stateFiles(now: number): Finding[] {
   return findings;
 }
 
-/** Registrations of observers that no longer run, or files there that are none. */
-function staleObservers(): string[] {
-  const dir = observersDir();
+/** Registrations of session viewers in `dir` that no longer run, or files there that are none. */
+function staleViewers(dir: string): string[] {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".json"));
@@ -270,6 +275,14 @@ function staleObservers(): string[] {
       const info = parseFile(path);
       return !(isObject(info) && typeof info.pid === "number" && isAlive(info.pid));
     });
+}
+
+/** The observers' folder of before, as a whole once none of its observers runs any more. */
+function legacyObservers(): string[] {
+  const dir = legacyObserversDir();
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir).filter((n) => n.endsWith(".json"));
+  return staleViewers(dir).length === files.length ? [dir] : [];
 }
 
 /** Folders in the trash the Sessions view cannot show: a session without a readable manifest, or a project's folder left empty. */
@@ -303,14 +316,24 @@ const LEGACY_SETTINGS: Record<string, string> = {
 };
 
 function settingsCheck(): Finding[] {
+  const main = readMainSettings();
+  const own = readSessionViewerSettings(main);
+  return [
+    ...settingsFileCheck(settingsFile(), main, () => true, () => writeJson(settingsFile(), readMainSettings())),
+    // The viewers of one session keep some settings for themselves; the file exists once one has run.
+    ...(own ? settingsFileCheck(sessionViewerSettingsFile(), own, isSessionViewerKey, () => writeJson(sessionViewerSettingsFile(), sessionViewerPart(readSessionViewerSettings() ?? main))) : []),
+  ];
+}
+
+/** The findings of one settings file: `applied` is what applies of it, `known` the keys it may hold. */
+function settingsFileCheck(file: string, applied: Settings, known: (key: string) => boolean, rewrite: () => void): Finding[] {
   const group = "Settings";
-  const file = settingsFile();
+  const name = basename(file);
   const stored = parseFile(file);
-  if (stored === undefined) return [{ group, severity: "ok", text: "no settings.json: every setting is at its default" }];
+  if (stored === undefined) return [{ group, severity: "ok", text: `no ${name}: every setting is at its default` }];
   // Not JSON: State files renames it.
   if (!isObject(stored)) return [];
-  const applied = readSettings();
-  const repair: Repair = { id: "settings", label: "rewrite settings.json with the values that apply", apply: () => writeJson(file, readSettings()) };
+  const repair: Repair = { id: `settings:${name}`, label: `rewrite ${name} with the values that apply`, apply: rewrite };
   const findings: Finding[] = [];
   const show = (v: unknown) => JSON.stringify(v);
   for (const [key, value] of Object.entries(stored)) {
@@ -318,8 +341,8 @@ function settingsCheck(): Finding[] {
       findings.push({ group, severity: "warn", text: `${key} is ${LEGACY_SETTINGS[key]}, an old format`, repair });
       continue;
     }
-    if (!(key in DEFAULT_SETTINGS)) {
-      findings.push({ group, severity: "warn", text: `unknown setting ${key}`, repair });
+    if (!(key in DEFAULT_SETTINGS) || !known(key)) {
+      findings.push({ group, severity: "warn", text: `unknown setting ${key}${key in DEFAULT_SETTINGS ? ` in ${name}` : ""}`, repair });
       continue;
     }
     const k = key as keyof Settings;
@@ -332,7 +355,7 @@ function settingsCheck(): Finding[] {
       repair,
     });
   }
-  if (findings.length === 0) findings.push({ group, severity: "ok", text: `settings.json is valid` });
+  if (findings.length === 0) findings.push({ group, severity: "ok", text: `${name} is valid` });
   return findings;
 }
 
@@ -371,7 +394,7 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
       text: "neither Windows Terminal nor tmux: cco opens no panes",
       hint: "run cco watch in a terminal of your own",
     });
-  if (readSettings().remoteApi) findings.push(remoteLogin(dir));
+  if (readMainSettings().remoteApi) findings.push(remoteLogin(dir));
   return findings;
 }
 

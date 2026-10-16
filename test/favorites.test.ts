@@ -50,10 +50,18 @@ describe("favorites", () => {
     expect(toggleFavorite(cwd, "settings", "reset:settings")).toEqual(["chatWrap", "reset:settings"]);
     expect(readFavorites(join(tmpdir(), "other-project"), "settings")).toEqual(["chatWrap", "reset:settings"]);
     expect(stored()).toEqual({ turns: ["a"], files: [], plans: [], sessions: [], days: [] });
-    expect(JSON.parse(readFileSync(globalFavoritesFile(), "utf8"))).toEqual({ settings: ["chatWrap", "reset:settings"], accounts: [] });
+    expect(JSON.parse(readFileSync(globalFavoritesFile(), "utf8"))).toEqual({ settings: ["chatWrap", "reset:settings"], sessionViewerSettings: [], accounts: [] });
     expect(clearFavorites(cwd, "settings")).toEqual([]);
     expect(readFavorites(cwd, "settings")).toEqual([]);
     expect(readFavorites(cwd, "turns")).toEqual(["a"]);
+  });
+
+  it("keeps the marks of the viewers of one session's settings apart from the project's viewer's", () => {
+    toggleFavorite(cwd, "settings", "chatWrap");
+    expect(toggleFavorite(cwd, "sessionViewerSettings", "showTools")).toEqual(["showTools"]);
+    expect(readFavorites(cwd, "settings")).toEqual(["chatWrap"]);
+    expect(clearFavorites(cwd, "sessionViewerSettings")).toEqual([]);
+    expect(readFavorites(cwd, "settings")).toEqual(["chatWrap"]);
   });
 
   it("ignores broken files", () => {

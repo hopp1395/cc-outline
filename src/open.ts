@@ -8,7 +8,6 @@ import { claudeDir, claudeFile, isDefaultClaudeDir, readActive, readJson, withCl
 import { ranFromQueue } from "./transcript/queue.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
-import { remoteWindow, runningRemoteViewer } from "./remote/viewer.js";
 
 const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", plan: "plan", sessions: "sessions", settings: "settings", monitor: "monitor", accounts: "accounts" };
 
@@ -101,44 +100,19 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
   return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir, process.platform, fresh)} in ${dir}`;
 }
 
-/**
- * Opens a viewer of the remote session `id` (`cco watch --remote`) in a window of its own, named after the session
- * (`remoteWindow`), or brings the one that runs to the front. Returns what happened, for the help line.
- */
-export function openRemoteViewer(id: string, title: string): string {
-  const terminal = detectTerminal();
-  const running = runningRemoteViewer(id);
-  const window = remoteWindow(id);
-  if (terminal === "wt") {
-    // focus-tab on the named window raises it; new-tab there opens it the first time. No windowsHide, see resumeInNewWindow.
-    const args = running
-      ? ["-w", window, "focus-tab", "-t", "0"]
-      : ["-w", window, "new-tab", "--title", title, process.execPath, CLI, "watch", "--remote", id, "--config-dir", claudeDir()];
-    proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
-    return running ? "its viewer is in front" : "opened in a window of its own";
-  }
-  if (terminal === "tmux") {
-    const command = [process.execPath, CLI, "watch", "--remote", id, "--config-dir", claudeDir()].map(shellQuote).join(" ");
-    const args = running ? ["select-window", "-t", window] : ["new-window", "-n", window, command];
-    proc.spawn("tmux", args, { stdio: "ignore", detached: true, env: independentEnv() }).unref();
-    return running ? "its viewer is in front" : "opened in a tmux window";
-  }
-  return `no Windows Terminal or tmux: run cco watch --remote ${id}`;
-}
+/** What a session viewer is opened for: a session of this machine (in its folder and config folder), or a remote one. */
+export type ViewerTarget = { sessionId: string; cwd: string; configDir?: string } | { remoteId: string };
 
-/** What an observer is opened for: a session of this machine (in its folder and config folder), or a remote one. */
-export type ObserverTarget = { sessionId: string; cwd: string; configDir?: string } | { remoteId: string };
-
-/** The `cco watch` arguments of an observer of `target`, in window `window`. */
-function observerArgs(target: ObserverTarget, window?: string): string[] {
+/** The `cco watch` arguments of a viewer of `target`, in window `window`. */
+function viewerArgs(target: ViewerTarget, window?: string): string[] {
   const where = window ? ["--window", window] : [];
-  if ("remoteId" in target) return ["watch", "--remote", target.remoteId, "--observe", "--config-dir", claudeDir(), ...where];
+  if ("remoteId" in target) return ["watch", "--remote", target.remoteId, "--config-dir", claudeDir(), ...where];
   return ["watch", "--session", target.sessionId, "--cwd", target.cwd, "--config-dir", target.configDir ?? claudeDir(), ...where];
 }
 
-/** The command that opens an observer of `target` by hand, for a terminal cco cannot open windows in. */
-export function observerCommand(target: ObserverTarget, platform: NodeJS.Platform = process.platform): string {
-  if ("remoteId" in target) return `cco watch --remote ${target.remoteId} --observe`;
+/** The command that opens a viewer of `target` by hand, for a terminal cco cannot open windows in. */
+export function viewerCommand(target: ViewerTarget, platform: NodeJS.Platform = process.platform): string {
+  if ("remoteId" in target) return `cco watch --remote ${target.remoteId}`;
   // cmd and PowerShell take double quotes, POSIX shells single ones; a plain path needs none.
   const quote = (s: string) => (!/[\s"'$&;|()<>`]/.test(s) ? s : platform === "win32" ? `"${s}"` : shellQuote(s));
   const account = target.configDir && !isDefaultClaudeDir(target.configDir) ? ` --config-dir ${quote(target.configDir)}` : "";
@@ -146,29 +120,29 @@ export function observerCommand(target: ObserverTarget, platform: NodeJS.Platfor
 }
 
 /**
- * Opens an observer of `target` (the chat only, read-only, live) in a new window named `window` (`observerWindow`):
- * any number per session. Returns what happened, or undefined without Windows Terminal or tmux (then
- * `observerCommand` is the way).
+ * Opens a viewer of `target` (the chat only, live; a prompt line for a remote session while remote control is on)
+ * in a new window named `window` (`viewerWindow`): any number per session. Returns what happened, or undefined
+ * without Windows Terminal or tmux (then `viewerCommand` is the way).
  */
-export function openObserver(target: ObserverTarget, title: string, window: string): string | undefined {
+export function openSessionViewer(target: ViewerTarget, title: string, window: string): string | undefined {
   const terminal = detectTerminal();
-  const args = [process.execPath, CLI, ...observerArgs(target, window)];
-  // The observer reads the session; claude's variables must not make it a part of the Claude Code it was opened from.
+  const args = [process.execPath, CLI, ...viewerArgs(target, window)];
+  // The viewer reads the session; claude's variables must not make it a part of the Claude Code it was opened from.
   const env = independentEnv();
   if (terminal === "wt") {
     // A name of its own makes a new window; no windowsHide, see resumeInNewWindow.
     proc.spawn("wt", ["-w", window, "new-tab", "--title", title, ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
-    return "observing it in a new window";
+    return "opened in a new window";
   }
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", window, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
-    return "observing it in a new tmux window";
+    return "opened in a new tmux window";
   }
   return undefined;
 }
 
-/** Brings the window of an observer (`window`) to the front; false without Windows Terminal or tmux. */
-export function focusObserver(window: string): boolean {
+/** Brings the window of a session viewer (`window`) to the front; false without Windows Terminal or tmux. */
+export function focusSessionViewer(window: string): boolean {
   const terminal = detectTerminal();
   if (terminal === "wt") proc.spawn("wt", ["-w", window, "focus-tab", "-t", "0"], { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
   else if (terminal === "tmux") proc.spawn("tmux", ["select-window", "-t", window], { stdio: "ignore", detached: true, env: independentEnv() }).unref();

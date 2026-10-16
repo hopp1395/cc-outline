@@ -1,17 +1,14 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { openRemoteViewer } from "../src/open.js";
-import { proc } from "../src/proc.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { remote, type RemoteEvent } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { pendingRequests } from "../src/remote/pending.js";
 import { toTranscript } from "../src/remote/toTranscript.js";
-import { registerRemoteViewer, remoteViewerFile, remoteWindow } from "../src/remote/viewer.js";
-import { isViewShown, readSettings, setViewLimit } from "../src/settings.js";
+import { isViewShown, readSettings, setSessionViewer } from "../src/settings.js";
 import { TranscriptParser } from "../src/transcript/parse.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { renderInk, until } from "./helpers/ink.js";
@@ -58,48 +55,14 @@ describe("the recorded session", () => {
 });
 
 describe("the views of a remote viewer", () => {
-  afterEach(() => setViewLimit(undefined));
+  afterEach(() => setSessionViewer(false));
 
-  it("are the chat alone, whatever the settings say", () => {
-    setViewLimit(REMOTE_VIEWS);
+  it("are the chat and its settings alone, whatever the settings say", () => {
+    setSessionViewer(true);
     const settings = readSettings();
     expect(isViewShown(settings, "chat")).toBe(true);
-    expect(["git", "plan", "sessions", "monitor", "settings", "accounts"].some((m) => isViewShown(settings, m as never))).toBe(false);
-  });
-});
-
-describe("opening a remote viewer", () => {
-  const spawned: { cmd: string; args: string[] }[] = [];
-  const real = { ...proc };
-  const env = { ...process.env };
-  let saved: string | undefined;
-  beforeAll(() => {
-    proc.spawn = ((cmd: string, args: string[]) => {
-      spawned.push({ cmd, args });
-      return { unref: () => {} };
-    }) as never;
-  });
-  afterAll(() => Object.assign(proc, real));
-  beforeEach(() => {
-    spawned.length = 0;
-    saved = process.env.CLAUDE_CONFIG_DIR;
-    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-remote-open-"));
-    delete process.env.TMUX;
-    process.env.WT_SESSION = "x";
-  });
-  afterEach(() => {
-    process.env = { ...env, CLAUDE_CONFIG_DIR: saved };
-  });
-
-  it("opens a window named after the session, then brings it to the front", () => {
-    expect(openRemoteViewer("cse_01Abc", "◈ Build")).toBe("opened in a window of its own");
-    expect(spawned[0]!.args.slice(0, 3)).toEqual(["-w", remoteWindow("cse_01Abc"), "new-tab"]);
-    expect(spawned[0]!.args).toEqual(expect.arrayContaining(["watch", "--remote", "cse_01Abc"]));
-    // This process stands in for the viewer started there.
-    registerRemoteViewer("cse_01Abc");
-    expect(openRemoteViewer("cse_01Abc", "◈ Build")).toBe("its viewer is in front");
-    expect(spawned[1]!.args).toEqual(["-w", remoteWindow("cse_01Abc"), "focus-tab", "-t", "0"]);
-    writeFileSync(remoteViewerFile("cse_01Abc"), "{}");
+    expect(isViewShown(settings, "settings")).toBe(true);
+    expect(["git", "plan", "sessions", "monitor", "accounts"].some((m) => isViewShown(settings, m as never))).toBe(false);
   });
 });
 
@@ -120,15 +83,15 @@ describe("a remote viewer", () => {
         : { data: [{ ...session, title: "rc-test" }] };
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     };
-    setViewLimit(REMOTE_VIEWS);
+    setSessionViewer(true);
   });
   afterEach(() => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
-    setViewLimit(undefined);
+    setSessionViewer(false);
   });
 
-  it("shows the session live in the chat, with what it does and the title in place of the tabs", async () => {
+  it("shows the session live in the chat, with what it does, its two tabs and the title", async () => {
     const layout: Layout = { columns: 110, rows: 26, listWidth: 40, previewWidth: 67, bodyHeight: 22 };
     const app = renderInk(<App cwd={tmpdir()} remoteId={String(session.id)} initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
@@ -136,13 +99,13 @@ describe("a remote viewer", () => {
     await until(() => app.frame().includes("frag mich mit askuserquestion"));
     expect(app.frame()).not.toContain("zähle bis 10");
     const tabs = app.frame().split("\n")[0]!;
-    // Without remote control it only observes.
-    expect(tabs).toContain(" observing ");
+    // No role: whether it can send shows in its prompt line.
+    expect(tabs).not.toContain("observing");
     expect(tabs).toContain("rc-test");
-    expect(tabs).not.toContain("Chat");
+    expect(tabs).toContain(" 1 Chat ");
+    expect(tabs).toContain(" 6 Settings ");
     expect(tabs).not.toContain("Sessions");
     expect(tabs).not.toContain("Plan");
-    expect(tabs).not.toContain("Settings");
     expect(tabs).not.toContain("Changes");
     served = 1000;
     await until(() => app.frame().includes("zähle bis 10"));

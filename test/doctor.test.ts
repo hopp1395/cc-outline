@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cliFile } from "../src/cliPath.js";
 import { diagnose, lastPromptTime, repairsOf, repairSteps, runDoctor, runRepairs, type Finding } from "../src/doctor.js";
+import { legacyObserversDir, sessionViewersDir } from "../src/sessionViewers.js";
 import { settingsFile } from "../src/settings.js";
 import { claudeDir, projectSlug } from "../src/transcript/locate.js";
 import { VERSION } from "../src/version.js";
@@ -59,6 +60,21 @@ describe("state files", () => {
     expect(existsSync(cco(`${slug}.claude-${DEAD}.json`))).toBe(false);
     expect(existsSync(cco(`${slug}.viewer.json`))).toBe(false);
     expect(existsSync(cco(`${slug}.claude-${process.pid}.json`))).toBe(true);
+  });
+
+  it("cleans up the registrations of session viewers of before: observers and the one remote viewer", async () => {
+    write(cco("remote-cse_01Abc.viewer.json"), { pid: DEAD, window: "cco-remote-01Abc" });
+    write(cco("remote-cse_02Def.viewer.json"), { pid: process.pid, window: "cco-remote-02Def" });
+    write(join(legacyObserversDir(), `${DEAD}.json`), { pid: DEAD, started: 1 });
+    write(join(sessionViewersDir(), `${DEAD}.json`), { pid: DEAD, started: 1 });
+    const findings = check();
+    expect(findings.find((f) => f.repair?.id === "stale")?.paths).toEqual(
+      expect.arrayContaining([cco("remote-cse_01Abc.viewer.json"), legacyObserversDir(), join(sessionViewersDir(), `${DEAD}.json`)]),
+    );
+    await repairAll(findings);
+    expect(existsSync(legacyObserversDir())).toBe(false);
+    expect(existsSync(cco("remote-cse_01Abc.viewer.json"))).toBe(false);
+    expect(existsSync(cco("remote-cse_02Def.viewer.json"))).toBe(true);
   });
 
   it("keeps the legacy control file while its viewer runs", () => {

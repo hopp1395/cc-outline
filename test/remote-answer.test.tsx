@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseSession, remote } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
-import { setViewLimit, updateSettings } from "../src/settings.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { setSessionViewer, updateSettings } from "../src/settings.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { answersOf, QuestionDialog, questionsOf } from "../src/tui/QuestionDialog.js";
@@ -122,12 +122,12 @@ describe("answering a remote session", () => {
   afterEach(() => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
-    setViewLimit(undefined);
+    setSessionViewer(false);
     updateSettings({ remoteApi: false, remoteControl: false });
   });
 
   const viewer = () => {
-    setViewLimit(REMOTE_VIEWS);
+    setSessionViewer(true);
     return renderInk(<App cwd={tmpdir()} remoteId={String(waitingEntry.id)} initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
@@ -136,6 +136,8 @@ describe("answering a remote session", () => {
   it("shows the question in place of the prompt line in the session's viewer and sends the answer as the app does", async () => {
     const app = viewer();
     await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
+    // The chat has the keys at first; Tab hands them to the question.
+    await app.press("\t");
     await app.press(" ");
     await app.press("\r");
     await expect.poll(() => posted.length).toBe(1);
@@ -154,6 +156,7 @@ describe("answering a remote session", () => {
   it("puts the prompt line back when the app answered the question first", async () => {
     const app = viewer();
     await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
+    await app.press("\t");
     answered = true;
     await until(() => app.frame().includes("already answered in another app"));
     expect(app.frame()).not.toContain("Space choose");

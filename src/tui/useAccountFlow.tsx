@@ -54,7 +54,7 @@ export interface Pairing {
 
 /** The pairing's progress dialog: starting Claude Code, waiting for it (Esc cancels), or why it failed. */
 export function pairingProgress(pairing: Pairing, now: number, onCancel: () => void, onClose: () => void): Progress {
-  const title = "Attach the viewer";
+  const title = "Attach this viewer";
   if (pairing.failed) return { title, status: "failed", ...pairing.failed, onClose };
   if (pairing.where === undefined) return { title, status: "running", text: "Starting Claude Code", onCancel };
   const total = PAIR_TIMEOUT_MS / 1000;

@@ -44,7 +44,7 @@ describe("ChatView selection", () => {
   it("keeps the selection per session, so two viewers of the project's sessions keep theirs", async () => {
     const other = transcript([turn("x", "Answer x"), turn("y", "Answer y")], 1);
     const view = (path: string, t: Transcript) => <ChatView cwd={cwd} path={path} transcript={t} layout={layout} active liveSession />;
-    // The project's viewer on one session, an observer on another, both open at once.
+    // The project's viewer on one session, a viewer of one session on another, both open at once.
     const first = renderInk(view("resumed.jsonl", resumed), { columns: 120, rows: 20 });
     const second = renderInk(view("other.jsonl", other), { columns: 120, rows: 20 });
     await expect.poll(first.frame, { timeout: 2000 }).toContain("Answer three");

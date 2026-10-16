@@ -17,7 +17,7 @@ export interface ListPositions extends Selection {
   scroll: Record<string, number>;
   /**
    * The selection per session id, for a list of one session's entries (the chat): several viewers of the project
-   * (the project's, observers) show different sessions. The selection above stays for files written before.
+   * (the project's, session viewers) show different sessions. The selection above stays for files written before.
    */
   sessions?: Record<string, Selection>;
 }

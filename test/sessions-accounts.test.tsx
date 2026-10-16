@@ -138,13 +138,13 @@ describe("Sessions with the other accounts", () => {
     await view.press("d");
     await until(() => view.frame().includes("only for sessions of this account"));
     await view.press("\r");
-    await until(() => view.frame().includes("Continue it in a new window"));
+    await until(() => view.frame().includes("Continue it in a new Claude Code window"));
     // The same head as for this account's sessions, naming its account; what works only here is greyed out.
     expect(view.frame()).toContain("▌ jan@work.com");
     expect(view.frame()).toContain("runs nowhere");
     expect(view.frame()).toContain("Rename it");
-    // Without a terminal, observing it (which copies its command) is selected.
-    expect(view.frame()).toMatch(/› +Observe it in a window of its own/);
+    // Without a terminal, a viewer of it (which copies its command) is selected.
+    expect(view.frame()).toMatch(/› +Open it in a session viewer/);
     view.unmount();
   });
 
