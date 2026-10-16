@@ -676,4 +676,41 @@ describe("blinking marks", () => {
     view.unmount();
     rmSync(join(claudeDir(), "sessions"), { recursive: true, force: true });
   });
+
+  it("show a session that finishes while the Remote Control Viewer watches with its ● on and off, but not one idle at its start", async () => {
+    setOwnSettings("rcViewer");
+    const cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-fresh-"));
+    mkdirSync(projectDir(cwd), { recursive: true });
+    const write = (id: string, title: string) =>
+      writeFileSync(
+        join(projectDir(cwd), `${id}.jsonl`),
+        [
+          { type: "user", uuid: `${id}-u`, timestamp: new Date().toISOString(), cwd, message: { role: "user", content: "go" } },
+          { type: "custom-title", customTitle: title, sessionId: id },
+        ]
+          .map((e) => JSON.stringify(e))
+          .join("\n") + "\n",
+      );
+    write("s-run", "finishes now");
+    write("s-idle", "idle before");
+    const sessions = join(claudeDir(), "sessions");
+    mkdirSync(sessions, { recursive: true });
+    // Two live pids: this process and its parent.
+    const status = (pid: number, id: string, s: string) => writeFileSync(join(sessions, `${pid}.json`), JSON.stringify({ pid, sessionId: id, status: s, cwd }));
+    status(process.pid, "s-run", "busy");
+    status(process.ppid, "s-idle", "idle");
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, { columns: 120, rows: 20 });
+    await until(() => view.frame().includes("finishes now") && view.frame().includes("idle before"));
+    const plain = (f: string) => stripVTControlCharacters(f);
+    const row = (title: string) => (f: string) => plain(f).split("\n").find((l) => l.includes(title));
+    await tick(4 * TIMING.blink);
+    expect(blinked(view.frames, row("idle before"), "● idle before")).toBe(false);
+    status(process.pid, "s-run", "idle");
+    await until(() => plain(view.frame()).split("\n").findIndex((l) => l.includes("── Idle")) < plain(view.frame()).split("\n").findIndex((l) => l.includes("finishes now")));
+    const from = view.frames.length;
+    await tick(4 * TIMING.blink);
+    expect(blinked(view.frames.slice(from), row("finishes now"), "● finishes now")).toBe(true);
+    view.unmount();
+    rmSync(sessions, { recursive: true, force: true });
+  });
 });

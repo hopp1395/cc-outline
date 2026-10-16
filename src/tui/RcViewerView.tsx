@@ -161,7 +161,11 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [fresh, setFresh] = useState<FreshIdle>(new Map());
   const states = useRef<Map<string, RcViewerState>>(new Map());
   useEffect(() => {
-    setFresh((f) => updateFresh(f, states.current, entries, Date.now(), entry?.key, focused, { long: TIMING.freshIdle, short: TIMING.freshSelected }));
+    // Taken now: React runs the updater later, when states.current is already the new one.
+    const before = states.current;
+    const selected = entry?.key;
+    const at = Date.now();
+    setFresh((f) => updateFresh(f, before, entries, at, selected, focused, { long: TIMING.freshIdle, short: TIMING.freshSelected }));
     states.current = new Map(entries.map((e) => [e.key, e.state]));
   }, [entries]);
   useEffect(() => {
