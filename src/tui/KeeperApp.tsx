@@ -60,6 +60,8 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
   const [infoPage, setInfoPage] = useState<InfoPage>("keys");
   const [modal, setModal] = useState(false);
   const [typing, setTyping] = useState(false);
+  // The keeper's chat column takes Tab and i for its prompt line.
+  const [claimed, setClaimed] = useState(false);
   const [quitAsked, setQuitAsked] = useState(false);
   const [confirmQuit] = useSetting("confirmQuit");
   const progress = useProgressHost(dialogLayout);
@@ -132,6 +134,7 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
       if (view && view !== mode) setMode(view);
       return;
     }
+    if (mode === "chat" && claimed && (key.tab || input === "i")) return;
     if (input === "q") quit();
     else if (input === "i") {
       setInfoPage("keys");
@@ -164,6 +167,7 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
               onModal={setModal}
               notify={notify}
               request={request}
+              onClaimKeys={setClaimed}
             />
           </MouseContext.Provider>
           </ReloadContext.Provider>

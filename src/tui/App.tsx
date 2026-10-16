@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, useLayouts, type Mode, type Layout } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, shorter, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -67,12 +67,6 @@ interface Props {
   onDetach?: (cwd: string) => void;
   /** A remote viewer (`--remote`): the Remote Control session of this id, read from claude.ai, in the chat only. */
   remoteId?: string;
-}
-
-/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a remote viewer's prompt line). */
-function shorter(layout: Layout, rows: number): Layout {
-  const less = (n: number | undefined) => (n === undefined ? undefined : Math.max(1, n - rows));
-  return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };

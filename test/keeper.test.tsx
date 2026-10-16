@@ -2,8 +2,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { renderInk, until } from "./helpers/ink.js";
-import { formatAge, keeperEntries, keeperState, nextWaiting, runningStandIn, type SeenStates } from "../src/keeper/state.js";
+import { renderInk, tick, until } from "./helpers/ink.js";
+import { stripVTControlCharacters } from "node:util";
+import { TIMING } from "../src/timing.js";
+import { formatAge, keeperEntries, keeperState, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type KeeperEntry, type SeenStates } from "../src/keeper/state.js";
 import { registerKeeper, runningKeeper, keeperFile } from "../src/keeper/registry.js";
 import { openKeeper } from "../src/open.js";
 import { DEFAULT_SETTINGS, isViewShown, KEEPER_KEYS, keeperSettingsFile, readMainSettings, readSettings, setOwnSettings, updateSettings } from "../src/settings.js";
@@ -12,8 +14,11 @@ import type { SessionSummary } from "../src/transcript/sessions.js";
 import type { RunningSession } from "../src/transcript/trash.js";
 import { KeeperApp } from "../src/tui/KeeperApp.js";
 import { matchesRequest } from "../src/tui/KeeperView.js";
+import { keeperOptions, type KeeperSituation } from "../src/keeper/actions.js";
 import { keeperRowLabel, SessionsView } from "../src/tui/SessionsView.js";
 import { proc } from "../src/proc.js";
+import { remote } from "../src/remote/api.js";
+import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { readKeeperRequest } from "../src/keeper/registry.js";
 import { keeperLayout } from "../src/tui/layout.js";
 import { KEEPER_RESET_ACTIONS, KEEPER_ROWS, settingsEntries } from "../src/tui/SettingsView.js";
@@ -231,7 +236,8 @@ describe("the keeper's three columns", () => {
     const endedRow = rows.findIndex((l) => l.includes("── Ended"));
     expect(waitingRow).toBeGreaterThan(0);
     expect(endedRow).toBeGreaterThan(waitingRow);
-    expect(rows[waitingRow + 1]).toContain("⚠ needs an answer");
+    // Its ⚠ blinks: in the off phase a space stands in its place.
+    expect(rows[waitingRow + 1]).toMatch(/[⚠ ] needs an answer/);
     expect(rows[endedRow + 1]).toContain("∅ finished work");
     expect(frame).not.toContain("yesterday's work");
     expect(frame).toContain("1 Keeper");
@@ -320,5 +326,279 @@ describe("opening the keeper from Sessions", () => {
     expect(openKeeper(runningKeeper(), { id: "s1", configDir: claudeDir() })).toBe("brought the keeper to the front");
     expect(readKeeperRequest()).toMatchObject({ id: "s1", configDir: claudeDir() });
     expect(spawned[0]!.args).toEqual(["-w", "cco-keeper", "focus-tab", "-t", "0"]);
+  });
+});
+
+describe("the keeper's Enter dialog", () => {
+  const base: KeeperSituation = { state: "idle", running: { pid: 1, activity: "idle" }, terminal: true, viewers: 0, command: "claude --resume s1" };
+  const ids = (s: KeeperSituation) => keeperOptions(s).options.map((o) => o.id);
+  const first = (s: KeeperSituation) => {
+    const { options, initial } = keeperOptions(s);
+    return options[initial]!.id;
+  };
+
+  it("offers a session of this machine its terminal, a prompt and, while Claude works, stopping it", () => {
+    expect(ids(base)).toEqual(["switch", "prompt", "viewer", "copy"]);
+    expect(first(base)).toBe("prompt");
+    // Working: its terminal comes first, so a slip of Enter stops nothing.
+    const busy = { ...base, state: "busy" as const, running: { pid: 1, activity: "busy" as const } };
+    expect(ids(busy)).toEqual(["switch", "prompt", "interrupt", "viewer", "copy"]);
+    expect(first(busy)).toBe("switch");
+    // Waiting: its question or permission is answered in its terminal.
+    const waiting = { ...base, state: "waiting" as const, promptBlocked: "Claude waits for you in its terminal" };
+    expect(first(waiting)).toBe("switch");
+    expect(keeperOptions(waiting).options.find((o) => o.id === "prompt")?.disabled).toBe("Claude waits for you in its terminal");
+    // A background session has no tab to bring to the front.
+    const bg = { ...base, running: { pid: 1, activity: "idle" as const, kind: "bg" as const, jobId: "j1" } };
+    expect(keeperOptions(bg).options[0]!.disabled).toBe("a background session has no tab: claude attach j1");
+    // An idle one that cannot be typed into (no tmux) falls back to its terminal.
+    expect(first({ ...base, promptBlocked: "no tmux: cco cannot type into it" })).toBe("switch");
+  });
+
+  it("continues an ended session in a new window, or views it when its folder is gone", () => {
+    const ended = { ...base, state: "ended" as const, running: undefined };
+    expect(ids(ended)).toEqual(["window", "viewer", "copy"]);
+    expect(first(ended)).toBe("window");
+    expect(first({ ...ended, folderMissing: true })).toBe("viewer");
+    expect(first({ ...ended, terminal: false })).toBe("viewer");
+  });
+
+  it("answers what a remote session waits for, and sends nothing while remote control is off", () => {
+    const pending = { requestId: "r1", toolName: "Bash", toolUseId: "t1", input: { command: "ls" }, suggestions: [], needsInteraction: true, sequence: 1 };
+    const remote: KeeperSituation = { state: "waiting", remote: { control: true, pending }, terminal: true, viewers: 0, command: "https://claude.ai/code/x" };
+    expect(ids(remote)).toEqual(["answer", "prompt", "interrupt", "viewer", "copy"]);
+    expect(first(remote)).toBe("answer");
+    expect(keeperOptions(remote).options[0]!.label).toBe("Allow or deny Bash");
+    const off = { ...remote, remote: { control: false, pending } };
+    expect(first(off)).toBe("viewer");
+    expect(keeperOptions(off).options[0]!.disabled).toContain("remote control is off");
+    expect(first({ ...remote, state: "idle", remote: { control: true } })).toBe("prompt");
+    expect(ids({ ...remote, state: "ended", remote: { control: true } })).toEqual(["viewer", "copy"]);
+  });
+});
+
+describe("the keeper's prompt line", () => {
+  const size = { columns: 140, rows: 30 };
+  // tmux types: each send-keys is recorded with its pane; this process runs in %1, its parent in %2.
+  const sent: { pane: string; keys: string[] }[] = [];
+  const real = { ...proc };
+  const saved = { ...process.env };
+  let cwd: string;
+  beforeAll(() => {
+    proc.execFile = ((cmd: string, args: string[], _opts: object, done: (err: Error | null, stdout: string) => void) => {
+      if (cmd === "tmux" && args[0] === "list-panes") done(null, `${process.pid} %1\n${process.ppid} %2\n`);
+      else if (cmd === "tmux" && args[0] === "send-keys") {
+        sent.push({ pane: args[2]!, keys: args.slice(3) });
+        done(null, "");
+      } else done(new Error("not faked"), "");
+    }) as never;
+  });
+  afterAll(() => Object.assign(proc, real));
+  beforeEach(() => {
+    sent.length = 0;
+    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-keeper-prompt-"));
+    process.env.TMUX = "/tmp/tmux";
+    process.env.TMUX_PANE = "%9";
+    cwd = mkdtempSync(join(tmpdir(), "cco-keeper-prompt-project-"));
+    mkdirSync(projectDir(cwd), { recursive: true });
+    setOwnSettings("keeper");
+  });
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  /** A session whose prompt was `minutes` ago, run idle by the Claude Code `pid`. */
+  function idleSession(id: string, title: string, minutes: number, pid: number) {
+    const ts = new Date(Date.now() - minutes * 60_000).toISOString();
+    const file = join(projectDir(cwd), `${id}.jsonl`);
+    writeFileSync(
+      file,
+      [
+        { type: "user", uuid: `${id}-u`, timestamp: ts, cwd, message: { role: "user", content: `prompt of ${title}` } },
+        { type: "assistant", uuid: `${id}-a`, timestamp: ts, cwd, message: { id: `${id}-m`, role: "assistant", content: [{ type: "text", text: `answer of ${title}` }], stop_reason: "end_turn" } },
+        { type: "custom-title", customTitle: title, sessionId: id },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n") + "\n",
+    );
+    mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
+    writeFileSync(join(claudeDir(), "sessions", `${pid}.json`), JSON.stringify({ pid, sessionId: id, status: "idle", cwd }));
+    // The list sorts by the last write: the newer one on top.
+    utimesSync(file, new Date(ts), new Date(ts));
+  }
+
+  it("asks what to do on Enter, sends to the selected session and keeps each one's draft", async () => {
+    idleSession("s-a", "first work", 5, process.pid);
+    idleSession("s-b", "second work", 10, process.ppid);
+    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("answer of first work") && view.frame().includes("second work"));
+    expect(view.frame()).toContain("Space or a click: write a prompt");
+
+    // Enter on the idle session: the dialog, writing a prompt selected; Enter gives the line the keys.
+    await view.press("\r");
+    await until(() => view.frame().includes("What to do with this session?"));
+    expect(view.frame()).toContain("Bring its terminal to the front");
+    await view.press("\r");
+    await until(() => view.frame().includes("Enter send"));
+    await view.press("hello a");
+    await view.press("\r");
+    await expect.poll(() => sent.length, { timeout: 3000 }).toBe(2);
+    expect(sent).toEqual([
+      { pane: "%1", keys: ["-l", "hello a"] },
+      { pane: "%1", keys: ["Enter"] },
+    ]);
+
+    // A draft for the first session stays with it: the second one's line starts empty and sends to its own pane.
+    await until(() => !view.frame().includes("hello a"));
+    await view.press("draft of a");
+    await view.press("\u001b");
+    await until(() => view.frame().includes("Space or a click") && view.frame().includes("draft of a"));
+    await view.press("\u001b[D");
+    await view.press("\u001b[D");
+    await until(() => view.frame().includes("←→ sessions"));
+    await view.press("\u001b[B");
+    await until(() => view.frame().includes("answer of second work"));
+    expect(view.frame()).not.toContain("draft of a");
+    // Space from the sessions column gives the line the keys.
+    await view.press(" ");
+    await until(() => view.frame().includes("Enter send"));
+    await view.press("hello b");
+    await view.press("\r");
+    await expect.poll(() => sent.length, { timeout: 3000 }).toBe(4);
+    expect(sent.slice(2)).toEqual([
+      { pane: "%2", keys: ["-l", "hello b"] },
+      { pane: "%2", keys: ["Enter"] },
+    ]);
+
+    // Back on the first session, its draft is there again.
+    await view.press("\u001b");
+    await until(() => view.frame().includes("Space or a click"));
+    await view.press("\u001b[D");
+    await view.press("\u001b[D");
+    await until(() => view.frame().includes("←→ sessions"));
+    await view.press("\u001b[A");
+    await until(() => view.frame().includes("draft of a"));
+    // A click on the line gives it the keys too.
+    await view.click(10, size.rows - 2);
+    await until(() => view.frame().includes("Enter send"));
+    expect(view.frame()).toContain("draft of a");
+    view.unmount();
+  });
+});
+
+describe("answering a remote session in the keeper", () => {
+  const size = { columns: 140, rows: 34 };
+  const capture = readFileSync(join(import.meta.dirname, "fixtures", "remote-capture.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l) as { kind: string; data: Record<string, unknown> });
+  // The recorded session while its question (#34) waits: its events up to then, and its list entry.
+  const events = capture.filter((c) => c.kind === "event" && Number(c.data.sequence_num) <= 34).map((c) => c.data);
+  const entry = capture.find((c) => c.kind === "session" && c.data.worker_status === "requires_action")!.data;
+  const realFetch = remote.fetch;
+  const saved = { ...process.env };
+  let posted: Record<string, unknown>[];
+  beforeEach(() => {
+    const dir = (process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-keeper-remote-")));
+    writeFileSync(join(dir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "t", expiresAt: Date.now() + 3_600_000, scopes: [SESSIONS_SCOPE] } }));
+    writeFileSync(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "me@example.com", organizationUuid: "org-1" } }));
+    setOwnSettings("keeper");
+    updateSettings({ remoteApi: true, remoteControl: true });
+    posted = [];
+    remote.fetch = async (url, init) => {
+      if (init.method === "POST") {
+        posted.push(JSON.parse(String(init.body)).events[0].payload);
+        return new Response("{}", { status: 200 });
+      }
+      const body = url.includes("/events") ? { data: [...events].reverse() } : { data: [entry] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    };
+  });
+  afterEach(() => {
+    updateSettings({ remoteApi: false, remoteControl: false });
+    remote.fetch = realFetch;
+    process.env = { ...saved };
+  });
+
+  it("lists it as waiting, and Enter answers its question in the prompt line's place", async () => {
+    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("── Waiting") && view.frame().includes("Welche Farbe magst du?"));
+    expect(view.frame()).toContain("⚠ 1 waiting");
+    await view.press("\r");
+    await until(() => view.frame().includes("What to do with this session?"));
+    expect(view.frame()).toContain("›  Answer Claude's question");
+    await view.press("\r");
+    await until(() => view.frame().includes("Claude asks ·"));
+    await view.press(" ");
+    await view.press("\r");
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0]).toMatchObject({
+      type: "control_response",
+      response: { subtype: "success", response: { behavior: "allow", updatedInput: { answers: { "Welche Farbe magst du?": "Blau" } } } },
+    });
+    view.unmount();
+  });
+});
+
+describe("sessions that just finished", () => {
+  const entry = (key: string, state: KeeperEntry["state"], since = 0): KeeperEntry => ({ key, state, since, session: summary(key, 1) });
+  const times = { long: 600_000, short: 3000 };
+  const states = (pairs: [string, KeeperEntry["state"]][]) => new Map(pairs);
+
+  it("blink once the keeper saw them go from working or waiting to idle, not at its start", () => {
+    const empty: FreshIdle = new Map();
+    // At the start nothing was seen before: an idle session is not fresh.
+    expect(updateFresh(empty, new Map(), [entry("a", "idle")], NOW, undefined, true, times)).toBe(empty);
+    const fresh = updateFresh(empty, states([["a", "busy"], ["b", "waiting"], ["c", "idle"]]), [entry("a", "idle"), entry("b", "idle"), entry("c", "idle")], NOW, undefined, true, times);
+    expect([...fresh.keys()]).toEqual(["a", "b"]);
+    expect(fresh.get("a")).toEqual({ until: NOW + 600_000, short: false });
+    // One selected in the focused keeper as it finishes blinks a moment only; unfocused, it counts as unseen.
+    expect(updateFresh(empty, states([["a", "busy"]]), [entry("a", "idle")], NOW, "a", true, times).get("a")).toEqual({ until: NOW + 3000, short: true });
+    expect(updateFresh(empty, states([["a", "busy"]]), [entry("a", "idle")], NOW, "a", false, times).get("a")?.short).toBe(false);
+    // Working again, or gone from the list: no longer fresh.
+    expect(updateFresh(fresh, states([["a", "idle"], ["b", "idle"]]), [entry("a", "busy")], NOW, undefined, true, times).size).toBe(0);
+  });
+
+  it("are where n goes after the waiting ones, the one finished first first", () => {
+    const entries = [entry("w", "waiting", 5), entry("b", "busy"), entry("late", "idle", 30), entry("early", "idle", 10), entry("old", "idle", 1)];
+    const fresh = (e: KeeperEntry) => e.key === "late" || e.key === "early";
+    expect(nextWaiting(entries, 1, fresh)).toBe(0);
+    expect(nextWaiting(entries, 0, fresh)).toBe(3);
+    expect(nextWaiting(entries, 3, fresh)).toBe(2);
+    expect(nextWaiting(entries, 2, fresh)).toBe(0);
+    expect(nextWaiting(entries.slice(1), 0)).toBeUndefined();
+  });
+});
+
+describe("blinking marks", () => {
+  /** Whether `mark` showed and was gone again in the frames written, in step with the blink. */
+  const blinked = (frames: string[], line: (f: string) => string | undefined, mark: string) => {
+    const seen = frames.map(line).filter((l): l is string => l !== undefined);
+    return seen.some((l) => l.includes(mark)) && seen.some((l) => !l.includes(mark));
+  };
+
+  it("show a waiting session's ⚠ on and off in the keeper", async () => {
+    setOwnSettings("keeper");
+    const cwd = mkdtempSync(join(tmpdir(), "cco-keeper-blink-"));
+    mkdirSync(projectDir(cwd), { recursive: true });
+    const ts = new Date().toISOString();
+    writeFileSync(
+      join(projectDir(cwd), "s-w.jsonl"),
+      [
+        { type: "user", uuid: "w-u", timestamp: ts, cwd, message: { role: "user", content: "go" } },
+        { type: "custom-title", customTitle: "asks you", sessionId: "s-w" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n") + "\n",
+    );
+    mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s-w", status: "waiting", cwd }));
+    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, { columns: 120, rows: 20 });
+    await until(() => view.frame().includes("asks you"));
+    await tick(4 * TIMING.blink);
+    const row = (f: string) => f.split("\n").find((l) => l.includes("asks you"));
+    expect(blinked(view.frames, row, "⚠ asks you")).toBe(true);
+    view.unmount();
+    rmSync(join(claudeDir(), "sessions"), { recursive: true, force: true });
   });
 });

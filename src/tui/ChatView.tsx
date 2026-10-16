@@ -82,6 +82,8 @@ interface Props {
   scrollOnly?: boolean;
   /** The keeper's chat column has the keys: ↑↓ scroll the answer by line instead of switching turns. */
   previewKeys?: boolean;
+  /** Space marks the selected turn; off in the keeper, where Space gives the prompt line the keys. */
+  spaceMarks?: boolean;
 }
 
 /** t steps through the tool levels: off → compact → full → off. */
@@ -637,7 +639,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, scrollOnly = false, previewKeys = false }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, scrollOnly = false, previewKeys = false, spaceMarks = true }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
@@ -924,7 +926,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       }
       if (key.ctrl && key.end) return jumpToBottom();
       // Checked first because plain ↑/↓ switch turns.
-      const mark = markKeys(input, key);
+      const mark = !spaceMarks && input === " " ? undefined : markKeys(input, key);
       if (mark === "toggle") {
         if (!current) return;
         if (favorites.isMarked(current.id)) filter.unmarking(selected);
@@ -1091,7 +1093,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "f follow", on: follow },
           ...filter.footer,
           orderFooter(order, "oldest-first"),
-          ...markFooter(favorites.isMarked(current?.id), markedCount),
+          ...markFooter(favorites.isMarked(current?.id), markedCount).filter((f) => spaceMarks || f.text !== "␣ mark"),
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },

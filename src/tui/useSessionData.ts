@@ -5,6 +5,7 @@ import { runningSessions, type RunningSession } from "../transcript/trash.js";
 import { inClaudeDir } from "../transcript/locate.js";
 import { useReload } from "./reload.js";
 import { TIMING } from "../timing.js";
+import { runningSessionViewers, type SessionViewerInfo } from "../sessionViewers.js";
 
 /** How often the sessions are re-read while a view shows them; only changed files are parsed again. */
 export const REFRESH_MS = 3000;
@@ -189,4 +190,20 @@ export function mergeRemote(read: SessionSummary[], remote: SessionSummary[]): {
     return twin.length === 0;
   });
   return { merged: alone.length ? byLastActive([...read, ...alone]) : read, connected: twins };
+}
+
+/** The session viewers that run, read every second while `visible`; the list only changes when they do. */
+export function useSessionViewers(visible: boolean): SessionViewerInfo[] {
+  const [viewers, setViewers] = useState<SessionViewerInfo[]>([]);
+  useEffect(() => {
+    if (!visible) return;
+    const read = () => {
+      const next = runningSessionViewers();
+      setViewers((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    };
+    read();
+    const timer = setInterval(read, TIMING.activityPoll);
+    return () => clearInterval(timer);
+  }, [visible]);
+  return viewers;
 }

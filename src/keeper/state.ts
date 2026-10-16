@@ -110,12 +110,53 @@ export function formatAge(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-/** The next waiting entry after `from` (an index of `entries`), wrapping around; undefined while none waits. */
-export function nextWaiting(entries: KeeperEntry[], from: number): number | undefined {
-  const n = entries.length;
-  for (let i = 1; i <= n; i++) {
-    const at = (from + i + n) % n;
-    if (entries[at]!.state === "waiting") return at;
+/**
+ * The entry `n` goes to from `from` (an index of `entries`): the waiting ones first (the longest waiting first, as
+ * listed), then those that just finished (`fresh`, the one finished first first), round and round; undefined while
+ * none of them is listed.
+ */
+export function nextWaiting(entries: KeeperEntry[], from: number, fresh: (e: KeeperEntry) => boolean = () => false): number | undefined {
+  const waiting = entries.flatMap((e, i) => (e.state === "waiting" ? [i] : []));
+  const finished = entries
+    .flatMap((e, i) => (e.state === "idle" && fresh(e) ? [i] : []))
+    .sort((a, b) => entries[a]!.since - entries[b]!.since);
+  const order = [...waiting, ...finished];
+  if (order.length === 0) return undefined;
+  const at = order.indexOf(from);
+  return order[(at + 1) % order.length];
+}
+
+/**
+ * The sessions that just finished, by key, with when their mark stops blinking: a session the keeper saw go from
+ * working or waiting to idle, unseen since. Seen: selected while the keeper has the focus; one selected as it finished
+ * blinks a moment anyway (`short`).
+ */
+export type FreshIdle = Map<string, { until: number; short: boolean }>;
+
+/**
+ * `fresh` after the keeper read `entries`, whose states before were `before`: a session that went from working or
+ * waiting to idle blinks until `long` (`short` when it is `selected` with the keeper focused); one no longer idle or
+ * listed drops out. Returns the same map when nothing changed.
+ */
+export function updateFresh(
+  fresh: FreshIdle,
+  before: Map<string, KeeperState>,
+  entries: KeeperEntry[],
+  now: number,
+  selected: string | undefined,
+  focused: boolean,
+  times: { long: number; short: number },
+): FreshIdle {
+  let next = fresh;
+  const change = () => (next === fresh ? (next = new Map(fresh)) : next);
+  const listed = new Set(entries.map((e) => e.key));
+  for (const e of entries) {
+    const was = before.get(e.key);
+    if (e.state === "idle" && (was === "busy" || was === "waiting")) {
+      const short = focused && e.key === selected;
+      change().set(e.key, { until: now + (short ? times.short : times.long), short });
+    } else if (e.state !== "idle" && fresh.has(e.key)) change().delete(e.key);
   }
-  return undefined;
+  for (const key of fresh.keys()) if (!listed.has(key)) change().delete(key);
+  return next;
 }

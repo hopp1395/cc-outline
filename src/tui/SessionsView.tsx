@@ -24,7 +24,7 @@ import { screenOrder } from "../pinned.js";
 import { FocusContext } from "./focus.js";
 import { useMouse } from "./mouse.js";
 import { detectTerminal, focusSessionViewer, openInDefaultApp, openKeeper, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
-import { runningSessionViewers, viewersOf, viewerWindow, type SessionViewerInfo } from "../sessionViewers.js";
+import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
 import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
@@ -83,7 +83,7 @@ import { claudeDir, inClaudeDir, projectSlug } from "../transcript/locate.js";
 import { renameSession } from "../transcript/rename.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 import { TIMING } from "../timing.js";
-import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions } from "./useSessionData.js";
+import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers } from "./useSessionData.js";
 
 interface Props {
   cwd: string;
@@ -421,21 +421,6 @@ function useRemoteDetail(base: SessionSummary | undefined, visible: boolean): Se
   return id !== undefined && detail?.id === id ? detail : undefined;
 }
 
-/** The session viewers that run, read every second while `visible`; the list only changes when they do. */
-function useSessionViewers(visible: boolean): SessionViewerInfo[] {
-  const [viewers, setViewers] = useState<SessionViewerInfo[]>([]);
-  useEffect(() => {
-    if (!visible) return;
-    const read = () => {
-      const next = runningSessionViewers();
-      setViewers((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-    };
-    read();
-    const timer = setInterval(read, TIMING.activityPoll);
-    return () => clearInterval(timer);
-  }, [visible]);
-  return viewers;
-}
 
 /** What the preview's header says about the viewers of a session in windows of their own. */
 export const viewedLine = (n: number) => (n > 0 ? `${VIEWED_MARK} ${plural(n, "session viewer")} open` : undefined);
@@ -445,11 +430,28 @@ export const viewedLine = (n: number) => (n > 0 ? `${VIEWED_MARK} ${plural(n, "s
  * for the user, green otherwise, turning bright and dim while it works. Owns its timer so only it
  * re-renders; the phase comes from the clock, so all working sessions blink together.
  */
-export function SessionMarker({ symbol, activity, color = "green" }: { symbol: string; activity?: SessionActivity; color?: string }) {
+export function SessionMarker({ symbol, activity, color = "green", flash = false }: { symbol: string; activity?: SessionActivity; color?: string; flash?: boolean }) {
   const busy = activity === "busy";
+  const waiting = activity === "waiting";
+  // Waiting (yellow) and `flash` (in its colour) go on and off; working goes bright and dim.
+  const onOff = waiting || flash;
+  const off = useBlinkOff(busy || onOff);
+  if (onOff && off) return <Text>{" ".repeat(stringWidth(symbol))}</Text>;
+  return (
+    <Text color={waiting ? "yellow" : color} dimColor={busy && off}>
+      {symbol}
+    </Text>
+  );
+}
+
+/**
+ * Whether a blinking mark is in its off phase now: while `active`, re-renders at each change of phase. The phase comes
+ * from the clock, so every mark blinks in step.
+ */
+export function useBlinkOff(active: boolean): boolean {
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (!busy) return;
+    if (!active) return;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
       timer = setTimeout(() => {
@@ -459,13 +461,8 @@ export function SessionMarker({ symbol, activity, color = "green" }: { symbol: s
     };
     next();
     return () => clearTimeout(timer);
-  }, [busy]);
-  const dimmed = busy && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
-  return (
-    <Text color={activity === "waiting" ? "yellow" : color} dimColor={dimmed}>
-      {symbol}
-    </Text>
-  );
+  }, [active]);
+  return active && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
 }
 
 /** Short name of the project a session belongs to: its folder name. */
@@ -525,6 +522,9 @@ function KeeperRow({ label, selected, onOpen, children }: { label: string; selec
   useMouse((e) => {
     if (e.kind === "click" && e.y === area.y && e.x >= area.x && e.x < area.x + area.width) onOpen();
   });
+  // While sessions wait, the ⚠ of its label goes on and off like theirs.
+  const off = useBlinkOff(label.includes("⚠"));
+  if (off) label = label.replace("⚠", " ");
   const text = ` ${label} `;
   const indent = " ".repeat(Math.max(0, Math.floor((width - stringWidth(text)) / 2)));
   return (
@@ -1491,7 +1491,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
             {gone && <Text dimColor>∅ </Text>}
             {moved && <Text color="magenta">{moved}</Text>}
             {/* A remote session waits for an answer (⚠), its ◈ blinks while Claude works there. */}
-            {waits && <Text color="yellow">{"⚠ "}</Text>}
+            {waits && <SessionMarker symbol="⚠ " activity="waiting" />}
             {remoteMark &&
               (s.remote?.workerStatus === "running" ? (
                 <SessionMarker symbol={remoteMark} activity="busy" color="cyan" />

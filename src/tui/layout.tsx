@@ -140,6 +140,12 @@ export function keeperLayout(columns: number, rows: number, sessions: ListWidth,
   return { aside, layout: { ...layoutOf(rest, rows, turns), columns, rows } };
 }
 
+/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a session viewer's or the keeper's prompt line). */
+export function shorter(layout: Layout, rows: number): Layout {
+  const less = (n: number | undefined) => (n === undefined ? undefined : Math.max(1, n - rows));
+  return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
+}
+
 /** The layout of each view, with the list width its setting gives (and a drilled detail); without a view, the normal width (dialogs). */
 export function useLayouts(): (mode?: Mode, drilled?: boolean) => Layout {
   const { columns, rows } = useWindowSize();
