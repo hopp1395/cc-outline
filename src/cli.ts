@@ -105,29 +105,29 @@ program
   });
 
 program
-  .command("keeper")
+  .command("rc-viewer")
   .description("watch the sessions of every project and account in one window: which wait for you, work or are idle")
   // The config folder (account) it was started from: a terminal window does not get the environment of the wt call.
   .addOption(new Option("--config-dir <dir>").hideHelp())
   // The window cco opened it in, so another start can bring it to the front.
   .addOption(new Option("--window <name>").hideHelp())
-  // The session to select (Sessions: Watch it in the keeper, /cco:keeper): of this machine, in a config folder, or remote.
+  // The session to select (Sessions: Watch it in the Remote Control Viewer, /cco:rc-viewer): of this machine, in a config folder, or remote.
   .addOption(new Option("--select <id>", "select this session").conflicts("selectRemote"))
   .addOption(new Option("--select-dir <dir>").hideHelp())
   .addOption(new Option("--select-remote <id>", "select this Remote Control session"))
   .action(async (opts: { configDir?: string; window?: string; select?: string; selectDir?: string; selectRemote?: string }) => {
     if (opts.configDir) setClaudeDir(opts.configDir);
-    const [{ registerKeeper, runningKeeper }, { claudeDir }] = await Promise.all([import("./keeper/registry.js"), import("./transcript/locate.js")]);
+    const [{ registerRcViewer, runningRcViewer }, { claudeDir }] = await Promise.all([import("./rcViewer/registry.js"), import("./transcript/locate.js")]);
     // One per machine: a second one would only show the same.
-    const other = runningKeeper();
+    const other = runningRcViewer();
     if (other && other.pid !== process.pid) {
-      console.error(`cco: the keeper runs already (pid ${other.pid})`);
+      console.error(`cco: the Remote Control Viewer runs already (pid ${other.pid})`);
       process.exit(1);
     }
-    registerKeeper({ configDir: claudeDir(), window: opts.window });
+    registerRcViewer({ configDir: claudeDir(), window: opts.window });
     const select = opts.selectRemote ? { id: opts.selectRemote, remote: true } : opts.select ? { id: opts.select, configDir: opts.selectDir ?? claudeDir() } : undefined;
-    const { runKeeper } = await importProduction(() => import("./watch.js"));
-    await runKeeper({ select });
+    const { runRcViewer } = await importProduction(() => import("./watch.js"));
+    await runRcViewer({ select });
     process.exit(0);
   });
 
@@ -163,15 +163,15 @@ program
   .addOption(new Option("--action <action>", "restart the running viewer (else open one), check for an update and offer it, or continue the session in another account").choices(VIEWER_ACTIONS))
   // A viewer that paired with a Claude Code it started (Sessions) moves next to it: its wt window or tmux pane.
   .addOption(new Option("--target <target>").hideHelp())
-  // /cco:keeper: the keeper in its window, with this Claude Code's session selected.
-  .addOption(new Option("--keeper", "open the keeper (or bring it to the front) with this Claude Code's session selected"))
-  .action(async (opts: { cwd: string; view?: Mode; lastView?: boolean; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string; keeper?: boolean }) => {
-    if (opts.keeper) {
-      const [{ runningKeeper }, { openKeeper }, { claudeDir, claudeFile, readJson }] = await Promise.all([import("./keeper/registry.js"), import("./open.js"), import("./transcript/locate.js")]);
+  // /cco:rc-viewer: the Remote Control Viewer in its window, with this Claude Code's session selected.
+  .addOption(new Option("--rc-viewer", "open the Remote Control Viewer (or bring it to the front) with this Claude Code's session selected"))
+  .action(async (opts: { cwd: string; view?: Mode; lastView?: boolean; placement?: Placement; claudePid?: number; afterPid?: number; select?: string; updatedTo?: string; action?: ViewerAction; target?: string; rcViewer?: boolean }) => {
+    if (opts.rcViewer) {
+      const [{ runningRcViewer }, { openRcViewer }, { claudeDir, claudeFile, readJson }] = await Promise.all([import("./rcViewer/registry.js"), import("./open.js"), import("./transcript/locate.js")]);
       const pid = validPid(opts.claudePid) ?? claudePidFromEnv();
       const own = pid ? readJson<{ session_id?: string }>(claudeFile(opts.cwd, pid)) : undefined;
       const select = own?.session_id ? { id: own.session_id, configDir: claudeDir() } : undefined;
-      console.log(openKeeper(runningKeeper(), select) ?? "no Windows Terminal or tmux: run cco keeper in a terminal of its own");
+      console.log(openRcViewer(runningRcViewer(), select) ?? "no Windows Terminal or tmux: run cco rc-viewer in a terminal of its own");
       return;
     }
     const afterPid = validPid(opts.afterPid);

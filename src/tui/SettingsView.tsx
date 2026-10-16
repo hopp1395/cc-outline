@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isKeeper, isKeeperKey, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
@@ -114,8 +114,8 @@ export const SESSION_RESET_ACTIONS: ResetAction[] = [
   },
 ];
 
-/** The Reset group of the keeper (`cco keeper`): its own settings back to the default, or to the project's viewer's. */
-export const KEEPER_RESET_ACTIONS: ResetAction[] = [
+/** The Reset group of the Remote Control Viewer (`cco rc-viewer`): its own settings back to the default, or to the project's viewer's. */
+export const RC_VIEWER_RESET_ACTIONS: ResetAction[] = [
   {
     id: "settings",
     label: "all settings to default",
@@ -126,17 +126,17 @@ export const KEEPER_RESET_ACTIONS: ResetAction[] = [
     id: "main",
     label: "settings of the project's viewer",
     description:
-      "Takes the values the project's viewer has now for every setting above that it has too, as the keeper did when it first started. From then on they are apart again: what changes in one does not change in the other.",
+      "Takes the values the project's viewer has now for every setting above that it has too, as the Remote Control Viewer did when it first started. From then on they are apart again: what changes in one does not change in the other.",
   },
 ];
 
-/** The settings this process lists: the keeper's or a viewer of one session's own (`oneSession`), else the project's viewer's. */
+/** The settings this process lists: the Remote Control Viewer's or a viewer of one session's own (`oneSession`), else the project's viewer's. */
 function listedRows(oneSession: boolean): Row[] {
   if (!oneSession) return SETTING_ROWS;
-  if (!isKeeper()) return SETTING_ROWS.filter((r) => isSessionViewerKey(r.key));
-  const own = SETTING_ROWS.filter((r) => isKeeperKey(r.key));
+  if (!isRcViewer()) return SETTING_ROWS.filter((r) => isSessionViewerKey(r.key));
+  const own = SETTING_ROWS.filter((r) => isRcViewerKey(r.key));
   const settings = own.findIndex((r) => r.group === "Settings");
-  return [...own.slice(0, settings), ...KEEPER_ROWS, ...own.slice(settings)];
+  return [...own.slice(0, settings), ...RC_VIEWER_ROWS, ...own.slice(settings)];
 }
 
 /** What a setting's texts can depend on: today for dates, the project for paths, the terminal for its keys and names. */
@@ -678,13 +678,13 @@ export const SETTING_ROWS: Row[] = [
     group: "Sessions",
     label: "remote API",
     description:
-      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the remote control setting.",
+      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the steer remote setting.",
     values: ON_OFF("Remote Control sessions are listed in Sessions, and the preview shows their prompts", "nothing is asked of claude.ai"),
   },
   {
     key: "remoteControl",
     group: "Sessions",
-    label: "remote control",
+    label: "steer remote",
     description:
       "Experimental, with the remote API on. Lets cco steer a Remote Control session like the Claude app: send it a prompt and stop what Claude does, from the `Enter` dialog in Sessions or from the prompt line of its viewer (`Enter`, *Open it in a window of its own*; `Tab` or `i` there takes the keys). It writes to claude.ai through the same undocumented interface, so a change there can make a prompt go nowhere; what was sent shows in the chat once the session has it.",
     values: ON_OFF("`Enter` on a remote session offers to send a prompt or to interrupt it, and its viewers have a prompt line", "remote sessions are only shown, nothing is sent"),
@@ -710,12 +710,12 @@ export const SETTING_ROWS: Row[] = [
   listWidthRow("settingsListWidth", "Settings", "list width", "Settings", "A wider list cuts fewer labels; a narrower one leaves the descriptions more room."),
 ];
 
-/** The keeper's own settings (`cco keeper`), which only its Settings view lists, before its Settings group. */
-export const KEEPER_ROWS: Row[] = [
+/** The Remote Control Viewer's own settings (`cco rc-viewer`), which only its Settings view lists, before its Settings group. */
+export const RC_VIEWER_ROWS: Row[] = [
   {
-    ...listWidthRow("keeperSessionsWidth", "Keeper", "sessions width", "Keeper", "A wider list shows more of each session's title and project; a narrower one leaves the turns and the chat more room."),
+    ...listWidthRow("rcViewerSessionsWidth", "Remote Control Viewer", "sessions width", "Remote Control Viewer", "A wider list shows more of each session's title and project; a narrower one leaves the turns and the chat more room."),
     description:
-      "How wide the keeper's list of sessions is, on the left; the turns and the chat share the rest. A wider list shows more of each session's title and project; a narrower one leaves the turns and the chat more room. At the ends the sessions fold away (hidden) or take the whole window (full).",
+      "How wide the Remote Control Viewer's list of sessions is, on the left; the turns and the chat share the rest. A wider list shows more of each session's title and project; a narrower one leaves the turns and the chat more room. At the ends the sessions fold away (hidden) or take the whole window (full).",
     values: [
       ["hidden", "the sessions fold away, the turns and the chat take the window; `↑` `↓` in the sessions column still switch sessions"],
       ["narrow", "a fifth of the window, 16–30 columns"],
@@ -724,13 +724,13 @@ export const KEEPER_ROWS: Row[] = [
       ["wider", "half of the window, 30–80 columns"],
       ["full", "the sessions take the whole window, without turns and chat"],
     ],
-    viewKey: "`<`, `>` and `|` in the keeper's sessions column",
+    viewKey: "`<`, `>` and `|` in the Remote Control Viewer's sessions column",
   },
   {
-    ...listWidthRow("keeperTurnsWidth", "Keeper", "turns width", "Keeper", "A wider list shows more of each prompt; a narrower one leaves the chat more room."),
+    ...listWidthRow("rcViewerTurnsWidth", "Remote Control Viewer", "turns width", "Remote Control Viewer", "A wider list shows more of each prompt; a narrower one leaves the chat more room."),
     description:
-      "How wide the keeper's list of the selected session's turns is, in the middle; the chat takes the rest. It is measured on what the sessions leave: narrow there is a fifth of that. At the ends the turns fold away (hidden) or take the room of the chat (full).",
-    viewKey: "`<`, `>` and `|` in the keeper's turns or chat column",
+      "How wide the Remote Control Viewer's list of the selected session's turns is, in the middle; the chat takes the rest. It is measured on what the sessions leave: narrow there is a fifth of that. At the ends the turns fold away (hidden) or take the room of the chat (full).",
+    viewKey: "`<`, `>` and `|` in the Remote Control Viewer's turns or chat column",
   },
 ];
 
@@ -1164,7 +1164,7 @@ export function restartDetail(root: string): string {
  * session (`oneSession`) has only the settings it keeps for itself and their resets.
  */
 export function settingsEntries(update: Update, accounts: AccountState = { accounts: [], multiple: false, own: "" }, oneSession = false): Entry[] {
-  if (oneSession) return [...listedRows(true), ...(isKeeper() ? KEEPER_RESET_ACTIONS : SESSION_RESET_ACTIONS)];
+  if (oneSession) return [...listedRows(true), ...(isRcViewer() ? RC_VIEWER_RESET_ACTIONS : SESSION_RESET_ACTIONS)];
   const rows = listedRows(false);
   // The Account group sits after General: its info entries come before its settings.
   const first = rows.findIndex((r) => r.group === "Account");
@@ -1234,7 +1234,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const accountEntry = "account" in entry ? entry : undefined;
   const current = row ? settings[row.key] : undefined;
   const entryKey = entries[index];
-  const favorites = useFavorites(cwd, !oneSession ? "settings" : isKeeper() ? "keeperSettings" : "sessionViewerSettings");
+  const favorites = useFavorites(cwd, !oneSession ? "settings" : isRcViewer() ? "rcViewerSettings" : "sessionViewerSettings");
   // F5: settings.json is read again, so changes by other viewers show in every view, and npm and GitHub are asked again.
   useOnReload(({ done }) => {
     reloadSettings();
@@ -1665,7 +1665,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           ...markFooter(favorites.isMarked(entryKey), marked),
           ...filter.footer,
           ...(canReset ? [{ text: "R reset all", priority: 2 }] : []),
-          { text: isKeeper() ? "1/2 view" : oneSession ? "1/6/tab view" : "1-6/tab view", priority: 1 },
+          { text: isRcViewer() ? "1/2 view" : oneSession ? "1/6/tab view" : "1-6/tab view", priority: 1 },
         ]}
       />
       {confirmation && (

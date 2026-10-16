@@ -48,7 +48,7 @@ function running(id: string | undefined) {
   writeFileSync(file, JSON.stringify({ pid: process.pid, sessionId: id, status: "idle" }));
 }
 
-/** The list column's rows below the top bar and the keeper's row, top to bottom, without times, rules and the selection's arrow. */
+/** The list column's rows below the top bar and the Remote Control Viewer's row, top to bottom, without times, rules and the selection's arrow. */
 const listLines = (frame: string) =>
   frame
     .split("\n")

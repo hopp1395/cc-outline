@@ -8,13 +8,13 @@ import { claudeDir, favoritesFile, readJson, writeJson } from "./transcript/loca
  * which copy the turns into a new session, so marks are kept per project; the
  * settings are global, and so are their marks.
  */
-export type FavoriteKind = "turns" | "files" | "plans" | "sessions" | "days" | "settings" | "sessionViewerSettings" | "keeperSettings" | "accounts";
+export type FavoriteKind = "turns" | "files" | "plans" | "sessions" | "days" | "settings" | "sessionViewerSettings" | "rcViewerSettings" | "accounts";
 
 type Stored = Partial<Record<FavoriteKind, string[]>>;
 
-const KINDS: FavoriteKind[] = ["turns", "files", "plans", "sessions", "days", "settings", "sessionViewerSettings", "keeperSettings", "accounts"];
+const KINDS: FavoriteKind[] = ["turns", "files", "plans", "sessions", "days", "settings", "sessionViewerSettings", "rcViewerSettings", "accounts"];
 /** The lists kept for all projects: the settings' (of the viewers of one session apart) and the accounts' (config folders). */
-const GLOBAL_KINDS: FavoriteKind[] = ["settings", "sessionViewerSettings", "keeperSettings", "accounts"];
+const GLOBAL_KINDS: FavoriteKind[] = ["settings", "sessionViewerSettings", "rcViewerSettings", "accounts"];
 const isGlobal = (kind: FavoriteKind) => GLOBAL_KINDS.includes(kind);
 
 /** The marks of the settings and the accounts, next to settings.json. */
@@ -34,9 +34,11 @@ const strings = (list: unknown): string[] => (Array.isArray(list) ? list.filter(
 
 function readAll(file: string): Record<FavoriteKind, string[]> {
   const stored = readJson<unknown>(file);
-  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [], sessions: [], days: [], settings: [], sessionViewerSettings: [], keeperSettings: [], accounts: [] };
+  const all: Record<FavoriteKind, string[]> = { turns: [], files: [], plans: [], sessions: [], days: [], settings: [], sessionViewerSettings: [], rcViewerSettings: [], accounts: [] };
   if (!stored || typeof stored !== "object") return all;
   const record = stored as Record<string, unknown>;
+  // Before its rename the Remote Control Viewer was the keeper: its settings' marks are taken over.
+  if ("keeperSettings" in record && !("rcViewerSettings" in record)) record.rcViewerSettings = record.keeperSettings;
   if (KINDS.some((kind) => kind in record)) {
     for (const kind of KINDS) all[kind] = [...new Set(strings(record[kind]))];
   } else {

@@ -5,23 +5,23 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { renderInk, tick, until } from "./helpers/ink.js";
 import { stripVTControlCharacters } from "node:util";
 import { TIMING } from "../src/timing.js";
-import { formatAge, keeperEntries, keeperState, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type KeeperEntry, type SeenStates } from "../src/keeper/state.js";
-import { registerKeeper, runningKeeper, keeperFile } from "../src/keeper/registry.js";
-import { openKeeper } from "../src/open.js";
-import { DEFAULT_SETTINGS, isViewShown, KEEPER_KEYS, keeperSettingsFile, readMainSettings, readSettings, setOwnSettings, updateSettings } from "../src/settings.js";
+import { formatAge, rcViewerEntries, rcViewerState, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type RcViewerEntry, type SeenStates } from "../src/rcViewer/state.js";
+import { registerRcViewer, runningRcViewer, rcViewerFile } from "../src/rcViewer/registry.js";
+import { openRcViewer } from "../src/open.js";
+import { DEFAULT_SETTINGS, isViewShown, RC_VIEWER_KEYS, rcViewerSettingsFile, readMainSettings, readSettings, setOwnSettings, updateSettings } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import type { SessionSummary } from "../src/transcript/sessions.js";
 import type { RunningSession } from "../src/transcript/trash.js";
-import { KeeperApp } from "../src/tui/KeeperApp.js";
-import { matchesRequest } from "../src/tui/KeeperView.js";
-import { keeperOptions, type KeeperSituation } from "../src/keeper/actions.js";
-import { keeperRowLabel, SessionsView } from "../src/tui/SessionsView.js";
+import { RcViewerApp } from "../src/tui/RcViewerApp.js";
+import { matchesRequest } from "../src/tui/RcViewerView.js";
+import { rcViewerOptions, type RcViewerSituation } from "../src/rcViewer/actions.js";
+import { rcViewerRowLabel, SessionsView } from "../src/tui/SessionsView.js";
 import { proc } from "../src/proc.js";
 import { remote } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
-import { readKeeperRequest } from "../src/keeper/registry.js";
-import { keeperLayout } from "../src/tui/layout.js";
-import { KEEPER_RESET_ACTIONS, KEEPER_ROWS, settingsEntries } from "../src/tui/SettingsView.js";
+import { readRcViewerRequest } from "../src/rcViewer/registry.js";
+import { rcViewerLayout } from "../src/tui/layout.js";
+import { RC_VIEWER_RESET_ACTIONS, RC_VIEWER_ROWS, settingsEntries } from "../src/tui/SettingsView.js";
 import type { Update } from "../src/tui/useUpdate.js";
 
 const NOW = Date.parse("2026-10-16T12:00:00Z");
@@ -38,19 +38,19 @@ const summary = (id: string, minutesAgo: number, extra: Partial<SessionSummary> 
 });
 const run = (activity?: RunningSession["activity"]): RunningSession => ({ pid: 1, activity });
 
-describe("keeper state", () => {
+describe("Remote Control Viewer state", () => {
   it("tells waiting, working, idle and ended apart, for this machine's sessions and remote ones", () => {
-    expect(keeperState(summary("a", 1), run("waiting"))).toBe("waiting");
-    expect(keeperState(summary("a", 1), run("busy"))).toBe("busy");
-    expect(keeperState(summary("a", 1), run("idle"))).toBe("idle");
+    expect(rcViewerState(summary("a", 1), run("waiting"))).toBe("waiting");
+    expect(rcViewerState(summary("a", 1), run("busy"))).toBe("busy");
+    expect(rcViewerState(summary("a", 1), run("idle"))).toBe("idle");
     // Before Claude Code wrote a status, a running session counts as idle.
-    expect(keeperState(summary("a", 1), run())).toBe("idle");
-    expect(keeperState(summary("a", 1))).toBe("ended");
+    expect(rcViewerState(summary("a", 1), run())).toBe("idle");
+    expect(rcViewerState(summary("a", 1))).toBe("ended");
     const remote = (workerStatus: string, connectionStatus = "connected") => summary("r", 1, { remote: { loaded: false, workerStatus, connectionStatus } });
-    expect(keeperState(remote("requires_action"))).toBe("waiting");
-    expect(keeperState(remote("running"))).toBe("busy");
-    expect(keeperState(remote("idle"))).toBe("idle");
-    expect(keeperState(remote("idle", "disconnected"))).toBe("ended");
+    expect(rcViewerState(remote("requires_action"))).toBe("waiting");
+    expect(rcViewerState(remote("running"))).toBe("busy");
+    expect(rcViewerState(remote("idle"))).toBe("idle");
+    expect(rcViewerState(remote("idle", "disconnected"))).toBe("ended");
   });
 
   it("lists what runs and what ran today, waiting first (the longest waiting on top), the others newest first", () => {
@@ -73,7 +73,7 @@ describe("keeper state", () => {
       ["running-yesterday", run("idle")],
     ]);
     const seen: SeenStates = new Map();
-    const entries = keeperEntries(sessions, running, (s) => s.id, seen, NOW, DAY_START);
+    const entries = rcViewerEntries(sessions, running, (s) => s.id, seen, NOW, DAY_START);
     expect(entries.map((e) => `${e.state}:${e.key}`)).toEqual([
       "waiting:wait-old",
       "waiting:wait-new",
@@ -90,19 +90,19 @@ describe("keeper state", () => {
   it("keeps since when a session is in its state, and starts anew when it changes", () => {
     const seen: SeenStates = new Map();
     const sessions = [summary("a", 10)];
-    keeperEntries(sessions, new Map([["a", run("busy")]]), (s) => s.id, seen, NOW, DAY_START);
+    rcViewerEntries(sessions, new Map([["a", run("busy")]]), (s) => s.id, seen, NOW, DAY_START);
     const later = NOW + 60_000;
-    expect(keeperEntries(sessions, new Map([["a", run("busy")]]), (s) => s.id, seen, later, DAY_START)[0]!.since).toBe(NOW - 10 * 60_000);
-    expect(keeperEntries(sessions, new Map([["a", run("waiting")]]), (s) => s.id, seen, later, DAY_START)[0]!.since).toBe(later);
+    expect(rcViewerEntries(sessions, new Map([["a", run("busy")]]), (s) => s.id, seen, later, DAY_START)[0]!.since).toBe(NOW - 10 * 60_000);
+    expect(rcViewerEntries(sessions, new Map([["a", run("waiting")]]), (s) => s.id, seen, later, DAY_START)[0]!.since).toBe(later);
     // One no longer listed is forgotten.
-    keeperEntries([], new Map(), (s) => s.id, seen, later, DAY_START);
+    rcViewerEntries([], new Map(), (s) => s.id, seen, later, DAY_START);
     expect(seen.size).toBe(0);
   });
 
   it("stands in for a running session that was not read, names short ages and finds the next one waiting", () => {
     expect(runningStandIn("x", { pid: 2, name: "fix the build", cwd: "/w" }, "/p/x.jsonl", "/acc")).toMatchObject({ id: "x", title: "fix the build", cwd: "/w", account: "/acc", prompts: [] });
     expect([formatAge(5_000), formatAge(3 * 60_000), formatAge(2 * 3600_000), formatAge(50 * 3600_000)]).toEqual(["5s", "3m", "2h", "2d"]);
-    const entries = keeperEntries(
+    const entries = rcViewerEntries(
       [summary("w1", 9), summary("b", 1), summary("w2", 5)],
       new Map([["w1", run("waiting")], ["b", run("busy")], ["w2", run("waiting")]]),
       (s) => s.id,
@@ -116,7 +116,7 @@ describe("keeper state", () => {
   });
 });
 
-describe("asking the keeper for a session", () => {
+describe("asking the Remote Control Viewer for a session", () => {
   it("finds a session of this machine by an id of its chain in its config folder, a remote one by its id", () => {
     const local = summary("new", 1, { continues: ["old"] });
     expect(matchesRequest(local, { id: "old", configDir: claudeDir() })).toBe(true);
@@ -128,75 +128,75 @@ describe("asking the keeper for a session", () => {
   });
 
   it("names in the Sessions row whether it runs and how many wait", () => {
-    expect(keeperRowLabel(false, 0)).toBe("⊞ open the keeper…");
-    expect(keeperRowLabel(true, 2)).toBe("⊞ bring the keeper to the front · ⚠2 waiting");
+    expect(rcViewerRowLabel(false, 0)).toBe("⊞ open the Remote Control Viewer…");
+    expect(rcViewerRowLabel(true, 2)).toBe("⊞ bring the Remote Control Viewer to the front · ⚠2 waiting");
   });
 });
 
-describe("keeper layout", () => {
+describe("Remote Control Viewer layout", () => {
   it("gives the sessions their column and the turns and chat what is left, after a border", () => {
-    const { layout, aside } = keeperLayout(150, 30, "normal", "narrow");
+    const { layout, aside } = rcViewerLayout(150, 30, "normal", "narrow");
     expect(aside).toBe(40);
     expect(layout.columns).toBe(150);
     expect(layout.listWidth + 3 + layout.previewWidth).toBe(150 - 42);
-    expect(keeperLayout(150, 30, "hidden", "narrow").aside).toBe(0);
-    expect(keeperLayout(150, 30, "full", "narrow").aside).toBe(150);
+    expect(rcViewerLayout(150, 30, "hidden", "narrow").aside).toBe(0);
+    expect(rcViewerLayout(150, 30, "full", "narrow").aside).toBe(150);
   });
 });
 
 let saved: string | undefined;
 beforeEach(() => {
   saved = process.env.CLAUDE_CONFIG_DIR;
-  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-keeper-"));
+  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-rc-viewer-"));
 });
 afterEach(() => {
   setOwnSettings(undefined);
   process.env.CLAUDE_CONFIG_DIR = saved;
 });
 
-describe("the keeper's settings", () => {
+describe("the Remote Control Viewer's settings", () => {
   it("are its own, taken from the project's viewer at the first start", () => {
     updateSettings({ showTools: "full", remoteApi: true });
-    setOwnSettings("keeper");
-    expect(readSettings()).toMatchObject({ showTools: "full", remoteApi: true, keeperSessionsWidth: "normal" });
-    updateSettings({ showTools: "off", keeperTurnsWidth: "wide", remoteControl: true });
-    const own = JSON.parse(readFileSync(keeperSettingsFile(), "utf8"));
-    expect(own).toMatchObject({ showTools: "off", keeperTurnsWidth: "wide" });
+    setOwnSettings("rcViewer");
+    expect(readSettings()).toMatchObject({ showTools: "full", remoteApi: true, rcViewerSessionsWidth: "normal" });
+    updateSettings({ showTools: "off", rcViewerTurnsWidth: "wide", remoteControl: true });
+    const own = JSON.parse(readFileSync(rcViewerSettingsFile(), "utf8"));
+    expect(own).toMatchObject({ showTools: "off", rcViewerTurnsWidth: "wide" });
     expect(own).not.toHaveProperty("remoteControl");
-    expect(readMainSettings()).toMatchObject({ showTools: "full", remoteControl: true, keeperTurnsWidth: DEFAULT_SETTINGS.keeperTurnsWidth });
+    expect(readMainSettings()).toMatchObject({ showTools: "full", remoteControl: true, rcViewerTurnsWidth: DEFAULT_SETTINGS.rcViewerTurnsWidth });
     // Only its two views.
     expect(isViewShown(readSettings(), "git")).toBe(false);
     expect(isViewShown(readSettings(), "chat")).toBe(true);
   });
 
   it("lists only its own settings, its widths among them, and its two resets", () => {
-    setOwnSettings("keeper");
+    setOwnSettings("rcViewer");
     const update = { state: { kind: "none" }, releases: [] } as unknown as Update;
     const entries = settingsEntries(update, undefined, true);
     const keys = entries.flatMap((e) => ("key" in e ? [e.key] : []));
-    expect(keys.sort()).toEqual([...KEEPER_KEYS].sort());
-    expect(KEEPER_ROWS.every((r) => keys.includes(r.key))).toBe(true);
-    expect(entries.filter((e) => "id" in e)).toEqual(KEEPER_RESET_ACTIONS);
+    expect(keys.sort()).toEqual([...RC_VIEWER_KEYS].sort());
+    expect(RC_VIEWER_ROWS.every((r) => keys.includes(r.key))).toBe(true);
+    expect(entries.filter((e) => "id" in e)).toEqual(RC_VIEWER_RESET_ACTIONS);
   });
 });
 
-describe("keeper registration", () => {
-  afterAll(() => rmSync(keeperFile(), { force: true }));
+describe("Remote Control Viewer registration", () => {
+  afterAll(() => rmSync(rcViewerFile(), { force: true }));
 
-  it("records the running keeper, one per machine", () => {
-    expect(runningKeeper()).toBeUndefined();
-    registerKeeper({ configDir: claudeDir() });
-    expect(runningKeeper()).toMatchObject({ pid: process.pid });
+  it("records the running Remote Control Viewer, one per machine", () => {
+    expect(runningRcViewer()).toBeUndefined();
+    registerRcViewer({ configDir: claudeDir() });
+    expect(runningRcViewer()).toMatchObject({ pid: process.pid });
   });
 });
 
-describe("the keeper's three columns", () => {
+describe("the Remote Control Viewer's three columns", () => {
   const size = { columns: 140, rows: 24 };
   let cwd: string;
   beforeEach(() => {
-    cwd = mkdtempSync(join(tmpdir(), "cco-keeper-project-"));
+    cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-project-"));
     mkdirSync(projectDir(cwd), { recursive: true });
-    setOwnSettings("keeper");
+    setOwnSettings("rcViewer");
   });
 
   /** A session whose prompt was `minutes` ago, with Claude's answer. */
@@ -228,7 +228,7 @@ describe("the keeper's three columns", () => {
     const old = session("s-old", "yesterday's work", 60 * 30, "Old answer.");
     utimesSync(old, new Date(Date.now() - 30 * 3600_000), new Date(Date.now() - 30 * 3600_000));
     running("s-wait", "waiting");
-    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
     await until(() => view.frame().includes("needs an answer") && view.frame().includes("finished work"));
     const frame = view.frame();
     const rows = frame.split("\n");
@@ -240,7 +240,7 @@ describe("the keeper's three columns", () => {
     expect(rows[waitingRow + 1]).toMatch(/[⚠ ] needs an answer/);
     expect(rows[endedRow + 1]).toContain("∅ finished work");
     expect(frame).not.toContain("yesterday's work");
-    expect(frame).toContain("1 Keeper");
+    expect(frame).toContain("1 Remote Control");
     expect(frame).toContain("⚠ 1 waiting");
     // The waiting session is selected first: its turn and Claude's answer show beside it.
     await until(() => view.frame().includes("Shall I go on?"));
@@ -269,14 +269,14 @@ describe("the keeper's three columns", () => {
   it("selects the session it was opened for, once the list has it", async () => {
     session("s-a", "first work", 30, "Answer of a.");
     session("s-b", "second work", 10, "Answer of b.");
-    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} select={{ id: "s-a", configDir: claudeDir() }} />, size);
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} select={{ id: "s-a", configDir: claudeDir() }} />, size);
     await until(() => view.frame().includes("Answer of a."));
     expect(view.frame()).toContain("Answer of a.");
     view.unmount();
   });
 });
 
-describe("opening the keeper from Sessions", () => {
+describe("opening the Remote Control Viewer from Sessions", () => {
   const spawned: { cmd: string; args: string[] }[] = [];
   const real = { ...proc };
   const env = { ...process.env };
@@ -291,49 +291,49 @@ describe("opening the keeper from Sessions", () => {
   afterAll(() => Object.assign(proc, real));
   afterEach(() => {
     for (const v of ["WT_SESSION", "TMUX"]) if (env[v] === undefined) delete process.env[v];
-    rmSync(keeperFile(), { force: true });
+    rmSync(rcViewerFile(), { force: true });
   });
 
-  it("reaches the keeper's row above the list with ↑ and opens it with Enter, and k opens it from anywhere", async () => {
+  it("reaches the Remote Control Viewer's row above the list with ↑ and opens it with Enter, and k opens it from anywhere", async () => {
     process.env.WT_SESSION = "x";
     delete process.env.TMUX;
-    const cwd = mkdtempSync(join(tmpdir(), "cco-keeper-sessions-"));
+    const cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-sessions-"));
     mkdirSync(projectDir(cwd), { recursive: true });
     writeFileSync(join(projectDir(cwd), "s1.jsonl"), JSON.stringify({ type: "user", uuid: "u1", timestamp: new Date().toISOString(), cwd, message: { role: "user", content: "only work" } }) + "\n");
     spawned.length = 0;
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, size);
     await until(() => view.frame().includes("only work"));
-    expect(view.frame().split("\n")[1]).toContain("⊞ open the keeper…");
+    expect(view.frame().split("\n")[1]).toContain("⊞ open the Remote Control Viewer…");
     await view.press("\u001b[A");
-    await until(() => view.frame().includes("↵ keeper"));
-    expect(view.frame()).toContain("The keeper: one window");
+    await until(() => view.frame().includes("↵ Remote Control Viewer"));
+    expect(view.frame()).toContain("The Remote Control Viewer: one window");
     await view.press("\r");
     await until(() => spawned.length > 0);
-    expect(spawned[0]!.args).toEqual(expect.arrayContaining(["keeper", "--window", "cco-keeper"]));
+    expect(spawned[0]!.args).toEqual(expect.arrayContaining(["rc-viewer", "--window", "cco-rc-viewer"]));
     // ↓ goes back to the list; k opens it too.
     await view.press("\u001b[B");
-    await until(() => !view.frame().includes("↵ keeper"));
+    await until(() => !view.frame().includes("↵ Remote Control Viewer"));
     await view.press("k");
     await until(() => spawned.length > 1);
-    expect(spawned[1]!.args).toContain("keeper");
+    expect(spawned[1]!.args).toContain("rc-viewer");
     view.unmount();
   });
 
-  it("asks a running keeper to select the session, and brings it to the front", () => {
+  it("asks a running Remote Control Viewer to select the session, and brings it to the front", () => {
     process.env.WT_SESSION = "x";
-    registerKeeper({ window: "cco-keeper" });
+    registerRcViewer({ window: "cco-rc-viewer" });
     spawned.length = 0;
-    expect(openKeeper(runningKeeper(), { id: "s1", configDir: claudeDir() })).toBe("brought the keeper to the front");
-    expect(readKeeperRequest()).toMatchObject({ id: "s1", configDir: claudeDir() });
-    expect(spawned[0]!.args).toEqual(["-w", "cco-keeper", "focus-tab", "-t", "0"]);
+    expect(openRcViewer(runningRcViewer(), { id: "s1", configDir: claudeDir() })).toBe("brought the Remote Control Viewer to the front");
+    expect(readRcViewerRequest()).toMatchObject({ id: "s1", configDir: claudeDir() });
+    expect(spawned[0]!.args).toEqual(["-w", "cco-rc-viewer", "focus-tab", "-t", "0"]);
   });
 });
 
-describe("the keeper's Enter dialog", () => {
-  const base: KeeperSituation = { state: "idle", running: { pid: 1, activity: "idle" }, terminal: true, viewers: 0, command: "claude --resume s1" };
-  const ids = (s: KeeperSituation) => keeperOptions(s).options.map((o) => o.id);
-  const first = (s: KeeperSituation) => {
-    const { options, initial } = keeperOptions(s);
+describe("the Remote Control Viewer's Enter dialog", () => {
+  const base: RcViewerSituation = { state: "idle", running: { pid: 1, activity: "idle" }, terminal: true, viewers: 0, command: "claude --resume s1" };
+  const ids = (s: RcViewerSituation) => rcViewerOptions(s).options.map((o) => o.id);
+  const first = (s: RcViewerSituation) => {
+    const { options, initial } = rcViewerOptions(s);
     return options[initial]!.id;
   };
 
@@ -347,10 +347,10 @@ describe("the keeper's Enter dialog", () => {
     // Waiting: its question or permission is answered in its terminal.
     const waiting = { ...base, state: "waiting" as const, promptBlocked: "Claude waits for you in its terminal" };
     expect(first(waiting)).toBe("switch");
-    expect(keeperOptions(waiting).options.find((o) => o.id === "prompt")?.disabled).toBe("Claude waits for you in its terminal");
+    expect(rcViewerOptions(waiting).options.find((o) => o.id === "prompt")?.disabled).toBe("Claude waits for you in its terminal");
     // A background session has no tab to bring to the front.
     const bg = { ...base, running: { pid: 1, activity: "idle" as const, kind: "bg" as const, jobId: "j1" } };
-    expect(keeperOptions(bg).options[0]!.disabled).toBe("a background session has no tab: claude attach j1");
+    expect(rcViewerOptions(bg).options[0]!.disabled).toBe("a background session has no tab: claude attach j1");
     // An idle one that cannot be typed into (no tmux) falls back to its terminal.
     expect(first({ ...base, promptBlocked: "no tmux: cco cannot type into it" })).toBe("switch");
   });
@@ -363,21 +363,21 @@ describe("the keeper's Enter dialog", () => {
     expect(first({ ...ended, terminal: false })).toBe("viewer");
   });
 
-  it("answers what a remote session waits for, and sends nothing while remote control is off", () => {
+  it("answers what a remote session waits for, and sends nothing while steer remote is off", () => {
     const pending = { requestId: "r1", toolName: "Bash", toolUseId: "t1", input: { command: "ls" }, suggestions: [], needsInteraction: true, sequence: 1 };
-    const remote: KeeperSituation = { state: "waiting", remote: { control: true, pending }, terminal: true, viewers: 0, command: "https://claude.ai/code/x" };
+    const remote: RcViewerSituation = { state: "waiting", remote: { control: true, pending }, terminal: true, viewers: 0, command: "https://claude.ai/code/x" };
     expect(ids(remote)).toEqual(["answer", "prompt", "interrupt", "viewer", "copy"]);
     expect(first(remote)).toBe("answer");
-    expect(keeperOptions(remote).options[0]!.label).toBe("Allow or deny Bash");
+    expect(rcViewerOptions(remote).options[0]!.label).toBe("Allow or deny Bash");
     const off = { ...remote, remote: { control: false, pending } };
     expect(first(off)).toBe("viewer");
-    expect(keeperOptions(off).options[0]!.disabled).toContain("remote control is off");
+    expect(rcViewerOptions(off).options[0]!.disabled).toContain("steer remote is off");
     expect(first({ ...remote, state: "idle", remote: { control: true } })).toBe("prompt");
     expect(ids({ ...remote, state: "ended", remote: { control: true } })).toEqual(["viewer", "copy"]);
   });
 });
 
-describe("the keeper's prompt line", () => {
+describe("the Remote Control Viewer's prompt line", () => {
   const size = { columns: 140, rows: 30 };
   // tmux types: each send-keys is recorded with its pane; this process runs in %1, its parent in %2.
   const sent: { pane: string; keys: string[] }[] = [];
@@ -396,12 +396,12 @@ describe("the keeper's prompt line", () => {
   afterAll(() => Object.assign(proc, real));
   beforeEach(() => {
     sent.length = 0;
-    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-keeper-prompt-"));
+    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-rc-viewer-prompt-"));
     process.env.TMUX = "/tmp/tmux";
     process.env.TMUX_PANE = "%9";
-    cwd = mkdtempSync(join(tmpdir(), "cco-keeper-prompt-project-"));
+    cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-prompt-project-"));
     mkdirSync(projectDir(cwd), { recursive: true });
-    setOwnSettings("keeper");
+    setOwnSettings("rcViewer");
   });
   afterEach(() => {
     process.env = { ...saved };
@@ -430,7 +430,7 @@ describe("the keeper's prompt line", () => {
   it("asks what to do on Enter, sends to the selected session and keeps each one's draft", async () => {
     idleSession("s-a", "first work", 5, process.pid);
     idleSession("s-b", "second work", 10, process.ppid);
-    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
     await until(() => view.frame().includes("answer of first work") && view.frame().includes("second work"));
     expect(view.frame()).toContain("Space or a click: write a prompt");
 
@@ -486,7 +486,7 @@ describe("the keeper's prompt line", () => {
   });
 });
 
-describe("answering a remote session in the keeper", () => {
+describe("answering a remote session in the Remote Control Viewer", () => {
   const size = { columns: 140, rows: 34 };
   const capture = readFileSync(join(import.meta.dirname, "fixtures", "remote-capture.jsonl"), "utf8")
     .trim()
@@ -499,10 +499,10 @@ describe("answering a remote session in the keeper", () => {
   const saved = { ...process.env };
   let posted: Record<string, unknown>[];
   beforeEach(() => {
-    const dir = (process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-keeper-remote-")));
+    const dir = (process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-rc-viewer-remote-")));
     writeFileSync(join(dir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "t", expiresAt: Date.now() + 3_600_000, scopes: [SESSIONS_SCOPE] } }));
     writeFileSync(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "me@example.com", organizationUuid: "org-1" } }));
-    setOwnSettings("keeper");
+    setOwnSettings("rcViewer");
     updateSettings({ remoteApi: true, remoteControl: true });
     posted = [];
     remote.fetch = async (url, init) => {
@@ -521,7 +521,7 @@ describe("answering a remote session in the keeper", () => {
   });
 
   it("lists it as waiting, and Enter answers its question in the prompt line's place", async () => {
-    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
     await until(() => view.frame().includes("── Waiting") && view.frame().includes("Welche Farbe magst du?"));
     expect(view.frame()).toContain("⚠ 1 waiting");
     await view.press("\r");
@@ -541,18 +541,18 @@ describe("answering a remote session in the keeper", () => {
 });
 
 describe("sessions that just finished", () => {
-  const entry = (key: string, state: KeeperEntry["state"], since = 0): KeeperEntry => ({ key, state, since, session: summary(key, 1) });
+  const entry = (key: string, state: RcViewerEntry["state"], since = 0): RcViewerEntry => ({ key, state, since, session: summary(key, 1) });
   const times = { long: 600_000, short: 3000 };
-  const states = (pairs: [string, KeeperEntry["state"]][]) => new Map(pairs);
+  const states = (pairs: [string, RcViewerEntry["state"]][]) => new Map(pairs);
 
-  it("blink once the keeper saw them go from working or waiting to idle, not at its start", () => {
+  it("blink once the Remote Control Viewer saw them go from working or waiting to idle, not at its start", () => {
     const empty: FreshIdle = new Map();
     // At the start nothing was seen before: an idle session is not fresh.
     expect(updateFresh(empty, new Map(), [entry("a", "idle")], NOW, undefined, true, times)).toBe(empty);
     const fresh = updateFresh(empty, states([["a", "busy"], ["b", "waiting"], ["c", "idle"]]), [entry("a", "idle"), entry("b", "idle"), entry("c", "idle")], NOW, undefined, true, times);
     expect([...fresh.keys()]).toEqual(["a", "b"]);
     expect(fresh.get("a")).toEqual({ until: NOW + 600_000, short: false });
-    // One selected in the focused keeper as it finishes blinks a moment only; unfocused, it counts as unseen.
+    // One selected in the focused Remote Control Viewer as it finishes blinks a moment only; unfocused, it counts as unseen.
     expect(updateFresh(empty, states([["a", "busy"]]), [entry("a", "idle")], NOW, "a", true, times).get("a")).toEqual({ until: NOW + 3000, short: true });
     expect(updateFresh(empty, states([["a", "busy"]]), [entry("a", "idle")], NOW, "a", false, times).get("a")?.short).toBe(false);
     // Working again, or gone from the list: no longer fresh.
@@ -561,7 +561,7 @@ describe("sessions that just finished", () => {
 
   it("are where n goes after the waiting ones, the one finished first first", () => {
     const entries = [entry("w", "waiting", 5), entry("b", "busy"), entry("late", "idle", 30), entry("early", "idle", 10), entry("old", "idle", 1)];
-    const fresh = (e: KeeperEntry) => e.key === "late" || e.key === "early";
+    const fresh = (e: RcViewerEntry) => e.key === "late" || e.key === "early";
     expect(nextWaiting(entries, 1, fresh)).toBe(0);
     expect(nextWaiting(entries, 0, fresh)).toBe(3);
     expect(nextWaiting(entries, 3, fresh)).toBe(2);
@@ -577,9 +577,9 @@ describe("blinking marks", () => {
     return seen.some((l) => l.includes(mark)) && seen.some((l) => !l.includes(mark));
   };
 
-  it("show a waiting session's ⚠ on and off in the keeper", async () => {
-    setOwnSettings("keeper");
-    const cwd = mkdtempSync(join(tmpdir(), "cco-keeper-blink-"));
+  it("show a waiting session's ⚠ on and off in the Remote Control Viewer", async () => {
+    setOwnSettings("rcViewer");
+    const cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-blink-"));
     mkdirSync(projectDir(cwd), { recursive: true });
     const ts = new Date().toISOString();
     writeFileSync(
@@ -593,7 +593,7 @@ describe("blinking marks", () => {
     );
     mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
     writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s-w", status: "waiting", cwd }));
-    const view = renderInk(<KeeperApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, { columns: 120, rows: 20 });
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, { columns: 120, rows: 20 });
     await until(() => view.frame().includes("asks you"));
     await tick(4 * TIMING.blink);
     const row = (f: string) => f.split("\n").find((l) => l.includes("asks you"));

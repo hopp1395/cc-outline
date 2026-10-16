@@ -130,17 +130,17 @@ export function stackedLayout(columns: number, rows: number, listColumns: Compac
 }
 
 /**
- * The keeper's layout (`cco keeper`): its sessions column of `sessions` width on the left (`aside`, 0 when hidden, the
+ * The Remote Control Viewer's layout (`cco rc-viewer`): its sessions column of `sessions` width on the left (`aside`, 0 when hidden, the
  * whole window when full), and in what it leaves, after its border and padding, the turns of `turns` width and the chat.
  * `columns` stays the window's, for the top bar.
  */
-export function keeperLayout(columns: number, rows: number, sessions: ListWidth, turns: ListWidth): { layout: Layout; aside: number } {
+export function rcViewerLayout(columns: number, rows: number, sessions: ListWidth, turns: ListWidth): { layout: Layout; aside: number } {
   const aside = sessions === "hidden" ? 0 : sessions === "full" ? columns : listColumns(columns, sessions);
   const rest = aside > 0 && aside < columns ? columns - aside - 2 : columns;
   return { aside, layout: { ...layoutOf(rest, rows, turns), columns, rows } };
 }
 
-/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a session viewer's or the keeper's prompt line). */
+/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a session viewer's or the Remote Control Viewer's prompt line). */
 export function shorter(layout: Layout, rows: number): Layout {
   const less = (n: number | undefined) => (n === undefined ? undefined : Math.max(1, n - rows));
   return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
@@ -468,13 +468,13 @@ const TABS: Tab[] = [
   { key: "5", label: "Monitor", mode: "monitor" },
   { key: "6", label: "Settings", mode: "settings" },
 ];
-/** The keeper's tabs (`cco keeper`): its three columns, drawn by the chat, and its own settings. */
-export const KEEPER_TABS: Tab[] = [
-  { key: "1", label: "Keeper", mode: "chat" },
+/** The Remote Control Viewer's tabs (`cco rc-viewer`): its three columns, drawn by the chat, and its own settings. */
+export const RC_VIEWER_TABS: Tab[] = [
+  { key: "1", label: "Remote Control", mode: "chat" },
   { key: "2", label: "Settings", mode: "settings" },
 ];
 
-/** Tabs of its own instead of the views' (the keeper's); undefined for the views'. */
+/** Tabs of its own instead of the views' (the Remote Control Viewer's); undefined for the views'. */
 export const TabSetContext = createContext<Tab[] | undefined>(undefined);
 
 /** A tab's text; in the compact view only the open one has its name, the others just their number. */
@@ -540,7 +540,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
 }
 
 /**
- * A column left of the view's list (the keeper's sessions), drawn by `Screen` in the same frame: the view's list and
+ * A column left of the view's list (the Remote Control Viewer's sessions), drawn by `Screen` in the same frame: the view's list and
  * preview share what it leaves (the layout the view gets says how wide they are).
  */
 export interface ScreenAside {
@@ -683,7 +683,7 @@ function withNotice(content: ReactNode, notice: string | undefined, width: numbe
 
 export function Screen({ layout, mode, status, list, preview, footer: viewFooter }: ScreenProps) {
   const notice = useContext(ScreenNoticeContext);
-  // The keeper's sessions column left of the view, with its own help line while it has the keys.
+  // The Remote Control Viewer's sessions column left of the view, with its own help line while it has the keys.
   const aside = useContext(ScreenAsideContext);
   const asideWidth = aside ? Math.min(layout.columns, aside.width) : 0;
   const asideFull = aside !== undefined && asideWidth >= layout.columns;

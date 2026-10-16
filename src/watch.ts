@@ -1,9 +1,9 @@
 import { render } from "ink";
 import { createElement, useState } from "react";
-import { setOwnSettings, setSessionViewer, type Placement } from "./settings.js";
+import { setOwnSettings, setSessionViewer, takeOverKeeperSettings, type Placement } from "./settings.js";
 import { App } from "./tui/App.js";
-import { KeeperApp } from "./tui/KeeperApp.js";
-import type { KeeperSelect } from "./keeper/registry.js";
+import { RcViewerApp } from "./tui/RcViewerApp.js";
+import type { RcViewerSelect } from "./rcViewer/registry.js";
 import { withoutCtrlC } from "./tui/ctrlC.js";
 import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
@@ -54,10 +54,11 @@ export async function runViewer(opts: WatchOptions): Promise<void> {
   await renderUntilExit(createElement(Viewer, opts));
 }
 
-/** Runs the keeper (`cco keeper`) until it quits: the sessions of every project and account, with its own settings. */
-export async function runKeeper(opts: { unfocused?: boolean; select?: KeeperSelect } = {}): Promise<void> {
-  setOwnSettings("keeper");
-  await renderUntilExit(createElement(KeeperApp, opts));
+/** Runs the Remote Control Viewer (`cco rc-viewer`) until it quits: the sessions of every project and account, with its own settings. */
+export async function runRcViewer(opts: { unfocused?: boolean; select?: RcViewerSelect } = {}): Promise<void> {
+  takeOverKeeperSettings();
+  setOwnSettings("rcViewer");
+  await renderUntilExit(createElement(RcViewerApp, opts));
 }
 
 async function renderUntilExit(element: ReturnType<typeof createElement>): Promise<void> {

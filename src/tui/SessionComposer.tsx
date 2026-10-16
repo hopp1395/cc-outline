@@ -51,7 +51,7 @@ const PERMISSIONS: { id: Permission; label: string }[] = [
  * this machine (typed in). Each call rejects with an `Error` whose message says why it failed.
  */
 export interface PromptChannel {
-  /** Why nothing can be sent now (it runs nowhere, remote control is off, …); the line shows it in place of the text. */
+  /** Why nothing can be sent now (it runs nowhere, steer remote is off, …); the line shows it in place of the text. */
   blocked?: string;
   send(text: string): Promise<void>;
   /** Stops Claude while it works. */
@@ -93,7 +93,7 @@ export function SessionComposer({
   notify: (message: string) => void;
   onHeight: (rows: number) => void;
   /**
-   * The session the line writes to, where it changes (the keeper): each keeps its own draft, so a text is never sent
+   * The session the line writes to, where it changes (the Remote Control Viewer): each keeps its own draft, so a text is never sent
    * to another session than the one it was written for.
    */
   draftKey?: string;

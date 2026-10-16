@@ -19,11 +19,11 @@ import {
   type TrashEntry,
 } from "../transcript/trash.js";
 import { AttachmentsDialog } from "./AttachmentsDialog.js";
-import { runningKeeper, type KeeperInfo, type KeeperSelect } from "../keeper/registry.js";
+import { runningRcViewer, type RcViewerInfo, type RcViewerSelect } from "../rcViewer/registry.js";
 import { screenOrder } from "../pinned.js";
 import { FocusContext } from "./focus.js";
 import { useMouse } from "./mouse.js";
-import { detectTerminal, focusSessionViewer, openInDefaultApp, openKeeper, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
+import { detectTerminal, focusSessionViewer, openInDefaultApp, openRcViewer, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
 import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
@@ -47,7 +47,7 @@ import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { RenameDialog } from "./RenameDialog.js";
-import { enterLabel, keeperOption, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation, viewerOptions } from "./resumeChoice.js";
+import { enterLabel, rcViewerOption, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation, viewerOptions } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
@@ -491,32 +491,32 @@ function sessionText(s: SessionSummary, gone: boolean, email?: string, backgroun
   };
 }
 
-/** Whether the keeper runs (its registration and process), read every second while `visible`. */
-function useKeeperRuns(visible: boolean): KeeperInfo | undefined {
-  const [keeper, setKeeper] = useState<KeeperInfo | undefined>(() => runningKeeper());
+/** Whether the Remote Control Viewer runs (its registration and process), read every second while `visible`. */
+function useRcViewerRuns(visible: boolean): RcViewerInfo | undefined {
+  const [rcViewer, setRcViewer] = useState<RcViewerInfo | undefined>(() => runningRcViewer());
   useEffect(() => {
     if (!visible) return;
-    const read = () => setKeeper((prev) => {
-      const next = runningKeeper();
+    const read = () => setRcViewer((prev) => {
+      const next = runningRcViewer();
       return prev?.pid === next?.pid && prev?.window === next?.window ? prev : next;
     });
     read();
     const timer = setInterval(read, TIMING.activityPoll);
     return () => clearInterval(timer);
   }, [visible]);
-  return keeper;
+  return rcViewer;
 }
 
-/** What the keeper's row above the list says: open it or bring it to the front, and how many sessions wait for the user. */
-export function keeperRowLabel(runs: boolean, waiting: number): string {
-  return `⊞ ${runs ? "bring the keeper to the front" : "open the keeper…"}${waiting > 0 ? ` · ⚠${waiting} waiting` : ""}`;
+/** What the Remote Control Viewer's row above the list says: open it or bring it to the front, and how many sessions wait for the user. */
+export function rcViewerRowLabel(runs: boolean, waiting: number): string {
+  return `⊞ ${runs ? "bring the Remote Control Viewer to the front" : "open the Remote Control Viewer…"}${waiting > 0 ? ` · ⚠${waiting} waiting` : ""}`;
 }
 
 /**
- * The keeper's row (`label`) above the list (`children`), always its top row: a badge like ↓ more ↓, inverse while
+ * The Remote Control Viewer's row (`label`) above the list (`children`), always its top row: a badge like ↓ more ↓, inverse while
  * `selected`; a click on it calls `onOpen`. The list below gets the rest of the area.
  */
-function KeeperRow({ label, selected, onOpen, children }: { label: string; selected: boolean; onOpen: () => void; children: ReactNode }) {
+function RcViewerRow({ label, selected, onOpen, children }: { label: string; selected: boolean; onOpen: () => void; children: ReactNode }) {
   const area = useContext(AreaContext);
   const width = columnWidthOf(area);
   useMouse((e) => {
@@ -619,14 +619,14 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   const viewedCount = (s: SessionSummary) => (trashOpen ? 0 : viewersFor(s).length);
   // Remote Control sessions (claude.ai), unless one of this machine's sessions is the same: that one then shows ⇄.
   const remoteRead = useRemoteSessions(visible, remoteApi && shownFilter.remote !== "hide");
-  // The keeper's row above the list: whether it runs, and how many sessions of every account wait for the user.
-  const keeper = useKeeperRuns(visible);
+  // The Remote Control Viewer's row above the list: whether it runs, and how many sessions of every account wait for the user.
+  const rcViewer = useRcViewerRuns(visible);
   const otherDirs = useMemo(() => others.map((a) => a.dir), [others.map((a) => a.dir).join("\n")]);
   const everyRunning = useRunning(visible, otherDirs);
   const waitingCount =
     [...everyRunning.values()].filter((r) => r.activity === "waiting").length + remoteRead.sessions.filter((r) => r.remote?.workerStatus === "requires_action" || r.remote?.pending).length;
-  // The row has the selection (↑ from the top of the list, ↓ back): Enter opens the keeper.
-  const [keeperSelected, setKeeperSelected] = useState(false);
+  // The row has the selection (↑ from the top of the list, ↓ back): Enter opens the Remote Control Viewer.
+  const [rcViewerSelected, setRcViewerSelected] = useState(false);
   const { merged, connected } = useMemo(() => {
     if (!read) return { merged: read, connected: new Set<string>() };
     return mergeRemote(read, remoteRead.sessions);
@@ -928,7 +928,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       foreign: s.account !== undefined,
       terminal: detectTerminal() !== undefined,
       viewers: viewersFor(s).length,
-      keeper: { runs: keeper !== undefined, listed: keeperLists(s) },
+      rcViewer: { runs: rcViewer !== undefined, listed: rcViewerLists(s) },
       folder: tilde(dir),
       // A session the Claude Code daemon runs is attached to, not resumed.
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
@@ -969,7 +969,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   };
 
   /**
-   * Enter on a remote session: with remote control, what fits what it does first (a prompt, interrupting it), then
+   * Enter on a remote session: with steer remote, what fits what it does first (a prompt, interrupting it), then
    * a viewer of its own and its address.
    */
   const startRemote = (s: SessionSummary) => {
@@ -979,7 +979,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       ...control,
       ...viewerOptions(watching, detectTerminal() !== undefined, { control: remoteControl }),
       { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
-      keeperOption({ runs: keeper !== undefined, listed: true }, detectTerminal() !== undefined),
+      rcViewerOption({ runs: rcViewer !== undefined, listed: true }, detectTerminal() !== undefined),
     ];
     setChoice({
       title: "What to do with this session?",
@@ -990,7 +990,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         setChoice(undefined);
         if (id === "viewer") return openViewer(s);
         if (id === "viewer-front") return bringViewer(s);
-        if (id === "keeper") return openKeeperFor(s);
+        if (id === "rcViewer") return openRcViewerFor(s);
         if (id === "copy") return act("copy", s, cwd, undefined, remoteUrl(s.id));
         remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus, pending: s.remote?.pending });
       },
@@ -1035,8 +1035,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         return openViewer(s);
       case "viewer-front":
         return bringViewer(s);
-      case "keeper":
-        return openKeeperFor(s);
+      case "rcViewer":
+        return openRcViewerFor(s);
       case "folder":
         return openInDefaultApp(dir);
       case "copy":
@@ -1046,23 +1046,23 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         );
     }
   };
-  /** Whether the keeper lists `s`: it runs, or was active today; a remote one while claude.ai lists it. */
-  const keeperLists = (s: SessionSummary) => {
+  /** Whether the Remote Control Viewer lists `s`: it runs, or was active today; a remote one while claude.ai lists it. */
+  const rcViewerLists = (s: SessionSummary) => {
     if (s.remote || running.has(sessionKey(s))) return true;
     const at = lastActive(s);
     return at !== undefined && Date.parse(at) >= rangeStart("today")!;
   };
   /**
-   * Opens the keeper in its window (or brings the one that runs to the front), with `s` selected if given. Without a
-   * terminal to open it in, copies `cco keeper`.
+   * Opens the Remote Control Viewer in its window (or brings the one that runs to the front), with `s` selected if given. Without a
+   * terminal to open it in, copies `cco rc-viewer`.
    */
-  const openKeeperFor = (s?: SessionSummary) => {
-    const select: KeeperSelect | undefined = !s ? undefined : s.remote ? { id: s.id, remote: true } : { id: s.id, configDir: s.account ?? claudeDir() };
-    const opened = openKeeper(runningKeeper(), select);
+  const openRcViewerFor = (s?: SessionSummary) => {
+    const select: RcViewerSelect | undefined = !s ? undefined : s.remote ? { id: s.id, remote: true } : { id: s.id, configDir: s.account ?? claudeDir() };
+    const opened = openRcViewer(runningRcViewer(), select);
     if (opened) return notify(opened);
-    void copy("cco keeper").then(
-      () => notify("no Windows Terminal or tmux: copied cco keeper, run it in a terminal of its own"),
-      () => notify("no Windows Terminal or tmux: run cco keeper in a terminal of its own"),
+    void copy("cco rc-viewer").then(
+      () => notify("no Windows Terminal or tmux: copied cco rc-viewer, run it in a terminal of its own"),
+      () => notify("no Windows Terminal or tmux: run cco rc-viewer in a terminal of its own"),
     );
   };
   /**
@@ -1277,7 +1277,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     }, 50);
   };
 
-  // The selection is in the list's top row: ↑ goes on to the keeper's row above it.
+  // The selection is in the list's top row: ↑ goes on to the Remote Control Viewer's row above it.
   const atListTop = filter.pinned ? filter.pinned.row === 0 : screenOrder(list.length, filter.shown, true)[0] === index;
 
   useInput(
@@ -1285,15 +1285,15 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       if (filter.handleKey(input, key)) return;
       if (input === "T") return toggleTrash(!trashOpen);
       if (input === "a") return setFilterOpen(true);
-      // k: the keeper, a window that watches every session (cco keeper); the one that runs comes to the front.
-      if (input === "k" && !trashOpen) return openKeeperFor();
-      // The keeper's row above the list: ↑ from the list's top row reaches it, ↓ goes back, Enter opens the keeper.
-      if (!trashOpen && keeperSelected) {
-        if (key.return) return openKeeperFor();
-        if (key.downArrow && !key.shift && !key.ctrl) return setKeeperSelected(false);
+      // k: the Remote Control Viewer, a window that watches every session (cco rc-viewer); the one that runs comes to the front.
+      if (input === "k" && !trashOpen) return openRcViewerFor();
+      // The Remote Control Viewer's row above the list: ↑ from the list's top row reaches it, ↓ goes back, Enter opens the Remote Control Viewer.
+      if (!trashOpen && rcViewerSelected) {
+        if (key.return) return openRcViewerFor();
+        if (key.downArrow && !key.shift && !key.ctrl) return setRcViewerSelected(false);
         if ((key.upArrow && !key.ctrl) || key.home || key.pageUp) return;
-        setKeeperSelected(false);
-      } else if (!trashOpen && key.upArrow && !key.shift && !key.ctrl && atListTop) return setKeeperSelected(true);
+        setRcViewerSelected(false);
+      } else if (!trashOpen && key.upArrow && !key.shift && !key.ctrl && atListTop) return setRcViewerSelected(true);
       if (input === "o" && session) return attachments.length ? setAttachmentsOpen(true) : notify(session.remote ? "a remote session's attachments are on claude.ai" : "no attachments in this session");
       if (trashOpen) {
         if (key.escape) return toggleTrash(false);
@@ -1345,13 +1345,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   );
 
   let preview;
-  if (!trashOpen && keeperSelected)
+  if (!trashOpen && rcViewerSelected)
     preview = (
       <Text dimColor>
         {[
-          "The keeper: one window with the sessions of every project and account that run or ran today, grouped by what they need (waiting for you, working, idle, ended), beside the selected one's turns and chat.",
+          "The Remote Control Viewer: one window with the sessions of every project and account that run or ran today, grouped by what they need (waiting for you, working, idle, ended), beside the selected one's turns and chat.",
           "",
-          keeper ? "Enter, k or a click brings it to the front." : "Enter, k or a click opens it in a window of its own (Windows Terminal or tmux).",
+          rcViewer ? "Enter, k or a click brings it to the front." : "Enter, k or a click opens it in a window of its own (Windows Terminal or tmux).",
           waitingCount > 0 ? `\n${waitingCount === 1 ? "1 session waits" : `${waitingCount} sessions wait`} for you.` : "",
         ].join("\n")}
       </Text>
@@ -1405,8 +1405,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         ...markFooter(favorites.isMarked(session && sessionKey(session)), markedCount),
         ...filter.footer,
         {
-          text: keeperSelected
-            ? "↵ keeper"
+          text: rcViewerSelected
+            ? "↵ Remote Control Viewer"
             : onLoadMore
             ? "↵ load more"
             : onImport
@@ -1424,16 +1424,16 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
         { text: "T trash", priority: 2 },
-        { text: "k keeper", priority: 1 },
+        { text: "k Remote Control Viewer", priority: 1 },
         { text: "1-6/tab view", priority: 1 },
       ];
 
-  // The list; above it, outside the trash, the keeper's row.
+  // The list; above it, outside the trash, the Remote Control Viewer's row.
   const sessionsList = (
     <List
       reversed={reversed}
       onPick={(i) => {
-        setKeeperSelected(false);
+        setRcViewerSelected(false);
         select(i);
       }}
       // Load more takes a single click; on a session, a double click does what Enter does.
@@ -1570,9 +1570,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
           trashOpen ? (
             sessionsList
           ) : (
-            <KeeperRow label={keeperRowLabel(keeper !== undefined, waitingCount)} selected={keeperSelected && focused} onOpen={() => openKeeperFor()}>
-              <FocusContext.Provider value={focused && !keeperSelected}>{sessionsList}</FocusContext.Provider>
-            </KeeperRow>
+            <RcViewerRow label={rcViewerRowLabel(rcViewer !== undefined, waitingCount)} selected={rcViewerSelected && focused} onOpen={() => openRcViewerFor()}>
+              <FocusContext.Provider value={focused && !rcViewerSelected}>{sessionsList}</FocusContext.Provider>
+            </RcViewerRow>
           )
         }
         preview={preview}

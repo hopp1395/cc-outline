@@ -1,13 +1,13 @@
 import { Box, Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { KeeperSelect } from "../keeper/registry.js";
+import type { RcViewerSelect } from "../rcViewer/registry.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { barColorOfAccount, type Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
-import { formatAge, KEEPER_GROUPS, keeperEntries, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type KeeperEntry, type KeeperState, type SeenStates } from "../keeper/state.js";
-import { keeperOptions, type KeeperAction } from "../keeper/actions.js";
+import { formatAge, RC_VIEWER_GROUPS, rcViewerEntries, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type RcViewerEntry, type RcViewerState, type SeenStates } from "../rcViewer/state.js";
+import { rcViewerOptions, type RcViewerAction } from "../rcViewer/actions.js";
 import { detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, viewerCommand, type ViewerTarget } from "../open.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { describeRemoteError, remotePath, remoteUrl } from "../remote/index.js";
@@ -37,16 +37,16 @@ import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, us
 import { useSetting } from "./useSetting.js";
 import { useTranscript } from "./useTranscript.js";
 
-/** The keeper's columns, left to right: `←` and `→` move the keys between them. */
-export type KeeperColumn = "sessions" | "turns" | "chat";
-const COLUMNS: KeeperColumn[] = ["sessions", "turns", "chat"];
+/** The Remote Control Viewer's columns, left to right: `←` and `→` move the keys between them. */
+export type RcViewerColumn = "sessions" | "turns" | "chat";
+const COLUMNS: RcViewerColumn[] = ["sessions", "turns", "chat"];
 
 interface Props {
-  /** The layout of the turns and the chat, beside the sessions column (`keeperLayout`). */
+  /** The layout of the turns and the chat, beside the sessions column (`rcViewerLayout`). */
   layout: Layout;
-  /** The sessions column's width (`keeperLayout`'s `aside`). */
+  /** The sessions column's width (`rcViewerLayout`'s `aside`). */
   aside: number;
-  /** The keeper is shown (its data is read only then). */
+  /** The Remote Control Viewer is shown (its data is read only then). */
   visible: boolean;
   /** The view takes keys. */
   active: boolean;
@@ -55,9 +55,9 @@ interface Props {
   /** A short message in the bottom row (the width after `<` or `>`). */
   notify: (text: string) => void;
   /** A session to select, once per `at`: as soon as the list has it. */
-  request?: KeeperSelect & { at: number };
+  request?: RcViewerSelect & { at: number };
   /**
-   * Whether the view takes Tab and i itself (the chat column, where they give the prompt line the keys): the keeper's
+   * Whether the view takes Tab and i itself (the chat column, where they give the prompt line the keys): the Remote Control Viewer's
    * app then leaves them alone.
    */
   onClaimKeys?: (claims: boolean) => void;
@@ -73,17 +73,17 @@ const accountOfKey = (key: string) => (key.includes("|") ? key.slice(0, key.last
 const samePath = (a: string, b: string) => (process.platform === "win32" ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b));
 
 /** Whether `s` is the session `request` asks for: a remote one by its id, one of this machine by an id of its chain in its config folder. */
-export function matchesRequest(s: SessionSummary, request: KeeperSelect): boolean {
+export function matchesRequest(s: SessionSummary, request: RcViewerSelect): boolean {
   if (request.remote || s.remote) return Boolean(request.remote && s.remote && s.id === request.id);
   if (s.id !== request.id && !(s.continues ?? []).includes(request.id)) return false;
   return !request.configDir || samePath(s.account ?? claudeDir(), request.configDir);
 }
 
 /**
- * The marker of a session in the keeper's list: ⚠ waits (blinking on and off), ● works (blinking bright and dim) or is
+ * The marker of a session in the Remote Control Viewer's list: ⚠ waits (blinking on and off), ● works (blinking bright and dim) or is
  * idle (blinking on and off while it just finished, `fresh`), ∅ ended; ◈ for a remote one.
  */
-function KeeperMarker({ entry, fresh }: { entry: KeeperEntry; fresh: boolean }) {
+function RcViewerMarker({ entry, fresh }: { entry: RcViewerEntry; fresh: boolean }) {
   const { state, session } = entry;
   if (state === "waiting") return <SessionMarker symbol="⚠" activity="waiting" />;
   if (state === "ended") return <Text dimColor>∅</Text>;
@@ -92,13 +92,13 @@ function KeeperMarker({ entry, fresh }: { entry: KeeperEntry; fresh: boolean }) 
 }
 
 /**
- * The keeper (`cco keeper`): the sessions that run or ran today, of every project and account and claude.ai
+ * The Remote Control Viewer (`cco rc-viewer`): the sessions that run or ran today, of every project and account and claude.ai
  * (setting remote API), grouped by what they need (waiting, working, idle, ended); beside them the selected session's
  * turns and the chat of the selected turn, live. `←` and `→` move the keys between the three columns.
  */
-export function KeeperView({ layout: full, aside, visible, active, onTyping, onModal, notify, request, onClaimKeys }: Props) {
+export function RcViewerView({ layout: full, aside, visible, active, onTyping, onModal, notify, request, onClaimKeys }: Props) {
   const focused = useFocused();
-  const [column, setColumn] = useState<KeeperColumn>("sessions");
+  const [column, setColumn] = useState<RcViewerColumn>("sessions");
   const accountState = useAccountState();
   const [accountColor] = useSetting("accountColor");
   const [remoteApi] = useSetting("remoteApi");
@@ -130,7 +130,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
       const dir = account ? inClaudeDir(account, () => projectDir(run.cwd!)) : projectDir(run.cwd);
       standIns.push(runningStandIn(id, run, join(dir, `${id}.jsonl`), account));
     }
-    return keeperEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart);
+    return rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart);
   }, [read, remote.sessions, running, now, dayStart]);
 
   // Kept by key: the entries move between the groups as their sessions change.
@@ -140,7 +140,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
   const index = found >= 0 ? found : Math.min(lastIndex.current, Math.max(0, entries.length - 1));
   lastIndex.current = index;
   const entry = entries[index];
-  // A session asked for (Sessions, /cco:keeper) is selected once the list has it, the keys in the sessions column.
+  // A session asked for (Sessions, /cco:rc-viewer) is selected once the list has it, the keys in the sessions column.
   const answered = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!request || answered.current === request.at) return;
@@ -155,9 +155,9 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
     if (next) setSelectedKey(next.key);
   };
 
-  // Sessions that just finished blink until seen: selected while the keeper has the focus, or after a while.
+  // Sessions that just finished blink until seen: selected while the Remote Control Viewer has the focus, or after a while.
   const [fresh, setFresh] = useState<FreshIdle>(new Map());
-  const states = useRef<Map<string, KeeperState>>(new Map());
+  const states = useRef<Map<string, RcViewerState>>(new Map());
   useEffect(() => {
     setFresh((f) => updateFresh(f, states.current, entries, Date.now(), entry?.key, focused, { long: TIMING.freshIdle, short: TIMING.freshSelected }));
     states.current = new Map(entries.map((e) => [e.key, e.state]));
@@ -171,7 +171,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
       return next;
     });
   }, [entry?.key, focused, fresh]);
-  const isFresh = (e: KeeperEntry) => (fresh.get(e.key)?.until ?? 0) > now;
+  const isFresh = (e: RcViewerEntry) => (fresh.get(e.key)?.until ?? 0) > now;
 
   // The selected session's turns: a local one from its transcript, a remote one from claude.ai.
   const session = entry?.session;
@@ -192,7 +192,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
     if (!remoteId) return undefined;
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
-      blocked: remoteControl ? undefined : "remote control is off (Settings of a viewer)",
+      blocked: remoteControl ? undefined : "steer remote is off (Settings of a viewer)",
       send: (text) => readable(sendPrompt(remoteId, text)),
       interrupt: () => readable(sendInterrupt(remoteId)),
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
@@ -205,7 +205,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
   // The chat and the lists leave the prompt line its rows.
   const layout = session ? shorter(full, composerRows) : full;
 
-  // What the chat reports (its filter, its attachments) and the keeper's own dialog keep the app's keys off.
+  // What the chat reports (its filter, its attachments) and the Remote Control Viewer's own dialog keep the app's keys off.
   const [chatTyping, setChatTyping] = useState(false);
   const [chatModal, setChatModal] = useState(false);
   const [choice, setChoice] = useState<Choice>();
@@ -222,17 +222,17 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
   const viewersFor = (s: SessionSummary) => viewersOf(viewers, s.remote ? { remoteId: s.id } : { ids: [s.id, ...(s.continues ?? [])], configDir: s.account ?? claudeDir() });
   const report = (done: string) => (p: Promise<void>) => p.then(() => notify(done), (err: Error) => notify(`not sent: ${err.message}`));
   /** The command that continues `e`'s session (a daemon's is attached to), or a remote one's address. */
-  const commandOf = (e: KeeperEntry) => {
+  const commandOf = (e: RcViewerEntry) => {
     const s = e.session;
     if (s.remote) return remoteUrl(s.id);
     return e.running?.kind === "bg" && e.running.jobId ? `claude attach ${e.running.jobId}` : resumeCommand(s);
   };
 
-  /** Enter on a session: what to do with it (`keeperOptions`), the usual choice for its state selected. */
-  const start = (e: KeeperEntry) => {
+  /** Enter on a session: what to do with it (`rcViewerOptions`), the usual choice for its state selected. */
+  const start = (e: RcViewerEntry) => {
     const s = e.session;
     const dir = s.cwd ?? process.cwd();
-    const { options, initial } = keeperOptions({
+    const { options, initial } = rcViewerOptions({
       state: e.state,
       remote: s.remote && { control: remoteControl, pending: s.remote.pending ?? (s.id === remoteId ? remoteRead.pending[0] : undefined) },
       running: e.running,
@@ -252,12 +252,12 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
       initial,
       onChoose: (id: string) => {
         setChoice(undefined);
-        act(id as KeeperAction, e);
+        act(id as RcViewerAction, e);
       },
     });
   };
 
-  const act = (id: KeeperAction, e: KeeperEntry) => {
+  const act = (id: RcViewerAction, e: RcViewerEntry) => {
     const s = e.session;
     switch (id) {
       case "switch":
@@ -293,12 +293,12 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
   // The window's title counts the sessions waiting for the user.
   const waiting = entries.filter((e) => e.state === "waiting").length;
   const working = entries.filter((e) => e.state === "busy").length;
-  useTerminalTitle(waiting > 0 ? `⚠${waiting} cco keeper` : "cco keeper", working > 0 ? "working" : "idle");
+  useTerminalTitle(waiting > 0 ? `⚠${waiting} cco rc-viewer` : "cco rc-viewer", working > 0 ? "working" : "idle");
 
   // < > and | change the width of the list of the column that has the keys: the sessions', or the turns'.
   const folds = useRef<Record<"sessions" | "turns", FoldState>>({ sessions: UNFOLDED, turns: UNFOLDED });
   const before = useRef<Partial<Record<"sessions" | "turns", ColumnWidth>>>({});
-  const widthKey = (c: KeeperColumn) => (c === "sessions" ? "keeperSessionsWidth" : "keeperTurnsWidth");
+  const widthKey = (c: RcViewerColumn) => (c === "sessions" ? "rcViewerSessionsWidth" : "rcViewerTurnsWidth");
   for (const c of ["sessions", "turns"] as const) {
     const width = readSettings()[widthKey(c)];
     if (!isListFold(width)) before.current[c] = width;
@@ -373,7 +373,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
         height={layout.bodyHeight}
         empty="No session today"
         itemKey={(e) => e.key}
-        group={(e) => KEEPER_GROUPS[e.state]}
+        group={(e) => RC_VIEWER_GROUPS[e.state]}
         onPick={(i) => {
           select(i);
           setColumn("sessions");
@@ -385,7 +385,7 @@ export function KeeperView({ layout: full, aside, visible, active, onTyping, onM
           const width = Math.max(4, aside - (withAccounts ? 1 : 0) - 2 - stringWidth(age) - 1);
           return (
             <>
-              <KeeperMarker entry={e} fresh={isFresh(e)} />
+              <RcViewerMarker entry={e} fresh={isFresh(e)} />
               <Text> </Text>
               <EntryText text={`${sessionTitle(e.session)} · ${project}`} width={width} selected={isSelected} active={sessionsFocused} />
               <Text dimColor={!isSelected}>{` ${age}`}</Text>

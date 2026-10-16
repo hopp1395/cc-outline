@@ -18,7 +18,7 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `folder`: open the folder it ran in, in the file manager.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "viewer" | "viewer-front" | "keeper" | "folder" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "viewer" | "viewer-front" | "rcViewer" | "folder" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -71,8 +71,8 @@ export interface SessionSituation {
   terminal: boolean;
   /** How many viewers of it run in windows of their own (◎). */
   viewers?: number;
-  /** The keeper (`cco keeper`): whether it runs, and whether it lists the session (running, or active today). */
-  keeper?: { runs: boolean; listed: boolean };
+  /** The Remote Control Viewer (`cco rc-viewer`): whether it runs, and whether it lists the session (running, or active today). */
+  rcViewer?: { runs: boolean; listed: boolean };
   /** The folder it ran in, as `folder` names it (`~` for the home folder). */
   folder: string;
   /** The command `copy` copies. */
@@ -180,15 +180,15 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     { id: "import", label: "Import sessions…", detail: `from a cco-session-export zip${into}`, disabled: own },
     copy,
   );
-  // Last, so the numbers of the others stay: the keeper, which shows every session.
-  if (s.keeper) options.push(keeperOption(s.keeper, s.terminal));
+  // Last, so the numbers of the others stay: the Remote Control Viewer, which shows every session.
+  if (s.rcViewer) options.push(rcViewerOption(s.rcViewer, s.terminal));
   // When nothing else can be chosen (folder gone, another account's without a terminal), viewing it can.
   const first = [...preferred, "viewer"].map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
   return { options, initial: first ?? options.indexOf(copy) };
 }
 
 /**
- * A session viewer of the session (a window of its own), with a prompt line (a `remote` one's only with remote control): another
+ * A session viewer of the session (a window of its own), with a prompt line (a `remote` one's only with steer remote): another
  * window each time, and bringing the one opened last to the front while `viewers` run. Without a terminal to open a
  * window in, it copies the command; it can always be chosen.
  */
@@ -203,7 +203,7 @@ export function viewerOptions(viewers: number, terminal: boolean, remote?: { con
           ? "its chat, live, with a prompt line while it runs in a Claude Code"
           : remote.control
             ? "its chat, live, with a prompt line"
-            : "its chat, live; remote control is off, so nothing can be sent",
+            : "its chat, live; steer remote is off, so nothing can be sent",
     },
     ...(viewers > 0
       ? [
@@ -219,15 +219,15 @@ export function viewerOptions(viewers: number, terminal: boolean, remote?: { con
 }
 
 /**
- * The keeper (`cco keeper`) with the session selected: opened in its window, or the one that runs brought to the
+ * The Remote Control Viewer (`cco rc-viewer`) with the session selected: opened in its window, or the one that runs brought to the
  * front. It lists the sessions that run and those active today only.
  */
-export function keeperOption(keeper: { runs: boolean; listed: boolean }, terminal: boolean): ChoiceOption<"keeper"> {
+export function rcViewerOption(rcViewer: { runs: boolean; listed: boolean }, terminal: boolean): ChoiceOption<"rcViewer"> {
   return {
-    id: "keeper",
-    label: "Watch it in the keeper",
-    detail: !terminal && !keeper.runs ? "no Windows Terminal or tmux: copies cco keeper" : keeper.runs ? "the keeper comes to the front with it selected" : "opens the keeper, a window with every session, with it selected",
-    disabled: keeper.listed ? undefined : "the keeper lists the sessions that run and those of today",
+    id: "rcViewer",
+    label: "Watch it in the Remote Control Viewer",
+    detail: !terminal && !rcViewer.runs ? "no Windows Terminal or tmux: copies cco rc-viewer" : rcViewer.runs ? "the Remote Control Viewer comes to the front with it selected" : "opens the Remote Control Viewer, a window with every session, with it selected",
+    disabled: rcViewer.listed ? undefined : "the Remote Control Viewer lists the sessions that run and those of today",
   };
 }
 
@@ -250,7 +250,7 @@ export function enterLabel(s: SessionSituation): string {
     account: "other account",
     viewer: "session viewer",
     "viewer-front": "viewer to front",
-    keeper: "keeper",
+    rcViewer: "Remote Control Viewer",
     folder: "open folder",
     copy: "copy",
   };

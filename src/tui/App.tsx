@@ -122,7 +122,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [accountTitle] = useSetting("accountTitle");
   const [accountColor] = useSetting("accountColor");
   const sessionTitle = remoteId ? `◈ ${transcript.title ?? remoteId}` : (transcript.title ?? basename(cwd));
-  // A viewer of one session has a prompt line below its chat, as Claude Code does; a remote session's needs remote control.
+  // A viewer of one session has a prompt line below its chat, as Claude Code does; a remote session's needs steer remote.
   const [remoteControl] = useSetting("remoteControl");
   // Like its own settings, it comes with the process (watch.ts).
   const composer = fixed && isSessionViewer();
@@ -268,7 +268,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (!remoteId) return undefined;
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
-      blocked: remoteControl ? undefined : "remote control is off (the project's viewer's Settings)",
+      blocked: remoteControl ? undefined : "steer remote is off (the project's viewer's Settings)",
       send: (text) => readable(sendPrompt(remoteId, text)),
       interrupt: () => readable(sendInterrupt(remoteId)),
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
@@ -475,7 +475,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       return;
     }
     // A remote viewer's chat: Tab and i go back to the prompt line; the views switch with their number, ← and → there.
-    // A blocked one (the session runs nowhere, remote control is off) leaves Tab and i to the view switch and the info.
+    // A blocked one (the session runs nowhere, steer remote is off) leaves Tab and i to the view switch and the info.
     if (composer && mode === "chat" && (key.tab || input === "i") && (!channel.blocked || remotePending)) return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {

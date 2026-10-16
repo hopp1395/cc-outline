@@ -7,7 +7,7 @@ import { ownSettingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
 import { Dialog, type Layout, type Mode } from "./layout.js";
-import { KEEPER_LEGEND, legendLines, LEGENDS } from "./legend.js";
+import { RC_VIEWER_LEGEND, legendLines, LEGENDS } from "./legend.js";
 
 /** The dialog's pages: the keys of the view, or what the marks of its list mean. */
 export type InfoPage = "keys" | "legend";
@@ -24,8 +24,8 @@ interface Props {
   oneSession?: boolean;
   /** The page shown; ← → and Tab switch. */
   page?: InfoPage;
-  /** The keeper (`cco keeper`): its three columns in place of the chat, and its two views. */
-  keeper?: boolean;
+  /** The Remote Control Viewer (`cco rc-viewer`): its three columns in place of the chat, and its two views. */
+  rcViewer?: boolean;
 }
 
 /** Keys all lists share; each view lists them first. */
@@ -96,7 +96,7 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["T", "trash on / off"],
     ["a", "all projects / this one"],
     ["x X", "delete / empty trash"],
-    ["k ↑ top", "the keeper: open / to the front"],
+    ["k ↑ top", "the Remote Control Viewer: open / to the front"],
     ...COMMON_KEYS,
   ],
   settings: [
@@ -123,8 +123,8 @@ const KEYS: Record<Mode, [string, string][]> = {
   ],
 };
 
-/** The keys of the keeper's three columns. */
-const KEEPER_INFO_KEYS: [string, string][] = [
+/** The keys of the Remote Control Viewer's three columns. */
+const RC_VIEWER_INFO_KEYS: [string, string][] = [
   ["← →", "column: sessions / turns / chat"],
   ["↑↓", "previous / next in the column"],
   ["Home End", "first / last"],
@@ -138,14 +138,14 @@ const KEEPER_INFO_KEYS: [string, string][] = [
   ["c", "copy Markdown"],
   ["a A", "next / previous subagent"],
   ["o", "list images and screenshots"],
-  ["1 2 Tab", "keeper / settings"],
+  ["1 2 Tab", "Remote Control Viewer / settings"],
   ["click wheel", "select, focus a column / scroll"],
   ["F5 ^R", "reload"],
   ["i", "this info"],
   ["q", "quit"],
 ];
-/** The keeper's two views, in place of the six. */
-const KEEPER_VIEW_KEYS: [string, string] = ["1 2 Tab", "keeper / settings"];
+/** The Remote Control Viewer's two views, in place of the six. */
+const RC_VIEWER_VIEW_KEYS: [string, string] = ["1 2 Tab", "Remote Control Viewer / settings"];
 
 /** The keys a viewer of one session does not have. */
 const VIEWER_KEYS = new Set(["Tab → ⇧Tab ←", "p", "r"]);
@@ -185,7 +185,7 @@ function terminalName(): string {
  * data comes from, and the keys of the current view; on its second page, what
  * the marks of the view's list mean.
  */
-export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false, page = "keys", keeper = false }: Props) {
+export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false, page = "keys", rcViewer = false }: Props) {
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   // Border (2) and padding (2).
   const inner = width - 4;
@@ -204,12 +204,12 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
   );
 
   const keys =
-    keeper && mode === "chat"
-      ? KEEPER_INFO_KEYS
-      : oneSession || keeper
-        ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)).map((k) => (k[0] === "1 – 6" ? (keeper ? KEEPER_VIEW_KEYS : VIEWER_VIEW_KEYS) : k))
+    rcViewer && mode === "chat"
+      ? RC_VIEWER_INFO_KEYS
+      : oneSession || rcViewer
+        ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)).map((k) => (k[0] === "1 – 6" ? (rcViewer ? RC_VIEWER_VIEW_KEYS : VIEWER_VIEW_KEYS) : k))
         : KEYS[mode];
-  const title = keeper && mode === "chat" ? "Keeper" : VIEW_TITLES[mode];
+  const title = rcViewer && mode === "chat" ? "Remote Control Viewer" : VIEW_TITLES[mode];
   const half = Math.ceil(keys.length / 2);
   const columnWidth = Math.floor(inner / 2);
   const keyCell = (entry?: [string, string]) =>
@@ -225,7 +225,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     row("Project", tilde(cwd)),
     row("Session", path ? basename(path, ".jsonl") : "none found"),
     row("Transcript", path ? tilde(path) : "–"),
-    ...(keeper ? [] : [row("Git repo", gitRoot === undefined ? "…" : gitRoot === null ? "not a git repository" : tilde(gitRoot))]),
+    ...(rcViewer ? [] : [row("Git repo", gitRoot === undefined ? "…" : gitRoot === null ? "not a git repository" : tilde(gitRoot))]),
     <Text key="gap1"> </Text>,
     heading("Viewer"),
     row("Terminal", `${terminalName()} · ${paneSwitchKey("left")} / ${paneSwitchKey("right")} switch panes`),
@@ -241,7 +241,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
   ];
   const legendPage = [
     heading(`Legend · ${title}`),
-    ...legendLines(keeper && mode === "chat" ? [...KEEPER_LEGEND, ...LEGENDS.chat] : LEGENDS[mode], inner).map((line, i) => (
+    ...legendLines(rcViewer && mode === "chat" ? [...RC_VIEWER_LEGEND, ...LEGENDS.chat] : LEGENDS[mode], inner).map((line, i) => (
       <Text key={`l${i}`} wrap="truncate">
         {line}
       </Text>

@@ -82,8 +82,8 @@ const MORE: ShortMark = { mark: "", color: "36", short: "↓ more ↓ reads the 
 const ORANGE = "38;2;217;119;87";
 
 /** The marks each view's list can show, in pairs that belong together, for the info dialog's Legend page. */
-/** The marks of the keeper's sessions (`cco keeper`), ahead of the turns' (`LEGENDS.chat`) on its legend page. */
-export const KEEPER_LEGEND: ShortMark[] = [
+/** The marks of the Remote Control Viewer's sessions (`cco rc-viewer`), ahead of the turns' (`LEGENDS.chat`) on its legend page. */
+export const RC_VIEWER_LEGEND: ShortMark[] = [
   { mark: "⚠", color: "33", short: "waits for you (blinks)" },
   { mark: "●", color: "32", short: "works (dims) / idle" },
   { mark: "●", color: "32", short: "just finished (blinks)" },

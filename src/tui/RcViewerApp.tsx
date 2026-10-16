@@ -6,9 +6,9 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 import { onCtrlC } from "./ctrlC.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { InfoDialog, type InfoPage } from "./InfoDialog.js";
-import { KeeperView } from "./KeeperView.js";
-import { readKeeperRequest, type KeeperSelect } from "../keeper/registry.js";
-import { AccountAvatarContext, AccountBadgeContext, KEEPER_TABS, keeperLayout, layoutOf, ScreenNoticeContext, tabAt, TabSetContext, type Mode } from "./layout.js";
+import { RcViewerView } from "./RcViewerView.js";
+import { readRcViewerRequest, type RcViewerSelect } from "../rcViewer/registry.js";
+import { AccountAvatarContext, AccountBadgeContext, RC_VIEWER_TABS, rcViewerLayout, layoutOf, ScreenNoticeContext, tabAt, TabSetContext, type Mode } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
@@ -21,34 +21,34 @@ import { useSetting, useSettings } from "./useSetting.js";
 /** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
 const REDRAW = "\u001b[?25l";
 
-/** The keeper's views: its three columns (in the chat's place) and its own settings. */
-const KEEPER_VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "settings" };
+/** The Remote Control Viewer's views: its three columns (in the chat's place) and its own settings. */
+const RC_VIEWER_VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "settings" };
 
 /**
- * The keeper (`cco keeper`): a window of its own that watches the sessions of every project and account (and claude.ai),
- * with its own settings (`settings.keeper.json`). It belongs to no Claude Code and follows no project.
+ * The Remote Control Viewer (`cco rc-viewer`): a window of its own that watches the sessions of every project and account (and claude.ai),
+ * with its own settings (`settings.rc-viewer.json`). It belongs to no Claude Code and follows no project.
  */
-export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?: boolean; accounts?: AccountState; select?: KeeperSelect }) {
+export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused?: boolean; accounts?: AccountState; select?: RcViewerSelect }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { columns, rows } = useWindowSize();
   const settings = useSettings();
-  // No compact view: the keeper needs the width for its columns.
+  // No compact view: the Remote Control Viewer needs the width for its columns.
   const dialogLayout = layoutOf(columns, rows);
-  const keeper = keeperLayout(columns, rows, settings.keeperSessionsWidth, settings.keeperTurnsWidth);
+  const rcViewer = rcViewerLayout(columns, rows, settings.rcViewerSessionsWidth, settings.rcViewerTurnsWidth);
   const focused = useTerminalFocus(!unfocused);
   // Tests hand in the accounts: the ones found are those of the real home folder.
   const found = useAccounts();
   const account = accounts ?? found;
   const [accountColor] = useSetting("accountColor");
   const [mode, setMode] = useState<Mode>("chat");
-  // The session to select: the one it was started for, then each one asked for in its control file (Sessions, /cco:keeper).
+  // The session to select: the one it was started for, then each one asked for in its control file (Sessions, /cco:rc-viewer).
   const [startedAt] = useState(Date.now);
-  const [request, setRequest] = useState<(KeeperSelect & { at: number }) | undefined>(() => select && { ...select, at: startedAt });
+  const [request, setRequest] = useState<(RcViewerSelect & { at: number }) | undefined>(() => select && { ...select, at: startedAt });
   useEffect(() => {
     let seen = startedAt;
     const timer = setInterval(() => {
-      const next = readKeeperRequest();
+      const next = readRcViewerRequest();
       if (!next || next.at <= seen) return;
       seen = next.at;
       setRequest(next);
@@ -60,7 +60,7 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
   const [infoPage, setInfoPage] = useState<InfoPage>("keys");
   const [modal, setModal] = useState(false);
   const [typing, setTyping] = useState(false);
-  // The keeper's chat column takes Tab and i for its prompt line.
+  // The Remote Control Viewer's chat column takes Tab and i for its prompt line.
   const [claimed, setClaimed] = useState(false);
   const [quitAsked, setQuitAsked] = useState(false);
   const [confirmQuit] = useSetting("confirmQuit");
@@ -84,7 +84,7 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
     if (!copySelection.current?.()) setNotice({ text: "Ctrl+C does not quit: q does" });
   }), []);
 
-  // F5 reloads the shown view: the keeper reads every session again, Settings its file.
+  // F5 reloads the shown view: the Remote Control Viewer reads every session again, Settings its file.
   const [reloads, setReloads] = useState({ chat: 0, settings: 0 });
   const [reloading, setReloading] = useState<{ mode: Mode; done: boolean }>();
   const finishReload = useCallback((m: Mode) => setReloading((r) => (r?.mode === m && !r.done ? { mode: m, done: true } : r)), []);
@@ -130,7 +130,7 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
     if (input.startsWith("[<")) {
       if (!mouse) return;
       const click = parseMouse(input).find((e) => e.kind === "click" && e.y === 0);
-      const view = click && tabAt(click.x, readSettings(), mode, account.avatar, KEEPER_TABS);
+      const view = click && tabAt(click.x, readSettings(), mode, account.avatar, RC_VIEWER_TABS);
       if (view && view !== mode) setMode(view);
       return;
     }
@@ -140,8 +140,8 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
       setInfoPage("keys");
       setInfoOpen(true);
     } else if (key.tab) setMode((m) => (m === "chat" ? "settings" : "chat"));
-    else if (KEEPER_VIEW_KEYS[input]) setMode(KEEPER_VIEW_KEYS[input]);
-    // The keeper's columns take ← → < > | themselves; Settings has one list.
+    else if (RC_VIEWER_VIEW_KEYS[input]) setMode(RC_VIEWER_VIEW_KEYS[input]);
+    // The Remote Control Viewer's columns take ← → < > | themselves; Settings has one list.
     else if (mode === "settings" && (input === "<" || input === ">" || input === "|")) changeSettingsWidth(input);
   });
 
@@ -153,14 +153,14 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
     <AccountAvatarContext.Provider value={account.avatar}>
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
-    <TabSetContext.Provider value={KEEPER_TABS}>
+    <TabSetContext.Provider value={RC_VIEWER_TABS}>
       <Box flexDirection="column" width={columns} height={rows}>
         <Box display={mode === "chat" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("chat")}>
           <MouseContext.Provider value={mouseFor("chat")}>
-            <KeeperView
-              layout={keeper.layout}
-              aside={keeper.aside}
+            <RcViewerView
+              layout={rcViewer.layout}
+              aside={rcViewer.aside}
               visible={mode === "chat"}
               active={mode === "chat" && !blocked}
               onTyping={setTyping}
@@ -179,11 +179,11 @@ export function KeeperApp({ unfocused = false, accounts, select }: { unfocused?:
           </MouseContext.Provider>
           </ReloadContext.Provider>
         </Box>
-        {infoOpen && <InfoDialog layout={dialogLayout} mode={mode} cwd={process.cwd()} oneSession keeper page={infoPage} />}
+        {infoOpen && <InfoDialog layout={dialogLayout} mode={mode} cwd={process.cwd()} oneSession rcViewer page={infoPage} />}
         {quitAsked && (
           <ConfirmDialog
             layout={dialogLayout}
-            confirmation={{ title: "Quit the keeper?", lines: ["The window closes; /cco:keeper opens it again."], onConfirm: exit }}
+            confirmation={{ title: "Quit the Remote Control Viewer?", lines: ["The window closes; /cco:rc-viewer opens it again."], onConfirm: exit }}
             onClose={() => setQuitAsked(false)}
           />
         )}

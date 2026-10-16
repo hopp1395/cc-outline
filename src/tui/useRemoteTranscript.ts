@@ -31,7 +31,7 @@ const LIST_EVERY = 3;
  */
 export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteTranscript {
   const [state, setState] = useState<RemoteTranscript>(EMPTY);
-  // Another session (the keeper switches between them) starts empty; a reload keeps the turns until it has read.
+  // Another session (the Remote Control Viewer switches between them) starts empty; a reload keeps the turns until it has read.
   const shownId = useRef(id);
   useEffect(() => {
     if (id !== shownId.current) {

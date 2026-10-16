@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, isViewShown, nextShownView, rangeStart, readSettings, settingsFile, shownView, subscribeSettings, updateSettings } from "../src/settings.js";
-import { codeMarks, isLastView, KEEPER_RESET_ACTIONS, KEEPER_ROWS, nextValue, plainMarks, RESET_ACTIONS, SETTING_ROWS, settingLines, textOf } from "../src/tui/SettingsView.js";
+import { codeMarks, isLastView, RC_VIEWER_RESET_ACTIONS, RC_VIEWER_ROWS, nextValue, plainMarks, RESET_ACTIONS, SETTING_ROWS, settingLines, textOf } from "../src/tui/SettingsView.js";
 
 let saved: string | undefined;
 
@@ -147,8 +147,8 @@ describe("settings", () => {
 });
 
 describe("settings view", () => {
-  // The keeper's own rows are listed only in its Settings view.
-  const ALL_ROWS = [...SETTING_ROWS, ...KEEPER_ROWS];
+  // The Remote Control Viewer's own rows are listed only in its Settings view.
+  const ALL_ROWS = [...SETTING_ROWS, ...RC_VIEWER_ROWS];
 
   it("offers every setting once, with its default among the values", () => {
     expect(ALL_ROWS.map((r) => r.key).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
@@ -187,7 +187,7 @@ describe("settings view", () => {
         for (const text of texts) expect(text.split("`").length % 2, `${row.key}: ${text}`).toBe(1);
         expect(details(row.key, terminal), row.key).not.toContain("`");
       }
-    for (const action of [...RESET_ACTIONS, ...KEEPER_RESET_ACTIONS]) expect(action.description.split("`").length % 2, action.id).toBe(1);
+    for (const action of [...RESET_ACTIONS, ...RC_VIEWER_RESET_ACTIONS]) expect(action.description.split("`").length % 2, action.id).toBe(1);
   });
 
   it("shows the marked parts like inline code in the chat, also within dimmed notes", () => {

@@ -13,9 +13,9 @@ export const TIMING = {
   pairPoll: 500,
   /** One phase of the blinking marker of a working session. */
   blink: 500,
-  /** How long the keeper's mark of a session that just finished blinks at most, unseen. */
+  /** How long the Remote Control Viewer's mark of a session that just finished blinks at most, unseen. */
   freshIdle: 10 * 60_000,
-  /** How long it blinks when the session was selected in the focused keeper as it finished. */
+  /** How long it blinks when the session was selected in the focused Remote Control Viewer as it finished. */
   freshSelected: 3000,
   /** How long the top bar says `reloaded`. */
   reloaded: 1500,
