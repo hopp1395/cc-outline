@@ -96,7 +96,7 @@ describe("session activity", () => {
     expect(view.frame()).toContain("↵ switch");
     await view.press("\r");
     await until(() => view.frame().includes("runs in a Claude Code"));
-    expect(view.frame()).toMatch(/› +Switch to its tab/);
+    expect(view.frame()).toMatch(/› +Switch to its Claude Code tab/);
     await view.press("\u001b");
     await until(() => !view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).not.toContain("runs in a Claude Code");

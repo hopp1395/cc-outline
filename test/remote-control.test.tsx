@@ -120,7 +120,6 @@ describe("remote control in the viewers", () => {
     updateSettings({ remoteApi: true, remoteControl: true });
     const app = viewer();
     await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("Tab write a prompt"));
-    expect(app.frame().split("\n")[0]).toContain(" controlling ");
     await app.press("\t");
     await until(() => app.frame().includes("Enter send"));
     // The prompt line is the last thing on the screen, below the chat.
@@ -178,13 +177,14 @@ describe("remote control in the viewers", () => {
     app.unmount();
   });
 
-  it("has no prompt line without the setting", async () => {
+  it("says why nothing can be sent without the setting, and keeps the keys in the chat", async () => {
     updateSettings({ remoteApi: true, remoteControl: false });
     const app = viewer();
-    await until(() => app.frame().includes("lege die datei a.txt"));
-    expect(app.frame()).not.toContain("Enter send");
+    await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("remote control is off"));
     expect(app.frame()).not.toContain("Tab write a prompt");
-    expect(app.frame().split("\n")[0]).toContain(" observing ");
+    await app.press("\t");
+    await until(() => app.frame().includes("confirm quit"));
+    expect(app.frame()).not.toContain("Enter send");
     app.unmount();
   });
 
@@ -200,7 +200,7 @@ describe("remote control in the viewers", () => {
     await view.press("\r");
     await until(() => view.frame().includes("Send a prompt"));
     const lines = view.frame().split("\n");
-    expect(lines.findIndex((l) => l.includes("Send a prompt"))).toBeLessThan(lines.findIndex((l) => l.includes("Open it in a window of its own")));
+    expect(lines.findIndex((l) => l.includes("Send a prompt"))).toBeLessThan(lines.findIndex((l) => l.includes("Open it in a session viewer")));
     await view.press(DOWN);
     await view.press(DOWN);
     view.unmount();

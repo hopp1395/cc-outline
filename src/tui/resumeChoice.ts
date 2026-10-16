@@ -105,14 +105,14 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
   if (s.state === "current") {
     options = [
       { id: "stay", label: "Stay attached", detail: "nothing changes" },
-      { id: "detach", label: "Detach the viewer", detail: "it stays open and follows the project's newest session" },
+      { id: "detach", label: "Detach this viewer", detail: "it stays open and follows the project's newest session" },
     ];
     preferred = ["stay"];
   } else if (s.state === "active") {
-    const switchTo: ChoiceOption<SessionAction> = { id: "switch", label: "Switch to its tab", detail: "it runs in another Claude Code", disabled: noTerminal };
+    const switchTo: ChoiceOption<SessionAction> = { id: "switch", label: "Switch to its Claude Code tab", detail: "it runs in another Claude Code", disabled: noTerminal };
     const attach: ChoiceOption<SessionAction> = paired
-      ? { id: "attach", label: "Attach the viewer there", detail: "it stays here; this Claude Code is left without one", disabled: own ?? s.attachBlocked }
-      : { id: "attach", label: "Attach the viewer", detail: "it stays here and follows that Claude Code", disabled: own ?? s.attachBlocked };
+      ? { id: "attach", label: "Attach this viewer there", detail: "it stays here; this Claude Code is left without one", disabled: own ?? s.attachBlocked }
+      : { id: "attach", label: "Attach this viewer", detail: "it stays here and follows that Claude Code", disabled: own ?? s.attachBlocked };
     options = paired ? [switchTo, attach] : [attach, switchTo];
     preferred = paired ? ["switch"] : ["attach", "switch"];
   } else {
@@ -120,26 +120,26 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     const as = s.account ? ` as ${s.account}` : "";
     const window: ChoiceOption<SessionAction> = {
       id: "window",
-      label: "Continue it in a new window",
+      label: "Continue it in a new Claude Code window",
       detail: paired || s.foreign ? `claude --resume${as}` : `claude --resume${as}; the viewer stays here, unpaired`,
       disabled: gone ?? noTerminal,
     };
     const windowAttach: ChoiceOption<SessionAction> = {
       id: "window-attach",
-      label: "Continue it in a new window and attach",
+      label: "Continue it in a new Claude Code window and attach",
       detail: "the viewer moves next to it",
       disabled: own ?? gone ?? noTerminal,
     };
     if (s.foreign) {
       // /resume in this viewer's Claude Code cannot reach another account's session.
-      options = [{ id: "here", label: "Continue it here", detail: "", disabled: OWN_ONLY }, window, ...(paired ? [] : [windowAttach])];
+      options = [{ id: "here", label: "Continue it in this Claude Code", detail: "", disabled: OWN_ONLY }, window, ...(paired ? [] : [windowAttach])];
       preferred = ["window"];
     } else if (paired) {
       const how = paired.method === "keys" ? "/resume is typed in" : "/resume is copied for you to paste";
       const here: ChoiceOption<SessionAction> = {
         id: "here",
-        label: "Continue it here",
-        detail: paired.empty ? `in this Claude Code, which has no prompt yet: ${how}` : `in this Claude Code, which leaves its session: ${how}`,
+        label: "Continue it in this Claude Code",
+        detail: paired.empty ? `it has no prompt yet: ${how}` : `it leaves its session: ${how}`,
         disabled: gone ?? (s.otherFolder !== undefined ? `ran in ${s.otherFolder}, not in this folder` : paired.activity ? BUSY[paired.activity] : undefined),
       };
       options = [here, window];
@@ -151,7 +151,7 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
   }
   const into = s.here ? ` into ${s.here}` : "";
   if (s.state === "inactive" && s.movable !== undefined) {
-    options.unshift({ id: "move", label: "Move it here", detail: `from ${s.movable}${into}`, disabled: own });
+    options.unshift({ id: "move", label: "Move it to this project", detail: `from ${s.movable}${into}`, disabled: own });
     if (!own) preferred = ["move"];
   }
   const marked = s.marked ?? 0;
@@ -161,7 +161,7 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     options.push({
       id: "account",
       label: accounts.length === 1 ? `Continue it in ${accounts[0]}…` : "Continue it in another account…",
-      detail: accounts.length === 1 ? "a copy, in a new window" : `a copy in one of ${accounts.length} other accounts, in a new window`,
+      detail: accounts.length === 1 ? "a copy, in a new Claude Code window" : `a copy in one of ${accounts.length} other accounts, in a new Claude Code window`,
       disabled: own ?? (s.folderMissing ? "its folder is gone" : undefined),
     });
   options.push(...viewerOptions(s.viewers ?? 0, s.terminal));
@@ -179,26 +179,28 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
 }
 
 /**
- * A viewer of the session in a window of its own (also of a remote one, with a prompt line while `steer`): another
+ * A session viewer of the session (a window of its own), with a prompt line (a `remote` one's only with remote control): another
  * window each time, and bringing the one opened last to the front while `viewers` run. Without a terminal to open a
  * window in, it copies the command; it can always be chosen.
  */
-export function viewerOptions(viewers: number, terminal: boolean, steer = false): ChoiceOption<"viewer" | "viewer-front">[] {
+export function viewerOptions(viewers: number, terminal: boolean, remote?: { control: boolean }): ChoiceOption<"viewer" | "viewer-front">[] {
   return [
     {
       id: "viewer",
-      label: viewers > 0 ? "Open it in another window" : "Open it in a window of its own",
+      label: viewers > 0 ? "Open another session viewer" : "Open it in a session viewer",
       detail: !terminal
         ? "no Windows Terminal or tmux: copies the command that opens it"
-        : steer
-          ? "its chat only, live, with a prompt line"
-          : "its chat only, live while it runs; nothing can be typed there",
+        : !remote
+          ? "its chat, live, with a prompt line while it runs in a Claude Code"
+          : remote.control
+            ? "its chat, live, with a prompt line"
+            : "its chat, live; remote control is off, so nothing can be sent",
     },
     ...(viewers > 0
       ? [
           {
             id: "viewer-front" as const,
-            label: "Bring its viewer to the front",
+            label: "Bring its session viewer to the front",
             detail: viewers === 1 ? "the one open now" : `the one opened last of ${viewers}`,
             disabled: terminal ? undefined : NO_TERMINAL,
           },
@@ -216,16 +218,16 @@ export function enterLabel(s: SessionSituation): string {
     detach: "detach",
     switch: "switch",
     attach: "attach",
-    here: "resume here",
-    window: "new window",
-    "window-attach": "new window + attach",
-    move: "move here",
+    here: "resume in this Claude Code",
+    window: "new Claude Code",
+    "window-attach": "new Claude Code + attach",
+    move: "move to this project",
     rename: "rename",
     export: "export",
     import: "import",
     account: "other account",
-    viewer: "open",
-    "viewer-front": "to front",
+    viewer: "session viewer",
+    "viewer-front": "viewer to front",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;

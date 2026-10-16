@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { updateSettings } from "../src/settings.js";
 import { renderInk, tick, until } from "./helpers/ink.js";
 import { proc } from "../src/proc.js";
-import { prepareConsoleInput } from "../src/switchSession.js";
+import { commandSteps, prepareConsoleInput, promptSteps, stepsLine } from "../src/switchSession.js";
 import { claudeDir, pairingFile, projectDir, readJson } from "../src/transcript/locate.js";
 import { TranscriptParser, type Turn } from "../src/transcript/parse.js";
 import { renameSession } from "../src/transcript/rename.js";
@@ -132,7 +132,7 @@ describe("sessionOptions", () => {
 
   it("moves a session whose folder is gone here first, and exports the marked sessions where there are some", () => {
     expect(shown({ folderMissing: true, movable: "old" })).toBe("✱move ✗window-attach ✗window viewer rename export import copy");
-    expect(enterLabel({ ...base, folderMissing: true, movable: "old" })).toBe("↵ move here");
+    expect(enterLabel({ ...base, folderMissing: true, movable: "old" })).toBe("↵ move to this project");
     const label = (marked: number) => sessionOptions({ ...base, marked }).options.find((o) => o.id === "export")!.label;
     expect(label(0)).toBe("Export it");
     expect(label(3)).toBe("Export 3 marked sessions");
@@ -143,8 +143,8 @@ describe("sessionOptions", () => {
     expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account viewer ✗rename export import copy");
     expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account ✱viewer rename export import copy");
     const option = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!;
-    expect(option(["b@x"])).toMatchObject({ label: "Continue it in b@x…", detail: "a copy, in a new window" });
-    expect(option(["b@x", "c@x"])).toMatchObject({ label: "Continue it in another account…", detail: "a copy in one of 2 other accounts, in a new window" });
+    expect(option(["b@x"])).toMatchObject({ label: "Continue it in b@x…", detail: "a copy, in a new Claude Code window" });
+    expect(option(["b@x", "c@x"])).toMatchObject({ label: "Continue it in another account…", detail: "a copy in one of 2 other accounts, in a new Claude Code window" });
   });
 
   it("gives another account's session the same list, with what works only here greyed out", () => {
@@ -152,14 +152,14 @@ describe("sessionOptions", () => {
     expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch viewer ✗rename ✗export ✗import copy");
     expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✱viewer ✗rename ✗export ✗import copy");
     const window = sessionOptions({ ...base, foreign: true, account: "c@x" }).options.find((o) => o.id === "window")!;
-    expect(window).toMatchObject({ label: "Continue it in a new window", detail: "claude --resume as c@x" });
+    expect(window).toMatchObject({ label: "Continue it in a new Claude Code window", detail: "claude --resume as c@x" });
     expect(sessionOptions({ ...base, foreign: true }).options.find((o) => o.id === "rename")!.disabled).toBe("only for sessions of this account");
   });
 
   it("opens it in another window while viewers of it run, and brings the newest to the front", () => {
     expect(shown({ paired: idle, viewers: 2 })).toBe("✱here window viewer viewer-front rename export import copy");
     const { options } = sessionOptions({ ...base, viewers: 2 });
-    expect(options.find((o) => o.id === "viewer")!.label).toBe("Open it in another window");
+    expect(options.find((o) => o.id === "viewer")!.label).toBe("Open another session viewer");
     expect(options.find((o) => o.id === "viewer-front")!.detail).toBe("the one opened last of 2");
     expect(sessionOptions({ ...base, viewers: 1, terminal: false }).options.find((o) => o.id === "viewer-front")!.disabled).toBe("no Windows Terminal or tmux");
   });
@@ -168,10 +168,10 @@ describe("sessionOptions", () => {
     expect(enterLabel({ ...base, paired: idle, state: "current" })).toBe("↵ detach…");
     expect(enterLabel({ ...base, paired: idle, state: "active" })).toBe("↵ switch");
     expect(enterLabel({ ...base, state: "active" })).toBe("↵ attach");
-    expect(enterLabel({ ...base, paired: idle })).toBe("↵ resume here");
-    expect(enterLabel({ ...base, paired: { ...idle, empty: false } })).toBe("↵ new window");
-    expect(enterLabel(base)).toBe("↵ new window + attach");
-    expect(enterLabel({ ...base, terminal: false })).toBe("↵ open");
+    expect(enterLabel({ ...base, paired: idle })).toBe("↵ resume in this Claude Code");
+    expect(enterLabel({ ...base, paired: { ...idle, empty: false } })).toBe("↵ new Claude Code");
+    expect(enterLabel(base)).toBe("↵ new Claude Code + attach");
+    expect(enterLabel({ ...base, terminal: false })).toBe("↵ session viewer");
   });
 });
 
@@ -199,14 +199,36 @@ describe("prepareConsoleInput", () => {
     const typer = prepareConsoleInput(42, "win32")!;
     expect(spawned[0]!.cmd).toBe("powershell.exe");
     expect(spawned[0]!.typed).toBeUndefined();
-    expect(await typer.type("/resume abc")).toBe(true);
-    expect(spawned[0]!.typed).toBe("/resume abc\n");
-    expect(await typer.type("/resume again")).toBe(false);
+    expect(typer.ready()).toBe(true);
+    expect(await typer.type(commandSteps("/resume abc"))).toBe(true);
+    expect(spawned[0]!.typed).toBe(`${stepsLine(commandSteps("/resume abc"))}\n`);
+    expect(typer.ready()).toBe(false);
+    expect(await typer.type(commandSteps("/resume again"))).toBe(false);
+  });
+
+  it("writes the keys as one line of JSON, everything past ASCII escaped", () => {
+    expect(stepsLine([["äb 🦊", 0, 0, 150]])).toBe('[["\\u00e4b \\ud83e\\udd8a",0,0,150]]');
+    expect(JSON.parse(stepsLine([["äb 🦊", 0, 0, 150]]))).toEqual([["äb 🦊", 0, 0, 150]]);
+  });
+
+  it("types a prompt after what is there, a line break as \\ and Enter, the last Enter sending", () => {
+    expect(promptSteps("one\ntwo")).toEqual([
+      ["one\\", 0, 0, 150],
+      ["\r", 13, 0, 100],
+      ["two", 0, 0, 150],
+      ["\r", 13, 0, 0],
+    ]);
+    expect(promptSteps("hi")).toEqual([
+      ["hi", 0, 0, 150],
+      ["\r", 13, 0, 0],
+    ]);
+    // A slash command clears the input first.
+    expect(commandSteps("/resume x")[0]).toEqual(["\f", 0x4c, 8, 100]);
   });
 
   it("reports a failure, ends without typing when cancelled, and starts nothing off Windows", async () => {
     typerAnswer = "attach 6";
-    expect(await prepareConsoleInput(42, "win32")!.type("/resume abc")).toBe(false);
+    expect(await prepareConsoleInput(42, "win32")!.type(commandSteps("/resume abc"))).toBe(false);
     prepareConsoleInput(42, "win32")!.cancel();
     expect(spawned[1]).toMatchObject({ killed: true, typed: undefined });
     expect(prepareConsoleInput(42, "linux")).toBeUndefined();
@@ -226,7 +248,7 @@ describe("continuing a session that runs nowhere", () => {
     expect(spawned.filter((c) => c.cmd === "powershell.exe")).toHaveLength(1);
     await view.press("\r");
     await until(() => view.frame().includes("continuing it in this Claude Code"));
-    expect(spawned.filter((c) => c.cmd === "powershell.exe").map((c) => c.typed)).toEqual(["/resume s1\n"]);
+    expect(spawned.filter((c) => c.cmd === "powershell.exe").map((c) => c.typed)).toEqual([`${stepsLine(commandSteps("/resume s1"))}\n`]);
     view.unmount();
   });
 
@@ -248,7 +270,7 @@ describe("continuing a session that runs nowhere", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    expect(view.frame()).toMatch(/› +Continue it here/);
+    expect(view.frame()).toMatch(/› +Continue it in this Claude Code/);
     await view.press("\r");
     await until(() => view.frame().includes("copied /resume s1"));
     expect(view.written()).toContain(`\u001b]52;c;${Buffer.from("/resume s1").toString("base64")}`);
@@ -264,7 +286,7 @@ describe("continuing a session that runs nowhere", () => {
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toContain("Claude is working");
-    expect(view.frame()).toMatch(/› +Continue it in a new window/);
+    expect(view.frame()).toMatch(/› +Continue it in a new Claude Code window/);
     // A disabled option is not taken, by key or digit.
     await view.press("\u001b[A");
     await view.press("1");
@@ -283,7 +305,7 @@ describe("continuing a session that runs nowhere", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    expect(view.frame()).toMatch(/› +Continue it in a new window and attach/);
+    expect(view.frame()).toMatch(/› +Continue it in a new Claude Code window and attach/);
     await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     expect(spawned[0]!.args.slice(0, 2)).toEqual(["-w", "cco-resume-s1"]);
@@ -305,7 +327,7 @@ describe("continuing a session that runs nowhere", () => {
     await view.press("\r");
     await until(() => view.frame().includes("Waiting for Claude Code…"));
     // The choice has closed; the progress dialog waits, and Esc cancels it.
-    expect(view.frame()).toContain("Attach the viewer");
+    expect(view.frame()).toContain("Attach this viewer");
     expect(view.frame()).toContain("Esc cancel");
     expect(view.frame()).not.toContain("What to do with this session?");
     await view.press("\u001b");
@@ -322,7 +344,7 @@ describe("continuing a session that runs nowhere", () => {
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toContain("ran in cco-resume-elsewhere, not in this folder");
-    expect(view.frame()).toMatch(/› +Continue it in a new window/);
+    expect(view.frame()).toMatch(/› +Continue it in a new Claude Code window/);
     view.unmount();
   });
 
@@ -425,7 +447,7 @@ describe("Enter on a session that runs", () => {
     await until(() => view.frame().includes("↵ switch"));
     await view.press("\r");
     await until(() => view.frame().includes("runs in a Claude Code"));
-    expect(view.frame()).toMatch(/› +Switch to its tab/);
+    expect(view.frame()).toMatch(/› +Switch to its Claude Code tab/);
     await view.press("2");
     await until(() => attached.length > 0);
     expect(attached).toEqual([{ cwd, claudePid: process.pid, sessionId: "s1", transcript: join(projectDir(cwd), "s1.jsonl") }]);
@@ -506,7 +528,7 @@ describe("a viewer of a session in a window of its own", () => {
     const view = renderView({});
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
-    await until(() => view.frame().includes("Open it in a window of its own"));
+    await until(() => view.frame().includes("Open it in a session viewer"));
     await view.press("3");
     await until(() => spawned.some((c) => c.args.includes("--session")));
     const call = spawned.find((c) => c.args.includes("--session"))!;
@@ -518,11 +540,11 @@ describe("a viewer of a session in a window of its own", () => {
     // This process stands in for the viewer started there.
     mkdirSync(sessionViewersDir(), { recursive: true });
     writeFileSync(join(sessionViewersDir(), `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", configDir: claudeDir(), window: "cco-view-test", started: Date.now() }));
-    await until(() => view.frame().includes("shown in 1 window of its own"));
+    await until(() => view.frame().includes("1 session viewer open"));
     expect(view.frame()).toContain("◎ ");
     await view.press("\r");
-    await until(() => view.frame().includes("Bring its viewer to the front"));
-    expect(view.frame()).toContain("Open it in another window");
+    await until(() => view.frame().includes("Bring its session viewer to the front"));
+    expect(view.frame()).toContain("Open another session viewer");
     await view.press("4");
     await until(() => spawned.some((c) => c.args.includes("focus-tab")));
     expect(spawned.find((c) => c.args.includes("focus-tab"))!.args).toEqual(["-w", "cco-view-test", "focus-tab", "-t", "0"]);

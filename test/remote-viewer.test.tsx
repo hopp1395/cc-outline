@@ -99,8 +99,8 @@ describe("a remote viewer", () => {
     await until(() => app.frame().includes("frag mich mit askuserquestion"));
     expect(app.frame()).not.toContain("zähle bis 10");
     const tabs = app.frame().split("\n")[0]!;
-    // Without remote control it only observes.
-    expect(tabs).toContain(" observing ");
+    // No role: whether it can send shows in its prompt line.
+    expect(tabs).not.toContain("observing");
     expect(tabs).toContain("rc-test");
     expect(tabs).toContain(" 1 Chat ");
     expect(tabs).toContain(" 6 Settings ");

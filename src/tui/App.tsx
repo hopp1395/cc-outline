@@ -1,6 +1,6 @@
 import { Box, useApp, useInput, useStdout } from "ink";
 import { basename } from "node:path";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { repoRoot } from "../git/git.js";
 import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, ViewerRoleContext, useLayouts, type Mode, type Layout } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, useLayouts, type Mode, type Layout } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -36,10 +36,12 @@ import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
-import { RemoteComposer } from "./RemoteComposer.js";
-import { remotePath } from "../remote/index.js";
+import { SessionComposer, type PromptChannel } from "./SessionComposer.js";
+import { describeRemoteError, remotePath } from "../remote/index.js";
+import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
+import { useLocalPrompt } from "./useLocalPrompt.js";
 import { useViewerControl } from "./useViewerControl.js";
-import { useSessionRunning } from "./useSessionRunning.js";
+import { useRunningSession } from "./useRunningSession.js";
 import { TIMING } from "../timing.js";
 
 interface Props {
@@ -113,9 +115,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // A viewer of one session (--session, --remote) stays where it is: it does not move, restart or follow another.
   const fixed = sessionId !== undefined || remoteId !== undefined;
   const focused = useTerminalFocus(!unfocused, typedInClaude(transcript.turns, startedAt));
-  // A viewer of one session of this machine shows Claude working only while the session runs in a Claude Code.
-  const sessionRunning = useSessionRunning(sessionId !== undefined ? sessionOf(path) : undefined);
-  const live = sessionId === undefined || sessionRunning;
+  // A viewer of one session of this machine shows Claude working only while the session runs in a Claude Code,
+  // and types its prompts into that one.
+  const running = useRunningSession(sessionId !== undefined ? sessionOf(path) : undefined);
+  const live = sessionId === undefined || running !== undefined;
   // The taskbar and the tab show the session, like Claude Code's own, instead of "cco".
   // Like Claude Code's title: ◐/◑ while the last turn runs, ✳ when it waits; a viewer of one session that runs nowhere shows no status.
   const lastTurn = transcript.turns.at(-1);
@@ -125,12 +128,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [accountTitle] = useSetting("accountTitle");
   const [accountColor] = useSetting("accountColor");
   const sessionTitle = remoteId ? `◈ ${transcript.title ?? remoteId}` : (transcript.title ?? basename(cwd));
-  // A viewer of one session has a prompt line for a remote session while remote control is on, as Claude Code does.
+  // A viewer of one session has a prompt line below its chat, as Claude Code does; a remote session's needs remote control.
   const [remoteControl] = useSetting("remoteControl");
-  const composer = remoteId !== undefined && remoteControl;
-  const viewerRole = composer ? "controlling" : "observing";
+  // Like its own settings, it comes with the process (watch.ts).
+  const composer = fixed && isSessionViewer();
   useTerminalTitle(
-    fixed && !composer ? `👁 ${sessionTitle}` : sessionTitle,
+    sessionTitle,
     !live ? undefined : working ? "working" : "idle",
     accountTitle ? account.avatar : undefined,
   );
@@ -264,6 +267,20 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [composing, setComposing] = useState(false);
   const [composerRows, setComposerRows] = useState(3);
   const typingInComposer = composer && composing && mode === "chat";
+  // Where the prompt line sends: claude.ai for a remote session, the Claude Code that runs it for one of this machine.
+  const localChannel = useLocalPrompt(running, typingInComposer);
+  const remoteChannel = useMemo((): PromptChannel | undefined => {
+    if (!remoteId) return undefined;
+    const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
+    return {
+      blocked: remoteControl ? undefined : "remote control is off (the project's viewer's Settings)",
+      send: (text) => readable(sendPrompt(remoteId, text)),
+      interrupt: () => readable(sendInterrupt(remoteId)),
+      respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
+    };
+  }, [remoteId, remoteControl]);
+  const channel = remoteChannel ?? localChannel;
+  const remotePending = remoteId ? (remote.pending[0] ?? remote.session?.pending) : undefined;
   const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
@@ -461,12 +478,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       return;
     }
     // A remote viewer's chat: Tab and i go back to the prompt line; the views switch with their number, ← and → there.
-    if (composer && mode === "chat" && (key.tab || input === "i")) return setComposing(true);
+    // A blocked one (the session runs nowhere, remote control is off) leaves Tab and i to the view switch and the info.
+    if (composer && mode === "chat" && (key.tab || input === "i") && (!channel.blocked || remotePending)) return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {
       if (!mouse) return;
       const click = parseMouse(input).find((e) => e.kind === "click" && e.y === 0);
-      const view = click && tabAt(click.x, readSettings(), mode, account.avatar, fixed ? viewerRole : undefined);
+      const view = click && tabAt(click.x, readSettings(), mode, account.avatar);
       if (view && view !== mode) setMode(view);
       return;
     }
@@ -498,7 +516,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <SessionColorContext.Provider value={transcript.color}>
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
-    <ViewerRoleContext.Provider value={fixed ? { role: viewerRole, title: sessionTitle } : undefined}>
+    <OneSessionContext.Provider value={fixed ? { title: sessionTitle } : undefined}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
@@ -630,12 +648,12 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} oneSession={fixed} />}
         {composer && mode === "chat" && (
-          <RemoteComposer
+          <SessionComposer
             layout={layout}
-            sessionId={remoteId}
-            title={transcript.title ?? remoteId}
-            working={working || remote.session?.workerStatus === "running"}
-            pending={remote.pending[0] ?? remote.session?.pending}
+            channel={channel}
+            title={sessionTitle}
+            working={working || (remoteId ? remote.session?.workerStatus === "running" : running?.activity === "busy")}
+            pending={remotePending}
             focused={typingInComposer && !blocked}
             onFocus={setComposing}
             notify={(text) => setNotice({ text })}
@@ -675,7 +693,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         )}
         {progress.dialog}
       </Box>
-    </ViewerRoleContext.Provider>
+    </OneSessionContext.Provider>
     </CopySelectionContext.Provider>
     </ScreenNoticeContext.Provider>
     </SessionColorContext.Provider>

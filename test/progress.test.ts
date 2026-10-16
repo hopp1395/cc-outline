@@ -46,7 +46,7 @@ describe("pairing progress", () => {
     expect(progressText(starting)).toBe("Starting Claude Code…");
     expect(starting.onCancel).toBeDefined();
     const waiting = pairingProgress({ ...pairing, where: "w" }, 13_500, noop, noop);
-    expect(waiting.title).toBe("Attach the viewer");
+    expect(waiting.title).toBe("Attach this viewer");
     expect(progressText(waiting)).toBe("Waiting for Claude Code…");
     expect(waiting.detail).toMatch(new RegExp(`^12 of ${PAIR_TIMEOUT_MS / 1000} s`));
     expect(waiting.onCancel).toBeDefined();

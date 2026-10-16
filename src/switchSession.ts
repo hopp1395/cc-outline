@@ -61,32 +61,75 @@ export async function resumeInClaude(claudePid: number, sessionId: string, typer
 }
 
 /**
+ * Key presses typed into a Claude Code: `chars` (each pressed and released) with the virtual key `vk` (0 for text) and
+ * the control key state `ctrl` (8: left Ctrl), then a pause of `wait` ms. As the console script reads them.
+ */
+export type KeyStep = [chars: string, vk: number, ctrl: number, wait: number];
+
+/** Ctrl+L, Claude Code's chat:clearInput: what was typed there is dropped. */
+const CLEAR: KeyStep = ["\f", 0x4c, 8, 100];
+const enter = (wait = 0): KeyStep => ["\r", 13, 0, wait];
+/** Esc: Claude Code stops what it does, as when pressed there. */
+export const ESCAPE: KeyStep[] = [["\u001b", 0x1b, 0, 0]];
+
+/** A slash command typed over whatever was typed there (`clear`), then Enter on its own a moment later. */
+export const commandSteps = (text: string): KeyStep[] => [CLEAR, [text, 0, 0, 150], enter()];
+
+/**
+ * A prompt typed after whatever is typed there already (nothing is cleared). A line break goes in as `\` + Enter,
+ * which Claude Code turns into a new line; each Enter comes on its own after a pause, so none is taken for a
+ * paste, and the last one sends.
+ */
+export function promptSteps(text: string): KeyStep[] {
+  const steps: KeyStep[] = [];
+  const lines = text.split("\n");
+  lines.forEach((line, i) => {
+    const last = i === lines.length - 1;
+    const typed = last ? line : `${line}\\`;
+    if (typed) steps.push([typed, 0, 0, 150]);
+    steps.push(enter(last ? 0 : 100));
+  });
+  return steps;
+}
+
+/**
  * Types `text` into the Claude Code process `claudePid` and submits it, as `resumeInClaude` does (`/exit` to
  * close it). `typed` is false, with the reason, if it could not.
  */
 export async function typeInClaude(claudePid: number, text: string, typer?: ConsoleTyper): Promise<{ typed: boolean; message: string }> {
+  const result = await keysInClaude(claudePid, commandSteps(text), typer, true);
+  return result.typed ? { typed: true, message: `typed ${text}` } : result;
+}
+
+/**
+ * Types `steps` into the Claude Code process `claudePid`: into its tmux pane (selected after it with `select`), or
+ * on Windows into its console. `typed` is false, with the reason, if it could not.
+ */
+export async function keysInClaude(claudePid: number, steps: KeyStep[], typer?: ConsoleTyper, select = false): Promise<{ typed: boolean; message: string }> {
   if (detectTerminal() !== "tmux") {
     const console = typer ?? prepareConsoleInput(claudePid);
     if (!console) return { typed: false, message: "no tmux to type it in" };
-    return (await console.type(text)) ? { typed: true, message: `typed ${text}` } : { typed: false, message: "it could not be typed into Claude Code" };
+    return (await console.type(steps)) ? { typed: true, message: "typed" } : { typed: false, message: "it could not be typed into Claude Code" };
   }
   const pane = await tmuxPaneOf(claudePid);
   if (!pane) return { typed: false, message: "its tmux pane was not found" };
-  const typed =
-    (await run("tmux", ["send-keys", "-t", pane, "C-l"])) !== undefined &&
-    (await run("tmux", ["send-keys", "-t", pane, "-l", text])) !== undefined;
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  if (!typed || (await run("tmux", ["send-keys", "-t", pane, "Enter"])) === undefined) return { typed: false, message: "the command could not be typed into its pane" };
-  await run("tmux", ["select-pane", "-t", pane]);
-  return { typed: true, message: `typed ${text}` };
+  for (const [chars, vk, ctrl, wait] of steps) {
+    const keys = ctrl === 8 && vk === 0x4c ? ["C-l"] : vk === 13 ? ["Enter"] : vk === 0x1b ? ["Escape"] : ["-l", chars];
+    if ((await run("tmux", ["send-keys", "-t", pane, ...keys])) === undefined) return { typed: false, message: "it could not be typed into its pane" };
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+  if (select) await run("tmux", ["select-pane", "-t", pane]);
+  return { typed: true, message: "typed" };
 }
 
 /** A PowerShell started ahead (`prepareConsoleInput`), ready to type into one Claude Code's console. */
 export interface ConsoleTyper {
-  /** Types `text` and Enter; true once it did. Only once. */
-  type(text: string): Promise<boolean>;
+  /** Types `steps`; true once it did. Only once. */
+  type(steps: KeyStep[]): Promise<boolean>;
   /** Ends it without typing. */
   cancel(): void;
+  /** Whether it can still type: not used, cancelled or ended by itself. */
+  ready(): boolean;
 }
 
 /** How long a typer waits for its text before it ends by itself. */
@@ -94,10 +137,14 @@ const TYPER_IDLE_MS = 5 * 60_000;
 /** How long typing may take once asked. */
 const TYPER_TIMEOUT_MS = 30_000;
 
+/** `steps` as the console script reads them: one line of JSON, everything past ASCII escaped, whatever code page stdin has. */
+export const stepsLine = (steps: KeyStep[]) => JSON.stringify(steps).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
 /**
  * Starts PowerShell with `CONSOLE_INPUT_SCRIPT` for the Claude Code process `claudePid`, on Windows only.
  * Starting PowerShell takes about a second, more under load, so the Sessions view does so when it
- * offers "continue it here"; the text then arrives on stdin and is typed at once.
+ * offers "continue it here", and a viewer of one session when its prompt line gets the keys; the keys then
+ * arrive on stdin and are typed at once.
  */
 export function prepareConsoleInput(claudePid: number, platform: NodeJS.Platform = process.platform): ConsoleTyper | undefined {
   if (platform !== "win32") return undefined;
@@ -107,19 +154,25 @@ export function prepareConsoleInput(claudePid: number, platform: NodeJS.Platform
     stdio: ["pipe", "pipe", "ignore"],
   });
   let output = "";
+  let ended = false;
   child.stdout?.on("data", (chunk) => (output += String(chunk)));
   child.on?.("error", () => {});
-  const exited = new Promise<void>((resolve) => child.on?.("exit", () => resolve()));
+  const exited = new Promise<void>((resolve) =>
+    child.on?.("exit", () => {
+      ended = true;
+      resolve();
+    }),
+  );
   const idle = setTimeout(() => child.kill(), TYPER_IDLE_MS);
   idle.unref?.();
   let used = false;
   return {
-    async type(text) {
+    async type(steps) {
       if (used) return false;
       used = true;
       clearTimeout(idle);
       const timeout = setTimeout(() => child.kill(), TYPER_TIMEOUT_MS);
-      child.stdin?.end(`${text}\n`);
+      child.stdin?.end(`${stepsLine(steps)}\n`);
       await exited;
       clearTimeout(timeout);
       return output.trim() === "ok";
@@ -130,17 +183,18 @@ export function prepareConsoleInput(claudePid: number, platform: NodeJS.Platform
       child.stdin?.end();
       child.kill();
     },
+    ready: () => !used && !ended,
   };
 }
 
 /**
- * Types a line read from stdin into the console of process CCO_CLAUDE_PID and presses Enter. PowerShell
- * declares the kernel32 calls first, so it can be started ahead and wait for the line; then it leaves its
+ * Types key presses read from stdin (one line of JSON, `KeyStep`s) into the console of process CCO_CLAUDE_PID.
+ * PowerShell declares the kernel32 calls first, so it can be started ahead and wait for the line; then it leaves its
  * own (hidden) console, attaches to that one and writes key events (INPUT_RECORDs of 20 bytes) into its
  * input buffer, which Windows Terminal's pseudo console hands to Claude Code like typed keys, whichever
- * tab or pane has the focus. Ctrl+L first, the text after 100 ms, Enter 150 ms later. Prints "ok", else
- * the step that failed; nothing for an empty line (cancelled). The calls are declared through
- * Reflection.Emit: Add-Type compiled the same with csc in ~10 s (likely the virus scanner on the new DLL).
+ * tab or pane has the focus. Each step's keys, then its pause. Prints "ok", else the step that failed; nothing for an
+ * empty line (cancelled). The calls are declared through Reflection.Emit: Add-Type compiled the same with csc in
+ * ~10 s (likely the virus scanner on the new DLL).
  */
 export const CONSOLE_INPUT_SCRIPT = String.raw`
 $asm = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'CcoConsole'), 'Run')
@@ -177,17 +231,18 @@ function Send([byte[]]$records) {
   $K::WriteConsoleInputW($script:conin, $records, [uint32]($records.Length / 20), [ref]$written)
 }
 
-$text = [Console]::In.ReadLine()
-if (-not $text) { exit }
+$line = [Console]::In.ReadLine()
+if (-not $line) { exit }
+$steps = ConvertFrom-Json $line
 [void]$K::FreeConsole()
 if (-not $K::AttachConsole([uint32]$env:CCO_CLAUDE_PID)) { [Console]::Out.Write('attach'); exit }
 $script:conin = $K::CreateFileW('CONIN$', [uint32]3221225472, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
 if ($script:conin.ToInt64() -eq -1) { [Console]::Out.Write('conin'); exit }
-if (-not (Send (Keys ([string][char]12) 0x4C 8))) { [Console]::Out.Write('write'); exit }
-Start-Sleep -Milliseconds 100
-if (-not (Send (Keys $text 0 0))) { [Console]::Out.Write('write'); exit }
-Start-Sleep -Milliseconds 150
-if (Send (Keys ([string][char]13) 13 0)) { [Console]::Out.Write('ok') } else { [Console]::Out.Write('write') }
+foreach ($s in $steps) {
+  if (-not (Send (Keys ([string]$s[0]) ([int]$s[1]) ([int]$s[2])))) { [Console]::Out.Write('write'); exit }
+  if ([int]$s[3] -gt 0) { Start-Sleep -Milliseconds ([int]$s[3]) }
+}
+[Console]::Out.Write('ok')
 `;
 
 /**

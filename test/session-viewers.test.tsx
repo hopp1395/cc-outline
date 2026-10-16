@@ -105,14 +105,14 @@ describe("a viewer of one session", () => {
   const prompt = { type: "user", uuid: "u1", timestamp: new Date().toISOString(), cwd, message: { role: "user", content: "watch me work" } };
   const titled = { type: "custom-title", customTitle: "Orders", sessionId: "s1" };
 
-  it("shows the session's chat and its settings only, says that it observes, and has no keys to move or restart", async () => {
+  it("shows the session's chat and its settings only, with its title, and has no keys to move or restart", async () => {
     write([prompt, titled]);
     const app = renderInk(<App cwd={cwd} sessionId="s1" initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
     await until(() => app.frame().includes("watch me work"));
     const top = app.frame().split("\n")[0]!;
-    expect(top).toContain(" observing ");
+    expect(top).not.toContain("observing");
     expect(top).toContain("Orders");
     expect(top).toContain(" 1 Chat ");
     expect(top).toContain(" 6 Settings ");

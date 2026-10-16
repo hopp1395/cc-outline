@@ -525,7 +525,7 @@ function useSessionViewers(visible: boolean): SessionViewerInfo[] {
 }
 
 /** What the preview's header says about the viewers of a session in windows of their own. */
-export const viewedLine = (n: number) => (n > 0 ? `${VIEWED_MARK} shown in ${plural(n, "window")} of its own` : undefined);
+export const viewedLine = (n: number) => (n > 0 ? `${VIEWED_MARK} ${plural(n, "session viewer")} open` : undefined);
 
 /**
  * The marker of the active (`●`) or a running (`▶`) session in the list: yellow while its Claude waits
@@ -995,7 +995,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     const watching = viewersFor(s).length;
     const options: ChoiceOption[] = [
       ...control,
-      ...viewerOptions(watching, detectTerminal() !== undefined, remoteControl),
+      ...viewerOptions(watching, detectTerminal() !== undefined, { control: remoteControl }),
       { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
     ];
     setChoice({
@@ -1059,12 +1059,12 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     }
   };
   /**
-   * Opens a viewer of `s` in a new window: its chat only, live, with a prompt line for a remote session while remote
-   * control is on; any number per session. Without a terminal to open it in, copies the command.
+   * Opens a viewer of `s` in a new window: its chat, live, with a prompt line, and its own settings; any number per
+   * session. Without a terminal to open it in, copies the command.
    */
   const openViewer = (s: SessionSummary) => {
     const target: ViewerTarget = s.remote ? { remoteId: s.id } : { sessionId: s.id, cwd: s.cwd ?? cwd, configDir: s.account };
-    const opened = openSessionViewer(target, truncate(`${s.remote && remoteControl ? "◈" : "👁"} ${sessionTitle(s)}`, 30), viewerWindow());
+    const opened = openSessionViewer(target, truncate(`${s.remote ? "◈ " : ""}${sessionTitle(s)}`, 30), viewerWindow());
     if (opened) return notify(opened);
     const command = viewerCommand(target);
     void copy(command).then(
@@ -1202,7 +1202,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   /** Asks, then moves a session whose folder is gone into this project folder. */
   const askMove = (s: SessionSummary) =>
     setConfirmation({
-      title: "Move this session here?",
+      title: "Move this session to this project?",
       lines: [...headFor(s), "", truncate(`into ${tilde(cwd)}`, 56), "Its paths are rewritten; claude --resume continues it here."],
       onConfirm: () =>
         attempt(() => {

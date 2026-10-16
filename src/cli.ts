@@ -48,7 +48,7 @@ program
   .command("watch", { isDefault: true })
   .description("show the session of a project and follow new output")
   .option("--cwd <dir>", "project directory the Claude Code session runs in", process.cwd())
-  .option("--session <id>", "show this session: its chat only, live while it runs, in a window of its own")
+  .option("--session <id>", "show this session: its chat, live, with a prompt line while it runs, and settings of its own")
   // No default: without it, the session's last view (setting "view per session"), else the chat.
   .addOption(new Option("--view <view>", "view to start with (default: the session's last view, else chat)").choices(VIEWS))
   .addOption(new Option("--unfocused", "the pane opens without the keyboard focus").hideHelp())

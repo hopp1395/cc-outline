@@ -134,9 +134,9 @@ describe("export in the Sessions view", () => {
     expect(view.frame()).toContain("∅");
     expect(view.frame()).toContain("folder gone");
     await view.press("\r");
-    await until(() => view.frame().includes("Move it here"));
+    await until(() => view.frame().includes("Move it to this project"));
     await view.press("\r");
-    await until(() => view.frame().includes("Move this session here?"));
+    await until(() => view.frame().includes("Move this session to this project?"));
     await view.press("\r");
     await until(() => view.frame().includes("moved here"));
     expect(existsSync(join(projectDir(cwd), "dddddddd-4.jsonl"))).toBe(true);
