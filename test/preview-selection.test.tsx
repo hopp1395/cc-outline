@@ -104,3 +104,42 @@ it("hands its selection to Ctrl+C while it has one", async () => {
   expect(key.current).toBeUndefined();
   app.unmount();
 });
+
+it("hands a click on a mark (header or body) to onMark and one on a plain body line to onLineClick", async () => {
+  const marks: unknown[] = [];
+  const clicked: number[] = [];
+  const app = renderInk(
+    <MouseContext.Provider value={true}>
+      <AreaContext.Provider value={{ x: 20, y: 2, width: 30, height: 6 }}>
+        <Preview
+          header={["❯ see [Image #2]", "──"]}
+          lines={["plain line", "shot [▣ 3] here"]}
+          scroll={0}
+          width={30}
+          height={6}
+          onMark={(m) => marks.push(m)}
+          onLineClick={(i) => clicked.push(i)}
+        />
+      </AreaContext.Provider>
+    </MouseContext.Provider>,
+    { columns: 60, rows: 10 },
+  );
+  await wait();
+  const click = async (col: number, row: number) => {
+    await app.press(`\u001b[<0;${col};${row}M`);
+    await wait();
+    await app.press(`\u001b[<0;${col};${row}m`);
+    await wait();
+  };
+  // Row 3 is the header's first line ("[Image #2]" from column 7 of the preview, 28 on the terminal).
+  await click(29, 3);
+  // Row 5 is "plain line", row 6 "shot [▣ 3] here" with the mark from column 6.
+  await click(23, 5);
+  await click(28, 6);
+  expect(marks).toEqual([
+    { kind: "pasted", n: 2 },
+    { kind: "image", n: 3 },
+  ]);
+  expect(clicked).toEqual([0]);
+  app.unmount();
+});

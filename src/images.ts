@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Screenshot, Turn } from "./transcript/parse.js";
 
-const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "application/pdf": "pdf" };
 
 interface ImageBlock {
   type?: string;
   source?: { type?: string; media_type?: string; data?: string };
 }
 
-/** Where images taken out of transcripts are written to be opened. */
+/** Where images and PDFs taken out of transcripts are written to be opened. */
 export function imageDir(): string {
   return join(tmpdir(), "cco-images");
 }
@@ -46,11 +46,25 @@ function entryImages(transcript: string, uuid: string): ImageBlock[] {
 export function turnImageFile(transcript: string | undefined, turn: Turn, index: number): string | undefined {
   const image = (turn.attachments ?? []).filter((a) => a.kind === "image")[index];
   if (!image) return undefined;
-  if (image.path && existsSync(image.path)) return image.path;
+  return promptImageFile(transcript, turn.id, index, image.path);
+}
+
+/**
+ * The file showing image `index` (from 0) of the prompt entry `uuid`:
+ * `upload` (its copy under `~/.claude/uploads`) if it still exists, otherwise
+ * the image data from the transcript written to a temporary file.
+ */
+export function promptImageFile(transcript: string | undefined, uuid: string, index: number, upload?: string): string | undefined {
+  if (upload && existsSync(upload)) return upload;
   if (!transcript) return undefined;
-  const source = entryImages(transcript, turn.id)[index]?.source;
+  return written(entryImages(transcript, uuid)[index], `${uuid}-${index + 1}`);
+}
+
+/** `block`'s base64 data written to `<imageDir>/<base>.<ext>` (once); undefined without data. */
+function written(block: ImageBlock | undefined, base: string): string | undefined {
+  const source = block?.source;
   if (source?.type !== "base64" || !source.data) return undefined;
-  const file = join(imageDir(), `${turn.id}-${index + 1}.${EXTENSIONS[source.media_type ?? ""] ?? "png"}`);
+  const file = join(imageDir(), `${base}.${EXTENSIONS[source.media_type ?? ""] ?? "png"}`);
   if (!existsSync(file)) {
     mkdirSync(imageDir(), { recursive: true });
     writeFileSync(file, Buffer.from(source.data, "base64"));
@@ -58,8 +72,8 @@ export function turnImageFile(transcript: string | undefined, turn: Turn, index:
   return file;
 }
 
-/** The image blocks of the tool result for the call `toolUseId`. */
-function resultImages(transcript: string, toolUseId: string): ImageBlock[] {
+/** The image and document (PDF) blocks of the tool result for the call `toolUseId`. */
+function resultFiles(transcript: string, toolUseId: string): ImageBlock[] {
   let text: string;
   try {
     text = readFileSync(transcript, "utf8");
@@ -72,7 +86,7 @@ function resultImages(transcript: string, toolUseId: string): ImageBlock[] {
       const entry = JSON.parse(line) as { message?: { content?: unknown } };
       const content = Array.isArray(entry.message?.content) ? (entry.message.content as { type?: string; tool_use_id?: string; content?: unknown }[]) : [];
       const result = content.find((b) => b?.type === "tool_result" && b.tool_use_id === toolUseId);
-      if (result && Array.isArray(result.content)) return (result.content as ImageBlock[]).filter((b) => b?.type === "image");
+      if (result && Array.isArray(result.content)) return (result.content as ImageBlock[]).filter((b) => b?.type === "image" || b?.type === "document");
     } catch {
       continue;
     }
@@ -81,22 +95,23 @@ function resultImages(transcript: string, toolUseId: string): ImageBlock[] {
 }
 
 /**
- * A file showing screenshot `shot` of a turn: the copy the desktop app's
- * Browser pane saved where it still exists, otherwise the image data of the
- * tool result in the transcript written to a temporary file; undefined when
- * neither is there.
+ * A file showing image (or PDF) `shot` of a turn's tool results: the copy the
+ * desktop app's Browser pane saved where it still exists, otherwise the data
+ * of the tool result in the transcript written to a temporary file; undefined
+ * when neither is there.
  */
 export function screenshotFile(transcript: string | undefined, shot: Screenshot): string | undefined {
-  const saved = shot.block.outcome?.images?.[shot.index]?.path;
-  if (saved && existsSync(saved)) return saved;
   const id = shot.block.id;
-  if (!transcript || !id) return undefined;
-  const source = resultImages(transcript, id)[shot.index]?.source;
-  if (source?.type !== "base64" || !source.data) return undefined;
-  const file = join(imageDir(), `${id}-${shot.index + 1}.${EXTENSIONS[source.media_type ?? ""] ?? "png"}`);
-  if (!existsSync(file)) {
-    mkdirSync(imageDir(), { recursive: true });
-    writeFileSync(file, Buffer.from(source.data, "base64"));
-  }
-  return file;
+  return id ? resultFile(transcript, id, shot.index, shot.block.outcome?.images?.[shot.index]?.path) : undefined;
+}
+
+/**
+ * A file showing image or PDF `index` (from 0) of the result of the call
+ * `toolUseId`: `saved` if it still exists, otherwise its data from the
+ * transcript written to a temporary file.
+ */
+export function resultFile(transcript: string | undefined, toolUseId: string, index: number, saved?: string): string | undefined {
+  if (saved && existsSync(saved)) return saved;
+  if (!transcript) return undefined;
+  return written(resultFiles(transcript, toolUseId)[index], `${toolUseId}-${index + 1}`);
 }

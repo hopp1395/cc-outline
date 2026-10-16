@@ -136,8 +136,8 @@ export interface CompactInfo {
  */
 export type Attachment =
   | { kind: "image"; path?: string }
-  | { kind: "file"; path: string }
-  | { kind: "directory"; path: string }
+  | { kind: "file"; path: string; full?: string }
+  | { kind: "directory"; path: string; full?: string }
   | { kind: "selection"; lines?: number; file?: string };
 
 /** "draft": being written in plan mode, not presented yet (see `PlanModeState`). */
@@ -845,6 +845,9 @@ export class TranscriptParser {
     if (!a?.type || !turn || !this.takesAttachments || !ATTACHMENT_TYPES.has(a.type)) return false;
     const list = () => (turn.attachments ??= []);
     const name = a.displayPath || a.filename || a.path;
+    // The absolute path, where the shown one is relative to the session's folder.
+    const full = a.filename || a.path;
+    const where = full && full !== name ? { full } : {};
     switch (a.type) {
       case "inlined_image_paths": {
         const paths = Array.isArray(a.paths) ? a.paths.filter((p): p is string => typeof p === "string") : [];
@@ -859,11 +862,11 @@ export class TranscriptParser {
       }
       case "file":
         if (!name) return false;
-        list().push({ kind: "file", path: name });
+        list().push({ kind: "file", path: name, ...where });
         return true;
       case "directory":
         if (!name) return false;
-        list().push({ kind: "directory", path: name });
+        list().push({ kind: "directory", path: name, ...where });
         return true;
       case "selected_lines_in_ide":
       case "selected_lines_in_diff": {
@@ -1017,24 +1020,33 @@ function rejectionFeedback(text: string): string | undefined {
 /** The line naming the browser page the actions below it (or the navigation above it) ran on. */
 const pageLine = (page: string) => `*on ${escapeMd(page)}*`;
 
-/** A screenshot of a turn: numbered from 1 in the turn, the browser call whose result holds it, and its place among that result's images. */
+/**
+ * An image or a PDF a tool returned in a turn (a browser's screenshot, a read
+ * image file): numbered from 1 in the turn, PDFs apart from images, the call
+ * whose result holds it, and its place among that result's images.
+ */
 export interface Screenshot {
   n: number;
   block: ToolBlock;
   index: number;
+  kind: "image" | "pdf";
 }
 
-/** The images of a turn's browser calls, numbered in order. */
+/** The images and PDFs of a turn's tool results, numbered in order, each kind apart. */
 export function turnScreenshots(turn: Pick<Turn, "blocks">): Screenshot[] {
   const shots: Screenshot[] = [];
+  const count = { image: 0, pdf: 0 };
   for (const b of turn.blocks) {
-    if (b.kind !== "tool" || !isBrowserTool(b.name)) continue;
-    (b.outcome?.images ?? []).forEach((_, index) => shots.push({ n: shots.length + 1, block: b, index }));
+    if (b.kind !== "tool") continue;
+    (b.outcome?.images ?? []).forEach((image, index) => {
+      const kind = image.kind === "pdf" ? "pdf" : "image";
+      shots.push({ n: ++count[kind], block: b, index, kind });
+    });
   }
   return shots;
 }
 
-/** Each browser call's screenshot numbers. */
+/** Each call's image (and PDF) numbers, in the order of its result's images. */
 function shotNumbers(shots: Screenshot[]): Map<ToolBlock, number[]> {
   const numbers = new Map<ToolBlock, number[]>();
   for (const s of shots) numbers.set(s.block, [...(numbers.get(s.block) ?? []), s.n]);

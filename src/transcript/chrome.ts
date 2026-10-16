@@ -342,17 +342,24 @@ export function imageAction(name: string, input: unknown, image: ResultImage | u
   return `${symbol} ${verb}`;
 }
 
-/** The mark of screenshot `n` of a turn after its action; a click on it opens it, `o` lists them. */
-export const shotMark = (n: number) => `\u001b[36m[▣ ${n}]\u001b[39m`;
-/** Finds the screenshot marks in a rendered line, without colours: the number and the columns. */
-export const SHOT_MARK = /\[▣ (\d+)\]/g;
+/**
+ * The mark of image `n` of a turn after the call it came from (`[▣ n]`), or
+ * of PDF `n` (`[▤ n]`, counted apart); a click on it opens it, `o` lists them.
+ */
+export const shotMark = (n: number, pdf = false) => `\u001b[36m[${pdf ? "▤" : "▣"} ${n}]\u001b[39m`;
+/** Finds the image and PDF marks in a rendered line, without colours: the kind, the number and the columns. */
+export const SHOT_MARK = /\[(▣|▤) (\d+)\]/g;
 
-/** The key that lists a turn's images, dimmed after the marks on screen (not when copying or exporting). */
+/** The key that lists a turn's attachments, dimmed after the marks on screen (not when copying or exporting). */
 export const SHOT_HINT = "\u001b[2m(o)\u001b[22m";
 
-/** `line` with the marks of the screenshots numbered `shots`, and with `hint` the key that lists them. */
-const withShots = (line: string, shots: number[] = [], hint = false) =>
-  shots.length ? `${line} ${shots.map(shotMark).join(" ")}${hint ? ` ${SHOT_HINT}` : ""}` : line;
+/**
+ * `line` with the marks of the images numbered `shots` (PDFs where `images`,
+ * the call's results in the same order, says so), and with `hint` the key
+ * that lists them.
+ */
+export const withShots = (line: string, shots: number[] = [], hint = false, images?: ResultImage[]) =>
+  shots.length ? `${line} ${shots.map((n, i) => shotMark(n, images?.[i]?.kind === "pdf")).join(" ")}${hint ? ` ${SHOT_HINT}` : ""}` : line;
 
 /** The screenshot numbers of a call's images that belong to batch action `step` (all of them for other calls). */
 function shotsOf(outcome: ToolOutcome | undefined, shots: number[], step?: number): number[] {

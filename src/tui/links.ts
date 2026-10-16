@@ -1,4 +1,5 @@
 import stringWidth from "string-width";
+import { PASTED_MARK } from "../attachments.js";
 import { SHOT_MARK } from "../transcript/chrome.js";
 
 /** `s` without colours and OSC 8 links. */
@@ -71,12 +72,26 @@ export function linkAt(lines: string[], index: number, col: number, width: numbe
   return undefined;
 }
 
-/** The number of the screenshot mark `[▣ n]` at column `col` of a rendered line, or undefined. */
-export function shotAt(line: string, col: number): number | undefined {
+/** A mark of something that can be opened: `[Image #n]` (pasted), `[▣ n]` (an image a tool returned) or `[▤ n]` (a PDF). */
+export interface Mark {
+  kind: "pasted" | "image" | "pdf";
+  n: number;
+}
+
+/** The marks of a rendered line, without colours, with their columns. */
+function marksOf(line: string): { mark: Mark; start: number; end: number }[] {
   const plain = stripAnsi(line);
-  for (const m of plain.matchAll(SHOT_MARK)) {
+  const found = [
+    ...[...plain.matchAll(SHOT_MARK)].map((m) => ({ m, mark: { kind: m[1] === "▤" ? "pdf" : "image", n: Number(m[2]) } as Mark })),
+    ...[...plain.matchAll(PASTED_MARK)].map((m) => ({ m, mark: { kind: "pasted", n: Number(m[1]) } as Mark })),
+  ];
+  return found.map(({ m, mark }) => {
     const start = stringWidth(plain.slice(0, m.index));
-    if (col >= start && col < start + stringWidth(m[0])) return Number(m[1]);
-  }
-  return undefined;
+    return { mark, start, end: start + stringWidth(m[0]) };
+  });
+}
+
+/** The mark at column `col` of a rendered line, or undefined. */
+export function markAt(line: string, col: number): Mark | undefined {
+  return marksOf(line).find((m) => col >= m.start && col < m.end)?.mark;
 }

@@ -1,11 +1,12 @@
 import { basename } from "node:path";
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
+import sliceAnsi from "slice-ansi";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderMarkdown, stripBoxes } from "../render/markdown.js";
 import { haystack } from "../filter.js";
-import { screenshotFile, turnImageFile } from "../images.js";
+import { attachmentFile, attachmentTitle, itemOfMark, markedPrompt, turnAttachments, type AttachmentItem } from "../attachments.js";
 import { openInDefaultApp } from "../open.js";
 import {
   AGENT_RUNNING_MARK,
@@ -23,6 +24,7 @@ import {
   type TaskNotification,
   type Turn,
 } from "../transcript/parse.js";
+import { isBrowserTool, SHOT_HINT } from "../transcript/chrome.js";
 import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
 import { formatCount, shortModel } from "../transcript/turnStats.js";
 import { displayPath } from "../transcript/sessions.js";
@@ -49,7 +51,7 @@ import { bodyHeightBelow, headerRows, Preview } from "./Preview.js";
 import { doubleClicks } from "./openKey.js";
 import { useFocused } from "./focus.js";
 import { useClipboard } from "./useClipboard.js";
-import { ImagesDialog, turnImages, type TurnImage } from "./ImagesDialog.js";
+import { AttachmentsDialog } from "./AttachmentsDialog.js";
 import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
@@ -131,10 +133,12 @@ function agentView(
   const header = [...full.slice(0, -1), rule(width, place.count > 1 ? "a/A agent · esc back" : "a/esc back")];
   const quote = (text: string) => text.split("\n").map((l) => `> ${l}`).join("\n");
   const parts: string[] = [];
+  // Images and PDFs are numbered across the page, as `subagentAttachments` lists them.
+  const shots = turnScreenshots({ blocks: sub.turns.flatMap((t) => t.blocks) });
   if (sub.turns.length > 0) {
     sub.turns.forEach((t, i) => {
       parts.push(`**${i === 0 ? "Task" : "Message"}**`, quote(t.prompt));
-      const body = turnMarkdown(t, { tools: opts.tools, thinking: opts.thinking, agents: true });
+      const body = turnMarkdown(t, { tools: opts.tools, thinking: opts.thinking, agents: true, shots, shotHint: true });
       if (body) parts.push(body);
     });
   } else {
@@ -145,6 +149,17 @@ function agentView(
   if (agent.status === "running" && opts.live) lines.push("", dim(`${AGENT_RUNNING_MARK} ${agent.type ?? "Agent"} is working…`));
   else if (!sub.file && agent.status !== "running") lines.push("", dim("(the subagent's own transcript was not found)"));
   return { header, lines };
+}
+
+/** What can be opened on a subagent's page: the images and PDFs of its tool results, numbered across the page. */
+export function subagentAttachments(agent: AgentRun, sub: Subagent, cwd?: string): AttachmentItem[] {
+  return turnAttachments({ id: agent.id, prompt: "", blocks: sub.turns.flatMap((t) => t.blocks) }, sub.file, cwd);
+}
+
+/** Images and PDFs of a turn: pasted into its prompt and returned by its tools (the list's `▣n`; @-mentions do not count). */
+export function mediaCount(turn: Turn): number {
+  const pasted = (turn.attachments ?? []).filter((a) => a.kind === "image").length;
+  return turn.blocks.reduce((n, b) => n + (b.kind === "tool" ? (b.outcome?.images?.length ?? 0) : 0), pasted);
 }
 
 /** Colour of the ↩ of a notification by the task's status. */
@@ -248,10 +263,19 @@ export const PROMPT_PREVIEW_LINES = 5;
  * PROMPT_PREVIEW_LINES rows without its blank lines and half the preview
  * height. When cut, its last row ends in `…` and the rule points to the full prompt.
  */
-export function promptHeader(prompt: string, width: number, height: number, attachments: Attachment[] = [], stats: string[] = []): string[] {
-  const shortened = prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : prompt;
+export function promptHeader(
+  prompt: string,
+  width: number,
+  height: number,
+  attachments: Attachment[] = [],
+  stats: string[] = [],
+  shots: Screenshot[] = [],
+): string[] {
+  // Pasted images' placeholders in colour (a click opens one), those without one added.
+  const marked = markedPrompt(prompt, attachments.filter((a) => a.kind === "image").length, true);
+  const shortened = stripAnsi(marked).length > PROMPT_PREVIEW_CHARS ? sliceAnsi(marked, 0, PROMPT_PREVIEW_CHARS) + "…" : marked;
   // One row less for the prompt when the attachments line follows it.
-  const summary = attachmentSummary(attachments);
+  const summary = attachmentSummary(attachments, shots, true);
   // The stats always show; the prompt is cut first.
   const rows = Math.min(PROMPT_PREVIEW_LINES, headerRows(height - (summary ? 2 : 0) - statsRows(stats).length * 2) - 1);
   const wrapped = wrapAnsi(shortened, width - 2, { hard: true })
@@ -264,7 +288,7 @@ export function promptHeader(prompt: string, width: number, height: number, atta
   const name = commandName(text);
   const excerpt = name ? `\u001b[22m${commandColor(name)}\u001b[2m${text.slice(name.length)}` : text;
   const header = previewHeader(excerpt, width, { marker: cyan("❯ "), style: dim });
-  const cut = shortened !== prompt || shown.length < wrapped.length;
+  const cut = shortened !== marked || shown.length < wrapped.length;
   return [
     ...header.slice(0, -1),
     ...(summary ? ["  " + dim(truncate(summary, width - 2))] : []),
@@ -410,15 +434,27 @@ export function turnDetailLines(turn: Turn, agents: AgentRun[], width: number, c
   ];
 }
 
-/** One line naming what came with the prompt: "📎 2 images · @src/Order.cs · 12 lines selected in Foo.cs". */
-export function attachmentSummary(attachments: Attachment[]): string | undefined {
-  if (attachments.length === 0) return undefined;
+/**
+ * One line naming what came with the prompt and what the turn's tools
+ * returned: "📎 2 pasted images · @src/Order.cs · 12 lines selected in Foo.cs
+ * · 1 tool image · 3 screenshots · 1 PDF", with `hint` the key that lists them.
+ */
+export function attachmentSummary(attachments: Attachment[], shots: Screenshot[] = [], hint = false): string | undefined {
   const images = attachments.filter((a) => a.kind === "image").length;
+  const count = (kind: "image" | "pdf", browser: boolean) => shots.filter((s) => s.kind === kind && isBrowserTool(s.block.name) === browser).length;
+  const tool = count("image", false);
+  const screenshots = count("image", true);
+  const pdfs = shots.filter((s) => s.kind === "pdf").length;
   const parts = [
-    ...(images > 0 ? [plural(images, "image")] : []),
+    ...(images > 0 ? [plural(images, "pasted image")] : []),
     ...attachments.filter((a) => a.kind !== "image").map(attachmentName),
+    ...(tool > 0 ? [plural(tool, "tool image")] : []),
+    ...(screenshots > 0 ? [plural(screenshots, "screenshot")] : []),
+    ...(pdfs > 0 ? [plural(pdfs, "PDF")] : []),
   ];
-  return "📎 " + parts.join(" · ");
+  if (parts.length === 0) return undefined;
+  const openable = images > 0 || shots.length > 0 || attachments.some((a) => a.kind === "file" || a.kind === "directory");
+  return "📎 " + parts.join(" · ") + (hint && openable ? " " + SHOT_HINT : "");
 }
 
 function attachmentName(a: Attachment): string {
@@ -436,16 +472,26 @@ function attachmentName(a: Attachment): string {
   }
 }
 
-/** The attachments listed below the full prompt, images with where their file is. */
-function attachmentLines(attachments: Attachment[], cwd: string): string[] {
-  if (attachments.length === 0) return [];
+/**
+ * The attachments listed below the full prompt: pasted images with where
+ * their file is, @-mentions and selections, then the images and PDFs the
+ * turn's tools returned.
+ */
+function attachmentLines(turn: Turn, cwd: string): string[] {
+  const attachments = turn.attachments ?? [];
+  const items = turnAttachments(turn, undefined, cwd);
+  const pasted = items.filter((i) => i.kind === "pasted");
   let image = 0;
-  const lines = attachments.map((a) => {
-    if (a.kind !== "image") return "  " + attachmentName(a);
-    image++;
-    return `  image ${image}  ${dim(a.path ? displayPath(a.path, cwd) : "(only in the transcript)")}`;
-  });
-  const hint = attachments.some((a) => a.kind === "image") ? [dim("  o opens the images")] : [];
+  const lines = [
+    ...attachments.map((a) => {
+      if (a.kind !== "image") return "  " + attachmentName(a);
+      const n = pasted[image++]?.n;
+      return `  ${cyan(`[Image #${n}]`)}  ${dim(a.path ? displayPath(a.path, cwd) : "(only in the transcript)")}`;
+    }),
+    ...items.flatMap((i) => (i.kind === "image" || i.kind === "pdf" ? [`  ${cyan(`[${i.kind === "pdf" ? "▤" : "▣"} ${i.n}]`)}  ${i.label}`] : [])),
+  ];
+  if (lines.length === 0) return [];
+  const hint = items.length ? [dim("  o opens the attachments, a click on a mark opens it")] : [];
   return ["", "\u001b[1m📎 Attachments\u001b[22m", ...lines, ...hint];
 }
 
@@ -492,9 +538,9 @@ function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[];
   return {
     header: [cyan("❯ ") + `\u001b[1m${n?.kind === "handback" ? "Agent report" : n?.kind === "message" ? "Message" : n ? "Task notification" : "Prompt"}\u001b[22m` + dim(" · ↵/esc back to answer"), rule(width)],
     lines: [
-      ...wrapAnsi(turn.prompt, width, { hard: true, trim: false }).split("\n"),
+      ...wrapAnsi(markedPrompt(turn.prompt, (turn.attachments ?? []).filter((a) => a.kind === "image").length, true), width, { hard: true, trim: false }).split("\n"),
       ...result,
-      ...attachmentLines(turn.attachments ?? [], cwd).flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
+      ...attachmentLines(turn, cwd).flatMap((l) => wrapAnsi(l, width, { hard: true, trim: false }).split("\n")),
     ],
   };
 }
@@ -578,7 +624,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     if (!current) return [];
     if (current.continuation) return continuationHeader(current.prompt, current.continuation, previewWidth, stats);
     if (current.compacted) return [...previewHeader(current.prompt, previewWidth, { marker: blue("⟳ "), style: bold }).slice(0, -1), ...statsRows(stats), rule(previewWidth)];
-    return promptHeader(current.prompt, previewWidth, headerHeight, current.attachments, stats);
+    return promptHeader(current.prompt, previewWidth, headerHeight, current.attachments, stats, turnScreenshots(current));
   }, [current, version, previewWidth, headerHeight, statsKey]);
   const answerBody = useMemo(() => {
     if (!current) return [];
@@ -738,37 +784,25 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     setFlash(msg);
     setTimeout(() => setFlash(undefined), 2000);
   };
-  const imageCount = (current?.attachments ?? []).filter((a) => a.kind === "image").length;
-  /** Opens image `index` (from 0) pasted into `turn`'s prompt in the system's image viewer. */
-  const openPasted = (turn: Turn, index: number) => {
+  // What can be opened: the turn's pasted images, @-mentions and the images and PDFs of its tools,
+  // numbered as the prompt and the answer mark them; on a subagent's page, that page's.
+  const turnItems = useMemo(() => (current ? turnAttachments(current, path, cwd) : []), [current, version, path, cwd]);
+  const agentItems = useMemo(() => (agent ? subagentAttachments(agent, subagent, cwd) : []), [agent, subagent.version, subagent.file, cwd]);
+  const items = agentPage ? agentItems : turnItems;
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  useEffect(() => onModal?.(attachmentsOpen), [attachmentsOpen]);
+  /** Opens `item` in its default app. */
+  const openItem = (item: AttachmentItem | undefined) => {
+    if (!item) return;
     let file: string | undefined;
     try {
-      file = turnImageFile(turn.transcript ?? path, turn, index);
+      file = attachmentFile(item);
     } catch (err) {
-      return notify(`could not read the image: ${(err as Error).message}`);
+      return notify(`could not read ${attachmentTitle(item)}: ${(err as Error).message}`);
     }
-    if (!file) return notify(`image ${index + 1} is no longer available`);
+    if (!file) return notify(`${attachmentTitle(item)} is no longer available`);
     openInDefaultApp(file);
-    notify(`opened image ${index + 1}`);
-  };
-  // The screenshots of the turn's browser actions, numbered as the answer marks them ([▣ 3]).
-  const shots = useMemo(() => (current ? turnScreenshots(current) : []), [current, version]);
-  const images = useMemo(() => turnImages(imageCount, shots), [imageCount, shots]);
-  const [imagesOpen, setImagesOpen] = useState(false);
-  useEffect(() => onModal?.(imagesOpen), [imagesOpen]);
-  const openImage = (image: TurnImage) => (image.kind === "pasted" ? current && openPasted(current, image.index) : openShot(image.shot));
-  /** Opens screenshot `shot` of the current turn in the system's image viewer. */
-  const openShot = (shot: Screenshot | undefined) => {
-    if (!shot || !current) return;
-    let file: string | undefined;
-    try {
-      file = screenshotFile(current.transcript ?? path, shot);
-    } catch (err) {
-      return notify(`could not read the screenshot: ${(err as Error).message}`);
-    }
-    if (!file) return notify(`screenshot ${shot.n} is no longer available`);
-    openInDefaultApp(file);
-    notify(`opened screenshot ${shot.n}`);
+    notify(`opened ${attachmentTitle(item)}`);
   };
   /** Mouse wheel over the answer: like Ctrl+↑/↓, scrolling up leaves the live end and scrolling back down rejoins it. */
   const wheel = (delta: number) => {
@@ -832,8 +866,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         return notify(follow ? "follow off" : "follow on");
       }
       if (input === "s") return setOrder(flipOrder);
-      // o lists the prompt's pasted images and the turn's screenshots to open one.
-      if (input === "o") return images.length ? setImagesOpen(true) : notify("no images in this turn");
+      // o lists what came with the prompt and what the turn's tools returned, to open one.
+      if (input === "o") return items.length ? setAttachmentsOpen(true) : notify(agentPage ? "no images on this page" : "no attachments in this turn");
       if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
@@ -844,7 +878,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         );
       }
     },
-    { isActive: active && !filter.open && !imagesOpen },
+    { isActive: active && !filter.open && !attachmentsOpen },
   );
 
   const session = path ? basename(path, ".jsonl").slice(0, 8) : "none";
@@ -885,6 +919,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             const running = isRunning(t) || agentsRunning(t);
             const agentCount = t.notification ? 0 : agentsOf(t).length;
             const badge = agentCount > 0 ? `◆${agentCount} ` : "";
+            const media = mediaCount(t);
+            const mediaBadge = media > 0 ? `▣${media} ` : "";
             // Slash commands stand out, like above the answer.
             const command = t.notification || t.continuation || t.compacted ? undefined : commandName(t.prompt);
             return (
@@ -907,6 +943,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 {t.continuation && <Text color="blue">⤷ </Text>}
                 {t.compacted && <Text color="blue">⟳ </Text>}
                 {badge && <Text color="magenta">{badge}</Text>}
+                {mediaBadge && <Text color="cyan">{mediaBadge}</Text>}
                 <EntryText
                   text={t.prompt}
                   lead={command ? { columns: stringWidth(command), color: COMMAND_COLOR } : undefined}
@@ -917,7 +954,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                       (t.queued || t.notification || t.continuation || t.compacted ? 2 : 0) -
                       (marked ? 2 : 0) -
                       (running || t.interrupted ? 2 : 0) -
-                      badge.length,
+                      badge.length -
+                      mediaBadge.length,
                   )}
                   selected={isSelected}
                   active={active}
@@ -932,8 +970,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           <Preview
             onWheel={wheel}
             onLink={(url) => notify(`opened ${url}`)}
-            // The marks number the screenshots of the answer; a subagent's page and the prompt have their own.
-            onShot={detailOpen ? undefined : (n) => openShot(shots[n - 1])}
+            // A click on a mark opens what it names: in the prompt, the answer or a subagent's page.
+            onMark={(mark) => openItem(itemOfMark(items, mark))}
             header={header}
             lines={lines}
             scroll={scroll.scroll}
@@ -970,14 +1008,16 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
-          ...(images.length > 0 ? [{ text: `o ${plural(images.length, "image")}`, priority: 3 }] : []),
+          ...(items.length > 0 ? [{ text: `o ${plural(items.length, "attachment")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
           { text: "1-6/tab view", priority: 1 },
         ])
       }
     />
     {filter.dialog}
-    {imagesOpen && active && <ImagesDialog layout={layout} images={images} onOpen={openImage} onClose={() => setImagesOpen(false)} />}
+    {attachmentsOpen && active && (
+      <AttachmentsDialog layout={layout} items={items} onOpen={openItem} onClose={() => setAttachmentsOpen(false)} />
+    )}
     </>
   );
 }

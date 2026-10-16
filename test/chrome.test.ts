@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { tabPage } from "../src/transcript/chrome.js";
 import { TranscriptParser, turnMarkdown, turnScreenshots } from "../src/transcript/parse.js";
-import { shotAt, stripAnsi } from "../src/tui/links.js";
+import { markAt, stripAnsi } from "../src/tui/links.js";
 import { toolMarkdown, toolOutcome } from "../src/transcript/tools.js";
 import { BOX_END, BOX_START_CYAN } from "../src/render/markdown.js";
 
@@ -217,8 +217,8 @@ describe("browser actions with tools off", () => {
   it("finds a screenshot mark under the pointer", () => {
     const rendered = "│   * ↕ scroll down 3 \u001b[36m[▣ 12]\u001b[39m";
     const at = stripAnsi(rendered).indexOf("[");
-    expect(shotAt(rendered, at)).toBe(12);
-    expect(shotAt(rendered, at + 5)).toBe(12);
-    expect(shotAt(rendered, at - 1)).toBeUndefined();
+    expect(markAt(rendered, at)).toEqual({ kind: "image", n: 12 });
+    expect(markAt(rendered, at + 5)).toEqual({ kind: "image", n: 12 });
+    expect(markAt(rendered, at - 1)).toBeUndefined();
   });
 });

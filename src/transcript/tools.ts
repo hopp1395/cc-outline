@@ -1,6 +1,6 @@
 import { isAbsolute, relative } from "node:path";
 import { BOX_END, BOX_RULE, BOX_START } from "../render/markdown.js";
-import { batchFailure, browserAction, chromeMarkdown, chromeOutcome, isBrowserTool } from "./chrome.js";
+import { batchFailure, browserAction, chromeMarkdown, chromeOutcome, isBrowserTool, withShots } from "./chrome.js";
 
 /** How much of Claude's tool calls the chat shows: nothing, a line each, or with command and output. */
 export const TOOL_LEVELS = ["off", "compact", "full"] as const;
@@ -28,7 +28,7 @@ export interface ToolOutcome {
   steps?: BrowserStep[];
   /** Browser tools: a few plain lines of what the action found (matches, a script's value, console messages), shown in the browser frame. */
   brief?: string[];
-  /** Browser tools: the images of the result (screenshots), in order. */
+  /** The images (screenshots, read image files) and PDFs of the result, in order. */
   images?: ResultImage[];
 }
 
@@ -38,8 +38,12 @@ export interface BrowserStep {
   brief?: string[];
 }
 
-/** An image in a tool result; the image data stays in the transcript. */
+/** An image or a PDF in a tool result; its data stays in the transcript. */
 export interface ResultImage {
+  /** A PDF (a `document` block); an image without it. */
+  kind?: "pdf";
+  /** The file it was read from, without its folder (Read). */
+  name?: string;
   /** The action of a browser_batch it belongs to. */
   step?: number;
   /** A copy Claude Code saved next to the transcript (the desktop app's browser does), if it said where. */
@@ -88,6 +92,24 @@ function resultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map((b) => (obj(b).type === "text" ? (str(obj(b).text) ?? "") : "")).join("\n");
   return "";
+}
+
+/** The file name of a path in either spelling. */
+export const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+
+/**
+ * The images and PDFs of a tool_result's content (`image` and `document`
+ * blocks), named after the file the call read: its `file_path` or the
+ * result's `file.filePath`.
+ */
+function resultFiles(content: unknown, input: unknown, result: unknown): ResultImage[] {
+  if (!Array.isArray(content)) return [];
+  const path = str(obj(input).file_path) ?? str(obj(obj(result).file).filePath);
+  const name = path ? { name: baseName(path) } : {};
+  return content.flatMap((b): ResultImage[] => {
+    const type = obj(b).type;
+    return type === "image" ? [{ ...name }] : type === "document" ? [{ kind: "pdf", ...name }] : [];
+  });
 }
 
 /** The last `n` lines of `text` as a code block, with how many came before. */
@@ -142,6 +164,13 @@ export function toolOutcome(name: string, input: unknown, result: unknown, conte
     return { status: "error", summary: `✗ ${escapeMd(first.slice(0, 100))}`, detail: text.trim() ? tail(text.replace(/<\/?tool_use_error>/g, "").trim()) : undefined };
   }
   if (isBrowserTool(name)) return chromeOutcome(name, input, content);
+  const outcome = plainOutcome(name, input, result, text, cwd);
+  const files = resultFiles(content, input, result);
+  return files.length ? { ...outcome, images: files } : outcome;
+}
+
+/** The outcome of a successful call of a tool other than the browser's. */
+function plainOutcome(name: string, input: unknown, result: unknown, text: string, cwd?: string): ToolOutcome {
   const r = obj(result);
   const i = obj(input);
   switch (name) {
@@ -306,7 +335,11 @@ function questionTexts(input: unknown): string[] {
  * screenshots among the turn's; `hint` adds the key that lists them.
  */
 export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string, shots?: number[], hint = false): string {
-  if (level === "off") return name === "AskUserQuestion" ? questionMarkdown(input, outcome) : "";
+  if (level === "off") {
+    if (name === "AskUserQuestion") return questionMarkdown(input, outcome);
+    // Images and PDFs a tool returned still show, as a short line with their marks.
+    return shots?.length && !isBrowserTool(name) ? filesLine(name, outcome, shots, hint) : "";
+  }
   if (name === "ExitPlanMode") {
     const decision =
       outcome === undefined
@@ -320,10 +353,18 @@ export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome 
   }
   if (isBrowserTool(name)) return chromeMarkdown(name, input, outcome, level, shots, hint);
   const status = outcome?.summary ? ` · ${outcome.summary}` : "";
-  const line = `**⚙ ${escapeMd(mcpName(name))}** ${toolTitle(name, input, cwd)}${status}`;
+  const line = withShots(`**⚙ ${escapeMd(mcpName(name))}** ${toolTitle(name, input, cwd)}${status}`, shots, hint, outcome?.images);
   if (level === "compact") return line;
   const command = (name === "Bash" || name === "PowerShell") && str(obj(input).command) ? fence(str(obj(input).command)!, name === "Bash" ? "sh" : "powershell") : undefined;
   return [line, ...(command ? [command] : []), ...(outcome?.detail ? [outcome.detail] : [])].join("\n\n");
+}
+
+/** The line of a call's images and PDFs with tools off: "▣ diagram.png [▣ 3] (o)", "▤ Ticket.pdf [▤ 1]". */
+function filesLine(name: string, outcome: ToolOutcome | undefined, shots: number[], hint: boolean): string {
+  const images = outcome?.images ?? [];
+  const pdf = images.length > 0 && images.every((i) => i.kind === "pdf");
+  const names = [...new Set(images.map((i) => i.name).filter((n): n is string => n !== undefined))];
+  return withShots(`${pdf ? "▤" : "▣"} ${escapeMd(names.length ? names.join(", ") : mcpName(name))}`, shots, hint, images);
 }
 
 // Colours inside the Markdown of a question block; the renderer keeps them.
