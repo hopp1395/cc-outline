@@ -1,4 +1,5 @@
 import { proc } from "./proc.js";
+import { requestRcViewerSelect, type RcViewerSelect } from "./rcViewer/registry.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,7 +122,7 @@ export function viewerCommand(target: ViewerTarget, platform: NodeJS.Platform = 
 }
 
 /**
- * Opens a viewer of `target` (the chat only, live; a prompt line for a remote session while remote control is on)
+ * Opens a viewer of `target` (the chat only, live; a prompt line for a remote session while steer remote is on)
  * in a new window named `window` (`viewerWindow`): any number per session. Returns what happened, or undefined
  * without Windows Terminal or tmux (then `viewerCommand` is the way).
  */
@@ -138,6 +139,38 @@ export function openSessionViewer(target: ViewerTarget, title: string, window: s
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", window, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
     return "opened in a new tmux window";
+  }
+  return undefined;
+}
+
+/** The window cco opens the Remote Control Viewer in (`cco rc-viewer`), one per machine. */
+export const RC_VIEWER_WINDOW = "cco-rc-viewer";
+
+/**
+ * Opens the Remote Control Viewer (`cco rc-viewer`) in a window of its own (`RC_VIEWER_WINDOW`), or brings the one that runs (`running`,
+ * its window) to the front. Returns what happened, or undefined without Windows Terminal or tmux (then `cco rc-viewer`
+ * by hand is the way).
+ */
+export function openRcViewer(running?: { pid: number; window?: string }, select?: RcViewerSelect): string | undefined {
+  const terminal = detectTerminal();
+  if (running) {
+    // It selects the session as soon as it reads the request, also where its window cannot be raised.
+    if (select) requestRcViewerSelect(select);
+    if (running.window && terminal && focusSessionViewer(running.window)) return "brought the Remote Control Viewer to the front";
+    return `the Remote Control Viewer runs already (pid ${running.pid}), in a terminal of its own`;
+  }
+  const chosen = !select ? [] : select.remote ? ["--select-remote", select.id] : ["--select", select.id, ...(select.configDir ? ["--select-dir", select.configDir] : [])];
+  const args = [process.execPath, CLI, "rc-viewer", "--config-dir", claudeDir(), "--window", RC_VIEWER_WINDOW, ...chosen];
+  // It watches every session; claude's variables must not make it a part of the Claude Code it was opened from.
+  const env = independentEnv();
+  if (terminal === "wt") {
+    // No windowsHide, see resumeInNewWindow.
+    proc.spawn("wt", ["-w", RC_VIEWER_WINDOW, "new-tab", "--title", "cco rc-viewer", ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
+    return "opened the Remote Control Viewer in a new window";
+  }
+  if (terminal === "tmux") {
+    proc.spawn("tmux", ["new-window", "-n", RC_VIEWER_WINDOW, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
+    return "opened the Remote Control Viewer in a new tmux window";
   }
   return undefined;
 }

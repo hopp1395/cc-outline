@@ -108,7 +108,7 @@ describe("the prompt dialog", () => {
   });
 });
 
-describe("remote control in the viewers", () => {
+describe("steer remote in the viewers", () => {
   const viewer = () => {
     setSessionViewer(true);
     return renderInk(<App cwd={tmpdir()} remoteId="cse_1" initialMode="chat" />, layout, {
@@ -180,7 +180,7 @@ describe("remote control in the viewers", () => {
   it("says why nothing can be sent without the setting, and keeps the keys in the chat", async () => {
     updateSettings({ remoteApi: true, remoteControl: false });
     const app = viewer();
-    await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("remote control is off"));
+    await until(() => app.frame().includes("lege die datei a.txt") && app.frame().includes("steer remote is off"));
     expect(app.frame()).not.toContain("Tab write a prompt");
     await app.press("\t");
     await until(() => app.frame().includes("confirm quit"));

@@ -21,7 +21,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, useLayouts, type Mode, type Layout } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, shorter, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -40,6 +40,7 @@ import { SessionComposer, type PromptChannel } from "./SessionComposer.js";
 import { describeRemoteError, remotePath } from "../remote/index.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { useLocalPrompt } from "./useLocalPrompt.js";
+import { useLocalRequest } from "./useLocalRequest.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { useRunningSession } from "./useRunningSession.js";
 import { TIMING } from "../timing.js";
@@ -67,12 +68,6 @@ interface Props {
   onDetach?: (cwd: string) => void;
   /** A remote viewer (`--remote`): the Remote Control session of this id, read from claude.ai, in the chat only. */
   remoteId?: string;
-}
-
-/** `layout` with `rows` fewer at the bottom, for what is drawn below the view (a remote viewer's prompt line). */
-function shorter(layout: Layout, rows: number): Layout {
-  const less = (n: number | undefined) => (n === undefined ? undefined : Math.max(1, n - rows));
-  return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
 }
 
 const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
@@ -128,7 +123,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const [accountTitle] = useSetting("accountTitle");
   const [accountColor] = useSetting("accountColor");
   const sessionTitle = remoteId ? `◈ ${transcript.title ?? remoteId}` : (transcript.title ?? basename(cwd));
-  // A viewer of one session has a prompt line below its chat, as Claude Code does; a remote session's needs remote control.
+  // A viewer of one session has a prompt line below its chat, as Claude Code does; a remote session's needs steer remote.
   const [remoteControl] = useSetting("remoteControl");
   // Like its own settings, it comes with the process (watch.ts).
   const composer = fixed && isSessionViewer();
@@ -274,7 +269,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (!remoteId) return undefined;
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
-      blocked: remoteControl ? undefined : "remote control is off (the project's viewer's Settings)",
+      blocked: remoteControl ? undefined : "steer remote is off (the project's viewer's Settings)",
       send: (text) => readable(sendPrompt(remoteId, text)),
       interrupt: () => readable(sendInterrupt(remoteId)),
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
@@ -282,6 +277,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }, [remoteId, remoteControl]);
   const channel = remoteChannel ?? localChannel;
   const remotePending = remoteId ? (remote.pending[0] ?? remote.session?.pending) : undefined;
+  // A session of this machine that waits: what it asks, as its hooks recorded it, in the prompt line's place.
+  const asked = useLocalRequest(sessionId !== undefined && !remoteId ? sessionOf(path) : undefined, path, running?.activity === "waiting");
   const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
@@ -481,7 +478,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       return;
     }
     // A remote viewer's chat: Tab and i go back to the prompt line; the views switch with their number, ← and → there.
-    // A blocked one (the session runs nowhere, remote control is off) leaves Tab and i to the view switch and the info.
+    // A blocked one (the session runs nowhere, steer remote is off) leaves Tab and i to the view switch and the info.
     if (composer && mode === "chat" && (key.tab || input === "i") && (!channel.blocked || remotePending)) return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {
@@ -664,6 +661,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onFocus={setComposing}
             notify={(text) => setNotice({ text })}
             onHeight={setComposerRows}
+            asked={asked && { request: asked, where: "its Claude Code's window" }}
           />
         )}
         {placementOpen && (

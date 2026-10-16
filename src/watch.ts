@@ -1,7 +1,9 @@
 import { render } from "ink";
 import { createElement, useState } from "react";
-import { setSessionViewer, type Placement } from "./settings.js";
+import { setOwnSettings, setSessionViewer, takeOverKeeperSettings, type Placement } from "./settings.js";
 import { App } from "./tui/App.js";
+import { RcViewerApp } from "./tui/RcViewerApp.js";
+import type { RcViewerSelect } from "./rcViewer/registry.js";
 import { withoutCtrlC } from "./tui/ctrlC.js";
 import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import type { Mode } from "./tui/layout.js";
@@ -49,7 +51,18 @@ export function Viewer(opts: WatchOptions) {
 export async function runViewer(opts: WatchOptions): Promise<void> {
   // A viewer of one session shows its chat and its own settings, kept apart from the project's viewer's.
   if (opts.remoteId || opts.sessionId) setSessionViewer(true);
-  const app = render(createElement(Viewer, opts), {
+  await renderUntilExit(createElement(Viewer, opts));
+}
+
+/** Runs the Remote Control Viewer (`cco rc-viewer`) until it quits: the sessions of every project and account, with its own settings. */
+export async function runRcViewer(opts: { unfocused?: boolean; select?: RcViewerSelect } = {}): Promise<void> {
+  takeOverKeeperSettings();
+  setOwnSettings("rcViewer");
+  await renderUntilExit(createElement(RcViewerApp, opts));
+}
+
+async function renderUntilExit(element: ReturnType<typeof createElement>): Promise<void> {
+  const app = render(element, {
     // Only changed lines, in one write: no flicker under load. CCO_FRAME_BUFFER=0 turns it off.
     stdout: process.stdout.isTTY && process.env.CCO_FRAME_BUFFER !== "0" ? frameBufferedStdout(process.stdout) : process.stdout,
     // Ctrl+C does not quit: copying out of habit closed the pane. The filter hands it to App instead.

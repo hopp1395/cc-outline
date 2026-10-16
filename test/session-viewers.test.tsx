@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { focusSessionViewer, openSessionViewer, viewerCommand } from "../src/open.js";
+import { focusSessionViewer, RC_VIEWER_WINDOW, openRcViewer, openSessionViewer, viewerCommand } from "../src/open.js";
 import { proc } from "../src/proc.js";
 import { removeStaleSessionViewers, runningSessionViewers, sessionViewersDir, viewersOf, type SessionViewerInfo } from "../src/sessionViewers.js";
 import { setSessionViewer } from "../src/settings.js";
@@ -62,6 +62,22 @@ describe("the session viewers' registrations", () => {
     expect(viewersOf(all, { ids: ["new", "old"], configDir: "/c/a" }).map((o) => o.pid)).toEqual([1]);
     expect(viewersOf(all, { ids: ["new"], configDir: "/c/b" }).map((o) => o.pid)).toEqual([2]);
     expect(viewersOf(all, { remoteId: "cse_1" }).map((o) => o.pid)).toEqual([3]);
+  });
+});
+
+describe("opening the Remote Control Viewer", () => {
+  it("opens it in its own window, brings the one that runs to the front, and leaves it to the command without a terminal", () => {
+    process.env.WT_SESSION = "x";
+    expect(openRcViewer()).toBe("opened the Remote Control Viewer in a new window");
+    expect(spawned[0]).toEqual({
+      cmd: "wt",
+      args: ["-w", RC_VIEWER_WINDOW, "new-tab", "--title", "cco rc-viewer", process.execPath, expect.stringMatching(/cli\.js$/), "rc-viewer", "--config-dir", claudeDir(), "--window", RC_VIEWER_WINDOW],
+    });
+    expect(openRcViewer({ pid: 7, window: RC_VIEWER_WINDOW })).toBe("brought the Remote Control Viewer to the front");
+    expect(spawned[1]).toEqual({ cmd: "wt", args: ["-w", RC_VIEWER_WINDOW, "focus-tab", "-t", "0"] });
+    expect(openRcViewer({ pid: 7 })).toBe("the Remote Control Viewer runs already (pid 7), in a terminal of its own");
+    delete process.env.WT_SESSION;
+    expect(openRcViewer()).toBeUndefined();
   });
 });
 

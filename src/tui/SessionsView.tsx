@@ -1,11 +1,11 @@
-import { Text, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import stringWidth from "string-width";
 import { attachmentFile, attachmentTitle, type AttachmentItem } from "../attachments.js";
 import { describeRemoteError, RemoteSessions, remoteUrl } from "../remote/index.js";
-import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, type SessionBackground, type SessionSummary } from "../transcript/sessions.js";
+import { displayPath, formatDuration, insideProject, lastActive, type SessionBackground, type SessionSummary } from "../transcript/sessions.js";
 import {
   deleteBlocker,
   listTrash,
@@ -19,15 +19,19 @@ import {
   type TrashEntry,
 } from "../transcript/trash.js";
 import { AttachmentsDialog } from "./AttachmentsDialog.js";
-import { detectTerminal, focusSessionViewer, openInDefaultApp, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
-import { runningSessionViewers, viewersOf, viewerWindow, type SessionViewerInfo } from "../sessionViewers.js";
+import { runningRcViewer, type RcViewerInfo, type RcViewerSelect } from "../rcViewer/registry.js";
+import { screenOrder } from "../pinned.js";
+import { FocusContext } from "./focus.js";
+import { useMouse } from "./mouse.js";
+import { detectTerminal, focusSessionViewer, openInDefaultApp, openRcViewer, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
+import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
 import { EXPORT_FORMATS, type ExportOptions } from "../export/session.js";
 import { ExportDialog } from "./ExportDialog.js";
 import { ImportDialog } from "./ImportDialog.js";
 import { useProgress, useProgressOpen, type Progress } from "./ProgressDialog.js";
-import { updateSettings, type Placement } from "../settings.js";
+import { rangeStart, updateSettings, type Placement } from "../settings.js";
 import { filterIsSet, filterSettings, passesFilter, sessionFilter, type SessionFilter } from "../sessionFilter.js";
 import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
@@ -43,7 +47,7 @@ import { ChoiceDialog, type Choice } from "./ChoiceDialog.js";
 import { remoteOptions, useRemoteControl, type RemoteAction } from "./useRemoteControl.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
 import { RenameDialog } from "./RenameDialog.js";
-import { enterLabel, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation, viewerOptions } from "./resumeChoice.js";
+import { enterLabel, rcViewerOption, OWN_ONLY, sessionOptions, type ChoiceOption, type SessionAction, type SessionSituation, viewerOptions } from "./resumeChoice.js";
 import { dayOf, linesByDay } from "./days.js";
 import { formatMs, type AgentStatus, type PlanStatus } from "../transcript/parse.js";
 import { doubleClicks } from "./openKey.js";
@@ -71,7 +75,7 @@ import { planTitle } from "./PlanView.js";
 import { bodyHeightBelow, centredBadge, fitHeader, Preview } from "./Preview.js";
 import { haystack, type FilterText } from "../filter.js";
 import { useFavorites } from "./useFavorites.js";
-import { useOnReload, useReload } from "./reload.js";
+import { useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -79,6 +83,7 @@ import { claudeDir, inClaudeDir, projectSlug } from "../transcript/locate.js";
 import { renameSession } from "../transcript/rename.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 import { TIMING } from "../timing.js";
+import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers } from "./useSessionData.js";
 
 interface Props {
   cwd: string;
@@ -115,8 +120,6 @@ interface Props {
   accountRequest?: { at: number; query?: string };
 }
 
-/** How often the sessions are re-read while the view is shown; only changed files are parsed again. */
-const REFRESH_MS = 3000;
 export { PAIR_TIMEOUT_MS, pairingProgress } from "./useAccountFlow.js";
 
 const STATUS_ICON: Record<PlanStatus, string> = {
@@ -156,11 +159,7 @@ export function resumeCommand(s: SessionSummary): string {
   return s.account ? resumeShellCommand(s.id, s.account) : `claude --resume ${s.id}`;
 }
 
-/**
- * What a session is known by in the list (selection, marks, scroll positions, running): its id, for another
- * account's the folder too, since a session continued there may keep its id.
- */
-export const sessionKey = (s: Pick<SessionSummary, "id" | "account">) => (s.account ? `${s.account}|${s.id}` : s.id);
+export { sessionKey };
 
 /** The mark of a background session in the list, before its title. */
 const BACKGROUND_MARK = "◌";
@@ -403,132 +402,6 @@ function sessionHeader(
   });
 }
 
-/**
- * The sessions of the project (or, with `all`, of every project) and which of
- * them run in a Claude Code process, read while `visible` and refreshed every
- * few seconds; with `accounts` (their config folders) also those of the other
- * accounts, read after this one's. The first scan fills the list as it goes; `progress` counts the
- * transcripts read so far. `refresh` rescans at once. A reload of the view
- * (F5) reads every transcript again with new indexes; the list stays until
- * that scan is done. With `since`, only transcripts written since then are
- * read; when it changes (load more), the list also stays until the scan is done. `ownAll` is `all` for this
- * viewer's own folder, which is always read: the active session shows whatever the filter says.
- */
-function useSessions(cwd: string, visible: boolean, all: boolean, since: number | undefined, accounts: string[], ownAll = all) {
-  // One index per config folder, "" for this viewer's own.
-  const indexes = useRef(new Map<string, SessionIndex>());
-  const reload = useReload();
-  const loaded = useRef(reload.count);
-  const sinceRef = useRef(since);
-  const scanRef = useRef<() => Promise<void>>(async () => {});
-  const [sessions, setSessions] = useState<SessionSummary[]>();
-  // The last finished scan read every transcript (no `since`).
-  const [complete, setComplete] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number }>();
-  const folders = accounts.join("\n");
-
-  useEffect(() => {
-    if (!visible) return;
-    const fresh = reload.count !== loaded.current;
-    loaded.current = reload.count;
-    if (fresh) indexes.current = new Map();
-    const extending = since !== sinceRef.current;
-    sinceRef.current = since;
-    // The indexes of the folders shown; those of accounts no longer shown are dropped.
-    const current = ["", ...accounts].map((dir) => {
-      let index = indexes.current.get(dir);
-      if (!index) indexes.current.set(dir, (index = new SessionIndex(dir || undefined)));
-      return index;
-    });
-    for (const dir of indexes.current.keys()) if (dir && !accounts.includes(dir)) indexes.current.delete(dir);
-    let cancelled = false;
-    let busy = false;
-    let first = true;
-    let reloading = fresh;
-    // Also when the scan fails or stops early: F5 is refused while a reload runs.
-    const finish = () => {
-      if (!reloading) return;
-      reloading = false;
-      reload.done();
-    };
-    const scan = async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        const found: SessionSummary[] = [];
-        for (const [i, index] of current.entries()) {
-          const result = await index.scan((i === 0 ? ownAll : all) ? undefined : cwd, (partial, done, total) => {
-            // Only the first scan shows partial lists; later ones just update the finished list.
-            // A reload keeps the list and shows only the progress.
-            if (cancelled || !first) return;
-            if (!reloading && !extending) setSessions(byLastActive([...found, ...partial]));
-            setProgress({ done, total });
-          }, since);
-          if (cancelled) return;
-          found.push(...result);
-        }
-        first = false;
-        setSessions(current.length > 1 ? byLastActive(found) : found);
-        setComplete(since === undefined);
-        setProgress(undefined);
-      } finally {
-        busy = false;
-        finish();
-      }
-    };
-    scanRef.current = scan;
-    void scan();
-    const timer = setInterval(() => void scan(), REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      finish();
-    };
-  }, [cwd, visible, all, ownAll, reload.count, since, folders]);
-
-  return { sessions, progress, complete, refresh: () => void scanRef.current() };
-}
-
-/** Whether two reads of the remote sessions show the same, so the list is not rebuilt for nothing. */
-const sameRemote = (a: SessionSummary[], b: SessionSummary[]) =>
-  a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.title === b[i]!.title && s.modified === b[i]!.modified && s.remote?.workerStatus === b[i]!.remote?.workerStatus && s.remote?.connectionStatus === b[i]!.remote?.connectionStatus && s.remote?.pending?.requestId === b[i]!.remote?.pending?.requestId);
-
-const NO_REMOTE: { sessions: SessionSummary[]; error?: string } = { sessions: [] };
-
-/**
- * The remote sessions of this account, listed every few seconds while the view is `visible` and `enabled` (the
- * `remoteApi` setting and not hidden by the filter); `error` says why a read failed, the last list stays. F5 reads again.
- */
-function useRemoteSessions(visible: boolean, enabled: boolean): { sessions: SessionSummary[]; error?: string } {
-  const reload = useReload();
-  const [state, setState] = useState(NO_REMOTE);
-  useEffect(() => {
-    if (!visible || !enabled) return;
-    const api = new RemoteSessions();
-    let cancelled = false;
-    let busy = false;
-    const read = async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        const sessions = await api.list();
-        if (!cancelled) setState((prev) => (!prev.error && sameRemote(prev.sessions, sessions) ? prev : { sessions }));
-      } catch (err) {
-        if (!cancelled) setState((prev) => ({ sessions: prev.sessions, error: describeRemoteError(err) }));
-      } finally {
-        busy = false;
-      }
-    };
-    void read();
-    const timer = setInterval(() => void read(), REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [visible, enabled, reload.count]);
-  return enabled ? state : NO_REMOTE;
-}
-
 /** The selected remote session `base` with its events read (prompts, plans, files), again whenever the list says it changed. */
 function useRemoteDetail(base: SessionSummary | undefined, visible: boolean): SessionSummary | undefined {
   const [detail, setDetail] = useState<SessionSummary>();
@@ -548,53 +421,6 @@ function useRemoteDetail(base: SessionSummary | undefined, visible: boolean): Se
   return id !== undefined && detail?.id === id ? detail : undefined;
 }
 
-/** The sessions of several accounts in one list, oldest first, like each index gives them. */
-const byLastActive = (sessions: SessionSummary[]) => sessions.sort((a, b) => (lastActive(a) ?? "").localeCompare(lastActive(b) ?? ""));
-
-const sameRunning = (a: Map<string, RunningSession>, b: Map<string, RunningSession>) =>
-  a.size === b.size &&
-  [...a].every(([id, r]) => {
-    const o = b.get(id);
-    return o !== undefined && o.pid === r.pid && o.activity === r.activity && o.name === r.name;
-  });
-
-/**
- * The sessions running in a Claude Code process and what it does in each, by `sessionKey`, read every second while
- * `visible`, also in the config folders of the other `accounts` shown; the map only changes when one of them does,
- * so the memoized header stays.
- */
-function useRunning(visible: boolean, accounts: string[]): Map<string, RunningSession> {
-  const [running, setRunning] = useState<Map<string, RunningSession>>(() => new Map());
-  const folders = accounts.join("\n");
-  useEffect(() => {
-    if (!visible) return;
-    const read = () => {
-      const next = runningSessions();
-      for (const dir of accounts) for (const [id, r] of inClaudeDir(dir, runningSessions)) next.set(sessionKey({ id, account: dir }), r);
-      setRunning((prev) => (sameRunning(prev, next) ? prev : next));
-    };
-    read();
-    const timer = setInterval(read, TIMING.activityPoll);
-    return () => clearInterval(timer);
-  }, [visible, folders]);
-  return running;
-}
-
-/** The session viewers that run, read every second while `visible`; the list only changes when they do. */
-function useSessionViewers(visible: boolean): SessionViewerInfo[] {
-  const [viewers, setViewers] = useState<SessionViewerInfo[]>([]);
-  useEffect(() => {
-    if (!visible) return;
-    const read = () => {
-      const next = runningSessionViewers();
-      setViewers((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-    };
-    read();
-    const timer = setInterval(read, TIMING.activityPoll);
-    return () => clearInterval(timer);
-  }, [visible]);
-  return viewers;
-}
 
 /** What the preview's header says about the viewers of a session in windows of their own. */
 export const viewedLine = (n: number) => (n > 0 ? `${VIEWED_MARK} ${plural(n, "session viewer")} open` : undefined);
@@ -604,11 +430,28 @@ export const viewedLine = (n: number) => (n > 0 ? `${VIEWED_MARK} ${plural(n, "s
  * for the user, green otherwise, turning bright and dim while it works. Owns its timer so only it
  * re-renders; the phase comes from the clock, so all working sessions blink together.
  */
-function SessionMarker({ symbol, activity, color = "green" }: { symbol: string; activity?: SessionActivity; color?: string }) {
+export function SessionMarker({ symbol, activity, color = "green", flash = false }: { symbol: string; activity?: SessionActivity; color?: string; flash?: boolean }) {
   const busy = activity === "busy";
+  const waiting = activity === "waiting";
+  // Waiting (yellow) and `flash` (in its colour) go on and off; working goes bright and dim.
+  const onOff = waiting || flash;
+  const off = useBlinkOff(busy || onOff);
+  if (onOff && off) return <Text>{" ".repeat(stringWidth(symbol))}</Text>;
+  return (
+    <Text color={waiting ? "yellow" : color} dimColor={busy && off}>
+      {symbol}
+    </Text>
+  );
+}
+
+/**
+ * Whether a blinking mark is in its off phase now: while `active`, re-renders at each change of phase. The phase comes
+ * from the clock, so every mark blinks in step.
+ */
+export function useBlinkOff(active: boolean): boolean {
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (!busy) return;
+    if (!active) return;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
       timer = setTimeout(() => {
@@ -618,17 +461,12 @@ function SessionMarker({ symbol, activity, color = "green" }: { symbol: string; 
     };
     next();
     return () => clearTimeout(timer);
-  }, [busy]);
-  const dimmed = busy && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
-  return (
-    <Text color={activity === "waiting" ? "yellow" : color} dimColor={dimmed}>
-      {symbol}
-    </Text>
-  );
+  }, [active]);
+  return active && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
 }
 
 /** Short name of the project a session belongs to: its folder name. */
-function projectName(s: SessionSummary): string {
+export function projectName(s: SessionSummary): string {
   return s.cwd ? basename(s.cwd) : basename(dirname(s.path));
 }
 
@@ -651,6 +489,58 @@ function sessionText(s: SessionSummary, gone: boolean, email?: string, backgroun
       ...(s.workflows ?? []).flatMap((w) => [w.name ?? "workflow", ...(w.description ? [w.description] : [])]),
     ]),
   };
+}
+
+/** Whether the Remote Control Viewer runs (its registration and process), read every second while `visible`. */
+function useRcViewerRuns(visible: boolean): RcViewerInfo | undefined {
+  const [rcViewer, setRcViewer] = useState<RcViewerInfo | undefined>(() => runningRcViewer());
+  useEffect(() => {
+    if (!visible) return;
+    const read = () => setRcViewer((prev) => {
+      const next = runningRcViewer();
+      return prev?.pid === next?.pid && prev?.window === next?.window ? prev : next;
+    });
+    read();
+    const timer = setInterval(read, TIMING.activityPoll);
+    return () => clearInterval(timer);
+  }, [visible]);
+  return rcViewer;
+}
+
+/** What the Remote Control Viewer's row above the list says: its name, and how many sessions wait for the user. */
+export function rcViewerRowLabel(waiting: number): string {
+  return `⊞ Remote Control Viewer${waiting > 0 ? ` · ⚠${waiting} waiting` : ""}`;
+}
+
+/**
+ * The Remote Control Viewer's row (`label`) above the list (`children`), always its top row: a badge like ↓ more ↓, inverse while
+ * `selected`; a click on it calls `onOpen`. The list below gets the rest of the area.
+ */
+function RcViewerRow({ label, selected, onOpen, children }: { label: string; selected: boolean; onOpen: () => void; children: ReactNode }) {
+  const area = useContext(AreaContext);
+  const width = columnWidthOf(area);
+  useMouse((e) => {
+    if (e.kind === "click" && e.y === area.y && e.x >= area.x && e.x < area.x + area.width) onOpen();
+  });
+  // While sessions wait, the ⚠ of its label goes on and off like theirs.
+  const off = useBlinkOff(label.includes("⚠"));
+  if (off) label = label.replace("⚠", " ");
+  const text = ` ${label} `;
+  const indent = " ".repeat(Math.max(0, Math.floor((width - stringWidth(text)) / 2)));
+  return (
+    <Box flexDirection="column">
+      <Text wrap="truncate">
+        {selected ? (
+          <Text inverse bold>
+            {(indent + text).padEnd(width)}
+          </Text>
+        ) : (
+          centredBadge(label, width)
+        )}
+      </Text>
+      <AreaContext.Provider value={{ ...area, y: area.y + 1, height: Math.max(1, area.height - 1) }}>{children}</AreaContext.Provider>
+    </Box>
+  );
 }
 
 /** The entry of an empty list that imports sessions. */
@@ -729,20 +619,17 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   const viewedCount = (s: SessionSummary) => (trashOpen ? 0 : viewersFor(s).length);
   // Remote Control sessions (claude.ai), unless one of this machine's sessions is the same: that one then shows ⇄.
   const remoteRead = useRemoteSessions(visible, remoteApi && shownFilter.remote !== "hide");
+  // The Remote Control Viewer's row above the list: whether it runs, and how many sessions of every account wait for the user.
+  const rcViewer = useRcViewerRuns(visible);
+  const otherDirs = useMemo(() => others.map((a) => a.dir), [others.map((a) => a.dir).join("\n")]);
+  const everyRunning = useRunning(visible, otherDirs);
+  const waitingCount =
+    [...everyRunning.values()].filter((r) => r.activity === "waiting").length + remoteRead.sessions.filter((r) => r.remote?.workerStatus === "requires_action" || r.remote?.pending).length;
+  // The row has the selection (↑ from the top of the list, ↓ back): Enter opens the Remote Control Viewer.
+  const [rcViewerSelected, setRcViewerSelected] = useState(false);
   const { merged, connected } = useMemo(() => {
     if (!read) return { merged: read, connected: new Set<string>() };
-    // A session of this machine names the id claude.ai lists it under (`bridge-session` entries); failing that, a
-    // remote one may name the local id somewhere in its data.
-    const local = new Set(read.filter((s) => !s.account).map((s) => s.id));
-    const byBridge = new Map<string, string>();
-    for (const s of read) if (!s.account) for (const id of s.bridgeIds ?? []) byBridge.set(id, s.id);
-    const twins = new Set<string>();
-    const alone = remoteRead.sessions.filter((r) => {
-      const twin = [...(byBridge.has(r.id) ? [byBridge.get(r.id)!] : []), ...(r.remote?.refs?.filter((id) => local.has(id)) ?? [])];
-      for (const id of twin) twins.add(id);
-      return twin.length === 0;
-    });
-    return { merged: alone.length ? byLastActive([...read, ...alone]) : read, connected: twins };
+    return mergeRemote(read, remoteRead.sessions);
   }, [read, remoteRead.sessions]);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   /** The viewer's own session; another account's never is, even under the same id. */
@@ -1041,6 +928,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       foreign: s.account !== undefined,
       terminal: detectTerminal() !== undefined,
       viewers: viewersFor(s).length,
+      rcViewer: { runs: rcViewer !== undefined, listed: rcViewerLists(s) },
       folder: tilde(dir),
       // A session the Claude Code daemon runs is attached to, not resumed.
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
@@ -1081,7 +969,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   };
 
   /**
-   * Enter on a remote session: with remote control, what fits what it does first (a prompt, interrupting it), then
+   * Enter on a remote session: with steer remote, what fits what it does first (a prompt, interrupting it), then
    * a viewer of its own and its address.
    */
   const startRemote = (s: SessionSummary) => {
@@ -1091,6 +979,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       ...control,
       ...viewerOptions(watching, detectTerminal() !== undefined, { control: remoteControl }),
       { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
+      rcViewerOption({ runs: rcViewer !== undefined, listed: true }, detectTerminal() !== undefined),
     ];
     setChoice({
       title: "What to do with this session?",
@@ -1101,6 +990,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         setChoice(undefined);
         if (id === "viewer") return openViewer(s);
         if (id === "viewer-front") return bringViewer(s);
+        if (id === "rcViewer") return openRcViewerFor(s);
         if (id === "copy") return act("copy", s, cwd, undefined, remoteUrl(s.id));
         remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus, pending: s.remote?.pending });
       },
@@ -1145,6 +1035,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         return openViewer(s);
       case "viewer-front":
         return bringViewer(s);
+      case "rcViewer":
+        return openRcViewerFor(s);
       case "folder":
         return openInDefaultApp(dir);
       case "copy":
@@ -1153,6 +1045,25 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
           (err: Error) => notify(`copy failed: ${err.message}`),
         );
     }
+  };
+  /** Whether the Remote Control Viewer lists `s`: it runs, or was active today; a remote one while claude.ai lists it. */
+  const rcViewerLists = (s: SessionSummary) => {
+    if (s.remote || running.has(sessionKey(s))) return true;
+    const at = lastActive(s);
+    return at !== undefined && Date.parse(at) >= rangeStart("today")!;
+  };
+  /**
+   * Opens the Remote Control Viewer in its window (or brings the one that runs to the front), with `s` selected if given. Without a
+   * terminal to open it in, copies `cco rc-viewer`.
+   */
+  const openRcViewerFor = (s?: SessionSummary) => {
+    const select: RcViewerSelect | undefined = !s ? undefined : s.remote ? { id: s.id, remote: true } : { id: s.id, configDir: s.account ?? claudeDir() };
+    const opened = openRcViewer(runningRcViewer(), select);
+    if (opened) return notify(opened);
+    void copy("cco rc-viewer").then(
+      () => notify("no Windows Terminal or tmux: copied cco rc-viewer, run it in a terminal of its own"),
+      () => notify("no Windows Terminal or tmux: run cco rc-viewer in a terminal of its own"),
+    );
   };
   /**
    * Opens a viewer of `s` in a new window: its chat, live, with a prompt line, and its own settings; any number per
@@ -1366,11 +1277,23 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     }, 50);
   };
 
+  // The selection is in the list's top row: ↑ goes on to the Remote Control Viewer's row above it.
+  const atListTop = filter.pinned ? filter.pinned.row === 0 : screenOrder(list.length, filter.shown, true)[0] === index;
+
   useInput(
     (input, key) => {
       if (filter.handleKey(input, key)) return;
       if (input === "T") return toggleTrash(!trashOpen);
       if (input === "a") return setFilterOpen(true);
+      // k: the Remote Control Viewer, a window that watches every session (cco rc-viewer); the one that runs comes to the front.
+      if (input === "k" && !trashOpen) return openRcViewerFor();
+      // The Remote Control Viewer's row above the list: ↑ from the list's top row reaches it, ↓ goes back, Enter opens the Remote Control Viewer.
+      if (!trashOpen && rcViewerSelected) {
+        if (key.return) return openRcViewerFor();
+        if (key.downArrow && !key.shift && !key.ctrl) return setRcViewerSelected(false);
+        if ((key.upArrow && !key.ctrl) || key.home || key.pageUp) return;
+        setRcViewerSelected(false);
+      } else if (!trashOpen && key.upArrow && !key.shift && !key.ctrl && atListTop) return setRcViewerSelected(true);
       if (input === "o" && session) return attachments.length ? setAttachmentsOpen(true) : notify(session.remote ? "a remote session's attachments are on claude.ai" : "no attachments in this session");
       if (trashOpen) {
         if (key.escape) return toggleTrash(false);
@@ -1422,7 +1345,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   );
 
   let preview;
-  if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
+  if (!trashOpen && rcViewerSelected)
+    preview = (
+      <Text dimColor>
+        {[
+          "The Remote Control Viewer: one window with the sessions of every project and account that run or ran today, grouped by what they need (waiting for you, working, idle, ended), beside the selected one's turns and chat.",
+          "",
+          rcViewer ? "Enter, k or a click brings it to the front." : "Enter, k or a click opens it in a window of its own (Windows Terminal or tmux).",
+          waitingCount > 0 ? `\n${waitingCount === 1 ? "1 session waits" : `${waitingCount} sessions wait`} for you.` : "",
+        ].join("\n")}
+      </Text>
+    );
+  else if (trashOpen && !session) preview = <Text dimColor>The trash is empty.</Text>;
   else if (!sessions) preview = <Text dimColor>Reading sessions…</Text>;
   else if (filter.none) preview = <Text dimColor>No session matches the filter</Text>;
   else if (onLoadMore) preview = <Text dimColor>{loadMoreLines(range, "sessions", sessions.length, range.requested).join("\n")}</Text>;
@@ -1471,7 +1405,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         ...markFooter(favorites.isMarked(session && sessionKey(session)), markedCount),
         ...filter.footer,
         {
-          text: onLoadMore
+          text: rcViewerSelected
+            ? "↵ Remote Control Viewer"
+            : onLoadMore
             ? "↵ load more"
             : onImport
               ? "↵ import"
@@ -1488,8 +1424,127 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         ...(lastTrashed ? [{ text: "u undo", priority: 3 }] : []),
         { text: "a filter", on: filterIsSet(shownFilter, ownDir), priority: 2 },
         { text: "T trash", priority: 2 },
+        { text: "k Remote Control Viewer", priority: 1 },
         { text: "1-6/tab view", priority: 1 },
       ];
+
+  // The list; above it, outside the trash, the Remote Control Viewer's row.
+  const sessionsList = (
+    <List
+      reversed={reversed}
+      onPick={(i) => {
+        setRcViewerSelected(false);
+        select(i);
+      }}
+      // Load more takes a single click; on a session, a double click does what Enter does.
+      onClick={(i) => {
+        const e = list[i];
+        if (isLoadMore(e)) return loadMore();
+        if (!isDoubleClick(i) || i !== index || trashOpen) return;
+        if (isImport(e)) askImport();
+        else if (isSession(e)) start(e);
+      }}
+      items={list}
+      shown={filter.shown}
+      pinned={filter.pinned}
+      filter={filter.banner}
+      selected={index}
+      centre={trashOpen ? "trash" : restoredShown.current}
+      height={trashOpen ? listHeight : Math.max(1, listHeight - 1)}
+      empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
+      itemKey={entryId}
+      time={listedAt}
+      // The account's bar stays in its colour on the selected row too.
+      lead={withAccounts ? (s) => (isSession(s) ? accountLead(s) : undefined) : undefined}
+      render={(s, isSelected) => {
+        if (isLoadMore(s)) return <LoadMoreRow progress={range.requested ? progress : undefined} />;
+        if (isImport(s)) return <ImportRow />;
+        const marked = favorites.isMarked(sessionKey(s));
+        const state = stateOf(s);
+        const gone = !state && folderGone(s);
+        const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
+        // Went on in another account (⇢), or is the copy of one from another (⇠).
+        const transfer = state === "trash" ? undefined : transferOf(s);
+        const moved = transfer?.to ? "⇢ " : transfer?.from ? "⇠ " : "";
+        // Ran with claude -p, the SDK or the daemon.
+        const background = backgroundOf(s, running.get(sessionKey(s))) !== undefined;
+        // Read from claude.ai (◈), or of this machine and connected to it (⇄).
+        const waits = s.remote?.workerStatus === "requires_action";
+        const remoteMark = s.remote ? `${REMOTE_MARK} ` : connected.has(s.id) ? `${CONNECTED_MARK} ` : "";
+        // Images and PDFs that came with its prompts or from its tools.
+        const media = mediaOf(s);
+        const mediaMark = media > 0 ? `${MEDIA_MARK}${media} ` : "";
+        // Dynamic workflows Claude started there.
+        const flows = s.workflows?.length ?? 0;
+        const workflowMark = flows > 0 ? `${WORKFLOW_MARK}${flows > 1 ? flows : ""} ` : "";
+        // A /rename title is bright, a first prompt standing in for it dim and quoted.
+        // The quotes go around the cut text, so the closing one is never cut off.
+        const quoted = titleIsPrompt(s);
+        return (
+          <>
+            {/* After the bar (lead), in the selection's style. */}
+            {withAccounts && " "}
+            {marked && <Star />}
+            {/* Without the date separators, the date is back in each row. */}
+            <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
+            {badge && <SessionMarker symbol={badge} activity={running.get(sessionKey(s))?.activity} />}
+            {gone && <Text dimColor>∅ </Text>}
+            {moved && <Text color="magenta">{moved}</Text>}
+            {/* A remote session waits for an answer (⚠), its ◈ blinks while Claude works there. */}
+            {waits && <SessionMarker symbol="⚠ " activity="waiting" />}
+            {remoteMark &&
+              (s.remote?.workerStatus === "running" ? (
+                <SessionMarker symbol={remoteMark} activity="busy" color="cyan" />
+              ) : (
+                <Text color="cyan">{remoteMark}</Text>
+              ))}
+            {/* Open in windows of their own (◎, ◎2). */}
+            {viewedCount(s) > 0 && <Text color="blue">{`${VIEWED_MARK}${viewedCount(s) > 1 ? viewedCount(s) : ""} `}</Text>}
+            {mediaMark && <Text color="cyan">{mediaMark}</Text>}
+            {workflowMark && <Text color="magenta">{workflowMark}</Text>}
+            {/* Ran in the background: before the project name. */}
+            {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
+            {all &&
+              (gone ? (
+                <>
+                  <Text dimColor strikethrough>
+                    {truncate(projectName(s), 12)}
+                  </Text>
+                  <Text> </Text>
+                </>
+              ) : (
+                <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>
+              ))}
+            {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
+            <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
+              {quoted && "„"}
+              <EntryText
+                text={sessionTitle(s)}
+                width={Math.max(
+                  4,
+                  listWidth -
+                    (separators ? 7 : 13) -
+                    (withAccounts ? leadWidth + 1 : 0) -
+                    (marked ? 2 : 0) -
+                    (badge || gone ? 2 : 0) -
+                    (moved ? 2 : 0) -
+                    (remoteMark ? 2 : 0) -
+                    (waits ? 2 : 0) -
+                    (background ? 2 : 0) -
+                    mediaMark.length -
+                    (all ? Math.min(12, projectName(s).length) + 1 : 0) -
+                    (quoted ? 2 : 0),
+                )}
+                selected={isSelected}
+                active={active && !dialogOpen}
+              />
+              {quoted && "“"}
+            </Text>
+          </>
+        );
+      }}
+    />
+  );
 
   return (
     <>
@@ -1512,117 +1567,13 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
           </Text>
         }
         list={
-          <List
-            reversed={reversed}
-            onPick={select}
-            // Load more takes a single click; on a session, a double click does what Enter does.
-            onClick={(i) => {
-              const e = list[i];
-              if (isLoadMore(e)) return loadMore();
-              if (!isDoubleClick(i) || i !== index || trashOpen) return;
-              if (isImport(e)) askImport();
-              else if (isSession(e)) start(e);
-            }}
-            items={list}
-            shown={filter.shown}
-            pinned={filter.pinned}
-            filter={filter.banner}
-            selected={index}
-            centre={trashOpen ? "trash" : restoredShown.current}
-            height={listHeight}
-            empty={trashOpen ? "Trash is empty" : (filter.empty ?? (sessions ? "No sessions" : "…"))}
-            itemKey={entryId}
-            time={listedAt}
-            // The account's bar stays in its colour on the selected row too.
-            lead={withAccounts ? (s) => (isSession(s) ? accountLead(s) : undefined) : undefined}
-            render={(s, isSelected) => {
-              if (isLoadMore(s)) return <LoadMoreRow progress={range.requested ? progress : undefined} />;
-              if (isImport(s)) return <ImportRow />;
-              const marked = favorites.isMarked(sessionKey(s));
-              const state = stateOf(s);
-              const gone = !state && folderGone(s);
-              const badge = state === "active" ? "● " : state === "running" ? "▶ " : "";
-              // Went on in another account (⇢), or is the copy of one from another (⇠).
-              const transfer = state === "trash" ? undefined : transferOf(s);
-              const moved = transfer?.to ? "⇢ " : transfer?.from ? "⇠ " : "";
-              // Ran with claude -p, the SDK or the daemon.
-              const background = backgroundOf(s, running.get(sessionKey(s))) !== undefined;
-              // Read from claude.ai (◈), or of this machine and connected to it (⇄).
-              const waits = s.remote?.workerStatus === "requires_action";
-              const remoteMark = s.remote ? `${REMOTE_MARK} ` : connected.has(s.id) ? `${CONNECTED_MARK} ` : "";
-              // Images and PDFs that came with its prompts or from its tools.
-              const media = mediaOf(s);
-              const mediaMark = media > 0 ? `${MEDIA_MARK}${media} ` : "";
-              // Dynamic workflows Claude started there.
-              const flows = s.workflows?.length ?? 0;
-              const workflowMark = flows > 0 ? `${WORKFLOW_MARK}${flows > 1 ? flows : ""} ` : "";
-              // A /rename title is bright, a first prompt standing in for it dim and quoted.
-              // The quotes go around the cut text, so the closing one is never cut off.
-              const quoted = titleIsPrompt(s);
-              return (
-                <>
-                  {/* After the bar (lead), in the selection's style. */}
-                  {withAccounts && " "}
-                  {marked && <Star />}
-                  {/* Without the date separators, the date is back in each row. */}
-                  <Text dimColor={!isSelected}>{separators ? time(listedAt(s)) : dateTime(listedAt(s))} </Text>
-                  {badge && <SessionMarker symbol={badge} activity={running.get(sessionKey(s))?.activity} />}
-                  {gone && <Text dimColor>∅ </Text>}
-                  {moved && <Text color="magenta">{moved}</Text>}
-                  {/* A remote session waits for an answer (⚠), its ◈ blinks while Claude works there. */}
-                  {waits && <Text color="yellow">{"⚠ "}</Text>}
-                  {remoteMark &&
-                    (s.remote?.workerStatus === "running" ? (
-                      <SessionMarker symbol={remoteMark} activity="busy" color="cyan" />
-                    ) : (
-                      <Text color="cyan">{remoteMark}</Text>
-                    ))}
-                  {/* Open in windows of their own (◎, ◎2). */}
-                  {viewedCount(s) > 0 && <Text color="blue">{`${VIEWED_MARK}${viewedCount(s) > 1 ? viewedCount(s) : ""} `}</Text>}
-                  {mediaMark && <Text color="cyan">{mediaMark}</Text>}
-                  {workflowMark && <Text color="magenta">{workflowMark}</Text>}
-                  {/* Ran in the background: before the project name. */}
-                  {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
-                  {all &&
-                    (gone ? (
-                      <>
-                        <Text dimColor strikethrough>
-                          {truncate(projectName(s), 12)}
-                        </Text>
-                        <Text> </Text>
-                      </>
-                    ) : (
-                      <Text color="cyan">{`${truncate(projectName(s), 12)} `}</Text>
-                    ))}
-                  {/* The selected row keeps the quotes but not the gray, which is hard to read on the selection bar. */}
-                  <Text color={s.title !== undefined && !isSelected ? "whiteBright" : undefined} dimColor={quoted && !isSelected}>
-                    {quoted && "„"}
-                    <EntryText
-                      text={sessionTitle(s)}
-                      width={Math.max(
-                        4,
-                        listWidth -
-                          (separators ? 7 : 13) -
-                          (withAccounts ? leadWidth + 1 : 0) -
-                          (marked ? 2 : 0) -
-                          (badge || gone ? 2 : 0) -
-                          (moved ? 2 : 0) -
-                          (remoteMark ? 2 : 0) -
-                          (waits ? 2 : 0) -
-                          (background ? 2 : 0) -
-                          mediaMark.length -
-                          (all ? Math.min(12, projectName(s).length) + 1 : 0) -
-                          (quoted ? 2 : 0),
-                      )}
-                      selected={isSelected}
-                      active={active && !dialogOpen}
-                    />
-                    {quoted && "“"}
-                  </Text>
-                </>
-              );
-            }}
-          />
+          trashOpen ? (
+            sessionsList
+          ) : (
+            <RcViewerRow label={rcViewerRowLabel(waitingCount)} selected={rcViewerSelected && focused} onOpen={() => openRcViewerFor()}>
+              <FocusContext.Provider value={focused && !rcViewerSelected}>{sessionsList}</FocusContext.Provider>
+            </RcViewerRow>
+          )
         }
         preview={preview}
         footer={flash ?? footer}

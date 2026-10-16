@@ -37,11 +37,11 @@ describe("double click", () => {
     );
     const view = renderView(<SessionsView cwd={cwd} layout={layout} visible active />);
     await until(() => view.frame().includes("Some work"));
-    // The first row of the list, below the top bar.
-    await view.click(10, 2);
+    // The first row of the list, below the top bar and the Remote Control Viewer's row.
+    await view.click(10, 3);
     await tick();
     expect(view.frame()).not.toContain("What to do with this session?");
-    await view.click(10, 2);
+    await view.click(10, 3);
     await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toContain("What to do with this session?");
     view.unmount();

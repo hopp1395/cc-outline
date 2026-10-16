@@ -50,7 +50,7 @@ describe("favorites", () => {
     expect(toggleFavorite(cwd, "settings", "reset:settings")).toEqual(["chatWrap", "reset:settings"]);
     expect(readFavorites(join(tmpdir(), "other-project"), "settings")).toEqual(["chatWrap", "reset:settings"]);
     expect(stored()).toEqual({ turns: ["a"], files: [], plans: [], sessions: [], days: [] });
-    expect(JSON.parse(readFileSync(globalFavoritesFile(), "utf8"))).toEqual({ settings: ["chatWrap", "reset:settings"], sessionViewerSettings: [], accounts: [] });
+    expect(JSON.parse(readFileSync(globalFavoritesFile(), "utf8"))).toEqual({ settings: ["chatWrap", "reset:settings"], sessionViewerSettings: [], rcViewerSettings: [], accounts: [] });
     expect(clearFavorites(cwd, "settings")).toEqual([]);
     expect(readFavorites(cwd, "settings")).toEqual([]);
     expect(readFavorites(cwd, "turns")).toEqual(["a"]);

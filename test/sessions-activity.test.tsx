@@ -79,7 +79,12 @@ describe("session activity", () => {
     running("s1", "waiting");
     await until(() => view.frame().includes("waiting for input"));
     expect(view.frame()).toContain("running elsewhere · waiting for input · claude --resume s1");
-    expect(marker(view.raw())).toContain("\u001b[33m");
+    // Yellow, on and off in turn.
+    const from = view.frames.length;
+    await tick(3 * TIMING.blink);
+    const waiting = view.frames.slice(from).filter((f) => f.includes("„Some work“"));
+    expect(waiting.some((f) => marker(f).includes("\u001b[33m"))).toBe(true);
+    expect(waiting.some((f) => marker(f) === "")).toBe(true);
 
     running("s1", "idle");
     await until(() => view.frame().includes("running elsewhere · claude --resume s1"));

@@ -7,7 +7,7 @@ import { isAlive } from "./viewer.js";
 
 /**
  * A session viewer, a viewer of one session in a window of its own (`cco watch --session`, `--remote`): the chat only, with a prompt
- * line for a remote session while remote control is on. Any number may run per session; each registers itself so
+ * line for a remote session while steer remote is on. Any number may run per session; each registers itself so
  * Sessions can count them (◎) and bring one to the front.
  */
 export interface SessionViewerInfo {

@@ -20,9 +20,9 @@ export const SESSION_LEGEND: LegendMark[] = [
     mark: "●",
     color: "32",
     short: "active",
-    text: "the session the other views show; it blinks while Claude works and is yellow while Claude waits for you",
+    text: "the session the other views show; it blinks while Claude works and blinks yellow on and off while Claude waits for you",
   },
-  { mark: "▶", color: "32", short: "runs elsewhere", text: "runs in another Claude Code, blinking and yellow like ●" },
+  { mark: "▶", color: "32", short: "runs elsewhere", text: "runs in another Claude Code, blinking like ●" },
   { mark: "◌", color: "2", short: "background", text: "ran in the background: started with `claude -p` or the Agent SDK, or run by the Claude Code daemon" },
   { mark: "∅", color: "2", short: "folder gone", text: "its folder is gone; with other folders listed, the project's name is struck through" },
   { mark: "⇢", color: "35", short: "to other account", text: "continued in another account" },
@@ -34,7 +34,7 @@ export const SESSION_LEGEND: LegendMark[] = [
   { mark: "„“", color: "2", short: "first prompt", text: "no `/rename` title: the first prompt stands in for it, dim and quoted" },
   { mark: "◈", color: "36", short: "remote", text: "a Remote Control session read from claude.ai that runs on another machine (setting remote API)" },
   { mark: "⇄", color: "36", short: "connected", text: "a session of this machine that is connected to claude.ai (Remote Control), also in the Claude app" },
-  { mark: "⚠", color: "33", short: "waits for you", text: "a remote session whose Claude waits for an answer (a permission or a question); its ◈ blinks while Claude works there" },
+  { mark: "⚠", color: "33", short: "waits for you", text: "a remote session whose Claude waits for an answer (a permission or a question), blinking on and off; its ◈ blinks while Claude works there" },
   { mark: "◎", color: "34", short: "session viewers", text: "session viewers of it run (Enter, open one); `◎2` and up count them" },
   {
     mark: "▣",
@@ -82,6 +82,18 @@ const MORE: ShortMark = { mark: "", color: "36", short: "↓ more ↓ reads the 
 const ORANGE = "38;2;217;119;87";
 
 /** The marks each view's list can show, in pairs that belong together, for the info dialog's Legend page. */
+/** The marks of the Remote Control Viewer's sessions (`cco rc-viewer`), ahead of the turns' (`LEGENDS.chat`) on its legend page. */
+export const RC_VIEWER_LEGEND: ShortMark[] = [
+  { mark: "⚠", color: "33", short: "waits for you (blinks)" },
+  { mark: "●", color: "32", short: "works (dims) / idle" },
+  { mark: "●", color: "32", short: "just finished (blinks)" },
+  { mark: "∅", color: "2", short: "ended" },
+  { mark: "◈", color: "36", short: "remote" },
+  { mark: "⇄", color: "36", short: "answered here (dim: steer remote off)" },
+  { mark: "▌", short: "account colour" },
+  { mark: "3m", color: "2", short: "time in its state" },
+];
+
 export const LEGENDS: Record<Mode, ShortMark[]> = {
   chat: [
     { mark: "⠋", color: ORANGE, short: "Claude works on it" },

@@ -1,3 +1,4 @@
+import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { ACCOUNT_COLOR_VALUES, type AccountColorSetting } from "./account.js";
 import { isAvatarSetting } from "./avatar.js";
@@ -182,6 +183,9 @@ export interface Settings {
   monitorListWidth: ListWidth;
   settingsListWidth: ListWidth;
   accountsListWidth: ListWidth;
+  /** Remote Control Viewer (`cco rc-viewer`): the width of its sessions list (left) and of the selected session's turn list (middle); the chat takes the rest. */
+  rcViewerSessionsWidth: ListWidth;
+  rcViewerTurnsWidth: ListWidth;
   /** Accounts: the view is reachable with 0, a click on the "cco" and ←/→; /cco:accounts opens it either way. */
   viewAccounts: boolean;
   /** Accounts: the order of the other accounts (s in the view). */
@@ -237,6 +241,8 @@ export const DEFAULT_SETTINGS: Settings = {
   monitorListWidth: "normal",
   settingsListWidth: "normal",
   accountsListWidth: "normal",
+  rcViewerSessionsWidth: "normal",
+  rcViewerTurnsWidth: "narrow",
   viewAccounts: true,
   accountsOrder: "email",
   viewChat: true,
@@ -304,16 +310,53 @@ export const SESSION_VIEWER_KEYS = [
 export type SessionViewerKey = (typeof SESSION_VIEWER_KEYS)[number];
 export const isSessionViewerKey = (key: string): key is SessionViewerKey => (SESSION_VIEWER_KEYS as readonly string[]).includes(key);
 
-/** Whether this process is a viewer of one session: it shows only `SESSION_VIEWS` and keeps its own settings. */
-let sessionViewer = false;
-export function setSessionViewer(on: boolean): void {
-  sessionViewer = on;
+/**
+ * The settings the Remote Control Viewer (`cco rc-viewer`) keeps for itself: how its chat looks and how it is used, like a viewer of
+ * one session, and its two list widths. It has no compact view: three columns need the width.
+ */
+export const RC_VIEWER_KEYS = [
+  "showTools",
+  "showThinking",
+  "showAgents",
+  "chatWrap",
+  "chatOrder",
+  "rcViewerSessionsWidth",
+  "rcViewerTurnsWidth",
+  "settingsListWidth",
+  "mouse",
+  "marquee",
+  "dateSeparators",
+  "pinnedFavorites",
+  "filterIn",
+  "confirmQuit",
+  "rememberPositions",
+] as const satisfies readonly (keyof Settings)[];
+export const isRcViewerKey = (key: string): boolean => (RC_VIEWER_KEYS as readonly string[]).includes(key);
+/** The settings only the Remote Control Viewer has: the project's viewer does not show them. */
+export const isRcViewerOnlyKey = (key: string): boolean => key === "rcViewerSessionsWidth" || key === "rcViewerTurnsWidth";
+
+/**
+ * Which settings of its own this process keeps apart from the project's viewer: a viewer of one session's
+ * (`session`), the Remote Control Viewer's (`rcViewer`), or none. Both show only `SESSION_VIEWS`.
+ */
+export type OwnSettings = "session" | "rcViewer";
+let ownKind: OwnSettings | undefined;
+export function setOwnSettings(kind: OwnSettings | undefined): void {
+  ownKind = kind;
 }
-export const isSessionViewer = () => sessionViewer;
+/** Whether this process is a viewer of one session: it shows only `SESSION_VIEWS` and keeps its own settings. */
+export function setSessionViewer(on: boolean): void {
+  ownKind = on ? "session" : undefined;
+}
+export const isSessionViewer = () => ownKind === "session";
+/** Whether this process is the Remote Control Viewer (`cco rc-viewer`). */
+export const isRcViewer = () => ownKind === "rcViewer";
+/** Whether `key` is one this process keeps for itself (all of them for the project's viewer). */
+export const isOwnKey = (key: string): boolean => (ownKind === "rcViewer" ? isRcViewerKey(key) : ownKind === "session" ? isSessionViewerKey(key) : true);
 
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
-  if (sessionViewer && !SESSION_VIEWS.includes(mode)) return false;
+  if (ownKind && !SESSION_VIEWS.includes(mode)) return false;
   if (mode === "accounts") return settings.viewAccounts;
   return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
 }
@@ -363,6 +406,8 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   monitorListWidth: LIST_WIDTH_VALUES,
   settingsListWidth: LIST_WIDTH_VALUES,
   accountsListWidth: LIST_WIDTH_VALUES,
+  rcViewerSessionsWidth: LIST_WIDTH_VALUES,
+  rcViewerTurnsWidth: LIST_WIDTH_VALUES,
   accountsOrder: ACCOUNTS_ORDER_VALUES,
 };
 
@@ -375,8 +420,29 @@ export function sessionViewerSettingsFile(): string {
   return join(claudeDir(), "cco", "settings.session-viewer.json");
 }
 
-/** The file this process's settings come from first: a viewer of one session's own, else settings.json. */
-export const ownSettingsFile = () => (sessionViewer ? sessionViewerSettingsFile() : settingsFile());
+/** The Remote Control Viewer's settings (`RC_VIEWER_KEYS`), next to settings.json. */
+export function rcViewerSettingsFile(): string {
+  return join(claudeDir(), "cco", "settings.rc-viewer.json");
+}
+
+/** Before its rename the Remote Control Viewer was the keeper: its settings file is taken over once. */
+export function takeOverKeeperSettings(): void {
+  const old = join(claudeDir(), "cco", "settings.keeper.json");
+  const file = rcViewerSettingsFile();
+  if (existsSync(old) && !existsSync(file)) {
+    try {
+      renameSync(old, file);
+    } catch {
+      // Another process took it over first.
+    }
+  }
+}
+
+/** The file of the settings `kind` keeps for itself. */
+const ownFileOf = (kind: OwnSettings) => (kind === "rcViewer" ? rcViewerSettingsFile() : sessionViewerSettingsFile());
+
+/** The file this process's settings come from first: a viewer of one session's or the Remote Control Viewer's own, else settings.json. */
+export const ownSettingsFile = () => (ownKind ? ownFileOf(ownKind) : settingsFile());
 
 /** Stored settings over the defaults; unknown or mistyped values fall back to the default. */
 function validated(stored: Partial<Record<keyof Settings, unknown>>): Settings {
@@ -414,30 +480,45 @@ export function readMainSettings(): Settings {
   return validated(readJson<Partial<Record<keyof Settings, unknown>>>(settingsFile()) ?? {});
 }
 
+/** The keys `kind` keeps for itself out of `settings`. */
+const ownPart = (kind: OwnSettings, settings: Partial<Settings>): Partial<Settings> =>
+  Object.fromEntries(Object.entries(settings).filter(([key]) => (kind === "rcViewer" ? isRcViewerKey(key) : isSessionViewerKey(key))));
+
 /** The keys of the viewers of one session out of `settings`. */
-export const sessionViewerPart = (settings: Partial<Settings>): Partial<Settings> =>
-  Object.fromEntries(Object.entries(settings).filter(([key]) => isSessionViewerKey(key)));
+export const sessionViewerPart = (settings: Partial<Settings>): Partial<Settings> => ownPart("session", settings);
+/** The Remote Control Viewer's keys out of `settings`. */
+export const rcViewerPart = (settings: Partial<Settings>): Partial<Settings> => ownPart("rcViewer", settings);
+
+/** The settings `kind` keeps for itself as they apply, over `main` for the rest; undefined while its file does not exist. */
+function readOwnSettings(kind: OwnSettings, main: Settings): Settings | undefined {
+  const stored = readJson<Partial<Record<keyof Settings, unknown>>>(ownFileOf(kind));
+  if (stored === undefined) return undefined;
+  return { ...main, ...ownPart(kind, validated(stored)) };
+}
 
 /**
  * The settings of the viewers of one session as they apply: their file's values, each checked like settings.json's,
  * over `main` for the rest. Undefined while the file does not exist.
  */
 export function readSessionViewerSettings(main = readMainSettings()): Settings | undefined {
-  const stored = readJson<Partial<Record<keyof Settings, unknown>>>(sessionViewerSettingsFile());
-  if (stored === undefined) return undefined;
-  return { ...main, ...sessionViewerPart(validated(stored)) };
+  return readOwnSettings("session", main);
+}
+
+/** The Remote Control Viewer's settings as they apply, like `readSessionViewerSettings`. */
+export function readRcViewerSettings(main = readMainSettings()): Settings | undefined {
+  return readOwnSettings("rcViewer", main);
 }
 
 /**
- * The settings that apply in this process. A viewer of one session reads its own over the project's; the first
- * one to start takes the project's viewer's values (its file does not exist yet), which stay apart from then on.
+ * The settings that apply in this process. A viewer of one session (or the Remote Control Viewer) reads its own over the project's;
+ * the first one to start takes the project's viewer's values (its file does not exist yet), which stay apart from then on.
  */
 export function readSettings(): Settings {
   const main = readMainSettings();
-  if (!sessionViewer) return main;
-  const own = readSessionViewerSettings(main);
+  if (!ownKind) return main;
+  const own = readOwnSettings(ownKind, main);
   if (own) return own;
-  writeJson(sessionViewerSettingsFile(), sessionViewerPart(main));
+  writeJson(ownFileOf(ownKind), ownPart(ownKind, main));
   return main;
 }
 
@@ -463,26 +544,30 @@ function newerKeys(file: string): Record<string, unknown> {
   return Object.fromEntries(Object.entries(stored).filter(([key]) => !(key in DEFAULT_SETTINGS) && !FORMER_KEYS.has(key)));
 }
 
-/** Writes the settings of the viewers of one session: their part of `values`, over the newer keys their file holds. */
-function writeSessionViewerSettings(values: Partial<Settings>): void {
-  const file = sessionViewerSettingsFile();
-  writeJson(file, { ...newerKeys(file), ...sessionViewerPart(values) });
+/** Writes the settings `kind` keeps for itself: their part of `values`, over the newer keys their file holds. */
+function writeOwnSettings(kind: OwnSettings, values: Partial<Settings>): void {
+  const file = ownFileOf(kind);
+  writeJson(file, { ...newerKeys(file), ...ownPart(kind, values) });
 }
 
 /**
  * Merges `changes` into the stored settings, re-reading first so other viewers' changes survive. A viewer of one
- * session writes its own keys to its own file, and only the rest to settings.json.
+ * session (or the Remote Control Viewer) writes its own keys to its own file, and only the rest to settings.json.
  */
 export function updateSettings(changes: Partial<Settings>): void {
-  const own = sessionViewer ? sessionViewerPart(changes) : {};
-  const rest = sessionViewer ? Object.fromEntries(Object.entries(changes).filter(([key]) => !isSessionViewerKey(key))) : changes;
-  if (Object.keys(own).length > 0) writeSessionViewerSettings({ ...readSettings(), ...own });
+  const own = ownKind ? ownPart(ownKind, changes) : {};
+  const rest = Object.fromEntries(Object.entries(changes).filter(([key]) => !(key in own)));
+  if (ownKind && Object.keys(own).length > 0) writeOwnSettings(ownKind, { ...readSettings(), ...own });
   if (Object.keys(rest).length > 0) writeJson(settingsFile(), { ...newerKeys(settingsFile()), ...readMainSettings(), ...rest });
   for (const listener of listeners) listener();
 }
 
-/** Sets the settings of the viewers of one session to the defaults, or to the project's viewer's values (`from` main). */
+/**
+ * Sets the settings this process keeps for itself (a viewer of one session's, the Remote Control Viewer's) to the defaults, or to
+ * the project's viewer's values (`from` main).
+ */
 export function resetSessionViewerSettings(from: "defaults" | "main"): void {
-  writeSessionViewerSettings(from === "main" ? readMainSettings() : DEFAULT_SETTINGS);
+  const kind = ownKind ?? "session";
+  writeOwnSettings(kind, from === "main" ? readMainSettings() : DEFAULT_SETTINGS);
   for (const listener of listeners) listener();
 }

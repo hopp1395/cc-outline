@@ -24,6 +24,8 @@ Object.assign(TIMING, {
   activityPoll: 100,
   pairPoll: 50,
   blink: 100,
+  freshIdle: 60_000,
+  freshSelected: 300,
   reloaded: 300,
   tailStat: 100,
   remotePoll: 50,

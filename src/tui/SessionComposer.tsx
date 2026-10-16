@@ -1,6 +1,7 @@
 import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useRef, useState } from "react";
 import { editLine, type LineState } from "../filter.js";
+import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import type { PendingRequest } from "../remote/pending.js";
 import { pastable, promptRows } from "./PromptDialog.js";
 import { QuestionDialog, questionsOf } from "./QuestionDialog.js";
@@ -51,7 +52,7 @@ const PERMISSIONS: { id: Permission; label: string }[] = [
  * this machine (typed in). Each call rejects with an `Error` whose message says why it failed.
  */
 export interface PromptChannel {
-  /** Why nothing can be sent now (it runs nowhere, remote control is off, …); the line shows it in place of the text. */
+  /** Why nothing can be sent now (it runs nowhere, steer remote is off, …); the line shows it in place of the text. */
   blocked?: string;
   send(text: string): Promise<void>;
   /** Stops Claude while it works. */
@@ -77,6 +78,9 @@ export function SessionComposer({
   onFocus,
   notify,
   onHeight,
+  draftKey,
+  hint = ["Tab", "write a prompt"],
+  asked,
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -90,8 +94,31 @@ export function SessionComposer({
   onFocus: (focused: boolean) => void;
   notify: (message: string) => void;
   onHeight: (rows: number) => void;
+  /**
+   * The session the line writes to, where it changes (the Remote Control Viewer): each keeps its own draft, so a text is never sent
+   * to another session than the one it was written for.
+   */
+  draftKey?: string;
+  /** What the line says while it does not have the keys: the key that gives them, and what for. */
+  hint?: [string, string];
+  /**
+   * What a session of this machine waits for, as its hooks recorded it: shown in the line's place while it waits,
+   * read-only, since it is answered in its terminal; `where` says how to get there.
+   */
+  asked?: { request: LocalRequest; where: string };
 }) {
-  const [line, setLine] = useState<LineState>(EMPTY);
+  const [line, setLineState] = useState<LineState>(EMPTY);
+  const drafts = useRef(new Map<string, LineState>()).current;
+  const keyNow = useRef(draftKey);
+  const setLine = (next: LineState) => {
+    setLineState(next);
+    if (keyNow.current !== undefined) drafts.set(keyNow.current, next);
+  };
+  // Another session: its own draft, and what was asked of the one before is not "answered elsewhere".
+  if (keyNow.current !== draftKey) {
+    keyNow.current = draftKey;
+    setLineState(draftKey === undefined ? EMPTY : (drafts.get(draftKey) ?? EMPTY));
+  }
   const [sending, setSending] = useState(false);
   const [choice, setChoice] = useState(0);
   // Deny, saying why: the reason's text, in place of the options.
@@ -104,20 +131,22 @@ export function SessionComposer({
   const isQuestion = request?.toolName === "AskUserQuestion" && questionsOf(request.input).length > 0;
 
   // A new request starts on Allow; one answered elsewhere drops what was typed for it, into the clipboard.
-  const shown = useRef<string>(undefined);
+  const shown = useRef<{ key?: string; id?: string }>({ key: draftKey });
   useEffect(() => {
     const before = shown.current;
-    shown.current = request?.requestId;
-    if (before === request?.requestId) return;
+    shown.current = { key: draftKey, id: request?.requestId };
+    if (before.id === request?.requestId && before.key === draftKey) return;
     setChoice(0);
     setReason(undefined);
-    if (before && before !== answered.current) {
+    // Another session selected: its request is new, not answered elsewhere.
+    if (before.key !== draftKey) return setTyped("");
+    if (before.id && before.id !== answered.current) {
       const text = typed.trim();
       setTyped("");
       if (text) void copy(text).then(() => notify("already answered in another app; what you typed is copied"), () => notify("already answered in another app"));
       else notify("already answered in another app");
     }
-  }, [request?.requestId]);
+  }, [request?.requestId, draftKey]);
 
   // Blocked while it has the keys (the session ended, Claude waits in its terminal): the chat takes them back.
   useEffect(() => {
@@ -141,9 +170,12 @@ export function SessionComposer({
     const text = line.text.trim();
     if (!text || sending || channel.blocked) return;
     setSending(true);
+    const key = keyNow.current;
     channel.send(text).then(
       () => {
-        setLine(EMPTY);
+        // Sent: that session's draft is gone, also when another one is selected by now.
+        if (key !== undefined) drafts.delete(key);
+        if (keyNow.current === key) setLineState(EMPTY);
         setSending(false);
       },
       (err: Error) => {
@@ -252,9 +284,26 @@ export function SessionComposer({
                 <Text bold={i === choice}>{p.label}</Text>
               </Text>
             ))}
-            {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [["Tab", "answer it"]])}
+            {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [[hint[0], "answer it"]])}
           </>
         )}
+      </Box>
+    );
+  } else if (channel.blocked && asked) {
+    const { request } = asked;
+    body = (
+      <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
+        <Text bold color="yellow" wrap="truncate">
+          {request.kind === "question" ? `Claude asks · ${truncate(title, 40)}` : `Allow ${request.toolName}? · ${truncate(title, 40)}`}
+        </Text>
+        {localRequestLines(request, room).slice(0, 8).map((l, i) => (
+          <Text key={i} wrap="truncate">
+            {l}
+          </Text>
+        ))}
+        <Text dimColor wrap="truncate">
+          {`Answered in its terminal: ${asked.where}`}
+        </Text>
       </Box>
     );
   } else if (channel.blocked) {
@@ -272,7 +321,7 @@ export function SessionComposer({
         {line.text || focused ? <TextRows line={line} room={room - 2} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
         {focused
           ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"]])
-          : keys([["Tab", "write a prompt"]])}
+          : keys([hint])}
       </Box>
     );
   }
