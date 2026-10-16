@@ -19,6 +19,7 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
     cwd = mkdtempSync(join(tmpdir(), "cco-local-request-project-"));
   });
   afterEach(() => {
+    setOwnSettings(undefined);
     process.env = { ...saved };
   });
 
@@ -56,6 +57,8 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
 
   it("shows in the Remote Control Viewer in the prompt line's place, and in the Enter dialog", async () => {
     setOwnSettings("rcViewer");
+    // A terminal to bring to the front: tmux (nothing is run, the dialog only asks).
+    process.env.TMUX = "/tmp/tmux";
     mkdirSync(projectDir(cwd), { recursive: true });
     const transcript = join(projectDir(cwd), "s-ask.jsonl");
     const ts = new Date(Date.now() - 60_000);
@@ -73,7 +76,8 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
     writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s-ask", status: "waiting", cwd }));
     recordLocalRequest({ hook_event_name: "PreToolUse", session_id: "s-ask", tool_name: "AskUserQuestion", tool_input: QUESTION });
     const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, { columns: 140, rows: 34 });
-    await until(() => view.frame().includes("Which colour?"));
+    // The session stands in without its title until its transcript is read.
+    await until(() => view.frame().includes("Which colour?") && view.frame().includes("Claude asks · asks a colour"));
     expect(view.frame()).toContain("Claude asks · asks a colour");
     expect(view.frame()).toContain("· Green");
     expect(view.frame()).toContain("Answered in its terminal");
