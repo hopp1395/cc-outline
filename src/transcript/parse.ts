@@ -1,4 +1,4 @@
-import { BOX_END, BOX_START_CYAN } from "../render/markdown.js";
+import { BOX_END, BOX_START_CYAN, BOX_START_MAGENTA } from "../render/markdown.js";
 import { browserItems, browserTitle, isBrowserTool, navigates } from "./chrome.js";
 import { escapeMd, fence, toolMarkdown, toolOutcome, type ToolLevel, type ToolOutcome } from "./tools.js";
 import { addFileChange, addToolCall, emptyStats, usageCounts, type TurnStats } from "./turnStats.js";
@@ -1427,11 +1427,11 @@ function workflowAgentLine(agent: AgentRun): string {
 }
 
 /**
- * A workflow in the answer: its title, the description, its status, then its
+ * A workflow in the answer, framed: its title on the frame, the description, its status, then its
  * agents grouped by phase (once they are known).
  */
 function workflowMarkdown(run: WorkflowRun): string {
-  const head = [`**◇ ${escapeTitle(workflowTitle(run))}**`, ...(run.description ? [`*${escapeTitle(run.description)}*`] : []), escapeTitle(workflowStatusLine(run))].join("  \n");
+  const head = [...(run.description ? [`*${escapeTitle(run.description)}*`] : []), escapeTitle(workflowStatusLine(run))].join("  \n");
   const phases = [...new Set([...run.phases, ...run.agents.map((a) => a.phase ?? "")])];
   const groups = phases
     .map((phase) => ({ phase, agents: run.agents.filter((a) => (a.phase ?? "") === phase) }))
@@ -1439,7 +1439,8 @@ function workflowMarkdown(run: WorkflowRun): string {
     .map((g) => {
       const items = g.agents.map((a) => `- ${escapeTitle(workflowAgentLine(a))}`).join("\n");
       const done = g.agents.filter((a) => a.status !== "running").length;
-      return phases.length > 1 || g.phase ? `${escapeTitle(g.phase || "agents")} · ${done}/${g.agents.length}\n\n${items}` : items;
+      return phases.length > 1 || g.phase ? `**${escapeTitle(g.phase || "agents")}** · ${done}/${g.agents.length}\n\n${items}` : items;
     });
-  return [head, ...groups].join("\n\n");
+  // Framed like questions and browser actions, in the agents' magenta; the title is plain text.
+  return `${BOX_START_MAGENTA}◇ ${workflowTitle(run)}\n${[head, ...groups].join("\n\n")}\n${BOX_END}`;
 }

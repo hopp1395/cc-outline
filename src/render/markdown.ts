@@ -178,7 +178,7 @@ function wrapLine(line: string, width: number): string[] {
  * (tables and rules are still sized to `width`).
  */
 export function renderMarkdown(markdown: string, width: number, wrap = true): string[] {
-  if (markdown.includes(BOX_START) || markdown.includes(BOX_START_CYAN)) return renderWithBoxes(markdown, width, wrap);
+  if (markdown.includes(BOX_START) || markdown.includes(BOX_START_CYAN) || markdown.includes(BOX_START_MAGENTA)) return renderWithBoxes(markdown, width, wrap);
   const w = Math.max(20, width);
   const ansi = rendererFor(w, wrap).parse(markdown, { async: false }) as string;
   const lines = ansi.replace(/\n+$/, "").split("\n");
@@ -196,7 +196,9 @@ export const BOX_END = "\uE001";
 export const BOX_RULE = "\uE002";
 /** Starts a frame like BOX_START, drawn in cyan instead of yellow (browser actions). */
 export const BOX_START_CYAN = "\uE003";
-const BOX = /([\uE000\uE003])([^\n]*)\n([\s\S]*?)\n?\uE001/g;
+/** Starts a frame drawn in magenta, the colour of agents (workflows). */
+export const BOX_START_MAGENTA = "\uE004";
+const BOX = /([\uE000\uE003\uE004])([^\n]*)\n([\s\S]*?)\n?\uE001/g;
 
 /** `markdown` without the frame marks and the colours inside frames, e.g. for copying. */
 export function stripBoxes(markdown: string): string {
@@ -222,6 +224,7 @@ export function boxesAsQuotes(markdown: string): string {
 
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 const cyan = (s: string) => `\u001b[36m${s}\u001b[39m`;
+const magenta = (s: string) => `\u001b[35m${s}\u001b[39m`;
 
 /** Renders the parts between the marks narrower, inside a frame open to the right, and the rest as usual. */
 function renderWithBoxes(markdown: string, width: number, wrap: boolean): string[] {
@@ -234,7 +237,7 @@ function renderWithBoxes(markdown: string, width: number, wrap: boolean): string
   for (const m of markdown.matchAll(BOX)) {
     plain(markdown.slice(at, m.index));
     at = m.index + m[0].length;
-    const colour = m[1] === BOX_START_CYAN ? cyan : yellow;
+    const colour = m[1] === BOX_START_CYAN ? cyan : m[1] === BOX_START_MAGENTA ? magenta : yellow;
     const title = m[2].trim();
     const top = `╭─${title ? ` ${title} ` : ""}`;
     if (lines.length) lines.push("");

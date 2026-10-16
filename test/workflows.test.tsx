@@ -165,23 +165,24 @@ describe("readWorkflow", () => {
 });
 
 describe("a workflow in the chat", () => {
-  it("shows its title, description and status, then its agents by phase, with tools off", () => {
+  it("shows its title, description and status, then its agents by phase, framed in magenta, with tools off", () => {
     const { parser } = readSession(true);
     const md = turnMarkdown(parser.turns[0], { tools: "off", thinking: false, agents: true });
-    expect(strip(renderMarkdown(md, 100).join("\n"))).toBe(
-      [
-        "◇ Workflow · ticket-rating · background",
-        "Rates 4 tickets and writes a brief per ticket",
-        "✓ completed · 18 min 24 s · 2 agents · 78 tool uses · 183k tokens",
-        "",
-        "Rate · 2/2",
-        "",
-        "  * ✓ rate:backend · 13 min 37 s · 46 tool uses · 91k tokens",
-        "  * ✓ rate:frontend · 9 min 10 s · 32 tool uses · 92k tokens",
-        "",
-        "The workflow runs.",
-      ].join("\n"),
-    );
+    const lines = renderMarkdown(md, 70);
+    expect(lines.map(strip)).toEqual([
+      "╭─ ◇ Workflow · ticket-rating · background ───────────────────────────",
+      "│ Rates 4 tickets and writes a brief per ticket",
+      "│ ✓ completed · 18 min 24 s · 2 agents · 78 tool uses · 183k tokens",
+      "│ ",
+      "│ Rate · 2/2",
+      "│ ",
+      "│   * ✓ rate:backend · 13 min 37 s · 46 tool uses · 91k tokens",
+      "│   * ✓ rate:frontend · 9 min 10 s · 32 tool uses · 92k tokens",
+      "╰─────────────────────────────────────────────────────────────────────",
+      "",
+      "The workflow runs.",
+    ]);
+    expect(lines[0].startsWith("\u001b[35m")).toBe(true);
     // Like agents, it follows the agents setting.
     expect(turnMarkdown(parser.turns[0], { tools: "full", thinking: false, agents: false })).toBe("The workflow runs.");
   });
@@ -189,7 +190,7 @@ describe("a workflow in the chat", () => {
   it("spins the running run and its running agents", () => {
     const { parser } = readSession(false);
     const lines = renderMarkdown(turnMarkdown(parser.turns[0], { tools: "off", thinking: false, agents: true }), 100);
-    expect(spinnerMarks(lines).map((m) => strip(lines[m.line]).trim())).toEqual(["⠿ running · phase 1/2 Rate · 1 of 2 agents done", "* ⠿ rate:frontend"]);
+    expect(spinnerMarks(lines).map((m) => strip(lines[m.line]).trim())).toEqual(["│ ⠿ running · phase 1/2 Rate · 1 of 2 agents done", "│   * ⠿ rate:frontend"]);
   });
 
   it("lists the run's agents for a and A, in its turn and its notification's", () => {
