@@ -110,6 +110,9 @@ export function turnAttachments(turn: Turn, transcript?: string, cwd?: string): 
   for (const a of turn.attachments ?? []) {
     if (a.kind === "file" || a.kind === "directory") items.push({ kind: a.kind, path: a.path, full: absolute(a.path, a.full, cwd) });
   }
+  // A task's result Claude Code cut (a workflow's, often): the file with all of it.
+  const n = turn.notification;
+  if (n?.outputFile && /\(truncated \d+ chars/.test(n.result ?? "")) items.push({ kind: "file", path: n.outputFile.replace(/\\/g, "/"), full: n.outputFile });
   for (const s of turnScreenshots(turn)) {
     if (!s.block.id) continue;
     const image = s.block.outcome?.images?.[s.index];

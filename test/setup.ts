@@ -27,4 +27,5 @@ Object.assign(TIMING, {
   reloaded: 300,
   tailStat: 100,
   remotePoll: 50,
+  workflowPoll: 50,
 } satisfies typeof TIMING);

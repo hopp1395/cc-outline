@@ -20,6 +20,7 @@ export type Block =
   | { kind: "thinking"; text: string }
   | ToolBlock
   | { kind: "agent"; agent: AgentRun }
+  | { kind: "workflow"; workflow: WorkflowRun }
   /** Claude Code's recap of the session when the user comes back after a while (an `away_summary` entry). */
   | { kind: "recap"; text: string }
   /** The summary Claude Code compacted the conversation into, with what the compaction reported. */
@@ -55,6 +56,50 @@ export interface AgentRun {
   started?: string;
   /** The transcript the call is in, when a session spans several (`continuedIn`); its subagents are next to it. */
   transcript?: string;
+  /** A workflow's agent: the phase it ran in (its `type` is the workflow's name). */
+  phase?: string;
+  /** A workflow's agent: its own transcript, found in the run's folder. */
+  file?: string;
+}
+
+/**
+ * A dynamic workflow Claude started with the Workflow tool: a script that runs
+ * agents in the background. The transcript holds the call, its launch and the
+ * notification at the end; its agents are read from the run's folder
+ * (`readWorkflow` in `workflows.ts`), which fills `agents` and `phase`.
+ */
+export interface WorkflowRun {
+  /** The Workflow tool call id; the notification refers to it. */
+  id: string;
+  /** `meta.name` of the script, else of the launch or the script's file. */
+  name?: string;
+  description?: string;
+  /** The titles of `meta.phases`. */
+  phases: string[];
+  status: AgentStatus;
+  /** Names the run's folders: `<session>/subagents/workflows/<runId>/`, `<session>/workflows/<runId>.json`. */
+  runId?: string;
+  taskId?: string;
+  /** The call resumed an earlier run (`resumeFromRunId`): its agents are those of that run. */
+  resumeOf?: string;
+  /** The launch failed: the tool's error. */
+  error?: string;
+  started?: string;
+  /** The run's agent folder and script as the launch named them, for a session whose folders are not next to its transcript. */
+  dir?: string;
+  scriptPath?: string;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  /** What the notification (or the run's state) counted. */
+  agentCount?: number;
+  agentsDone?: number;
+  agentsFailed?: number;
+  /** The run's agents as read from its folder; empty until read. */
+  agents: AgentRun[];
+  /** The phase the newest agent started in, while the run goes on. */
+  phase?: string;
+  transcript?: string;
 }
 
 /**
@@ -76,6 +121,12 @@ export interface TaskNotification {
   tokens?: number;
   toolUses?: number;
   durationMs?: number;
+  /** A workflow's end: how its agents went (`<agent_count>`, `<agents_done>`, …). */
+  agents?: { count: number; done?: number; failed?: number; skipped?: number };
+  /** Where Claude Code wrote the whole result when it cut `result` (`<output-file>`). */
+  outputFile?: string;
+  /** The notification reports the end of a workflow; its name. */
+  workflow?: string;
 }
 
 /** A user prompt and everything the assistant produced until the next prompt. */
@@ -102,6 +153,11 @@ export interface Turn {
   continuation?: Continuation;
   /** Tokens, models, tool calls and files of Claude's responses; none before the first one. */
   stats?: TurnStats;
+  /**
+   * A workflow agent's prompt from the harness: what it relays ("user request",
+   * "computed task"); `prompt` is the relayed text without the harness's preamble.
+   */
+  harness?: string;
 }
 
 /**
@@ -299,7 +355,69 @@ export function taskNotification(text: string): TaskNotification | undefined {
     tokens: tagNumber(text, "subagent_tokens") ?? tagNumber(text, "total_tokens"),
     toolUses: tagNumber(text, "tool_uses"),
     durationMs: tagNumber(text, "duration_ms"),
+    ...(tagNumber(text, "agent_count") !== undefined
+      ? {
+          agents: {
+            count: tagNumber(text, "agent_count")!,
+            done: tagNumber(text, "agents_done"),
+            failed: tagNumber(text, "agents_error"),
+            skipped: tagNumber(text, "agents_skipped"),
+          },
+        }
+      : {}),
+    ...(tag(text, "output-file") ? { outputFile: tag(text, "output-file") } : {}),
   };
+}
+
+const HARNESS = /^\[Workflow harness — ([^\]\n]+)\][^\n]*\n/;
+
+/**
+ * A prompt the workflow harness gives its agent: what it relays (the user's
+ * request, the task the script computed) and the relayed text, without the
+ * preamble and the two spaces the harness indents every line by.
+ */
+export function harnessPrompt(text: string): { kind: string; text: string } | undefined {
+  const m = HARNESS.exec(text);
+  if (!m) return undefined;
+  const lines = text.slice(m[0].length).split("\n");
+  const body = lines.every((l) => l === "" || l.startsWith("  ")) ? lines.map((l) => l.slice(2)) : lines;
+  return { kind: m[1].trim(), text: body.join("\n").trim() };
+}
+
+/** A string literal's value in a workflow script: quotes removed, escapes resolved. */
+function literal(quote: string, body: string): string {
+  const escapes: Record<string, string> = { n: "\n", t: "\t", r: "" };
+  return quote === "`" && body.includes("${") ? body : body.replace(/\\(.)/g, (_, c: string) => escapes[c] ?? c);
+}
+
+const STRING = String.raw`(['"\x60])((?:\\.|(?!\1)[^\\])*)\1`;
+
+/**
+ * Name, description and phase titles of a workflow script's `meta`, which must
+ * be a plain literal (`export const meta = { name: '…', … }`); read with patterns, not run.
+ */
+export function workflowMeta(script: string): { name?: string; description?: string; phases: string[] } {
+  const start = script.search(/\bmeta\s*=\s*\{/);
+  if (start < 0) return { phases: [] };
+  // The literal ends at the first closing brace at the line start.
+  const rest = script.slice(start);
+  const end = rest.search(/\n\}/);
+  const meta = end >= 0 ? rest.slice(0, end) : rest;
+  const phasesAt = meta.search(/\bphases\s*:\s*\[/);
+  const phases = phasesAt < 0 ? [] : [...meta.slice(phasesAt).matchAll(new RegExp(String.raw`\btitle\s*:\s*${STRING}`, "g"))].map((m) => literal(m[1], m[2]));
+  // `name` and `description` of the meta itself, not a phase's `detail` or the like.
+  const own = phasesAt < 0 ? meta : meta.slice(0, phasesAt);
+  const field = (key: string) => {
+    const m = new RegExp(String.raw`\b${key}\s*:\s*${STRING}`).exec(own) ?? new RegExp(String.raw`\n\s*${key}\s*:\s*${STRING}`).exec(meta);
+    return m ? literal(m[1], m[2]) : undefined;
+  };
+  return { name: field("name"), description: field("description"), phases };
+}
+
+/** "ticket-bewertung" of a saved script "…/ticket-bewertung-wf_b65d78de-a0c.js". */
+function scriptName(path: string): string | undefined {
+  const file = path.split(/[\\/]/).at(-1) ?? "";
+  return file.replace(/\.[cm]?js$/, "").replace(/-wf_[\w-]+$/, "") || undefined;
 }
 
 const HANDED_BACK = /^This agent's report was delivered to you as a message/;
@@ -474,6 +592,8 @@ export class TranscriptParser {
   planMode?: PlanModeState;
   /** Subagents started in this transcript, in order. */
   readonly agents: AgentRun[] = [];
+  /** Dynamic workflows started in this transcript, in order. */
+  readonly workflows: WorkflowRun[] = [];
   /** The session title Claude Code shows: the one set with /rename, else the one it generated. */
   get title(): string | undefined {
     return this.customTitle ?? this.aiTitle;
@@ -579,12 +699,14 @@ export class TranscriptParser {
       }
       this.lastCompact = undefined;
       this.backgrounded = false;
+      const harness = this.opts.sidechains ? harnessPrompt(prompt) : undefined;
       this.turns.push({
         id: entry.uuid ?? String(this.turns.length),
-        prompt,
+        prompt: harness?.text ?? prompt,
         timestamp: entry.timestamp,
         blocks: [],
         ...withAttachments(imageAttachments(entry.message?.content)),
+        ...(harness ? { harness: harness.kind } : {}),
       });
       this.takesAttachments = true;
       return true;
@@ -633,8 +755,9 @@ export class TranscriptParser {
     if (entry.type === "user") {
       if (this.trackInterrupt(entry)) return true;
       const agents = this.trackAgentResults(entry);
+      const workflows = this.trackWorkflowResults(entry);
       const tools = this.trackToolResults(entry);
-      return this.decidePlans(entry) || agents || tools;
+      return this.decidePlans(entry) || agents || workflows || tools;
     }
     if (entry.type !== "assistant") return false;
     const content = entry.message?.content;
@@ -669,6 +792,9 @@ export class TranscriptParser {
       } else if (b.type === "tool_use" && (b.name === "Agent" || b.name === "Task")) {
         if (stats) addToolCall(stats, b.name);
         turn.blocks.push({ kind: "agent", agent: this.startAgent(b, entry.timestamp) });
+      } else if (b.type === "tool_use" && b.name === "Workflow") {
+        if (stats) addToolCall(stats, b.name);
+        turn.blocks.push({ kind: "workflow", workflow: this.startWorkflow(b, entry.timestamp) });
       } else if (b.type === "tool_use") {
         const block: ToolBlock = { kind: "tool", id: b.id, name: b.name ?? "tool", input: b.input, cwd: entry.cwd };
         turn.blocks.push(block);
@@ -738,9 +864,55 @@ export class TranscriptParser {
   }
 
   /**
-   * Applies the Agent tool's result: a background agent only reports its
-   * launch (and its agentId); a foreground agent's result is its report.
+   * A workflow started by a Workflow tool call: the script's `meta` names it, or,
+   * resuming an earlier run (`scriptPath`, `resumeFromRunId`), the script's file.
    */
+  private startWorkflow(b: ContentBlock, timestamp?: string): WorkflowRun {
+    const input = (b.input ?? {}) as Record<string, unknown>;
+    const text = (key: string) => (typeof input[key] === "string" && input[key] ? (input[key] as string) : undefined);
+    const meta = workflowMeta(text("script") ?? "");
+    const resumeOf = text("resumeFromRunId");
+    const earlier = resumeOf ? this.workflows.find((w) => w.runId === resumeOf) : undefined;
+    const run: WorkflowRun = {
+      id: b.id ?? `workflow-${this.workflows.length}`,
+      name: meta.name ?? text("name") ?? earlier?.name ?? (text("scriptPath") ? scriptName(text("scriptPath")!) : undefined),
+      description: meta.description ?? earlier?.description,
+      phases: meta.phases.length ? meta.phases : (earlier?.phases ?? []),
+      status: "running",
+      ...(resumeOf ? { resumeOf, runId: resumeOf } : {}),
+      started: timestamp,
+      agents: [],
+    };
+    this.workflows.push(run);
+    return run;
+  }
+
+  /** The Workflow tool's result: the run's ids and folders, or why it did not start. */
+  private trackWorkflowResults(entry: Entry): boolean {
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) return false;
+    let changed = false;
+    for (const b of content) {
+      if (b.type !== "tool_result") continue;
+      const run = this.workflows.find((w) => w.id === b.tool_use_id);
+      if (!run) continue;
+      const r = (entry.toolUseResult ?? {}) as Record<string, unknown>;
+      const text = (key: string) => (typeof r[key] === "string" && r[key] ? (r[key] as string) : undefined);
+      if (b.is_error) {
+        run.status = "failed";
+        run.error = resultText(b.content).replace(/<\/?tool_use_error>/g, "").trim().split("\n")[0] || "failed";
+      }
+      run.runId = text("runId") ?? run.runId;
+      run.taskId = text("taskId") ?? run.taskId;
+      run.name ??= text("workflowName");
+      run.description ??= text("summary");
+      run.dir = text("transcriptDir") ?? run.dir;
+      run.scriptPath = text("scriptPath") ?? run.scriptPath;
+      changed = true;
+    }
+    return changed;
+  }
+
   /** Gives each tool call its outcome when its result arrives. */
   private trackToolResults(entry: Entry): boolean {
     const content = entry.message?.content;
@@ -801,12 +973,24 @@ export class TranscriptParser {
       notification,
     });
     this.takesAttachments = false;
+    const run = [...this.workflows].reverse().find((w) => (notification.toolUseId ? w.id === notification.toolUseId : w.taskId !== undefined && w.taskId === notification.taskId));
+    if (run) {
+      notification.toolUseId = run.id;
+      notification.workflow = run.name ?? "workflow";
+      run.status = agentStatus(notification.status, run.status);
+      run.tokens = notification.tokens ?? run.tokens;
+      run.toolUses = notification.toolUses ?? run.toolUses;
+      run.durationMs = notification.durationMs ?? run.durationMs;
+      run.agentCount = notification.agents?.count ?? run.agentCount;
+      run.agentsDone = notification.agents?.done ?? run.agentsDone;
+      run.agentsFailed = notification.agents?.failed ?? run.agentsFailed;
+      return true;
+    }
     // After a resume, an agent the previous process left running is reported by its task id alone.
     const agent = this.agents.find((a) => (notification.toolUseId ? a.id === notification.toolUseId : a.agentId !== undefined && a.agentId === notification.taskId));
     if (agent) {
       notification.toolUseId = agent.id;
-      const status = notification.status;
-      agent.status = status === "completed" ? "completed" : status === "failed" ? "failed" : status === "killed" || status === "stopped" ? "killed" : agent.status;
+      agent.status = agentStatus(notification.status, agent.status);
       agent.result = notification.result || agent.result;
       agent.tokens = notification.tokens ?? agent.tokens;
       agent.toolUses = notification.toolUses ?? agent.toolUses;
@@ -1005,6 +1189,11 @@ export class TranscriptParser {
   }
 }
 
+/** An agent's (or workflow's) status from the one a notification reports; an unknown one keeps `before`. */
+function agentStatus(status: string, before: AgentStatus): AgentStatus {
+  return status === "completed" ? "completed" : status === "failed" ? "failed" : status === "killed" || status === "stopped" ? "killed" : before;
+}
+
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("\n");
@@ -1130,6 +1319,8 @@ export function turnMarkdown(
       else push(md);
     } else if (b.kind === "agent" && opts.agents) {
       push(agentMarkdown(b.agent));
+    } else if (b.kind === "workflow" && opts.agents) {
+      push(workflowMarkdown(b.workflow));
     } else if (b.kind === "compact") {
       push(b.text);
     }
@@ -1173,13 +1364,82 @@ export function agentStatusLine(agent: AgentRun): string {
   ].join(" · ");
 }
 
-/** The heading of an agent: "Explore · Anwendungsstruktur erheben · sonnet · background". */
+/** The heading of an agent: "Explore · Anwendungsstruktur erheben · sonnet · background"; a workflow's with its phase. */
 export function agentTitle(agent: AgentRun): string {
-  return [agent.type ?? "agent", agent.description, ...(agent.model ? [agent.model] : []), ...(agent.background ? ["background"] : [])].join(" · ");
+  return [agent.type ?? "agent", ...(agent.phase ? [agent.phase] : []), agent.description, ...(agent.model ? [shortAgentModel(agent.model)] : []), ...(agent.background ? ["background"] : [])].join(
+    " · ",
+  );
 }
+
+/** The heading of a subagent's prompt on its page: what the workflow harness relays, else the task, then messages. */
+export function subagentPromptLabel(turn: Turn, index: number): string {
+  if (turn.harness === "user request") return "Request";
+  if (turn.harness === "computed task") return "Task";
+  if (turn.harness) return turn.harness[0].toUpperCase() + turn.harness.slice(1);
+  return index === 0 ? "Task" : "Message";
+}
+
+/** "sonnet" of "claude-sonnet-5-5": a workflow's run state names the full model. */
+const shortAgentModel = (model: string) => /^claude-([a-z]+)-/.exec(model)?.[1] ?? model;
+
+const escapeTitle = (s: string) => s.replace(/([\\`*_[\]<>])/g, "\\$1");
 
 /** An agent in the answer: its title, then its status on a line of its own. */
 function agentMarkdown(agent: AgentRun): string {
-  const escape = (s: string) => s.replace(/([\\`*_[\]<>])/g, "\\$1");
-  return `**◆ ${escape(agentTitle(agent))}**  \n${escape(agentStatusLine(agent))}`;
+  return `**◆ ${escapeTitle(agentTitle(agent))}**  \n${escapeTitle(agentStatusLine(agent))}`;
+}
+
+/** The heading of a workflow: "Workflow · ticket-bewertung · background", "… · ↻ resume wf_…". */
+export function workflowTitle(run: WorkflowRun): string {
+  return ["Workflow", run.name ?? "(unnamed)", run.resumeOf ? `↻ resume ${run.resumeOf}` : "background"].join(" · ");
+}
+
+/**
+ * The status line of a workflow: "⠿ running · Bewerten · 3 of 8 agents done", or
+ * at the end "✓ completed · 18 min 23 s · 8 agents · 356 tool uses · 862k tokens".
+ */
+export function workflowStatusLine(run: WorkflowRun): string {
+  const total = run.agentCount ?? (run.agents.length || undefined);
+  const done = run.agentsDone ?? run.agents.filter((a) => a.status !== "running").length;
+  const failed = run.agentsFailed ?? run.agents.filter((a) => a.status === "failed").length;
+  if (run.status === "running") {
+    return [
+      `${AGENT_RUNNING_MARK} running`,
+      ...(run.phase && run.phases.length > 1 ? [`phase ${run.phases.indexOf(run.phase) + 1}/${run.phases.length} ${run.phase}`] : run.phase ? [run.phase] : []),
+      ...(total ? [`${done} of ${plural(total, "agent")} done`] : ["starting"]),
+      ...(failed ? [`${failed} failed`] : []),
+    ].join(" · ");
+  }
+  return [
+    `${AGENT_STATUS_ICON[run.status]} ${run.status}`,
+    ...(run.error ? [run.error] : []),
+    ...(run.durationMs !== undefined ? [formatMs(run.durationMs)] : []),
+    ...(total ? [plural(total, "agent")] : []),
+    ...(failed ? [`${failed} failed`] : []),
+    ...(run.toolUses !== undefined ? [plural(run.toolUses, "tool use")] : []),
+    ...(run.tokens !== undefined ? [formatTokens(run.tokens)] : []),
+  ].join(" · ");
+}
+
+/** A workflow's agent as a list item below it: "✓ bewerten:jobs · 13 min 37 s · 46 tool uses · 91k tokens". */
+function workflowAgentLine(agent: AgentRun): string {
+  return agentStatusLine(agent).replace(/^(\S+) \S+/, `$1 ${agent.description}`);
+}
+
+/**
+ * A workflow in the answer: its title, the description, its status, then its
+ * agents grouped by phase (once they are known).
+ */
+function workflowMarkdown(run: WorkflowRun): string {
+  const head = [`**◇ ${escapeTitle(workflowTitle(run))}**`, ...(run.description ? [`*${escapeTitle(run.description)}*`] : []), escapeTitle(workflowStatusLine(run))].join("  \n");
+  const phases = [...new Set([...run.phases, ...run.agents.map((a) => a.phase ?? "")])];
+  const groups = phases
+    .map((phase) => ({ phase, agents: run.agents.filter((a) => (a.phase ?? "") === phase) }))
+    .filter((g) => g.agents.length > 0)
+    .map((g) => {
+      const items = g.agents.map((a) => `- ${escapeTitle(workflowAgentLine(a))}`).join("\n");
+      const done = g.agents.filter((a) => a.status !== "running").length;
+      return phases.length > 1 || g.phase ? `${escapeTitle(g.phase || "agents")} · ${done}/${g.agents.length}\n\n${items}` : items;
+    });
+  return [head, ...groups].join("\n\n");
 }

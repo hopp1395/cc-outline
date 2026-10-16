@@ -14,6 +14,7 @@ import {
   formatTokens,
   agentStatusLine,
   agentTitle,
+  subagentPromptLabel,
   turnMarkdown,
   turnScreenshots,
   type AgentRun,
@@ -23,9 +24,10 @@ import {
   type Continuation,
   type TaskNotification,
   type Turn,
+  type WorkflowRun,
 } from "../transcript/parse.js";
 import { isBrowserTool, SHOT_HINT } from "../transcript/chrome.js";
-import { TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
+import { fence, TOOL_LEVELS, type ToolLevel } from "../transcript/tools.js";
 import { formatCount, shortModel } from "../transcript/turnStats.js";
 import { displayPath } from "../transcript/sessions.js";
 import {
@@ -108,12 +110,21 @@ export function workingLine(turn: Turn, tools: ToolLevel): string {
   return dim(`${AGENT_RUNNING_MARK} Claude is working…${count}`);
 }
 
-/** The subagents a turn started, or for a notification the one it reports on. */
-export function turnAgents(turn: Turn | undefined, all: AgentRun[]): AgentRun[] {
+/**
+ * The subagents a turn started, a workflow's agents included, or for a
+ * notification the one it reports on (of a workflow, its agents).
+ */
+export function turnAgents(turn: Turn | undefined, all: AgentRun[], workflows: WorkflowRun[] = []): AgentRun[] {
   if (!turn) return [];
-  if (turn.notification) return all.filter((a) => a.id === turn.notification!.toolUseId);
-  return turn.blocks.flatMap((b) => (b.kind === "agent" ? [b.agent] : []));
+  if (turn.notification) {
+    const id = turn.notification.toolUseId;
+    return [...all.filter((a) => a.id === id), ...workflows.filter((w) => w.id === id).flatMap((w) => w.agents)];
+  }
+  return turn.blocks.flatMap((b) => (b.kind === "agent" ? [b.agent] : b.kind === "workflow" ? b.workflow.agents : []));
 }
+
+/** A turn started a workflow that has not ended yet. */
+const workflowRunning = (turn: Turn) => turn.blocks.some((b) => b.kind === "workflow" && b.workflow.status === "running");
 
 /** What a subagent was asked and did, read from its own transcript (or, without one, its task and result). */
 function agentView(
@@ -137,7 +148,7 @@ function agentView(
   const shots = turnScreenshots({ blocks: sub.turns.flatMap((t) => t.blocks) });
   if (sub.turns.length > 0) {
     sub.turns.forEach((t, i) => {
-      parts.push(`**${i === 0 ? "Task" : "Message"}**`, quote(t.prompt));
+      parts.push(`**${subagentPromptLabel(t, i)}**`, quote(t.prompt));
       const body = turnMarkdown(t, { tools: opts.tools, thinking: opts.thinking, agents: true, shots, shotHint: true });
       if (body) parts.push(body);
     });
@@ -511,6 +522,76 @@ export function continuationHeader(title: string, c: Continuation, width: number
   return [...previewHeader(title, width, { marker: blue("⤷ "), style: bold, details: continuationDetails(c) }).slice(0, -1), ...statsRows(stats), rule(width)];
 }
 
+/** "8 agents · 7 done · 1 failed": how a workflow's agents went, as its notification counts them. */
+export function agentCounts(a: NonNullable<TaskNotification["agents"]>): string {
+  return [
+    plural(a.count, "agent"),
+    ...(a.done !== undefined && a.done !== a.count ? [`${a.done} done`] : []),
+    ...(a.failed ? [`${a.failed} failed`] : []),
+    ...(a.skipped ? [`${a.skipped} skipped`] : []),
+  ].join(" · ");
+}
+
+/** Claude Code's note at the end of a result it cut: "... (truncated 80278 chars, full result in …)". */
+const TRUNCATED = /\n?\.\.\. \(truncated [^)]*\)\s*$/;
+
+/**
+ * A task's result for the full prompt: JSON (a workflow's, possibly cut by
+ * Claude Code) as a code block, the note about the cut below it; else Markdown.
+ */
+export function notificationResult(result: string): string {
+  const text = result.trim();
+  if (!/^[[{]/.test(text)) return text;
+  const cut = TRUNCATED.exec(text);
+  const json = cut ? text.slice(0, cut.index) : text;
+  return fence(indentJson(json), "json") + (cut ? `\n\n*${cut[0].trim().replace(/^\.\.\. \(|\)$/g, "").replace(/, full result in .*$/, "")}*` : "");
+}
+
+/**
+ * JSON spread over lines and indented by two per level, like `JSON.stringify(…, null, 2)`,
+ * but also for JSON cut off in the middle, which cannot be parsed.
+ */
+export function indentJson(json: string): string {
+  let out = "";
+  let depth = 0;
+  let inString = false;
+  const newline = () => "\n" + "  ".repeat(Math.max(0, depth));
+  for (let i = 0; i < json.length; i++) {
+    const c = json[i];
+    if (inString) {
+      out += c;
+      if (c === "\\") out += json[++i] ?? "";
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (/\s/.test(c)) continue;
+    if (c === '"') {
+      inString = true;
+      out += c;
+    } else if (c === "{" || c === "[") {
+      const close = c === "{" ? "}" : "]";
+      // An empty object or array stays on its line.
+      if (json.slice(i + 1).trimStart().startsWith(close)) {
+        out += c + close;
+        i = json.indexOf(close, i + 1);
+        continue;
+      }
+      depth++;
+      out += c + newline();
+    } else if (c === "}" || c === "]") {
+      depth--;
+      out += newline() + c;
+    } else if (c === ",") {
+      out += c + newline();
+    } else if (c === ":") {
+      out += ": ";
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
 /** The complete prompt, shown instead of the answer after Enter. */
 function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[]; lines: string[] } {
   if (turn.continuation) {
@@ -524,6 +605,7 @@ function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[];
   const usage = n
     ? [
         ...(n.durationMs !== undefined ? [formatMs(n.durationMs)] : []),
+        ...(n.agents ? [agentCounts(n.agents)] : []),
         ...(n.toolUses !== undefined ? [plural(n.toolUses, "tool use")] : []),
         ...(n.tokens !== undefined ? [formatTokens(n.tokens)] : []),
       ].join(" · ")
@@ -532,7 +614,8 @@ function fullPrompt(turn: Turn, width: number, cwd: string): { header: string[];
     ? [
         "",
         dim(`${n.status}${usage ? ` · ${usage}` : ""}`),
-        ...(n.result ? ["", ...renderMarkdown(n.result, width)] : []),
+        ...(n.result ? ["", ...renderMarkdown(notificationResult(n.result), width)] : []),
+        ...(n.outputFile && n.result && TRUNCATED.test(n.result) ? ["", dim("full result: ") + displayPath(n.outputFile, cwd)] : []),
       ]
     : [];
   return {
@@ -585,7 +668,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
     items: turns,
     text: (t) => ({
       list: t.prompt,
-      details: haystack([...(t.attachments ?? []).map(attachmentName), ...turnAgents(t, transcript.agents).map((a) => a.description)]),
+      details: haystack([...(t.attachments ?? []).map(attachmentName), ...turnAgents(t, transcript.agents, transcript.workflows).map((a) => a.description)]),
     }),
     deps: [version],
     selected,
@@ -602,9 +685,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const current = filter.none ? undefined : turns[Math.min(selected, Math.max(0, newest))];
   // Claude works on the last turn until it is done or interrupted.
   const isRunning = (t: Turn | undefined) => liveSession && t !== undefined && t === turns[newest] && !t.done && !t.interrupted;
-  const agentsOf = (t: Turn | undefined) => turnAgents(t, transcript.agents);
-  // Background agents keep running after their turn ended.
-  const agentsRunning = (t: Turn) => liveSession && !t.notification && agentsOf(t).some((a) => a.status === "running");
+  const agentsOf = (t: Turn | undefined) => turnAgents(t, transcript.agents, transcript.workflows);
+  // Background agents and workflows keep running after their turn ended.
+  const agentsRunning = (t: Turn) => liveSession && !t.notification && (agentsOf(t).some((a) => a.status === "running") || workflowRunning(t));
   const currentAgents = agentsOf(current);
   const agent = agentIndex !== undefined ? currentAgents[agentIndex] : undefined;
   const subagent = useSubagent(agent?.transcript ?? path, agent);

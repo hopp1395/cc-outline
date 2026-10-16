@@ -28,7 +28,7 @@ const LIST_EVERY = 3;
  * of `reload` reads it all again; the turns stay shown until then.
  */
 export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteTranscript {
-  const [state, setState] = useState<RemoteTranscript>({ turns: [], plans: [], agents: [], version: 0, pending: [], truncated: false });
+  const [state, setState] = useState<RemoteTranscript>({ turns: [], plans: [], agents: [], workflows: [], version: 0, pending: [], truncated: false });
   useEffect(() => {
     if (!id) return;
     const parser = new TranscriptParser({ dedupe: true });
@@ -51,6 +51,7 @@ export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteT
         plans: parser.plans.map((p) => ({ ...p })),
         planMode: parser.planMode && { ...parser.planMode },
         agents: [...parser.agents],
+        workflows: [...parser.workflows],
         title: session?.title ?? parser.title,
         color: parser.color,
         version: s.version + 1,

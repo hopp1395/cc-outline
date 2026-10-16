@@ -9,6 +9,7 @@ import {
   agentTitle,
   formatMs,
   formatTokens,
+  subagentPromptLabel,
   TranscriptParser,
   turnMarkdown,
   turnScreenshots,
@@ -19,7 +20,11 @@ import {
   type Plan,
   type Screenshot,
   type Turn,
+  type WorkflowRun,
+  workflowStatusLine,
+  workflowTitle,
 } from "../transcript/parse.js";
+import { readWorkflow } from "../transcript/workflows.js";
 import { formatCount, shortModel } from "../transcript/turnStats.js";
 import { lastActive, type SessionSummary } from "../transcript/sessions.js";
 import { subagentFile } from "../transcript/subagents.js";
@@ -52,7 +57,10 @@ export interface LoadedSession {
   transcripts: string[];
   turns: Turn[];
   plans: Plan[];
+  /** The subagents, those of the workflows after the others. */
   agents: AgentRun[];
+  /** The dynamic workflows, their agents read from their runs' folders. */
+  workflows: WorkflowRun[];
   title?: string;
 }
 
@@ -69,12 +77,25 @@ export function loadSession(s: SessionSummary): LoadedSession {
   for (const file of transcripts) {
     const turns = parser.turns.length;
     const agents = parser.agents.length;
+    const workflows = parser.workflows.length;
     parser.nextFile();
     parser.push(readFileSync(file, "utf8") + "\n");
     for (const t of parser.turns.slice(turns)) t.transcript ??= file;
     for (const a of parser.agents.slice(agents)) a.transcript ??= file;
+    for (const w of parser.workflows.slice(workflows)) w.transcript ??= file;
   }
-  return { summary: s, transcripts, turns: [...parser.turns], plans: parser.plans.map((p) => ({ ...p })), agents: [...parser.agents], title: parser.title };
+  for (const w of parser.workflows) readWorkflow(w.transcript ?? s.path, w);
+  // A resumed run's agents are its earlier run's: each once.
+  const workflowAgents = [...new Map(parser.workflows.flatMap((w) => w.agents).map((a) => [a.id, a])).values()];
+  return {
+    summary: s,
+    transcripts,
+    turns: [...parser.turns],
+    plans: parser.plans.map((p) => ({ ...p })),
+    agents: [...parser.agents, ...workflowAgents],
+    workflows: [...parser.workflows],
+    title: parser.title,
+  };
 }
 
 /** The conversation of a subagent, from its own transcript; undefined when that is gone. */
@@ -333,7 +354,7 @@ function attachmentLines(turn: Turn): string[] {
 function agentDocument(agent: AgentRun, turns: Turn[], opts: { tools: ToolLevel; thinking: boolean }): string {
   const parts = [`# ◆ ${escapeMd(agentTitle(agent))}`, escapeMd(agentStatusLine(agent))];
   turns.forEach((t, i) => {
-    parts.push(`## ${i === 0 ? "Task" : "Message"}`, quote(t.prompt));
+    parts.push(`## ${subagentPromptLabel(t, i)}`, quote(t.prompt));
     const body = boxesAsQuotes(turnMarkdown(t, { tools: opts.tools, thinking: opts.thinking, agents: true }));
     if (body) parts.push(body);
   });
@@ -370,7 +391,7 @@ export function sessionMarkdown(
     ...(llm
       ? []
       : ([
-          ["Contents", [plural(s.prompts.length, "prompt"), plural(s.plans.length, "plan"), plural(s.agents?.length ?? 0, "agent"), plural(s.files.length, "changed file")].join(" · ")],
+          ["Contents", [plural(s.prompts.length, "prompt"), plural(s.plans.length, "plan"), plural(s.agents?.length ?? 0, "agent"), ...(session.workflows.length ? [plural(session.workflows.length, "workflow")] : []), plural(s.files.length, "changed file")].join(" · ")],
           ["Resume", code(`claude --resume ${s.id}`)],
           ["Exported", `${localTime(now.toISOString())} with cco ${VERSION}`],
         ] as [string, string][])),
@@ -468,6 +489,23 @@ export function sessionMarkdown(
             ...(a.result ? [quote(`**Report**\n\n${a.result}`)] : []),
           ].join("\n\n"),
         );
+      } else if (b.kind === "workflow") {
+        flush();
+        if (opts.agents === "none") continue;
+        const w = b.workflow;
+        out.push(
+          [
+            [`**◇ ${escapeMd(workflowTitle(w))}**`, ...(w.description ? [`*${escapeMd(w.description)}*`] : []), escapeMd(workflowStatusLine(w))].join("  \n"),
+            ...w.agents.map((a) => {
+              const doc = agentDocs.get(a);
+              return [
+                `**◆ ${escapeMd(agentTitle(a))}**  \n${escapeMd(agentStatusLine(a))}`,
+                ...(doc ? [`[Whole conversation](${doc})`] : []),
+                ...(a.result ? [quote(`**Result**\n\n${a.result}`)] : []),
+              ].join("\n\n");
+            }),
+          ].join("\n\n"),
+        );
       } else {
         run.push(b);
       }
@@ -490,6 +528,13 @@ export function sessionMarkdown(
 }
 
 // --- JSON -------------------------------------------------------------------------------------
+
+/** An agent in the JSON document: without where it was read from, with its conversation's file when written. */
+function jsonAgent(agent: AgentRun, agentDocs: Map<AgentRun, string>): object {
+  const { transcript: _, file: _file, ...a } = agent;
+  const conversation = agentDocs.get(agent);
+  return conversation ? { ...a, conversation } : a;
+}
 
 /** Version of the JSON document's shape; raised when fields change their meaning. */
 export const JSON_SCHEMA_VERSION = 1;
@@ -517,6 +562,11 @@ function jsonBlock(
       if (opts.agents === "none") return [];
       const { transcript: _, ...agent } = b.agent;
       return [{ type: "agent", agent: { ...agent, ...(agentDocs.has(b.agent) ? { conversation: agentDocs.get(b.agent) } : {}) } }];
+    }
+    case "workflow": {
+      if (opts.agents === "none") return [];
+      const { transcript: _, dir: _dir, scriptPath: _script, agents, ...workflow } = b.workflow;
+      return [{ type: "workflow", workflow: { ...workflow, agents: agents.map((a) => jsonAgent(a, agentDocs)) } }];
     }
     case "tool": {
       if (opts.tools === "off" && b.name !== "AskUserQuestion") return [];
@@ -610,11 +660,7 @@ export function sessionJson(session: LoadedSession, opts: ExportOptions, images:
     plans: session.plans,
     ...(opts.agents !== "none"
       ? {
-          agents: session.agents.map((agent) => {
-            const { transcript: _, ...a } = agent;
-            const conversation = agentDocs.get(agent);
-            return conversation ? { ...a, conversation } : a;
-          }),
+          agents: session.agents.map((agent) => jsonAgent(agent, agentDocs)),
         }
       : {}),
   };

@@ -9,11 +9,13 @@ export function subagentDir(transcript: string): string {
 }
 
 /**
- * The transcript of `agent`, `agent-<agentId>.jsonl`. The agentId is known
+ * The transcript of `agent`, `agent-<agentId>.jsonl` (a workflow's in its run's folder, `file`). The agentId is known
  * once the Agent call returned; before that (a foreground agent still
  * working), the `.meta.json` next to each transcript names the tool call.
  */
 export function subagentFile(transcript: string, agent: AgentRun): string | undefined {
+  // A workflow's agent: found in its run's folder.
+  if (agent.file) return existsSync(agent.file) ? agent.file : undefined;
   const dir = subagentDir(transcript);
   if (agent.agentId) {
     const file = join(dir, `agent-${agent.agentId}.jsonl`);
