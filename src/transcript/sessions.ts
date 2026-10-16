@@ -20,6 +20,8 @@ export interface SessionSummary {
   files: string[];
   /** Subagents Claude started; missing in summaries stored before they were recorded (trash manifests). */
   agents?: SessionAgent[];
+  /** Dynamic workflows Claude started; missing in summaries stored before they were recorded. */
+  workflows?: SessionWorkflow[];
   /**
    * What came with the prompts and what tools returned, oldest first: pasted
    * images, @-mentions (one per path), images and PDFs of tool results; no
@@ -81,6 +83,21 @@ export interface SessionAgent {
   status: AgentStatus;
   started?: string;
   durationMs?: number;
+}
+
+/** A workflow as its launch and its notification tell it; its agents are counted, not read. */
+export interface SessionWorkflow {
+  /** The Workflow tool call id. */
+  id: string;
+  name?: string;
+  description?: string;
+  status: AgentStatus;
+  runId?: string;
+  resumeOf?: string;
+  started?: string;
+  durationMs?: number;
+  agents?: number;
+  tokens?: number;
 }
 
 /** Tools whose input names a file Claude changed. */
@@ -250,6 +267,18 @@ export class SessionReader {
         started,
         durationMs,
       })),
+      workflows: this.parser.workflows.map(({ id, name, description, status, runId, resumeOf, started, durationMs, agentCount, tokens }) => ({
+        id,
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        status,
+        ...(runId !== undefined && { runId }),
+        ...(resumeOf !== undefined && { resumeOf }),
+        ...(started !== undefined && { started }),
+        ...(durationMs !== undefined && { durationMs }),
+        ...(agentCount !== undefined && { agents: agentCount }),
+        ...(tokens !== undefined && { tokens }),
+      })),
       branch: this.branch,
       cwd: this.cwd,
       start: this.start,
@@ -349,6 +378,7 @@ function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionS
     plans: [...earlier.plans, ...later.plans.filter((p) => !plans.has(p.id))],
     files: [...new Set([...earlier.files, ...later.files])],
     agents: [...(earlier.agents ?? []), ...(later.agents ?? []).filter((a) => !agents.has(agentKey(a)))],
+    workflows: [...(earlier.workflows ?? []), ...(later.workflows ?? []).filter((w) => !(earlier.workflows ?? []).some((e) => e.id === w.id))],
     attachments: mergeAttachments(earlier.attachments, later.attachments),
     branch: later.branch ?? earlier.branch,
     cwd: earlier.cwd ?? later.cwd,

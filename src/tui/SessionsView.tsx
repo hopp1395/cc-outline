@@ -197,6 +197,8 @@ const REMOTE_MARK = "◈";
 const VIEWED_MARK = "◎";
 /** How many images and PDFs a session has, in its row: "▣3". */
 const MEDIA_MARK = "▣";
+/** How many dynamic workflows Claude started in a session, in its row: "◇2"; one without a count. */
+const WORKFLOW_MARK = "◇";
 const CONNECTED_MARK = "⇄";
 
 /** The header's line about a remote session: what claude.ai says of it, and what could not be shown. */
@@ -253,7 +255,7 @@ function attachmentLine(a: AttachmentItem, cwd: string, width: number): string {
 }
 
 /**
- * Transcript, plans, attachments, agents, changed files and prompts of a
+ * Transcript, plans, workflows, attachments, agents, changed files and prompts of a
  * session, as lines of `width` columns. `rows`, if given, gets the line of
  * each attachment (line index → index in `s.attachments`), for clicks.
  */
@@ -283,6 +285,20 @@ export function sessionLines(
     s.plans.length,
     timed(s.plans, (p) => p.timestamp, (p) => `  ${STATUS_ICON[p.status]} ${dim(time(p.timestamp))} ${truncate(planTitle(p.text), width - 10)}`),
   );
+  const workflows = s.workflows ?? [];
+  if (workflows.length > 0) {
+    section(
+      "Workflows",
+      workflows.length,
+      timed(workflows, (w) => w.started, (w) => {
+        const name = w.resumeOf ? `${w.name ?? "workflow"} ↻` : (w.name ?? "workflow");
+        const facts = [...(w.agents !== undefined ? [plural(w.agents, "agent")] : []), ...(w.durationMs !== undefined ? [formatMs(w.durationMs)] : [])].join(" · ");
+        // Cut as plain text; what follows the name is dimmed.
+        const text = truncate([name, ...(facts ? [facts] : []), ...(w.description ? [w.description] : [])].join(" · "), width - 10);
+        return `  ${AGENT_ICON[w.status]} ${dim(time(w.started))} ${text.slice(0, name.length)}${dim(text.slice(name.length))}`;
+      }),
+    );
+  }
   const attachments = s.attachments ?? [];
   if (attachments.length > 0) {
     const rendered = attachments.map((a) => attachmentLine(a, cwd, width));
@@ -361,6 +377,7 @@ function sessionHeader(
     plural(s.remote && !s.remote.loaded ? (s.remote.userMessages ?? 0) : s.prompts.length, "prompt"),
     plural(s.plans.length, "plan"),
     ...(s.agents?.length ? [plural(s.agents.length, "agent")] : []),
+    ...(s.workflows?.length ? [plural(s.workflows.length, "workflow")] : []),
     plural(s.files.length, "changed file"),
   ];
   const last =
@@ -631,6 +648,7 @@ function sessionText(s: SessionSummary, gone: boolean, email?: string, backgroun
       ...(s.attachments ?? []).map((a) => (a.kind === "file" || a.kind === "directory" ? a.path : a.kind === "pasted" ? `[Image #${a.n}]` : a.label)),
       ...s.plans.map((p) => planTitle(p.text)),
       ...(s.agents ?? []).map((a) => a.description),
+      ...(s.workflows ?? []).flatMap((w) => [w.name ?? "workflow", ...(w.description ? [w.description] : [])]),
     ]),
   };
 }
@@ -1535,6 +1553,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
               // Images and PDFs that came with its prompts or from its tools.
               const media = mediaOf(s);
               const mediaMark = media > 0 ? `${MEDIA_MARK}${media} ` : "";
+              // Dynamic workflows Claude started there.
+              const flows = s.workflows?.length ?? 0;
+              const workflowMark = flows > 0 ? `${WORKFLOW_MARK}${flows > 1 ? flows : ""} ` : "";
               // A /rename title is bright, a first prompt standing in for it dim and quoted.
               // The quotes go around the cut text, so the closing one is never cut off.
               const quoted = titleIsPrompt(s);
@@ -1559,6 +1580,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
                   {/* Open in windows of their own (◎, ◎2). */}
                   {viewedCount(s) > 0 && <Text color="blue">{`${VIEWED_MARK}${viewedCount(s) > 1 ? viewedCount(s) : ""} `}</Text>}
                   {mediaMark && <Text color="cyan">{mediaMark}</Text>}
+                  {workflowMark && <Text color="magenta">{workflowMark}</Text>}
                   {/* Ran in the background: before the project name. */}
                   {background && <Text dimColor={!isSelected}>{`${BACKGROUND_MARK} `}</Text>}
                   {all &&

@@ -330,11 +330,14 @@ function questionTexts(input: unknown): string[] {
 
 /**
  * A tool call as the chat shows it at `level`. "off" shows only questions,
- * framed (browser calls are framed by `turnMarkdown`); with the other levels
+ * framed (browser calls are framed by `turnMarkdown`), and a workflow agent's
+ * structured result; with the other levels
  * they are a tool call like the rest. `shots` numbers a browser call's
  * screenshots among the turn's; `hint` adds the key that lists them.
  */
 export function toolMarkdown(name: string, input: unknown, outcome: ToolOutcome | undefined, level: ToolLevel, cwd?: string, shots?: number[], hint = false): string {
+  // A workflow agent hands its result to the script this way: its answer, at every level.
+  if (name === "StructuredOutput") return `**Result**\n\n${fence(JSON.stringify(input ?? null, null, 2), "json")}`;
   if (level === "off") {
     if (name === "AskUserQuestion") return questionMarkdown(input, outcome);
     // Images and PDFs a tool returned still show, as a short line with their marks.

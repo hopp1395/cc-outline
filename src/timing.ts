@@ -19,4 +19,6 @@ export const TIMING = {
   tailStat: 1000,
   /** How often a remote viewer asks claude.ai for the session's new events. */
   remotePoll: 1000,
+  /** How often the chat reads the folders of a running workflow for its agents. */
+  workflowPoll: 1000,
 };

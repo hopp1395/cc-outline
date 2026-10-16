@@ -119,8 +119,11 @@ export class ResponseReader {
   }
 }
 
-/** Subagent transcripts of the sessions next to `sessionFiles` (`<session>/subagents/agent-*.jsonl`). */
-function subagentFiles(sessionFiles: string[]): string[] {
+/**
+ * Subagent transcripts of the sessions next to `sessionFiles`: `<session>/subagents/agent-*.jsonl`,
+ * and a workflow's agents' in `<session>/subagents/workflows/<runId>/` (not its `journal.jsonl`).
+ */
+export function subagentFiles(sessionFiles: string[]): string[] {
   const dirs = new Set(sessionFiles.map((f) => dirname(f)));
   const found: string[] = [];
   for (const dir of dirs) {
@@ -136,6 +139,20 @@ function subagentFiles(sessionFiles: string[]): string[] {
         for (const name of readdirSync(sub)) if (name.endsWith(".jsonl")) found.push(join(sub, name));
       } catch {
         // No subagents in this session.
+        continue;
+      }
+      let runs: string[] = [];
+      try {
+        runs = readdirSync(join(sub, "workflows"));
+      } catch {
+        // No workflows in this session.
+      }
+      for (const run of runs) {
+        try {
+          for (const name of readdirSync(join(sub, "workflows", run))) if (/^agent-.+\.jsonl$/.test(name)) found.push(join(sub, "workflows", run, name));
+        } catch {
+          // Not a run's folder.
+        }
       }
     }
   }
