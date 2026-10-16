@@ -11,11 +11,12 @@ import type { RcViewerState } from "./state.js";
  * - `answer`: answer what a remote session's Claude waits for, in the prompt line's place.
  * - `prompt`: write a prompt in the line below the chat.
  * - `interrupt`: stop Claude, like Esc in its terminal.
+ * - `steer`: make an idle session of this machine steerable here: `/remote-control` typed into its Claude Code.
  * - `window`: continue an ended session of this machine in a new Claude Code window.
  * - `viewer`/`viewer-front`: a session viewer of it, as in Sessions.
  * - `copy`: copy the command that continues it, or a remote one's address.
  */
-export type RcViewerAction = "switch" | "answer" | "prompt" | "interrupt" | "window" | "viewer" | "viewer-front" | "copy";
+export type RcViewerAction = "switch" | "answer" | "prompt" | "interrupt" | "steer" | "window" | "viewer" | "viewer-front" | "copy";
 
 /** Where the selected session stands, as far as the Remote Control Viewer's Enter dialog cares. */
 export interface RcViewerSituation {
@@ -29,6 +30,11 @@ export interface RcViewerSituation {
    * (setting steer remote), and what it waits for, read from there.
    */
   bridge?: { control: boolean; pending?: PendingRequest };
+  /**
+   * An idle session of this machine not connected to claude.ai, with remote API and steer remote on: it can be made
+   * steerable here by typing `/remote-control` into it.
+   */
+  canSteer?: boolean;
   /** What a waiting session of this machine asks, as its hooks recorded it, in one line. */
   asked?: string;
   /** Why a prompt cannot be typed into its Claude Code (`localBlocked`); undefined when it can. */
@@ -95,6 +101,13 @@ export function rcViewerOptions(s: RcViewerSituation): { options: ChoiceOption<R
       disabled: s.promptBlocked,
     });
     if (working) options.push({ id: "interrupt", label: "Interrupt Claude", detail: through ? `stops what Claude does, ${through}` : "Esc, typed into its Claude Code", disabled: s.promptBlocked });
+    if (s.canSteer && s.state === "idle")
+      options.push({
+        id: "steer",
+        label: "Make it steerable (Remote Control)",
+        detail: "types /remote-control into its Claude Code; the first time, it asks once there",
+        disabled: s.promptBlocked,
+      });
     preferred = s.state === "idle" ? ["prompt", "switch"] : answers ? ["answer", "switch"] : ["switch", "prompt"];
   }
   options.push(...viewerOptions(s.viewers, s.terminal));

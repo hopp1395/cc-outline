@@ -337,6 +337,15 @@ describe("the Remote Control Viewer's Enter dialog", () => {
     return options[initial]!.id;
   };
 
+  it("offers to make an idle session of this machine steerable, without selecting it", () => {
+    expect(ids({ ...base, canSteer: true })).toEqual(["switch", "prompt", "steer", "viewer", "copy"]);
+    expect(first({ ...base, canSteer: true })).toBe("prompt");
+    // Only while it is idle, and only where it can be typed into.
+    expect(ids({ ...base, state: "busy", canSteer: true })).not.toContain("steer");
+    const blocked = rcViewerOptions({ ...base, canSteer: true, promptBlocked: "no tmux: cco cannot type into it" });
+    expect(blocked.options.find((o) => o.id === "steer")?.disabled).toBe("no tmux: cco cannot type into it");
+  });
+
   it("offers a session of this machine its terminal, a prompt and, while Claude works, stopping it", () => {
     expect(ids(base)).toEqual(["switch", "prompt", "viewer", "copy"]);
     expect(first(base)).toBe("prompt");
@@ -438,6 +447,23 @@ describe("the Remote Control Viewer's prompt line", () => {
     // The list sorts by the last write: the newer one on top.
     utimesSync(file, new Date(ts), new Date(ts));
   }
+
+  it("types /remote-control into an idle session to make it steerable", async () => {
+    updateSettings({ remoteApi: true, remoteControl: true });
+    idleSession("s-a", "first work", 5, process.pid);
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("answer of first work"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Make it steerable (Remote Control)"));
+    await view.press("3");
+    await expect.poll(() => sent.length, { timeout: 3000 }).toBe(2);
+    expect(sent).toEqual([
+      { pane: "%1", keys: ["-l", "/remote-control"] },
+      { pane: "%1", keys: ["Enter"] },
+    ]);
+    view.unmount();
+    updateSettings({ remoteApi: false, remoteControl: false });
+  });
 
   it("asks what to do on Enter, sends to the selected session and keeps each one's draft", async () => {
     idleSession("s-a", "first work", 5, process.pid);

@@ -398,6 +398,7 @@ It has three columns. **Left**, the sessions that run now or were written today,
 - *Bring its terminal to the front*: the Windows Terminal tab or tmux pane its Claude Code runs in (not for a background session, which has none: `claude attach <id>`). Selected while Claude waits there for an answer or works, so a slip of `Enter` stops nothing.
 - *Write a prompt*: the keys go to the prompt line below the chat (selected for an idle session).
 - *Interrupt Claude*: while it works, like `Esc` in its terminal.
+- *Make it steerable (Remote Control)*: an idle session of this machine not yet connected to claude.ai, with *Sessions: remote API* and *steer remote* on: `/remote-control` is typed into its Claude Code (the first time, Claude Code asks once there), and once claude.ai lists it, it gets the `⇄` and its questions are answered here. Claude Code's own setting *Enable Remote Control for all sessions* (`/config`) does this for every new session.
 - *Answer Claude's question* / *Allow or deny …*: a remote session that waits; the question or permission takes the prompt line's place (selected).
 - *Continue it in a new Claude Code window*: an ended session (selected).
 - *Open it in a session viewer*, *Copy the command* (a remote session's address).

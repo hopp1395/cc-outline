@@ -245,6 +245,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       running: e.running,
       bridge: e === entry && bridge ? { control: remoteControl, pending } : undefined,
       asked: e === entry && asked ? localRequestSummary(asked, 52) : undefined,
+      canSteer: !s.remote && !s.account && !(e === entry && bridge) && remoteApi && remoteControl,
       promptBlocked: s.remote ? undefined : channel.blocked,
       folderMissing: !s.remote && !existsSync(dir),
       terminal: detectTerminal() !== undefined,
@@ -278,6 +279,12 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         return compose();
       case "interrupt":
         return void report("interrupt sent")(channel.interrupt());
+      case "steer":
+        // A slash command for Claude Code, typed in like a prompt; once connected, claude.ai lists it and ⇄ shows.
+        return void localChannel.send("/remote-control").then(
+          () => notify("typed /remote-control: ⇄ shows once it is connected"),
+          (err: Error) => notify(`not typed: ${err.message}`),
+        );
       case "window":
         return notify(resumeInNewWindow(s.id, s.cwd ?? process.cwd(), truncate(sessionTitle(s), 30), "new", s.account));
       case "viewer": {
