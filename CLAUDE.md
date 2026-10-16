@@ -17,6 +17,7 @@ npx vitest run test/git.test.ts            # one file
 npx vitest run -t "breaks after slashes"   # one test by name
 npm link             # expose `cco` globally; it runs dist/, so rebuild after changes
 npm run demo         # re-record the README images in docs/ (headless run on demo/fixture.mjs; the GIF needs Chrome)
+npm run demo:rc-viewer # re-record docs/rc-viewer.gif (demo/record-rc-viewer.mjs: sessions of this machine standing in with idling node processes, Remote Control sessions from a claude.ai faked in the script; frames as text in demo/.out/rc-viewer.txt)
 npm run demo:accounts  # re-record docs/accounts.gif (demo/record-accounts.mjs: three accounts, createAccounts; frames as text in demo/.out/accounts.txt)
 claude --plugin-dir ./plugin               # load the plugin (hooks + commands) for one session
 claude plugin marketplace update cc-outline && claude plugin update cco@cc-outline   # refresh the installed plugin

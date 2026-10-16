@@ -15,11 +15,13 @@
 - **Accounts** (`0`, or a click on the "cco" at the left of the top bar) lists the Claude accounts on this machine (config folders `~/.claude*`) with their details: organization, plan, colour, whether the cco plugin runs there, the Claude Codes running with them and their sessions of this project. `Enter` on an account offers to continue the current session there, to start a new session there, or to open its config folder. It also sets up a new account (config folder, start script, cco plugin) and moves one you no longer need to a trash. See [Sessions and accounts](#sessions-and-accounts).
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
+Besides the pane, the **Remote Control Viewer** (`cco rc-viewer` or `/cco:rc-viewer`) is a window of its own that watches every session at once: of every project and account on this machine, and the Remote Control sessions on other machines. It shows which ones wait for you, lets you answer them and sends them prompts. See [Every session in one window](#every-session-in-one-window).
+
 ![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
 ## Why
 
-Working with Claude Code in the terminal has six blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
+Working with Claude Code in the terminal has seven blind spots. cc-outline fills them without leaving the terminal and without interrupting Claude.
 
 ### 1. Answers are hard to read and quickly gone
 
@@ -57,6 +59,12 @@ Working with Claude Code in the terminal has six blind spots. cc-outline fills t
 
 **How cc-outline solves it.** `Enter` on the session in the Sessions view, then *Continue it in <email>…*; `/cco:account <email>` does the same from Claude Code, and so does the Accounts view. The session stays as it is, running or not, and so does its viewer. Where the other account lacks the cco plugin, it is installed first. cco then copies the conversation into the other account, with its predecessors from before a `/compact`, its subagents, file history, pasted images and cco's own marks and positions; the original stays as it is. The copy starts in a new window under the other account, which opens a viewer of its own there (as the *auto open* setting says): its colour and email show the new account. Claude has the whole history and goes on where the limit stopped it. In the Sessions view the original is marked `⇢` and the copy `⇠`, so you can tell where the work went. Once the first account is free again, the session comes back the same way.
 
+### 7. Sessions on several machines are hard to keep an eye on
+
+**The problem.** With Claude working in several sessions at once, in a few terminals here and on another machine, you keep checking each one: is it done, does it wait for an answer, did it stop at a permission? Every Claude Code shows only its own session. The ones on another machine are out of sight, unless you open each in the Claude app or on claude.ai, one at a time, with no overview of what waits for you. A question that waits unseen holds up the work for as long as it waits.
+
+**How cc-outline solves it.** The Remote Control Viewer (`cco rc-viewer`) is one window for all of them: every session of this machine, of every project and account, and the Remote Control sessions of your other machines, grouped by what they need (*Waiting*, *Working*, *Idle*, *Ended*). A session that waits for you blinks, and so does one that has just finished; `n` jumps to the next of them. Beside the list it shows the selected session's turns and chat, live. Its question or permission shows in the prompt line's place: for a session on another machine, or one of this machine connected with Remote Control (`⇄`), you answer it right there, otherwise `Enter` brings its terminal to the front. The prompt line below sends any of them a prompt, and `Enter` offers what fits: interrupt it, continue an ended one, make a session steerable with `/remote-control`.
+
 ### In daily work
 
 - **Review while Claude works.** Keep the approved plan in the Plan view and check the resulting diff in the Changes view, both next to the running session.
@@ -80,6 +88,20 @@ cc-outline manages your sessions and your Claude accounts from the pane next to 
 - **Accounts at a glance.** The Accounts view (`0`, or a click on the "cco" at the left of the top bar) lists the accounts found (`~/.claude*`), the active one first, with organization, plan, colour, the cco plugin, the Claude Codes running with each and its sessions of this project. `Enter` starts a new session in an account or opens its folder. See the [Accounts view](#accounts-view).
 - **Add an account.** *How to add an account* explains the setup and does it with `Enter`: config folder, start scripts next to `claude` (`cw.cmd` and `cw`), cco plugin, and a window to sign in with `/login`. Names that a shell would run something else for are refused (PowerShell aliases such as `cp` or `sc`, built-ins of cmd and Bash, programs on the PATH).
 - **Clean up.** Sessions go to a trash with `d` (`T` shows it, `u` restores). Accounts too: `d` on an account, or the menu's *Danger zone*, moves its folder and start scripts to the accounts trash after asking twice (the second time with the folder's name typed in). The default `~/.claude`, the active account and accounts in use are refused.
+
+## Every session in one window
+
+![cc-outline Remote Control Viewer: the sessions of this machine and of another one grouped by what they need, a question waiting in the prompt line's place, a permission of a Remote Control session allowed from the viewer, a session that has just finished blinking, the Enter dialog, and a prompt sent to a session on the other machine](docs/rc-viewer.gif)
+
+The Remote Control Viewer (`cco rc-viewer`, `/cco:rc-viewer`, or the row `⊞ Remote Control Viewer` above the Sessions list) is a window of its own, one per machine, for keeping an eye on everything Claude does:
+
+- **One list for every session.** The sessions of every project and account on this machine and, with *Sessions: remote API*, the Remote Control sessions of your other machines (`◈`), grouped by what they need: *Waiting*, *Working*, *Idle*, *Ended*. Each row tells how long it has been so.
+- **See what waits for you.** A waiting session's `⚠` blinks, here and in the Sessions view; one that has just finished blinks its `●` until you have looked at it. `n` goes to the next of them, the one waiting longest first.
+- **Answer from here.** What it waits for shows in the prompt line's place, the question with its options or the tool with its command. A session on another machine, or one of this machine connected with Remote Control (`⇄`, *Sessions: steer remote* on), is answered right there; any other is answered in its terminal, which `Enter` brings to the front.
+- **Send prompts.** `Space` or a click gives the prompt line the keys; it writes to the selected session, into its Claude Code or through claude.ai, and keeps a draft per session.
+- **Act on it.** `Enter` offers what fits the session: bring its terminal to the front, interrupt Claude, continue an ended one in a new window, make an idle one steerable (`/remote-control` typed in), open a session viewer, copy the resume command.
+
+See [Remote Control Viewer](#remote-control-viewer) for the details.
 
 ## Small screens
 
@@ -632,6 +654,7 @@ npm test            # vitest
 npm run typecheck
 npm run demo        # re-record docs/demo.gif, chat.svg, changes.svg, plan.svg, sessions.svg and monitor.svg
 npm run demo:compact # re-record docs/compact.gif (the compact view in a narrow pane)
+npm run demo:rc-viewer # re-record docs/rc-viewer.gif (the Remote Control Viewer)
 ```
 
 The demo runs the viewer headlessly on a made-up project with a few older sessions, also of a second project, and a month of responses for the Monitor (`demo/fixture.mjs`), plays a key script and writes the screens as SVG stills and an animated GIF (rendered with headless Chrome; set `CHROME` if it is not found). The Claude Code pane in it is a simplified stand-in (`demo/claude-mock.mjs`). `demo/social-preview.html` turns `docs/chat.svg` into the 1280×640 image GitHub shows when the repository is shared (`docs/social-preview.png`).
