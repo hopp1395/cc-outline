@@ -385,6 +385,16 @@ Every dialog about a session starts with the same head: its title; time span, pr
 
 The dialog lists what was imported and skipped. Afterwards `claude --resume <id>` continues an imported session. `CCO_EXPORT_DIR` sets another folder than Downloads for both.
 
+## Keeper
+
+The Sessions view opens it: its list always starts with the row `⊞ open the keeper…` (`⊞ bring the keeper to the front` while one runs, with `· ⚠2 waiting` while sessions of any account wait for you); a click on it, or `↑` from the top of the list and `Enter`, opens the keeper in a window of its own (Windows Terminal or tmux; without them it copies `cco keeper`), or brings the one that runs to the front; `k` does the same from anywhere in the list. `Enter` on a session offers *Watch it in the keeper* last, which selects it there (for the sessions the keeper lists: running, or active today). `/cco:keeper` does the same for the session of the Claude Code it is typed in. `cco keeper` opens it in the terminal it is run in. It is one window that watches every session of this machine, of every project and every account, and (with the setting *Sessions: remote API*) the Remote Control sessions on claude.ai. It runs once per machine; a second start says so and exits.
+
+It has three columns. **Left**, the sessions that run now or were written today, grouped by what they need, under a line each: *Waiting* (a yellow `⚠`: Claude waits for a permission or an answer, the one waiting longest on top), *Working* (a green `●` that blinks), *Idle* (`●`: Claude waits for the next prompt) and *Ended* (a dim `∅`: no Claude Code runs it any more). A remote session has a cyan `◈` instead of the `●`. Each row shows the session's name (`/rename`, else its first prompt) and project, and at its end how long it has been in its state (`3m`); with other accounts, it starts with the account's colour. **Middle**, the turns of the selected session, as in the Chat view. **Right**, the chat of the selected turn, live while Claude works.
+
+`←` and `→` move the keys between the columns; the help line names the column that has them (`←→ sessions`). In the sessions `↑`/`↓` select, `Enter` goes to the turns; in the turns `↑`/`↓` select as in the Chat view; in the chat `↑`/`↓` scroll it. `n` selects the next session waiting for you. `<`, `>` and `|` change the width of the list of the column with the keys (the sessions, else the turns), stored in the settings *Keeper: sessions width* and *turns width*. A click puts the keys in the column under it. `1` and `2` (or `Tab`) switch between the keeper and its own settings, kept in `~/.claude/cco/settings.keeper.json` like a session viewer's (the first start takes the project's viewer's values). The window's title counts the sessions waiting (`⚠2 cco keeper`).
+
+What a session of this machine does comes from the status Claude Code writes to `~/.claude/sessions/` (version 2.1.283 on; before it, a running session counts as idle). Which permission or question it waits for is not written anywhere a viewer can read, so the keeper only says that it waits.
+
 ## Monitor view
 
 The Monitor view (`5`, or `/cco:monitor`) shows how Claude Code answered over a day, from the transcripts of all projects, subagents and the agents of workflows included.

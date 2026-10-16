@@ -18,7 +18,7 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `folder`: open the folder it ran in, in the file manager.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "viewer" | "viewer-front" | "folder" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "viewer" | "viewer-front" | "keeper" | "folder" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -71,6 +71,8 @@ export interface SessionSituation {
   terminal: boolean;
   /** How many viewers of it run in windows of their own (◎). */
   viewers?: number;
+  /** The keeper (`cco keeper`): whether it runs, and whether it lists the session (running, or active today). */
+  keeper?: { runs: boolean; listed: boolean };
   /** The folder it ran in, as `folder` names it (`~` for the home folder). */
   folder: string;
   /** The command `copy` copies. */
@@ -178,6 +180,8 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
     { id: "import", label: "Import sessions…", detail: `from a cco-session-export zip${into}`, disabled: own },
     copy,
   );
+  // Last, so the numbers of the others stay: the keeper, which shows every session.
+  if (s.keeper) options.push(keeperOption(s.keeper, s.terminal));
   // When nothing else can be chosen (folder gone, another account's without a terminal), viewing it can.
   const first = [...preferred, "viewer"].map((id) => options.findIndex((o) => o.id === id && !o.disabled)).find((i) => i >= 0);
   return { options, initial: first ?? options.indexOf(copy) };
@@ -214,6 +218,19 @@ export function viewerOptions(viewers: number, terminal: boolean, remote?: { con
   ];
 }
 
+/**
+ * The keeper (`cco keeper`) with the session selected: opened in its window, or the one that runs brought to the
+ * front. It lists the sessions that run and those active today only.
+ */
+export function keeperOption(keeper: { runs: boolean; listed: boolean }, terminal: boolean): ChoiceOption<"keeper"> {
+  return {
+    id: "keeper",
+    label: "Watch it in the keeper",
+    detail: !terminal && !keeper.runs ? "no Windows Terminal or tmux: copies cco keeper" : keeper.runs ? "the keeper comes to the front with it selected" : "opens the keeper, a window with every session, with it selected",
+    disabled: keeper.listed ? undefined : "the keeper lists the sessions that run and those of today",
+  };
+}
+
 /** What the help line says Enter does: the action selected at first, or for the viewer's own session that it can detach. */
 export function enterLabel(s: SessionSituation): string {
   if (s.state === "current") return "↵ detach…";
@@ -233,6 +250,7 @@ export function enterLabel(s: SessionSituation): string {
     account: "other account",
     viewer: "session viewer",
     "viewer-front": "viewer to front",
+    keeper: "keeper",
     folder: "open folder",
     copy: "copy",
   };

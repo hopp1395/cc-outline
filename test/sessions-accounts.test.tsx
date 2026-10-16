@@ -88,8 +88,8 @@ describe("Sessions with the other accounts", () => {
     // Every row gets a bar, the own sessions too; the newest, the other account's, is selected and named in the header.
     expect(view.frame().split("\n").filter((l) => l.includes("▌ ")).length).toBeGreaterThanOrEqual(3);
     expect(view.frame()).toContain("jan@work.com (Org)");
-    // The selected row (the newest, at the top) keeps its bar: drawn before the selection, outside its style.
-    expect(view.frame().split("\n")[1]).toMatch(/^▌ \d\d:\d\d „work there“/);
+    // The selected row (the newest, at the top below the keeper's row) keeps its bar: drawn before the selection, outside its style.
+    expect(view.frame().split("\n")[2]).toMatch(/^▌ \d\d:\d\d „work there“/);
     expect(view.frame()).toContain("cco plugin ✗ not installed");
     expect(view.frame()).toContain("a filter");
     // The own account unchecked: only the other's sessions.
@@ -121,8 +121,8 @@ describe("Sessions with the other accounts", () => {
     const view = render(state);
     await until(() => view.frame().includes("work there") && view.frame().includes("work here"));
     const lines = view.frame().split("\n");
-    expect(lines.find((l) => l.includes("work there"))).toMatch(/^ 👾👾  \d\d:\d\d/);
-    expect(lines.find((l) => l.includes("work here"))).toMatch(/^ 🦊    \d\d:\d\d/);
+    expect(lines.find((l) => l.includes("work there") && !l.includes("keeper"))).toMatch(/^ 👾👾  \d\d:\d\d/);
+    expect(lines.find((l) => l.includes("work here") && !l.includes("keeper"))).toMatch(/^ 🦊    \d\d:\d\d/);
     view.unmount();
   });
 

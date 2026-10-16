@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listEvents, listSessions, type RemoteEvent, type RemoteSession } from "../remote/api.js";
 import { describeRemoteError } from "../remote/index.js";
 import { pendingRequests, type PendingRequest } from "../remote/pending.js";
@@ -19,6 +19,8 @@ export interface RemoteTranscript extends Transcript {
   truncated: boolean;
 }
 
+const EMPTY: RemoteTranscript = { turns: [], plans: [], agents: [], workflows: [], version: 0, pending: [], truncated: false };
+
 /** How often the list (title, status) is read, in polls of the events. */
 const LIST_EVERY = 3;
 
@@ -28,8 +30,14 @@ const LIST_EVERY = 3;
  * of `reload` reads it all again; the turns stay shown until then.
  */
 export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteTranscript {
-  const [state, setState] = useState<RemoteTranscript>({ turns: [], plans: [], agents: [], workflows: [], version: 0, pending: [], truncated: false });
+  const [state, setState] = useState<RemoteTranscript>(EMPTY);
+  // Another session (the keeper switches between them) starts empty; a reload keeps the turns until it has read.
+  const shownId = useRef(id);
   useEffect(() => {
+    if (id !== shownId.current) {
+      shownId.current = id;
+      setState((s) => ({ ...EMPTY, version: s.version + 1 }));
+    }
     if (!id) return;
     const parser = new TranscriptParser({ dedupe: true });
     const events: RemoteEvent[] = [];

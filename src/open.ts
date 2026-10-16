@@ -1,4 +1,5 @@
 import { proc } from "./proc.js";
+import { requestKeeperSelect, type KeeperSelect } from "./keeper/registry.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -138,6 +139,38 @@ export function openSessionViewer(target: ViewerTarget, title: string, window: s
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", window, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
     return "opened in a new tmux window";
+  }
+  return undefined;
+}
+
+/** The window cco opens the keeper in (`cco keeper`), one per machine. */
+export const KEEPER_WINDOW = "cco-keeper";
+
+/**
+ * Opens the keeper (`cco keeper`) in a window of its own (`KEEPER_WINDOW`), or brings the one that runs (`running`,
+ * its window) to the front. Returns what happened, or undefined without Windows Terminal or tmux (then `cco keeper`
+ * by hand is the way).
+ */
+export function openKeeper(running?: { pid: number; window?: string }, select?: KeeperSelect): string | undefined {
+  const terminal = detectTerminal();
+  if (running) {
+    // It selects the session as soon as it reads the request, also where its window cannot be raised.
+    if (select) requestKeeperSelect(select);
+    if (running.window && terminal && focusSessionViewer(running.window)) return "brought the keeper to the front";
+    return `the keeper runs already (pid ${running.pid}), in a terminal of its own`;
+  }
+  const chosen = !select ? [] : select.remote ? ["--select-remote", select.id] : ["--select", select.id, ...(select.configDir ? ["--select-dir", select.configDir] : [])];
+  const args = [process.execPath, CLI, "keeper", "--config-dir", claudeDir(), "--window", KEEPER_WINDOW, ...chosen];
+  // It watches every session; claude's variables must not make it a part of the Claude Code it was opened from.
+  const env = independentEnv();
+  if (terminal === "wt") {
+    // No windowsHide, see resumeInNewWindow.
+    proc.spawn("wt", ["-w", KEEPER_WINDOW, "new-tab", "--title", "cco keeper", ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
+    return "opened the keeper in a new window";
+  }
+  if (terminal === "tmux") {
+    proc.spawn("tmux", ["new-window", "-n", KEEPER_WINDOW, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
+    return "opened the keeper in a new tmux window";
   }
   return undefined;
 }

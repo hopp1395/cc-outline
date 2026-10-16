@@ -129,6 +129,17 @@ export function stackedLayout(columns: number, rows: number, listColumns: Compac
   };
 }
 
+/**
+ * The keeper's layout (`cco keeper`): its sessions column of `sessions` width on the left (`aside`, 0 when hidden, the
+ * whole window when full), and in what it leaves, after its border and padding, the turns of `turns` width and the chat.
+ * `columns` stays the window's, for the top bar.
+ */
+export function keeperLayout(columns: number, rows: number, sessions: ListWidth, turns: ListWidth): { layout: Layout; aside: number } {
+  const aside = sessions === "hidden" ? 0 : sessions === "full" ? columns : listColumns(columns, sessions);
+  const rest = aside > 0 && aside < columns ? columns - aside - 2 : columns;
+  return { aside, layout: { ...layoutOf(rest, rows, turns), columns, rows } };
+}
+
 /** The layout of each view, with the list width its setting gives (and a drilled detail); without a view, the normal width (dialogs). */
 export function useLayouts(): (mode?: Mode, drilled?: boolean) => Layout {
   const { columns, rows } = useWindowSize();
@@ -435,8 +446,15 @@ export function barBackground(color: string | undefined, focused: boolean): stri
 /** Background of the list selection while the focus is elsewhere, like an inactive editor list. */
 const INACTIVE_SELECTION = "#3a3d41";
 
+/** A tab of the top bar: its number key, its name and the view it shows. */
+export interface Tab {
+  key: string;
+  label: string;
+  mode: Mode;
+}
+
 /** The top bar's tabs, in order, with their number key. */
-const TABS: { key: string; label: string; mode: Mode }[] = [
+const TABS: Tab[] = [
   { key: "1", label: "Chat", mode: "chat" },
   { key: "2", label: "Changes", mode: "git" },
   { key: "3", label: "Plan", mode: "plan" },
@@ -444,23 +462,32 @@ const TABS: { key: string; label: string; mode: Mode }[] = [
   { key: "5", label: "Monitor", mode: "monitor" },
   { key: "6", label: "Settings", mode: "settings" },
 ];
-/** A tab's text; in the compact view only the open one has its name, the others just their number. */
-const tabText = (tab: (typeof TABS)[number], short = false) => (short ? ` ${tab.key} ` : ` ${tab.key} ${tab.label} `);
+/** The keeper's tabs (`cco keeper`): its three columns, drawn by the chat, and its own settings. */
+export const KEEPER_TABS: Tab[] = [
+  { key: "1", label: "Keeper", mode: "chat" },
+  { key: "2", label: "Settings", mode: "settings" },
+];
 
-/** The tabs shown while `mode` is open: a hidden view shows its tab only while it is open (opened by a /cco:… command). */
-function shownTabs(settings: Settings, mode: Mode) {
-  return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
+/** Tabs of its own instead of the views' (the keeper's); undefined for the views'. */
+export const TabSetContext = createContext<Tab[] | undefined>(undefined);
+
+/** A tab's text; in the compact view only the open one has its name, the others just their number. */
+const tabText = (tab: Tab, short = false) => (short ? ` ${tab.key} ` : ` ${tab.key} ${tab.label} `);
+
+/** The tabs shown while `mode` is open: a hidden view shows its tab only while it is open (opened by a /cco:… command). Tabs of one's own all show. */
+function shownTabs(settings: Settings, mode: Mode, own?: Tab[]) {
+  return own ?? TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
 }
 
 /**
  * The view whose tab is at column `x` of the top bar, or undefined; the "cco" (or the account's `avatar`) at its
  * start is the Accounts view's (0), unless that is off.
  */
-export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string): Mode | undefined {
+export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string, own?: Tab[]): Mode | undefined {
   const lead = stringWidth(avatarLead(avatar));
-  if (x >= 0 && x < lead) return isViewShown(settings, "accounts") ? "accounts" : undefined;
+  if (x >= 0 && x < lead) return !own && isViewShown(settings, "accounts") ? "accounts" : undefined;
   let start = lead + 1;
-  for (const tab of shownTabs(settings, mode)) {
+  for (const tab of shownTabs(settings, mode, own)) {
     const end = start + tabText(tab, settings.compactView !== "off" && tab.mode !== mode).length;
     if (x >= start && x < end) return tab.mode;
     start = end;
@@ -476,7 +503,8 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
   const badge = useContext(AccountBadgeContext);
   const avatar = useContext(AccountAvatarContext);
   const viewer = useContext(OneSessionContext);
-  const compact = settings.compactView !== "off";
+  const own = useContext(TabSetContext);
+  const compact = settings.compactView !== "off" && !own;
   const lead = (
     <Text bold inverse={mode === "accounts"} color={badge ? ACCOUNT_COLORS[badge] : focused ? "whiteBright" : "cyan"} backgroundColor={badge}>
       {avatarLead(avatar)}
@@ -488,7 +516,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       {/* The "cco" (or the avatar) is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
       {lead}
       <Text> </Text>
-      {shownTabs(settings, mode).map((tab) =>
+      {shownTabs(settings, mode, own).map((tab) =>
         tab.mode === mode ? (
           <Text key={tab.mode} inverse bold>
             {tabText(tab)}
@@ -504,6 +532,25 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
     </Text>
   );
 }
+
+/**
+ * A column left of the view's list (the keeper's sessions), drawn by `Screen` in the same frame: the view's list and
+ * preview share what it leaves (the layout the view gets says how wide they are).
+ */
+export interface ScreenAside {
+  node: ReactNode;
+  /** Its columns: 0 folds it away, the window's whole width hides the view. */
+  width: number;
+  /** The help line while the column has the keys, in place of the view's. */
+  footer?: string | FooterItem[];
+  /** Items ahead of the view's help line while the view has the keys. */
+  lead?: FooterItem[];
+  /** The status ahead of the view's. */
+  status?: ReactNode;
+  /** Whether the window has the focus, for the top bar and the help line (the view's own focus may say its list has none). */
+  focused?: boolean;
+}
+export const ScreenAsideContext = createContext<ScreenAside | undefined>(undefined);
 
 interface ScreenProps {
   layout: Layout;
@@ -628,9 +675,17 @@ function withNotice(content: ReactNode, notice: string | undefined, width: numbe
   );
 }
 
-export function Screen({ layout, mode, status, list, preview, footer }: ScreenProps) {
+export function Screen({ layout, mode, status, list, preview, footer: viewFooter }: ScreenProps) {
   const notice = useContext(ScreenNoticeContext);
-  const focused = useFocused();
+  // The keeper's sessions column left of the view, with its own help line while it has the keys.
+  const aside = useContext(ScreenAsideContext);
+  const asideWidth = aside ? Math.min(layout.columns, aside.width) : 0;
+  const asideFull = aside !== undefined && asideWidth >= layout.columns;
+  // Where the view's list starts: after the column, its border and padding.
+  const offset = asideWidth > 0 && !asideFull ? asideWidth + 2 : 0;
+  const footer = aside?.footer ?? (aside?.lead && typeof viewFooter !== "string" ? [...aside.lead, ...viewFooter] : viewFooter);
+  const viewFocused = useFocused();
+  const focused = aside?.focused ?? viewFocused;
   const background = barBackground(useContext(SessionColorContext), focused);
   const update = useUpdateInfo();
   const labels = versionLabels(update.state);
@@ -663,6 +718,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
               <Text> </Text>
               {update.notice && <Text color="green">{`updated to v${update.notice} · restart Claude Code for the plugin · `}</Text>}
               <ReloadStatus />
+              {!layout.compact && aside?.status}
               {!layout.compact && status}
             </Text>
           </Box>
@@ -695,6 +751,24 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
         </>
       ) : (
       <Box height={layout.bodyHeight}>
+        {aside && (
+          <Box display={asideWidth > 0 ? "flex" : "none"} flexDirection="column" width={Math.max(1, asideWidth)} height={layout.bodyHeight} flexShrink={0}>
+            <AreaContext.Provider value={asideWidth > 0 ? { x: 0, y: 1, width: asideWidth, height: layout.bodyHeight } : hiddenArea(1, layout.bodyHeight)}>
+              {asideFull ? withNotice(aside.node, notice, asideWidth, layout.bodyHeight) : aside.node}
+            </AreaContext.Provider>
+          </Box>
+        )}
+        <Box
+          display={asideFull ? "none" : "flex"}
+          borderStyle="single"
+          borderTop={false}
+          borderBottom={false}
+          borderRight={false}
+          borderLeft={offset > 0}
+          borderDimColor
+          paddingLeft={offset > 0 ? 1 : 0}
+          height={layout.bodyHeight}
+        >
         {/* Not shrunk by a preview of plain text, whose width Yoga counts in full (Plan's "No plan in this session yet…"). */}
         {/* The side folded away stays rendered, out of sight and out of the mouse's reach, so it keeps its state. */}
         <Box
@@ -704,7 +778,7 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
           height={layout.bodyHeight}
           flexShrink={0}
         >
-          <AreaContext.Provider value={layout.fold === "hidden" ? hiddenArea(layout.listWidth, layout.bodyHeight) : { x: 0, y: 1, width: layout.listWidth, height: layout.bodyHeight }}>
+          <AreaContext.Provider value={layout.fold === "hidden" || asideFull ? hiddenArea(layout.listWidth, layout.bodyHeight) : { x: offset, y: 1, width: layout.listWidth, height: layout.bodyHeight }}>
             {layout.fold === "full" ? withNotice(list, notice, layout.listWidth, layout.bodyHeight) : list}
           </AreaContext.Provider>
         </Box>
@@ -721,14 +795,15 @@ export function Screen({ layout, mode, status, list, preview, footer }: ScreenPr
         >
           <AreaContext.Provider
             value={
-              layout.fold === "full"
+              layout.fold === "full" || asideFull
                 ? hiddenArea(layout.previewWidth, layout.bodyHeight)
-                : { x: layout.fold === "hidden" ? 0 : layout.listWidth + 2, y: 1, width: layout.previewWidth, height: layout.bodyHeight }
+                : { x: offset + (layout.fold === "hidden" ? 0 : layout.listWidth + 2), y: 1, width: layout.previewWidth, height: layout.bodyHeight }
             }
           >
             {/* Filled to the scroll bar's column. */}
             {layout.fold === "full" ? preview : withNotice(preview, notice, layout.previewWidth, layout.bodyHeight, layout.previewWidth + 1)}
           </AreaContext.Provider>
+        </Box>
         </Box>
       </Box>
       )}

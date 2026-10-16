@@ -82,6 +82,16 @@ const MORE: ShortMark = { mark: "", color: "36", short: "↓ more ↓ reads the 
 const ORANGE = "38;2;217;119;87";
 
 /** The marks each view's list can show, in pairs that belong together, for the info dialog's Legend page. */
+/** The marks of the keeper's sessions (`cco keeper`), ahead of the turns' (`LEGENDS.chat`) on its legend page. */
+export const KEEPER_LEGEND: ShortMark[] = [
+  { mark: "⚠", color: "33", short: "waits for you" },
+  { mark: "●", color: "32", short: "works (blinks) / idle" },
+  { mark: "∅", color: "2", short: "ended" },
+  { mark: "◈", color: "36", short: "remote" },
+  { mark: "▌", short: "account colour" },
+  { mark: "3m", color: "2", short: "time in its state" },
+];
+
 export const LEGENDS: Record<Mode, ShortMark[]> = {
   chat: [
     { mark: "⠋", color: ORANGE, short: "Claude works on it" },

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { focusSessionViewer, openSessionViewer, viewerCommand } from "../src/open.js";
+import { focusSessionViewer, KEEPER_WINDOW, openKeeper, openSessionViewer, viewerCommand } from "../src/open.js";
 import { proc } from "../src/proc.js";
 import { removeStaleSessionViewers, runningSessionViewers, sessionViewersDir, viewersOf, type SessionViewerInfo } from "../src/sessionViewers.js";
 import { setSessionViewer } from "../src/settings.js";
@@ -62,6 +62,22 @@ describe("the session viewers' registrations", () => {
     expect(viewersOf(all, { ids: ["new", "old"], configDir: "/c/a" }).map((o) => o.pid)).toEqual([1]);
     expect(viewersOf(all, { ids: ["new"], configDir: "/c/b" }).map((o) => o.pid)).toEqual([2]);
     expect(viewersOf(all, { remoteId: "cse_1" }).map((o) => o.pid)).toEqual([3]);
+  });
+});
+
+describe("opening the keeper", () => {
+  it("opens it in its own window, brings the one that runs to the front, and leaves it to the command without a terminal", () => {
+    process.env.WT_SESSION = "x";
+    expect(openKeeper()).toBe("opened the keeper in a new window");
+    expect(spawned[0]).toEqual({
+      cmd: "wt",
+      args: ["-w", KEEPER_WINDOW, "new-tab", "--title", "cco keeper", process.execPath, expect.stringMatching(/cli\.js$/), "keeper", "--config-dir", claudeDir(), "--window", KEEPER_WINDOW],
+    });
+    expect(openKeeper({ pid: 7, window: KEEPER_WINDOW })).toBe("brought the keeper to the front");
+    expect(spawned[1]).toEqual({ cmd: "wt", args: ["-w", KEEPER_WINDOW, "focus-tab", "-t", "0"] });
+    expect(openKeeper({ pid: 7 })).toBe("the keeper runs already (pid 7), in a terminal of its own");
+    delete process.env.WT_SESSION;
+    expect(openKeeper()).toBeUndefined();
   });
 });
 

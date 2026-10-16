@@ -58,6 +58,7 @@ import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
+import { isKeeper } from "../settings.js";
 import { useSubagent, type Subagent } from "./useSubagent.js";
 import type { Transcript } from "./useTranscript.js";
 
@@ -79,6 +80,8 @@ interface Props {
   onModal?: (open: boolean) => void;
   /** The prompt line below has the keys (a remote viewer): the chat only scrolls, with PgUp/PgDn, as Claude Code's does. */
   scrollOnly?: boolean;
+  /** The keeper's chat column has the keys: ↑↓ scroll the answer by line instead of switching turns. */
+  previewKeys?: boolean;
 }
 
 /** t steps through the tool levels: off → compact → full → off. */
@@ -634,7 +637,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, scrollOnly = false }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, scrollOnly = false, previewKeys = false }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
@@ -906,6 +909,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       // While the prompt line has the keys, only paging reaches the chat.
       if (scrollOnly && !key.pageUp && !key.pageDown) return;
       if (filter.handleKey(input, key)) return;
+      // The keeper's chat column: ↑↓ scroll like the wheel, leaving and rejoining the live end.
+      if (previewKeys && (key.upArrow || key.downArrow) && !key.ctrl && !key.shift && !key.meta) return wheel(key.upArrow ? -1 : 1);
       // a / A step through the turn's subagents and, past the last / first, back to the answer.
       if (input === "a" || input === "A") {
         if (currentAgents.length === 0) return notify("no subagents in this turn");
@@ -1078,7 +1083,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: toolsFooter(showTools), on: showTools !== "off", priority: 2 },
           { text: "h think", on: showThinking, priority: 2 },
         ] : [
-          { text: "↑↓ turn", priority: 4 },
+          { text: previewKeys ? "↑↓ scroll" : "↑↓ turn", priority: 4 },
           { text: "PgUp/Dn scroll", priority: 1 },
           ...(wrap ? [] : [{ text: "^←→ side", priority: 4 }]),
           // On a remote session's last turn, Enter sends to it.
@@ -1093,7 +1098,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "c copy", priority: 2 },
           ...(items.length > 0 ? [{ text: `o ${plural(items.length, "attachment")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
-          { text: "1-6/tab view", priority: 1 },
+          { text: isKeeper() ? "1/2 view" : "1-6/tab view", priority: 1 },
         ])
       }
     />
