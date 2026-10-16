@@ -11,7 +11,7 @@ import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
 import { ALL_AVATAR_PRESETS, DEFAULT_AVATAR, emojiInputHint } from "../avatar.js";
 import { AvatarDialog } from "./AvatarDialog.js";
-import { legendMark, SESSION_LEGEND } from "./sessionLegend.js";
+import { legendMark, SESSION_LEGEND } from "./legend.js";
 import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { filterSettings, sessionFilter } from "../sessionFilter.js";
 import { otherAccounts } from "../accountContinue.js";

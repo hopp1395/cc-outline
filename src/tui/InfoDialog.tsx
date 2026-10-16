@@ -7,6 +7,10 @@ import { ownSettingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
 import { Dialog, type Layout, type Mode } from "./layout.js";
+import { legendLines, LEGENDS } from "./legend.js";
+
+/** The dialog's pages: the keys of the view, or what the marks of its list mean. */
+export type InfoPage = "keys" | "legend";
 
 interface Props {
   layout: Layout;
@@ -18,6 +22,8 @@ interface Props {
   gitRoot?: string | null;
   /** A viewer of one session (`--session`, `--remote`): only the chat and its settings, and it does not move or restart. */
   oneSession?: boolean;
+  /** The page shown; ← → and Tab switch. */
+  page?: InfoPage;
 }
 
 /** Keys all lists share; each view lists them first. */
@@ -88,7 +94,6 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["T", "trash on / off"],
     ["a", "all projects / this one"],
     ["x X", "delete / empty trash"],
-    ["● ▶ ∅", "active / running / folder gone"],
     ...COMMON_KEYS,
   ],
   settings: [
@@ -150,9 +155,10 @@ function terminalName(): string {
 
 /**
  * Modal box centred over the view: version, what is being shown, where the
- * data comes from, and the keys of the current view.
+ * data comes from, and the keys of the current view; on its second page, what
+ * the marks of the view's list mean.
  */
-export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false }: Props) {
+export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false, page = "keys" }: Props) {
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   // Border (2) and padding (2).
   const inner = width - 4;
@@ -181,7 +187,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
       </>
     ) : null;
 
-  const lines = [
+  const keyLines = [
     heading("Session"),
     row("Project", tilde(cwd)),
     row("Session", path ? basename(path, ".jsonl") : "none found"),
@@ -200,11 +206,32 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
       </Text>
     )),
   ];
+  const legendPage = [
+    heading(`Legend · ${VIEW_TITLES[mode]}`),
+    ...legendLines(LEGENDS[mode], inner).map((line, i) => (
+      <Text key={`l${i}`} wrap="truncate">
+        {line}
+      </Text>
+    )),
+  ];
+  const lines = page === "keys" ? keyLines : legendPage;
 
   // Title, author and blank line + content, plus the border.
-  const height = Math.min(layout.rows - 2, lines.length + 5);
+  // Title, author, blank line, the tabs and their rule + content, plus the border.
+  const height = Math.min(layout.rows - 2, lines.length + 7);
   const title = `cc-outline ${VERSION}`;
   const hint = "i / esc close";
+  // The pages as tabs like the top bar's: padded, the open one inverse.
+  const tab = (which: InfoPage, label: string) =>
+    which === page ? (
+      <Text bold inverse>
+        {` ${label} `}
+      </Text>
+    ) : (
+      <Text>{` ${label} `}</Text>
+    );
+  const tabsWidth = stringWidth(" Keys   Legend ");
+  const pageHint = "←→ Tab page";
 
   return (
     <Dialog layout={layout} width={width} height={height}>
@@ -217,6 +244,16 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
         by {AUTHOR} · {LICENSE} License
       </Text>
       <Text> </Text>
+      <Text wrap="truncate">
+        {tab("keys", "Keys")}
+        <Text> </Text>
+        {tab("legend", "Legend")}
+        {" ".repeat(Math.max(1, inner - tabsWidth - stringWidth(pageHint)))}
+        <Text dimColor>{pageHint}</Text>
+      </Text>
+      <Text dimColor wrap="truncate">
+        {"─".repeat(inner)}
+      </Text>
       {lines}
     </Dialog>
   );
