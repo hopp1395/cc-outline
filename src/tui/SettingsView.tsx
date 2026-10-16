@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, rangeStart, reloadSettings, settingsFile, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
@@ -61,11 +61,13 @@ interface Props {
   noSession?: string;
   /** The Claude Code process the viewer belongs to. */
   claudePid?: number;
+  /** A viewer of one session: only the settings it keeps for itself (`SESSION_VIEWER_KEYS`), and their own resets. */
+  oneSession?: boolean;
 }
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
 interface ResetAction {
-  id: "doctor" | "settings" | "data" | "restart";
+  id: "doctor" | "settings" | "data" | "restart" | "main";
   label: string;
   description: string;
 }
@@ -93,6 +95,22 @@ export const RESET_ACTIONS: ResetAction[] = [
     label: "saved data of this project",
     description:
       "Deletes what cco remembers for this project: the marks ★ of turns, files, plans, sessions and days, the selected entry and scroll position of every list, the view and placement of each session, and whether the viewer was open when Claude Code last exited. The settings stay, and nothing of Claude Code is touched: transcripts, sessions and git are as before. The views reload empty.",
+  },
+];
+
+/** The Reset group of a viewer of one session: its own settings back to the default, or to the project's viewer's. */
+export const SESSION_RESET_ACTIONS: ResetAction[] = [
+  {
+    id: "settings",
+    label: "all settings to default",
+    description:
+      "Sets every setting above back to its default and removes their marks ★, in every viewer of one session. The project's viewer keeps its own settings. `R` does the same from any setting; `r` resets only the selected one.",
+  },
+  {
+    id: "main",
+    label: "settings of the project's viewer",
+    description:
+      "Takes the values the project's viewer has now for every setting above, as the first viewer of one session did, in every viewer of one session. From then on they are apart again: what changes in one does not change in the other.",
   },
 ];
 
@@ -698,9 +716,9 @@ export function tilde(path: string): string {
 function resetLines(action: ResetAction, changed: string[], marked: number, saved: { name: string; path: string }[], width: number): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(action.description), ""];
-  if (action.id === "settings") {
-    lines.push(bold("Changed"));
-    if (changed.length === 0) lines.push(dim("  none: every setting is at its default"));
+  if (action.id === "settings" || action.id === "main") {
+    lines.push(bold(action.id === "main" ? "Different" : "Changed"));
+    if (changed.length === 0) lines.push(dim(action.id === "main" ? "  none: every setting is as in the project's viewer" : "  none: every setting is at its default"));
     for (const name of changed) lines.push(...wrap(name, "  "));
     if (marked > 0) lines.push("", bold("Marked"), `  ${marked} ★`);
   } else {
@@ -1092,8 +1110,12 @@ export function restartDetail(root: string): string {
   return installed && installed !== VERSION ? `v${installed} (running v${VERSION})` : `v${installed ?? VERSION}`;
 }
 
-/** The list: the settings, the reset actions, then the releases (the last group, since it grows). */
-export function settingsEntries(update: Update, accounts: AccountState = { accounts: [], multiple: false, own: "" }): Entry[] {
+/**
+ * The list: the settings, the reset actions, then the releases (the last group, since it grows); a viewer of one
+ * session (`oneSession`) has only the settings it keeps for itself and their resets.
+ */
+export function settingsEntries(update: Update, accounts: AccountState = { accounts: [], multiple: false, own: "" }, oneSession = false): Entry[] {
+  if (oneSession) return [...SETTING_ROWS.filter((r) => isSessionViewerKey(r.key)), ...SESSION_RESET_ACTIONS];
   // The Account group sits after General: its info entries come before its settings.
   const first = SETTING_ROWS.findIndex((r) => r.group === "Account");
   const last = first + SETTING_ROWS.filter((r) => r.group === "Account").length - 1;
@@ -1110,7 +1132,7 @@ export function settingsEntries(update: Update, accounts: AccountState = { accou
   ];
 }
 
-export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked, sessionPath, noSession, claudePid }: Props) {
+export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetData, onRestart, select: asked, sessionPath, noSession, claudePid, oneSession = false }: Props) {
   // Enter on an account: continue the session there, start a new one, open its folder (as in the Accounts view).
   const [flash, setFlash] = useState<string>();
   useEffect(() => {
@@ -1148,7 +1170,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const [repairDialog, setRepairDialog] = useState(false);
   const accountState = useAccountState();
   const otherDirs = otherAccounts(accountState.accounts).map((a) => a.dir);
-  const listEntries = settingsEntries(update, accountState);
+  const listEntries = settingsEntries(update, accountState, oneSession);
+  // The settings the list has: a viewer of one session's are its own.
+  const rows = oneSession ? SETTING_ROWS.filter((r) => isSessionViewerKey(r.key)) : SETTING_ROWS;
   const entries = listEntries.map(keyOf);
   // Kept by key: the releases arrive after the start and move the entries below them.
   const [selectedKey, setSelectedKey] = useState(() => positions.selected);
@@ -1160,7 +1184,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const accountEntry = "account" in entry ? entry : undefined;
   const current = row ? settings[row.key] : undefined;
   const entryKey = entries[index];
-  const favorites = useFavorites(cwd, "settings");
+  const favorites = useFavorites(cwd, oneSession ? "sessionViewerSettings" : "settings");
   // F5: settings.json is read again, so changes by other viewers show in every view, and npm and GitHub are asked again.
   useOnReload(({ done }) => {
     reloadSettings();
@@ -1211,7 +1235,10 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     return () => clearTimeout(timer);
   }, [copied]);
 
-  const changed = SETTING_ROWS.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
+  const changed = rows.filter((r) => settings[r.key] !== DEFAULT_SETTINGS[r.key]);
+  // A viewer of one session: the settings that differ from the project's viewer's now.
+  const main = useMemo(() => (reset?.id === "main" ? readMainSettings() : undefined), [reset?.id, settings, confirmation]);
+  const different = main ? rows.filter((r) => settings[r.key] !== main[r.key]) : [];
   const canReset = changed.length > 0 || marked > 0;
   const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
   const findings = doctorCheck?.findings ?? [];
@@ -1262,6 +1289,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
                       : "not checked yet"
                   : reset.id === "settings"
                     ? `${changed.length} changed${marked > 0 ? ` · ${marked} marked` : ""}`
+                    : reset.id === "main"
+                      ? `${different.length} different`
                     : reset.id === "data"
                       ? `${saved.length} of 4 files saved`
                       : restartDetail(update.root),
@@ -1282,14 +1311,14 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               }),
         headerHeight,
       ),
-    [entry, update, current, changed.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, headerHeight, accountState],
+    [entry, update, current, changed.length, different.length, marked, saved.length, doctorCheck, doctorChecking, previewWidth, headerHeight, accountState],
   );
   const lines = useMemo(
     () =>
       reset
         ? reset.id === "doctor"
           ? doctorLines(reset, doctorCheck, doctorChecking, doctorRun, previewWidth)
-          : resetLines(reset, changed.map((r) => `${r.group} ${r.label}`), marked, saved, previewWidth)
+          : resetLines(reset, (reset.id === "main" ? different : changed).map((r) => `${r.group} ${r.label}`), reset.id === "main" ? 0 : marked, saved, previewWidth)
         : accountEntry
           ? accountLines(accountEntry, accountState, settings, previewWidth)
         : release
@@ -1299,7 +1328,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               ? releaseLines(release.release, previewWidth)
               : releasesNote(update, previewWidth)
           : settingLines(row!, current!, previewWidth, context),
-    [entry, update, current, changed.length, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context, accountState],
+    [entry, update, current, changed.length, different, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context, accountState],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
@@ -1311,14 +1340,22 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       title: "Reset all settings?",
       lines: [
         ...(changed.length > 0
-          ? [`${changed.length} of ${SETTING_ROWS.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")]
+          ? [`${changed.length} of ${rows.length} differ from the default:`, changed.map((r) => `${r.group} ${r.label}`).join(", ")]
           : ["Every setting is at its default."]),
         ...(marked > 0 ? [`The marks ★ of ${marked} ${marked === 1 ? "entry" : "entries"} are removed.`] : []),
+        ...(oneSession ? ["The project's viewer keeps its own."] : []),
       ],
       onConfirm: () => {
-        set({ ...DEFAULT_SETTINGS });
+        if (oneSession) resetSessionViewerSettings("defaults");
+        else set({ ...DEFAULT_SETTINGS });
         favorites.clear();
       },
+    });
+  const askTakeMain = () =>
+    setConfirmation({
+      title: "Take the settings of the project's viewer?",
+      lines: [`${different.length} of ${rows.length} differ from it:`, different.map((r) => `${r.group} ${r.label}`).join(", "), "From then on they are apart again."],
+      onConfirm: () => resetSessionViewerSettings("main"),
     });
   const askResetData = () =>
     setConfirmation({
@@ -1406,6 +1443,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     }
     if (reset) {
       if (reset.id === "settings") return canReset && askResetSettings();
+      if (reset.id === "main") return different.length > 0 && askTakeMain();
       if (reset.id === "restart") return onRestart !== undefined && restart();
       // Checked with problems to repair: Enter offers the repair; else it checks (again).
       if (reset.id === "doctor") return !doctorBusy && (repairs.length > 0 ? askRepair() : askCheck());
@@ -1515,7 +1553,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             {/* The filter's count first: the path can be long. */}
             {filter.shown && `${filter.count(listEntries.length)} entries · `}
             {copied && <Text color="green">copied · </Text>}
-            {tilde(settingsFile())}
+            {tilde(ownSettingsFile())}
             {changed.length > 0 && <Text color="yellow">{` · ${changed.length} changed`}</Text>}
             {update.checking && ` · checking for updates…`}
           </Text>
@@ -1577,7 +1615,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           ...markFooter(favorites.isMarked(entryKey), marked),
           ...filter.footer,
           ...(canReset ? [{ text: "R reset all", priority: 2 }] : []),
-          { text: "1-6/tab view", priority: 1 },
+          { text: oneSession ? "1/6/tab view" : "1-6/tab view", priority: 1 },
         ]}
       />
       {confirmation && (

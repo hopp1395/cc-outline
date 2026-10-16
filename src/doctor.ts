@@ -1,9 +1,9 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { cliFile } from "./cliPath.js";
 import { detectTerminal } from "./open.js";
-import { DEFAULT_SETTINGS, readSettings, settingsFile, type Settings } from "./settings.js";
+import { DEFAULT_SETTINGS, isSessionViewerKey, readMainSettings, readSessionViewerSettings, sessionViewerSettingsFile, sessionViewerPart, settingsFile, type Settings } from "./settings.js";
 import { activeFile, claudeDir, claudeFile, claudePidFromEnv, projectDir, readJson, transcriptForSession, writeJson, type ActiveSession } from "./transcript/locate.js";
 import { runningSessions } from "./transcript/trash.js";
 import { readLogin, RemoteError } from "./remote/credentials.js";
@@ -52,7 +52,7 @@ export interface DoctorOptions {
 
 const PLUGIN = "cco@cc-outline";
 /** The files in ~/.claude/cco that belong to no project. */
-const GLOBAL_FILES = new Set(["settings.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json"]);
+const GLOBAL_FILES = new Set(["settings.json", "settings.session-viewer.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json"]);
 /** A project's session marked ended this long ago is history: no viewer waits for it any more. */
 const ENDED_AGE_MS = 24 * 60 * 60 * 1000;
 /** A `.corrupt` copy is kept this long for a look, then counts as a leftover. */
@@ -316,14 +316,24 @@ const LEGACY_SETTINGS: Record<string, string> = {
 };
 
 function settingsCheck(): Finding[] {
+  const main = readMainSettings();
+  const own = readSessionViewerSettings(main);
+  return [
+    ...settingsFileCheck(settingsFile(), main, () => true, () => writeJson(settingsFile(), readMainSettings())),
+    // The viewers of one session keep some settings for themselves; the file exists once one has run.
+    ...(own ? settingsFileCheck(sessionViewerSettingsFile(), own, isSessionViewerKey, () => writeJson(sessionViewerSettingsFile(), sessionViewerPart(readSessionViewerSettings() ?? main))) : []),
+  ];
+}
+
+/** The findings of one settings file: `applied` is what applies of it, `known` the keys it may hold. */
+function settingsFileCheck(file: string, applied: Settings, known: (key: string) => boolean, rewrite: () => void): Finding[] {
   const group = "Settings";
-  const file = settingsFile();
+  const name = basename(file);
   const stored = parseFile(file);
-  if (stored === undefined) return [{ group, severity: "ok", text: "no settings.json: every setting is at its default" }];
+  if (stored === undefined) return [{ group, severity: "ok", text: `no ${name}: every setting is at its default` }];
   // Not JSON: State files renames it.
   if (!isObject(stored)) return [];
-  const applied = readSettings();
-  const repair: Repair = { id: "settings", label: "rewrite settings.json with the values that apply", apply: () => writeJson(file, readSettings()) };
+  const repair: Repair = { id: `settings:${name}`, label: `rewrite ${name} with the values that apply`, apply: rewrite };
   const findings: Finding[] = [];
   const show = (v: unknown) => JSON.stringify(v);
   for (const [key, value] of Object.entries(stored)) {
@@ -331,8 +341,8 @@ function settingsCheck(): Finding[] {
       findings.push({ group, severity: "warn", text: `${key} is ${LEGACY_SETTINGS[key]}, an old format`, repair });
       continue;
     }
-    if (!(key in DEFAULT_SETTINGS)) {
-      findings.push({ group, severity: "warn", text: `unknown setting ${key}`, repair });
+    if (!(key in DEFAULT_SETTINGS) || !known(key)) {
+      findings.push({ group, severity: "warn", text: `unknown setting ${key}${key in DEFAULT_SETTINGS ? ` in ${name}` : ""}`, repair });
       continue;
     }
     const k = key as keyof Settings;
@@ -345,7 +355,7 @@ function settingsCheck(): Finding[] {
       repair,
     });
   }
-  if (findings.length === 0) findings.push({ group, severity: "ok", text: `settings.json is valid` });
+  if (findings.length === 0) findings.push({ group, severity: "ok", text: `${name} is valid` });
   return findings;
 }
 
@@ -384,7 +394,7 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
       text: "neither Windows Terminal nor tmux: cco opens no panes",
       hint: "run cco watch in a terminal of your own",
     });
-  if (readSettings().remoteApi) findings.push(remoteLogin(dir));
+  if (readMainSettings().remoteApi) findings.push(remoteLogin(dir));
   return findings;
 }
 

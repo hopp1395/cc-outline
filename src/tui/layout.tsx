@@ -425,7 +425,7 @@ export const AccountAvatarContext = createContext<string | undefined>(undefined)
 
 /**
  * A viewer of one session (`--session`, `--remote`) and what it does (`controlling` with a prompt line, else
- * `observing`): its top bar shows that and the session's title in place of the tabs. Undefined for the project's viewer.
+ * `observing`): its top bar shows that before its two tabs and the session's title after them. Undefined for the project's viewer.
  */
 export const ViewerRoleContext = createContext<{ role: "observing" | "controlling"; title: string } | undefined>(undefined);
 
@@ -455,14 +455,17 @@ function shownTabs(settings: Settings, mode: Mode) {
   return TABS.filter((t) => t.mode === mode || isViewShown(settings, t.mode));
 }
 
+/** The role's badge in the top bar of a viewer of one session, before its tabs. */
+const roleText = (role: string) => ` ${role} `;
+
 /**
  * The view whose tab is at column `x` of the top bar, or undefined; the "cco" (or the account's `avatar`) at its
- * start is the Accounts view's (0), unless that is off.
+ * start is the Accounts view's (0), unless that is off. A viewer of one session has its `role` before the tabs.
  */
-export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string): Mode | undefined {
+export function tabAt(x: number, settings: Settings, mode: Mode, avatar?: string, role?: string): Mode | undefined {
   const lead = stringWidth(avatarLead(avatar));
   if (x >= 0 && x < lead) return isViewShown(settings, "accounts") ? "accounts" : undefined;
-  let start = lead + 1;
+  let start = lead + 1 + (role ? roleText(role).length + 1 : 0);
   for (const tab of shownTabs(settings, mode)) {
     const end = start + tabText(tab, settings.compactView !== "off" && tab.mode !== mode).length;
     if (x >= start && x < end) return tab.mode;
@@ -485,22 +488,20 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
       {avatarLead(avatar)}
     </Text>
   );
-  // One session's chat, nothing to switch to: what the viewer does and whose chat it is.
-  if (viewer)
-    return (
-      <Text>
-        {lead}
-        <Text> </Text>
-        <Text inverse bold>{` ${viewer.role} `}</Text>
-        <Text dimColor={!focused}>{` ${truncate(viewer.title, VIEWER_TITLE_WIDTH)}`}</Text>
-      </Text>
-    );
+  // One session's chat and its settings: what the viewer does, its two tabs and whose chat it is.
+  const role = viewer && (
+    <>
+      <Text bold color={focused ? "whiteBright" : "cyan"}>{roleText(viewer.role)}</Text>
+      <Text> </Text>
+    </>
+  );
   return (
     <Text>
       {/* Cyan is hard to read on the blue focus bar. On the account's colour the text takes the colour readable on it. */}
       {/* The "cco" (or the avatar) is the Accounts view's tab (0): shown inverse like a tab while that view is open. */}
       {lead}
       <Text> </Text>
+      {role}
       {shownTabs(settings, mode).map((tab) =>
         tab.mode === mode ? (
           <Text key={tab.mode} inverse bold>
@@ -512,6 +513,7 @@ function Tabs({ mode, focused }: { mode: Mode; focused: boolean }) {
           </Text>
         ),
       )}
+      {viewer && <Text dimColor={!focused}>{` ${truncate(viewer.title, VIEWER_TITLE_WIDTH)}`}</Text>}
     </Text>
   );
 }

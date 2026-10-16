@@ -275,15 +275,45 @@ export function stepListWidth(width: ListWidth, step: 1 | -1): ListWidth {
   return LIST_WIDTH_VALUES[Math.max(0, Math.min(LIST_WIDTH_VALUES.length - 1, at + step))];
 }
 
-/** The only views this process shows, whatever the settings say: a remote viewer has only the chat. */
-let viewLimit: readonly Mode[] | undefined;
-export function setViewLimit(views: readonly Mode[] | undefined): void {
-  viewLimit = views;
+/** The views of a viewer of one session (`--session`, `--remote`): its chat and its own settings. */
+export const SESSION_VIEWS: readonly Mode[] = ["chat", "settings"];
+
+/**
+ * The settings a viewer of one session keeps for itself, apart from the project's viewer: how its chat looks, its
+ * layout and how it is used. The rest (accounts, remote, update, the other views) it reads from the project's.
+ */
+export const SESSION_VIEWER_KEYS = [
+  "showTools",
+  "showThinking",
+  "showAgents",
+  "chatWrap",
+  "chatOrder",
+  "chatListWidth",
+  "settingsListWidth",
+  "compactView",
+  "compactColumns",
+  "compactSplit",
+  "mouse",
+  "marquee",
+  "dateSeparators",
+  "pinnedFavorites",
+  "filterIn",
+  "confirmQuit",
+  "rememberPositions",
+] as const satisfies readonly (keyof Settings)[];
+export type SessionViewerKey = (typeof SESSION_VIEWER_KEYS)[number];
+export const isSessionViewerKey = (key: string): key is SessionViewerKey => (SESSION_VIEWER_KEYS as readonly string[]).includes(key);
+
+/** Whether this process is a viewer of one session: it shows only `SESSION_VIEWS` and keeps its own settings. */
+let sessionViewer = false;
+export function setSessionViewer(on: boolean): void {
+  sessionViewer = on;
 }
+export const isSessionViewer = () => sessionViewer;
 
 /** Whether `mode` is shown in the tab bar and reachable by its key. */
 export function isViewShown(settings: Settings, mode: Mode): boolean {
-  if (viewLimit && !viewLimit.includes(mode)) return false;
+  if (sessionViewer && !SESSION_VIEWS.includes(mode)) return false;
   if (mode === "accounts") return settings.viewAccounts;
   return mode === "settings" || settings[VIEW_SETTINGS[mode]] === true;
 }
@@ -340,9 +370,16 @@ export function settingsFile(): string {
   return join(claudeDir(), "cco", "settings.json");
 }
 
+/** The settings of the viewers of one session (`SESSION_VIEWER_KEYS`), next to settings.json. */
+export function sessionViewerSettingsFile(): string {
+  return join(claudeDir(), "cco", "settings.session-viewer.json");
+}
+
+/** The file this process's settings come from first: a viewer of one session's own, else settings.json. */
+export const ownSettingsFile = () => (sessionViewer ? sessionViewerSettingsFile() : settingsFile());
+
 /** Stored settings over the defaults; unknown or mistyped values fall back to the default. */
-export function readSettings(): Settings {
-  const stored = readJson<Partial<Record<keyof Settings, unknown>>>(settingsFile()) ?? {};
+function validated(stored: Partial<Record<keyof Settings, unknown>>): Settings {
   // showTools was on/off before it got levels.
   if (typeof stored.showTools === "boolean") stored.showTools = stored.showTools ? "compact" : "off";
   // updateMode was the on/off setting updateCheck before it got auto; since every change stored all settings, only off was chosen.
@@ -372,6 +409,38 @@ export function readSettings(): Settings {
   return result as unknown as Settings;
 }
 
+/** The project's viewer's settings, from settings.json. */
+export function readMainSettings(): Settings {
+  return validated(readJson<Partial<Record<keyof Settings, unknown>>>(settingsFile()) ?? {});
+}
+
+/** The keys of the viewers of one session out of `settings`. */
+export const sessionViewerPart = (settings: Partial<Settings>): Partial<Settings> =>
+  Object.fromEntries(Object.entries(settings).filter(([key]) => isSessionViewerKey(key)));
+
+/**
+ * The settings of the viewers of one session as they apply: their file's values, each checked like settings.json's,
+ * over `main` for the rest. Undefined while the file does not exist.
+ */
+export function readSessionViewerSettings(main = readMainSettings()): Settings | undefined {
+  const stored = readJson<Partial<Record<keyof Settings, unknown>>>(sessionViewerSettingsFile());
+  if (stored === undefined) return undefined;
+  return { ...main, ...sessionViewerPart(validated(stored)) };
+}
+
+/**
+ * The settings that apply in this process. A viewer of one session reads its own over the project's; the first
+ * one to start takes the project's viewer's values (its file does not exist yet), which stay apart from then on.
+ */
+export function readSettings(): Settings {
+  const main = readMainSettings();
+  if (!sessionViewer) return main;
+  const own = readSessionViewerSettings(main);
+  if (own) return own;
+  writeJson(sessionViewerSettingsFile(), sessionViewerPart(main));
+  return main;
+}
+
 const listeners = new Set<() => void>();
 
 /** Calls `listener` whenever this process changes a setting; returns the unsubscribe function. */
@@ -388,11 +457,32 @@ export function reloadSettings(): void {
 /** Keys of former formats, which `readSettings` takes over and a write leaves out. */
 const FORMER_KEYS = new Set(["updateCheck", "pinnedGroup", "accountBadge", "sessionsScope", "allProjects"]);
 
-/** Merges `changes` into the stored settings, re-reading first so other viewers' changes survive. */
+/** Keys of `file` this version does not know: a newer one's, which a viewer still running older code must not drop. */
+function newerKeys(file: string): Record<string, unknown> {
+  const stored = readJson<Record<string, unknown>>(file) ?? {};
+  return Object.fromEntries(Object.entries(stored).filter(([key]) => !(key in DEFAULT_SETTINGS) && !FORMER_KEYS.has(key)));
+}
+
+/** Writes the settings of the viewers of one session: their part of `values`, over the newer keys their file holds. */
+function writeSessionViewerSettings(values: Partial<Settings>): void {
+  const file = sessionViewerSettingsFile();
+  writeJson(file, { ...newerKeys(file), ...sessionViewerPart(values) });
+}
+
+/**
+ * Merges `changes` into the stored settings, re-reading first so other viewers' changes survive. A viewer of one
+ * session writes its own keys to its own file, and only the rest to settings.json.
+ */
 export function updateSettings(changes: Partial<Settings>): void {
-  // A key this version does not know is a newer one's: a viewer still running older code must not drop it.
-  const stored = readJson<Record<string, unknown>>(settingsFile()) ?? {};
-  const newer = Object.fromEntries(Object.entries(stored).filter(([key]) => !(key in DEFAULT_SETTINGS) && !FORMER_KEYS.has(key)));
-  writeJson(settingsFile(), { ...newer, ...readSettings(), ...changes });
+  const own = sessionViewer ? sessionViewerPart(changes) : {};
+  const rest = sessionViewer ? Object.fromEntries(Object.entries(changes).filter(([key]) => !isSessionViewerKey(key))) : changes;
+  if (Object.keys(own).length > 0) writeSessionViewerSettings({ ...readSettings(), ...own });
+  if (Object.keys(rest).length > 0) writeJson(settingsFile(), { ...newerKeys(settingsFile()), ...readMainSettings(), ...rest });
+  for (const listener of listeners) listener();
+}
+
+/** Sets the settings of the viewers of one session to the defaults, or to the project's viewer's values (`from` main). */
+export function resetSessionViewerSettings(from: "defaults" | "main"): void {
+  writeSessionViewerSettings(from === "main" ? readMainSettings() : DEFAULT_SETTINGS);
   for (const listener of listeners) listener();
 }

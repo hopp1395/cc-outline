@@ -6,7 +6,7 @@ import { detectTerminal, moveViewer } from "../open.js";
 import { suspendPositionWrites } from "../positions.js";
 import { clearProjectData } from "../projectData.js";
 import { readSessionView, resolvePlacement, saveSessionPlacement, saveSessionView } from "../sessionViews.js";
-import { COMPACT_COLUMNS_VALUES, isListFold, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
+import { COMPACT_COLUMNS_VALUES, isListFold, isSessionViewer, isViewShown, LIST_WIDTH_SETTINGS, nextShownView, readSettings, shownView, updateSettings, type ColumnWidth, type Placement } from "../settings.js";
 import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
@@ -73,9 +73,6 @@ function shorter(layout: Layout, rows: number): Layout {
   return { ...layout, rows: Math.max(4, layout.rows - rows), bodyHeight: less(layout.bodyHeight)!, listHeight: less(layout.listHeight), headerHeight: less(layout.headerHeight) };
 }
 
-/** The views of a viewer of one session (`--session`, `--remote`): only the chat. */
-export const REMOTE_VIEWS: readonly Mode[] = ["chat"];
-
 const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
 
 /**
@@ -131,6 +128,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // A viewer of one session has a prompt line for a remote session while remote control is on, as Claude Code does.
   const [remoteControl] = useSetting("remoteControl");
   const composer = remoteId !== undefined && remoteControl;
+  const viewerRole = composer ? "controlling" : "observing";
   useTerminalTitle(
     fixed && !composer ? `👁 ${sessionTitle}` : sessionTitle,
     !live ? undefined : working ? "working" : "idle",
@@ -247,7 +245,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const update = useUpdate({
     mode: updateMode,
     updatedTo,
-    onOpen: () => showView("settings", "update"),
+    // A viewer of one session has no update entry: its Settings are its own.
+    onOpen: () => !fixed && showView("settings", "update"),
     // The viewer reopens where it is, running the new version's CLI.
     onRestart: (version) => {
       const where = placement ?? resolvePlacement(cwd, sessionOf(path));
@@ -264,13 +263,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Tab back. The chat leaves it the rows it takes.
   const [composing, setComposing] = useState(false);
   const [composerRows, setComposerRows] = useState(3);
-  const typingInComposer = composer && composing;
+  const typingInComposer = composer && composing && mode === "chat";
   const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
   useEffect(() => {
-    if (!update.offer || offered.current) return;
+    if (!update.offer || offered.current || fixed) return;
     offered.current = true;
     showView("settings", "update", true);
   }, [update.offer]);
@@ -461,13 +460,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       else if (input === "q") quit();
       return;
     }
-    // A remote viewer's chat: Tab and i go back to the prompt line (it shows the chat alone, so Tab switches no view).
-    if (composer && (key.tab || input === "i")) return setComposing(true);
+    // A remote viewer's chat: Tab and i go back to the prompt line; the views switch with their number, ← and → there.
+    if (composer && mode === "chat" && (key.tab || input === "i")) return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {
       if (!mouse) return;
       const click = parseMouse(input).find((e) => e.kind === "click" && e.y === 0);
-      const view = click && tabAt(click.x, readSettings(), mode, account.avatar);
+      const view = click && tabAt(click.x, readSettings(), mode, account.avatar, fixed ? viewerRole : undefined);
       if (view && view !== mode) setMode(view);
       return;
     }
@@ -499,7 +498,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <SessionColorContext.Provider value={transcript.color}>
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
-    <ViewerRoleContext.Provider value={fixed ? { role: composer ? "controlling" : "observing", title: sessionTitle } : undefined}>
+    <ViewerRoleContext.Provider value={fixed ? { role: viewerRole, title: sessionTitle } : undefined}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
@@ -586,6 +585,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onTyping={setTyping}
             onResetData={resetProjectData}
             onRestart={fixed ? undefined : restartViewer}
+            // Its own settings come with the process (watch.ts), like the views it has.
+            oneSession={isSessionViewer()}
             select={settingsSelect}
             sessionPath={continuable ? path : undefined}
             noSession={noSession}

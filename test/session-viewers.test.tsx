@@ -5,9 +5,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { focusSessionViewer, openSessionViewer, viewerCommand } from "../src/open.js";
 import { proc } from "../src/proc.js";
 import { removeStaleSessionViewers, runningSessionViewers, sessionViewersDir, viewersOf, type SessionViewerInfo } from "../src/sessionViewers.js";
-import { setViewLimit } from "../src/settings.js";
+import { setSessionViewer } from "../src/settings.js";
 import { claudeDir, projectDir, writeJson } from "../src/transcript/locate.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { renderInk, until } from "./helpers/ink.js";
@@ -95,8 +95,8 @@ describe("opening a session viewer", () => {
 describe("a viewer of one session", () => {
   const layout: Layout = { columns: 110, rows: 24, listWidth: 40, previewWidth: 67, bodyHeight: 20 };
   const cwd = join(tmpdir(), "cco-observed-project");
-  beforeEach(() => setViewLimit(REMOTE_VIEWS));
-  afterEach(() => setViewLimit(undefined));
+  beforeEach(() => setSessionViewer(true));
+  afterEach(() => setSessionViewer(false));
 
   const write = (lines: object[]) => {
     mkdirSync(projectDir(cwd), { recursive: true });
@@ -105,7 +105,7 @@ describe("a viewer of one session", () => {
   const prompt = { type: "user", uuid: "u1", timestamp: new Date().toISOString(), cwd, message: { role: "user", content: "watch me work" } };
   const titled = { type: "custom-title", customTitle: "Orders", sessionId: "s1" };
 
-  it("shows the session's chat only, says that it observes, and has no keys to move or restart", async () => {
+  it("shows the session's chat and its settings only, says that it observes, and has no keys to move or restart", async () => {
     write([prompt, titled]);
     const app = renderInk(<App cwd={cwd} sessionId="s1" initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
@@ -114,7 +114,9 @@ describe("a viewer of one session", () => {
     const top = app.frame().split("\n")[0]!;
     expect(top).toContain(" observing ");
     expect(top).toContain("Orders");
-    expect(top).not.toContain("Chat");
+    expect(top).toContain(" 1 Chat ");
+    expect(top).toContain(" 6 Settings ");
+    expect(top).not.toContain("Sessions");
     // A session that runs nowhere: no "Claude is working" for its unfinished turn.
     expect(app.frame()).not.toContain("Claude is working");
     await app.press("i");

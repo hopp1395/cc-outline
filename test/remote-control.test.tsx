@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { remote, sendInterrupt, sendPrompt } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
-import { setViewLimit, updateSettings } from "../src/settings.js";
+import { setSessionViewer, updateSettings } from "../src/settings.js";
 import { projectDir } from "../src/transcript/locate.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { PromptDialog, promptRows } from "../src/tui/PromptDialog.js";
@@ -51,7 +51,7 @@ beforeEach(() => {
 afterEach(() => {
   process.env.CLAUDE_CONFIG_DIR = saved;
   remote.fetch = realFetch;
-  setViewLimit(undefined);
+  setSessionViewer(false);
 });
 
 describe("writing to a remote session", () => {
@@ -110,7 +110,7 @@ describe("the prompt dialog", () => {
 
 describe("remote control in the viewers", () => {
   const viewer = () => {
-    setViewLimit(REMOTE_VIEWS);
+    setSessionViewer(true);
     return renderInk(<App cwd={tmpdir()} remoteId="cse_1" initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
@@ -145,6 +145,20 @@ describe("remote control in the viewers", () => {
     await app.press("i");
     await until(() => app.frame().includes("Enter send"));
     await app.press("\u001b");
+    await until(() => app.frame().includes("Tab write a prompt"));
+    await app.press("\t");
+    await until(() => app.frame().includes("Enter send"));
+    app.unmount();
+  });
+
+  it("leaves the prompt line in the chat: its settings (6) take Tab as a view switch", async () => {
+    updateSettings({ remoteApi: true, remoteControl: true });
+    const app = viewer();
+    await until(() => app.frame().includes("Tab write a prompt"));
+    await app.press("6");
+    await until(() => app.frame().includes("confirm quit"));
+    expect(app.frame()).not.toContain("Tab write a prompt");
+    await app.press("\t");
     await until(() => app.frame().includes("Tab write a prompt"));
     await app.press("\t");
     await until(() => app.frame().includes("Enter send"));

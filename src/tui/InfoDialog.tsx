@@ -3,7 +3,7 @@ import { basename } from "node:path";
 import { Text } from "ink";
 import stringWidth from "string-width";
 import { detectTerminal } from "../open.js";
-import { settingsFile } from "../settings.js";
+import { ownSettingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
 import { Dialog, type Layout, type Mode } from "./layout.js";
@@ -16,7 +16,7 @@ interface Props {
   path?: string;
   /** Git repository root; null outside a repository, undefined while unknown. */
   gitRoot?: string | null;
-  /** A viewer of one session (`--session`, `--remote`): no other views, and it does not move or restart. */
+  /** A viewer of one session (`--session`, `--remote`): only the chat and its settings, and it does not move or restart. */
   oneSession?: boolean;
 }
 
@@ -116,7 +116,9 @@ const KEYS: Record<Mode, [string, string][]> = {
 };
 
 /** The keys a viewer of one session does not have. */
-const VIEWER_KEYS = new Set(["1 – 6", "Tab → ⇧Tab ←", "p", "r"]);
+const VIEWER_KEYS = new Set(["Tab → ⇧Tab ←", "p", "r"]);
+/** Its two views, in place of the six. */
+const VIEWER_VIEW_KEYS: [string, string] = ["1 6 ← →", "chat / settings"];
 
 const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor", accounts: "Accounts" };
 
@@ -168,7 +170,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     </Text>
   );
 
-  const keys = oneSession ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)) : KEYS[mode];
+  const keys = oneSession ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)).map((k) => (k[0] === "1 – 6" ? VIEWER_VIEW_KEYS : k)) : KEYS[mode];
   const half = Math.ceil(keys.length / 2);
   const columnWidth = Math.floor(inner / 2);
   const keyCell = (entry?: [string, string]) =>
@@ -188,7 +190,7 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     <Text key="gap1"> </Text>,
     heading("Viewer"),
     row("Terminal", `${terminalName()} · ${paneSwitchKey("left")} / ${paneSwitchKey("right")} switch panes`),
-    row("Settings", tilde(settingsFile())),
+    row("Settings", tilde(ownSettingsFile())),
     <Text key="gap2"> </Text>,
     heading(`Keys · ${VIEW_TITLES[mode]}`),
     ...Array.from({ length: half }, (_, i) => (

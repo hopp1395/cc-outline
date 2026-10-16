@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseSession, remote } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
-import { setViewLimit, updateSettings } from "../src/settings.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { setSessionViewer, updateSettings } from "../src/settings.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { answersOf, QuestionDialog, questionsOf } from "../src/tui/QuestionDialog.js";
@@ -122,12 +122,12 @@ describe("answering a remote session", () => {
   afterEach(() => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
-    setViewLimit(undefined);
+    setSessionViewer(false);
     updateSettings({ remoteApi: false, remoteControl: false });
   });
 
   const viewer = () => {
-    setViewLimit(REMOTE_VIEWS);
+    setSessionViewer(true);
     return renderInk(<App cwd={tmpdir()} remoteId={String(waitingEntry.id)} initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });

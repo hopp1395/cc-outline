@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseSession, remote, type RemoteEvent } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { pendingRequests } from "../src/remote/pending.js";
-import { setViewLimit, updateSettings } from "../src/settings.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { setSessionViewer, updateSettings } from "../src/settings.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
@@ -81,12 +81,12 @@ describe("answering a permission in a remote viewer", () => {
         : { data: [{ id: "cse_perm", title: "rc-perm", worker_status: "requires_action" }] };
       return new Response(JSON.stringify(body), { status: 200 });
     };
-    setViewLimit(REMOTE_VIEWS);
+    setSessionViewer(true);
   });
   afterEach(() => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
-    setViewLimit(undefined);
+    setSessionViewer(false);
     updateSettings({ remoteApi: false, remoteControl: false });
   });
 
@@ -119,7 +119,7 @@ describe("answering a permission in a remote viewer", () => {
       const body = url.includes("/events") ? { data: [] } : { data: [entry(status)] };
       return new Response(JSON.stringify(body), { status: 200 });
     };
-    setViewLimit(undefined);
+    setSessionViewer(false);
     const cwd = mkdtempSync(join(tmpdir(), "cco-remote-permission-project-"));
     const view = renderInk(
       <ProgressProvider layout={layout}>
@@ -146,7 +146,7 @@ describe("answering a permission in a remote viewer", () => {
       const body = url.includes("/events") ? { data: [...events].reverse() } : { data: [{ ...waiting.at(-1)!, title: "rc-perm" }] };
       return new Response(JSON.stringify(body), { status: 200 });
     };
-    setViewLimit(undefined);
+    setSessionViewer(false);
     const cwd = mkdtempSync(join(tmpdir(), "cco-remote-permission-project-"));
     const view = renderInk(
       <ProgressProvider layout={layout}>

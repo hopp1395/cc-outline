@@ -1,16 +1,16 @@
 import { useSyncExternalStore } from "react";
-import { readSettings, settingsFile, subscribeSettings, updateSettings, type Settings } from "../settings.js";
+import { ownSettingsFile, readSettings, subscribeSettings, updateSettings, type Settings } from "../settings.js";
 
 /**
- * Settings as last read, and from which file; re-read when this process changes one, so every view sees
+ * Settings as last read, and from which file (a viewer of one session has its own); re-read when this process changes one, so every view sees
  * the change, and when the file is another one (tests give each file its own CLAUDE_CONFIG_DIR).
  */
 let cached: { file: string; settings: Settings } | undefined;
 subscribeSettings(() => {
-  cached = { file: settingsFile(), settings: readSettings() };
+  cached = { file: ownSettingsFile(), settings: readSettings() };
 });
 const current = () => {
-  const file = settingsFile();
+  const file = ownSettingsFile();
   if (cached?.file !== file) cached = { file, settings: readSettings() };
   return cached.settings;
 };

@@ -6,9 +6,9 @@ import { remote, type RemoteEvent } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { pendingRequests } from "../src/remote/pending.js";
 import { toTranscript } from "../src/remote/toTranscript.js";
-import { isViewShown, readSettings, setViewLimit } from "../src/settings.js";
+import { isViewShown, readSettings, setSessionViewer } from "../src/settings.js";
 import { TranscriptParser } from "../src/transcript/parse.js";
-import { App, REMOTE_VIEWS } from "../src/tui/App.js";
+import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { renderInk, until } from "./helpers/ink.js";
@@ -55,13 +55,14 @@ describe("the recorded session", () => {
 });
 
 describe("the views of a remote viewer", () => {
-  afterEach(() => setViewLimit(undefined));
+  afterEach(() => setSessionViewer(false));
 
-  it("are the chat alone, whatever the settings say", () => {
-    setViewLimit(REMOTE_VIEWS);
+  it("are the chat and its settings alone, whatever the settings say", () => {
+    setSessionViewer(true);
     const settings = readSettings();
     expect(isViewShown(settings, "chat")).toBe(true);
-    expect(["git", "plan", "sessions", "monitor", "settings", "accounts"].some((m) => isViewShown(settings, m as never))).toBe(false);
+    expect(isViewShown(settings, "settings")).toBe(true);
+    expect(["git", "plan", "sessions", "monitor", "accounts"].some((m) => isViewShown(settings, m as never))).toBe(false);
   });
 });
 
@@ -82,15 +83,15 @@ describe("a remote viewer", () => {
         : { data: [{ ...session, title: "rc-test" }] };
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     };
-    setViewLimit(REMOTE_VIEWS);
+    setSessionViewer(true);
   });
   afterEach(() => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
-    setViewLimit(undefined);
+    setSessionViewer(false);
   });
 
-  it("shows the session live in the chat, with what it does and the title in place of the tabs", async () => {
+  it("shows the session live in the chat, with what it does, its two tabs and the title", async () => {
     const layout: Layout = { columns: 110, rows: 26, listWidth: 40, previewWidth: 67, bodyHeight: 22 };
     const app = renderInk(<App cwd={tmpdir()} remoteId={String(session.id)} initialMode="chat" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
@@ -101,10 +102,10 @@ describe("a remote viewer", () => {
     // Without remote control it only observes.
     expect(tabs).toContain(" observing ");
     expect(tabs).toContain("rc-test");
-    expect(tabs).not.toContain("Chat");
+    expect(tabs).toContain(" 1 Chat ");
+    expect(tabs).toContain(" 6 Settings ");
     expect(tabs).not.toContain("Sessions");
     expect(tabs).not.toContain("Plan");
-    expect(tabs).not.toContain("Settings");
     expect(tabs).not.toContain("Changes");
     served = 1000;
     await until(() => app.frame().includes("zähle bis 10"));
