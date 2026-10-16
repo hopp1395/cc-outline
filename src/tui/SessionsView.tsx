@@ -244,7 +244,8 @@ function attachmentLine(a: AttachmentItem, cwd: string, width: number): string {
     case "pdf":
       return truncate(`  ${cyan(a.kind === "pdf" ? "▤" : "▣")} ${at} ${a.label}`, width);
     default: {
-      const path = displayPath(a.full, cwd).replace(/\\/g, "/");
+      // As the prompt named it (relative to the session's folder), else relative to that folder.
+      const path = (a.path !== a.full ? a.path : displayPath(a.full, cwd)).replace(/\\/g, "/");
       const times = (a.uuids?.length ?? 0) > 1 ? dim(` (${a.uuids!.length}×)`) : "";
       return truncate(`  ${yellow("@")} ${at} ${a.kind === "directory" ? path.replace(/\/?$/, "/") : path}${times}`, width);
     }
