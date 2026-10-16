@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { basename } from "node:path";
+import { clearLocalRequest, recordLocalRequest, removeOldLocalRequests } from "./localRequest.js";
 import { removeStaleSessionViewers } from "./sessionViewers.js";
 import { openPane } from "./open.js";
 import { readSessionView, resolvePlacement } from "./sessionViews.js";
@@ -25,6 +26,9 @@ export interface HookInput {
   reason?: string;
   /** SessionStart only: "startup", "resume", "clear" or "compact". */
   source?: string;
+  /** PreToolUse and PermissionRequest: the tool and its input. */
+  tool_name?: string;
+  tool_input?: unknown;
 }
 
 async function readStdin(): Promise<string> {
@@ -52,7 +56,12 @@ function removeStaleFiles(cwd: string): void {
  * at exit is remembered and restored on the next start.
  */
 export function handleHook(input: HookInput, open = openPane, claudePid = claudePidFromEnv()): void {
+  // What Claude asks (AskUserQuestion) or wants allowed: recorded for the Remote Control Viewer to show, and nothing
+  // more; with no output the hook decides nothing, so Claude Code asks in its terminal as always.
+  if (input.hook_event_name === "PreToolUse" || input.hook_event_name === "PermissionRequest") return recordLocalRequest(input);
   if (!input.session_id || !input.transcript_path || !input.cwd) return;
+  // A prompt was typed, or the session ends: what it asked before is answered.
+  if (input.hook_event_name === "UserPromptSubmit" || input.hook_event_name === "SessionEnd") clearLocalRequest(input.session_id);
   const cwd = input.cwd;
   const updated = new Date().toISOString();
 
@@ -81,6 +90,7 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
   // A fresh Claude Code process (not /clear or compaction): open the viewer as the autoOpen setting says.
   if (input.hook_event_name === "SessionStart" && (input.source === "startup" || input.source === "resume")) {
     removeStaleFiles(cwd);
+    removeOldLocalRequests();
     const restore = readRestore(cwd);
     const settings = readSettings();
     const { autoOpen, rememberView } = settings;

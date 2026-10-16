@@ -32,6 +32,8 @@ import { useTerminalTitle } from "./title.js";
 import { useAccountState } from "./useAccount.js";
 import { useClipboard } from "./useClipboard.js";
 import { useLocalPrompt } from "./useLocalPrompt.js";
+import { useLocalRequest } from "./useLocalRequest.js";
+import { localRequestSummary } from "../localRequest.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
 import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers } from "./useSessionData.js";
 import { useSetting } from "./useSetting.js";
@@ -205,6 +207,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const channel: PromptChannel = remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: "not running: Enter continues it in a new window" });
   const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
   const canCompose = session !== undefined && (!channel.blocked || pending !== undefined);
+  // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal.
+  const asked = useLocalRequest(session && !session.remote ? session.id : undefined, path, entry?.state === "waiting" && !pending, session?.account);
   // The chat and the lists leave the prompt line its rows.
   const layout = session ? shorter(full, composerRows) : full;
 
@@ -240,6 +244,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       remote: s.remote && { control: remoteControl, pending: s.remote.pending ?? (s.id === remoteId ? remoteRead.pending[0] : undefined) },
       running: e.running,
       bridge: e === entry && bridge ? { control: remoteControl, pending } : undefined,
+      asked: e === entry && asked ? localRequestSummary(asked, 52) : undefined,
       promptBlocked: s.remote ? undefined : channel.blocked,
       folderMissing: !s.remote && !existsSync(dir),
       terminal: detectTerminal() !== undefined,
@@ -459,6 +464,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             onHeight={setComposerRows}
             draftKey={entry?.key}
             hint={["Space", "or a click: write a prompt"]}
+            asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front" }}
           />
         )}
       </Box>

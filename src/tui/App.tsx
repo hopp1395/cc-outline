@@ -40,6 +40,7 @@ import { SessionComposer, type PromptChannel } from "./SessionComposer.js";
 import { describeRemoteError, remotePath } from "../remote/index.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { useLocalPrompt } from "./useLocalPrompt.js";
+import { useLocalRequest } from "./useLocalRequest.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { useRunningSession } from "./useRunningSession.js";
 import { TIMING } from "../timing.js";
@@ -276,6 +277,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   }, [remoteId, remoteControl]);
   const channel = remoteChannel ?? localChannel;
   const remotePending = remoteId ? (remote.pending[0] ?? remote.session?.pending) : undefined;
+  // A session of this machine that waits: what it asks, as its hooks recorded it, in the prompt line's place.
+  const asked = useLocalRequest(sessionId !== undefined && !remoteId ? sessionOf(path) : undefined, path, running?.activity === "waiting");
   const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
@@ -658,6 +661,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onFocus={setComposing}
             notify={(text) => setNotice({ text })}
             onHeight={setComposerRows}
+            asked={asked && { request: asked, where: "its Claude Code's window" }}
           />
         )}
         {placementOpen && (

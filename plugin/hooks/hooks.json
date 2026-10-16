@@ -1,5 +1,5 @@
 {
-  "description": "Tell a running cco viewer which session is active in this project, and close it when the session ends",
+  "description": "Tell a running cco viewer which session is active in this project, close it when the session ends, and record what a session asks (a question, a permission) for the Remote Control Viewer to show",
   "hooks": {
     "SessionStart": [
       { "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs", "hook"], "timeout": 10 }] }
@@ -8,6 +8,12 @@
       { "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs", "hook"], "timeout": 10 }] }
     ],
     "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs", "hook"], "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs", "hook"], "timeout": 10 }] }
+    ],
+    "PermissionRequest": [
       { "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/cco.mjs", "hook"], "timeout": 10 }] }
     ]
   }

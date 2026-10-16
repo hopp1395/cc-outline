@@ -1,6 +1,7 @@
 import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useRef, useState } from "react";
 import { editLine, type LineState } from "../filter.js";
+import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import type { PendingRequest } from "../remote/pending.js";
 import { pastable, promptRows } from "./PromptDialog.js";
 import { QuestionDialog, questionsOf } from "./QuestionDialog.js";
@@ -79,6 +80,7 @@ export function SessionComposer({
   onHeight,
   draftKey,
   hint = ["Tab", "write a prompt"],
+  asked,
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -99,6 +101,11 @@ export function SessionComposer({
   draftKey?: string;
   /** What the line says while it does not have the keys: the key that gives them, and what for. */
   hint?: [string, string];
+  /**
+   * What a session of this machine waits for, as its hooks recorded it: shown in the line's place while it waits,
+   * read-only, since it is answered in its terminal; `where` says how to get there.
+   */
+  asked?: { request: LocalRequest; where: string };
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
   const drafts = useRef(new Map<string, LineState>()).current;
@@ -280,6 +287,23 @@ export function SessionComposer({
             {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [[hint[0], "answer it"]])}
           </>
         )}
+      </Box>
+    );
+  } else if (channel.blocked && asked) {
+    const { request } = asked;
+    body = (
+      <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
+        <Text bold color="yellow" wrap="truncate">
+          {request.kind === "question" ? `Claude asks · ${truncate(title, 40)}` : `Allow ${request.toolName}? · ${truncate(title, 40)}`}
+        </Text>
+        {localRequestLines(request, room).slice(0, 8).map((l, i) => (
+          <Text key={i} wrap="truncate">
+            {l}
+          </Text>
+        ))}
+        <Text dimColor wrap="truncate">
+          {`Answered in its terminal: ${asked.where}`}
+        </Text>
       </Box>
     );
   } else if (channel.blocked) {
