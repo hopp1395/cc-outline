@@ -386,11 +386,18 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         render={(e, isSelected) => {
           const age = formatAge(now - e.since);
           const project = e.session.remote ? "claude.ai" : projectName(e.session);
-          const width = Math.max(4, aside - (withAccounts ? 1 : 0) - 2 - stringWidth(age) - 1);
+          // ⇄: answered here, through claude.ai (a remote session, or one of this machine connected there); dim while steer remote is off.
+          const steerable = e.state !== "ended" && (e.session.remote !== undefined || (!e.session.account && twins.has(e.session.id)));
+          const width = Math.max(4, aside - (withAccounts ? 1 : 0) - 2 - (steerable ? 2 : 0) - stringWidth(age) - 1);
           return (
             <>
               <RcViewerMarker entry={e} fresh={isFresh(e)} />
               <Text> </Text>
+              {steerable && (
+                <Text color="cyan" dimColor={!remoteControl}>
+                  {"⇄ "}
+                </Text>
+              )}
               <EntryText text={`${sessionTitle(e.session)} · ${project}`} width={width} selected={isSelected} active={sessionsFocused} />
               <Text dimColor={!isSelected}>{` ${age}`}</Text>
             </>

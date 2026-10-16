@@ -552,6 +552,8 @@ describe("answering a remote session in the Remote Control Viewer", () => {
     // Listed once, as the session of this machine; its question comes from claude.ai.
     await until(() => view.frame().includes("local twin") && view.frame().includes("Welche Farbe magst du?"));
     expect(view.frame()).not.toContain("rc-test");
+    // Marked as answered here.
+    expect(view.frame()).toMatch(/[⚠ ] ⇄ local twin/);
     await until(() => view.frame().includes("ask me a colour"));
     expect(view.frame()).toContain("ask me a colour");
     await view.press("\r");

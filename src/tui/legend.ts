@@ -89,6 +89,7 @@ export const RC_VIEWER_LEGEND: ShortMark[] = [
   { mark: "●", color: "32", short: "just finished (blinks)" },
   { mark: "∅", color: "2", short: "ended" },
   { mark: "◈", color: "36", short: "remote" },
+  { mark: "⇄", color: "36", short: "answered here (dim: steer remote off)" },
   { mark: "▌", short: "account colour" },
   { mark: "3m", color: "2", short: "time in its state" },
 ];
