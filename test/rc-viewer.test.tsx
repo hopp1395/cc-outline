@@ -128,8 +128,8 @@ describe("asking the Remote Control Viewer for a session", () => {
   });
 
   it("names in the Sessions row whether it runs and how many wait", () => {
-    expect(rcViewerRowLabel(false, 0)).toBe("⊞ open the Remote Control Viewer…");
-    expect(rcViewerRowLabel(true, 2)).toBe("⊞ bring the Remote Control Viewer to the front · ⚠2 waiting");
+    expect(rcViewerRowLabel(0)).toBe("⊞ Remote Control Viewer");
+    expect(rcViewerRowLabel(2)).toBe("⊞ Remote Control Viewer · ⚠2 waiting");
   });
 });
 
@@ -303,7 +303,7 @@ describe("opening the Remote Control Viewer from Sessions", () => {
     spawned.length = 0;
     const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, size);
     await until(() => view.frame().includes("only work"));
-    expect(view.frame().split("\n")[1]).toContain("⊞ open the Remote Control Viewer…");
+    expect(view.frame().split("\n")[1]).toContain("⊞ Remote Control Viewer");
     await view.press("\u001b[A");
     await until(() => view.frame().includes("↵ Remote Control Viewer"));
     expect(view.frame()).toContain("The Remote Control Viewer: one window");

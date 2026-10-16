@@ -507,9 +507,9 @@ function useRcViewerRuns(visible: boolean): RcViewerInfo | undefined {
   return rcViewer;
 }
 
-/** What the Remote Control Viewer's row above the list says: open it or bring it to the front, and how many sessions wait for the user. */
-export function rcViewerRowLabel(runs: boolean, waiting: number): string {
-  return `⊞ ${runs ? "bring the Remote Control Viewer to the front" : "open the Remote Control Viewer…"}${waiting > 0 ? ` · ⚠${waiting} waiting` : ""}`;
+/** What the Remote Control Viewer's row above the list says: its name, and how many sessions wait for the user. */
+export function rcViewerRowLabel(waiting: number): string {
+  return `⊞ Remote Control Viewer${waiting > 0 ? ` · ⚠${waiting} waiting` : ""}`;
 }
 
 /**
@@ -1570,7 +1570,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
           trashOpen ? (
             sessionsList
           ) : (
-            <RcViewerRow label={rcViewerRowLabel(rcViewer !== undefined, waitingCount)} selected={rcViewerSelected && focused} onOpen={() => openRcViewerFor()}>
+            <RcViewerRow label={rcViewerRowLabel(waitingCount)} selected={rcViewerSelected && focused} onOpen={() => openRcViewerFor()}>
               <FocusContext.Provider value={focused && !rcViewerSelected}>{sessionsList}</FocusContext.Provider>
             </RcViewerRow>
           )
