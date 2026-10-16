@@ -15,9 +15,10 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `account`: copy it into another account's config folder and continue it there, in a new window.
  * - `viewer`: open a viewer of it (the chat only, live) in a new window; `viewer-front`: bring the one opened last
  *   to the front.
+ * - `folder`: open the folder it ran in, in the file manager.
  * - `copy`: copy the command that continues it.
  */
-export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "viewer" | "viewer-front" | "copy";
+export type SessionAction = "stay" | "detach" | "switch" | "attach" | "here" | "window" | "window-attach" | "move" | "rename" | "export" | "import" | "account" | "viewer" | "viewer-front" | "folder" | "copy";
 
 export interface ChoiceOption<T extends string = string> {
   id: T;
@@ -70,6 +71,8 @@ export interface SessionSituation {
   terminal: boolean;
   /** How many viewers of it run in windows of their own (◎). */
   viewers?: number;
+  /** The folder it ran in, as `folder` names it (`~` for the home folder). */
+  folder: string;
   /** The command `copy` copies. */
   command: string;
 }
@@ -165,6 +168,8 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
       disabled: own ?? (s.folderMissing ? "its folder is gone" : undefined),
     });
   options.push(...viewerOptions(s.viewers ?? 0, s.terminal));
+  // Another account's folder is on this machine too.
+  options.push({ id: "folder", label: "Open its folder", detail: s.folder, disabled: s.folderMissing ? "its folder is gone" : undefined });
   options.push(
     { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: own ?? (s.state === "inactive" ? undefined : RUNS) },
     marked > 0 && !own
@@ -228,6 +233,7 @@ export function enterLabel(s: SessionSituation): string {
     account: "other account",
     viewer: "session viewer",
     "viewer-front": "viewer to front",
+    folder: "open folder",
     copy: "copy",
   };
   return `↵ ${LABELS[options[initial]!.id]}`;

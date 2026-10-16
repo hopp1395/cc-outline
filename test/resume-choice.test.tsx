@@ -88,7 +88,7 @@ describe("isEmptySession", () => {
 });
 
 type Situation = import("../src/tui/resumeChoice.js").SessionSituation;
-const base: Situation = { state: "inactive", terminal: true, command: "claude --resume s1" };
+const base: Situation = { state: "inactive", terminal: true, folder: "~/proj", command: "claude --resume s1" };
 const idle = { empty: true, activity: "idle" as const, method: "keys" as const };
 /** The option ids, the selected one marked with ✱ and disabled ones with ✗. */
 const shown = (s: Partial<Situation>) => {
@@ -98,40 +98,40 @@ const shown = (s: Partial<Situation>) => {
 
 describe("sessionOptions", () => {
   it("offers its own session to stay or detach", () => {
-    expect(shown({ paired: idle, state: "current" })).toBe("✱stay detach viewer ✗rename export import copy");
+    expect(shown({ paired: idle, state: "current" })).toBe("✱stay detach viewer folder ✗rename export import copy");
   });
 
   it("switches to a running session by default, and attaches the viewer there if that Claude Code has none", () => {
-    expect(shown({ paired: idle, state: "active" })).toBe("✱switch attach viewer ✗rename export import copy");
-    expect(shown({ paired: idle, state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✱switch ✗attach viewer ✗rename export import copy");
+    expect(shown({ paired: idle, state: "active" })).toBe("✱switch attach viewer folder ✗rename export import copy");
+    expect(shown({ paired: idle, state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✱switch ✗attach viewer folder ✗rename export import copy");
     // A viewer of no Claude Code attaches by default.
-    expect(shown({ state: "active" })).toBe("✱attach switch viewer ✗rename export import copy");
-    expect(shown({ state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✱switch viewer ✗rename export import copy");
+    expect(shown({ state: "active" })).toBe("✱attach switch viewer folder ✗rename export import copy");
+    expect(shown({ state: "active", attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✱switch viewer folder ✗rename export import copy");
   });
 
   it("continues a session that runs nowhere here when the viewer's Claude Code has no prompt yet, else in a new window", () => {
-    expect(shown({ paired: idle })).toBe("✱here window viewer rename export import copy");
-    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window viewer rename export import copy");
+    expect(shown({ paired: idle })).toBe("✱here window viewer folder rename export import copy");
+    expect(shown({ paired: { ...idle, empty: false } })).toBe("here ✱window viewer folder rename export import copy");
     // Versions without a status count as free.
-    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window viewer rename export import copy");
+    expect(shown({ paired: { empty: true, method: "clipboard" } })).toBe("✱here window viewer folder rename export import copy");
     // Only a viewer without a Claude Code moves along: a session started elsewhere gets a viewer of its own.
-    expect(shown({})).toBe("✱window-attach window viewer rename export import copy");
+    expect(shown({})).toBe("✱window-attach window viewer folder rename export import copy");
   });
 
   it("greys out continuing here while Claude works or waits, and for another project folder", () => {
-    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window viewer rename export import copy");
+    for (const activity of ["busy", "waiting"] as const) expect(shown({ paired: { ...idle, activity } })).toBe("✗here ✱window viewer folder rename export import copy");
     const { options } = sessionOptions({ ...base, paired: idle, otherFolder: "other" });
     expect(options[0]!.disabled).toBe("ran in other, not in this folder");
   });
 
   it("falls back to a viewer of it when nothing else can be done", () => {
-    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window ✱viewer rename export import copy");
-    expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window ✱viewer rename export import copy");
-    expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✱viewer ✗rename export import copy");
+    expect(shown({ paired: { ...idle, activity: "busy" }, terminal: false })).toBe("✗here ✗window ✱viewer folder rename export import copy");
+    expect(shown({ folderMissing: true })).toBe("✗window-attach ✗window ✱viewer ✗folder rename export import copy");
+    expect(shown({ state: "active", terminal: false, attachBlocked: "it has a viewer of its own" })).toBe("✗attach ✗switch ✱viewer folder ✗rename export import copy");
   });
 
   it("moves a session whose folder is gone here first, and exports the marked sessions where there are some", () => {
-    expect(shown({ folderMissing: true, movable: "old" })).toBe("✱move ✗window-attach ✗window viewer rename export import copy");
+    expect(shown({ folderMissing: true, movable: "old" })).toBe("✱move ✗window-attach ✗window viewer ✗folder rename export import copy");
     expect(enterLabel({ ...base, folderMissing: true, movable: "old" })).toBe("↵ move to this project");
     const label = (marked: number) => sessionOptions({ ...base, marked }).options.find((o) => o.id === "export")!.label;
     expect(label(0)).toBe("Export it");
@@ -139,25 +139,25 @@ describe("sessionOptions", () => {
   });
 
   it("offers another account only when one is signed in, for every state, but not for a session whose folder is gone", () => {
-    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window account viewer rename export import copy");
-    expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account viewer ✗rename export import copy");
-    expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account ✱viewer rename export import copy");
+    expect(shown({ paired: idle, accounts: ["b@x"] })).toBe("✱here window account viewer folder rename export import copy");
+    expect(shown({ paired: idle, state: "current", accounts: ["b@x"] })).toBe("✱stay detach account viewer folder ✗rename export import copy");
+    expect(shown({ folderMissing: true, accounts: ["b@x"] })).toBe("✗window-attach ✗window ✗account ✱viewer ✗folder rename export import copy");
     const option = (accounts: string[]) => sessionOptions({ ...base, accounts }).options.find((o) => o.id === "account")!;
     expect(option(["b@x"])).toMatchObject({ label: "Continue it in b@x…", detail: "a copy, in a new Claude Code window" });
     expect(option(["b@x", "c@x"])).toMatchObject({ label: "Continue it in another account…", detail: "a copy in one of 2 other accounts, in a new Claude Code window" });
   });
 
   it("gives another account's session the same list, with what works only here greyed out", () => {
-    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account viewer ✗rename ✗export ✗import copy");
-    expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch viewer ✗rename ✗export ✗import copy");
-    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✱viewer ✗rename ✗export ✗import copy");
+    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account viewer folder ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch viewer folder ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✱viewer folder ✗rename ✗export ✗import copy");
     const window = sessionOptions({ ...base, foreign: true, account: "c@x" }).options.find((o) => o.id === "window")!;
     expect(window).toMatchObject({ label: "Continue it in a new Claude Code window", detail: "claude --resume as c@x" });
     expect(sessionOptions({ ...base, foreign: true }).options.find((o) => o.id === "rename")!.disabled).toBe("only for sessions of this account");
   });
 
   it("opens it in another window while viewers of it run, and brings the newest to the front", () => {
-    expect(shown({ paired: idle, viewers: 2 })).toBe("✱here window viewer viewer-front rename export import copy");
+    expect(shown({ paired: idle, viewers: 2 })).toBe("✱here window viewer viewer-front folder rename export import copy");
     const { options } = sessionOptions({ ...base, viewers: 2 });
     expect(options.find((o) => o.id === "viewer")!.label).toBe("Open another session viewer");
     expect(options.find((o) => o.id === "viewer-front")!.detail).toBe("the one opened last of 2");
@@ -463,8 +463,22 @@ describe("Enter on a session that runs", () => {
     await view.press("\r");
     await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("claude attach job7");
-    await view.press("7");
+    await view.press("8");
     await until(() => view.frame().includes("copied: claude attach job7"));
+    view.unmount();
+  });
+});
+
+describe("opening a session's folder", () => {
+  it("opens the folder it ran in, in the file manager", async () => {
+    pastSession("s1");
+    const view = renderView({});
+    await until(() => view.frame().includes("Prompts (1)"));
+    await view.press("\r");
+    await until(() => view.frame().includes("Open its folder"));
+    await view.press("4");
+    await until(() => spawned.some((c) => c.args[0] === cwd));
+    expect(view.frame()).not.toContain("What to do with this session?");
     view.unmount();
   });
 });
@@ -476,7 +490,7 @@ describe("renaming a session", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    await view.press("4");
+    await view.press("5");
     await until(() => view.frame().includes("Rename the session"));
     await view.press("\r");
     await until(() => view.frame().includes("The name must not be empty"));
@@ -497,7 +511,7 @@ describe("renaming a session", () => {
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    await view.press("4");
+    await view.press("5");
     await until(() => view.frame().includes("› Old name"));
     await view.press("\r");
     await until(() => !view.frame().includes("Rename the session"));
@@ -513,7 +527,7 @@ describe("renaming a session", () => {
     await view.press("\r");
     await until(() => view.frame().includes("runs in a Claude Code"));
     expect(view.frame()).toContain("it runs: use /rename in its Claude Code");
-    await view.press("4");
+    await view.press("5");
     await tick(100);
     expect(view.frame()).not.toContain("Rename the session");
     view.unmount();
