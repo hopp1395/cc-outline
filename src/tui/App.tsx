@@ -10,7 +10,14 @@ import { COMPACT_COLUMNS_VALUES, isListFold, isSessionViewer, isViewShown, LIST_
 import { detailFold, stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { continueSession } from "../transcript/locate.js";
 import type { Turn } from "../transcript/parse.js";
-import { detachViewer, pairViewer, setViewerView, writeTargetSession, type PairTarget, type ViewerAction } from "../viewer.js";
+import { detachViewer, isAlive, pairViewer, setViewerView, writeTargetSession, type EditRequest, type PairTarget, type ViewerAction } from "../viewer.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import { writeReply } from "../promptEdit.js";
+import { clearDraft } from "../promptDraft.js";
+import { projectSlug } from "../transcript/locate.js";
+import { canFocusViewer, focusClaude, focusViewerPane, prepareConsoleInput, resumeHereMethod, typePromptInClaude, type ConsoleTyper } from "../switchSession.js";
+import { PromptEditor } from "./PromptEditor.js";
+import { useClipboard } from "./useClipboard.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
@@ -220,8 +227,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (view) setMode(view);
     if (select) setSettingsSelect({ key: select, at: Date.now(), ask });
   };
-  // Requests of cco open: a view, and /cco:restart and /cco:update.
-  const onRequest = (view: Mode | undefined, select?: string, action?: ViewerAction) => {
+  // Requests of cco open: a view, and /cco:restart and /cco:update; Ctrl+G in Claude Code (cco edit): the prompt editor.
+  const onRequest = (view: Mode | undefined, select?: string, action?: ViewerAction, edit?: EditRequest) => {
+    if (edit) return openEditor(edit);
     if (action === "account") {
       setMode("sessions");
       return setAccountRequest({ at: Date.now(), query: select || undefined });
@@ -279,7 +287,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const remotePending = remoteId ? (remote.pending[0] ?? remote.session?.pending) : undefined;
   // A session of this machine that waits: what it asks, as its hooks recorded it, in the prompt line's place.
   const asked = useLocalRequest(sessionId !== undefined && !remoteId ? sessionOf(path) : undefined, path, running?.activity === "waiting");
-  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open;
+  // e (or Ctrl+G in Claude Code): the prompt editor over the whole pane. With `edit`, cco edit waits for it.
+  const [editor, setEditor] = useState<{ id: number; edit?: EditRequest; initialText?: string }>();
+  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || editor !== undefined;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
@@ -467,7 +477,80 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     if (choice !== placement && moveViewer(cwd, mode, choice, claudePid)) exit();
   };
 
+  // The prompt editor's hand-over: back to cco edit (Ctrl+G), else typed into this viewer's Claude Code, else copied.
+  const where = () => placement ?? resolvePlacement(cwd, sessionOf(path));
+  const draftKey = sessionOf(path) ?? `project-${projectSlug(cwd)}`;
+  const types = claudePid !== undefined && !fixed && resumeHereMethod() === "keys";
+  const typer = useRef<ConsoleTyper>(undefined);
+  const copy = useClipboard();
+  const openEditor = (edit?: EditRequest) => {
+    if (edit) {
+      // Ctrl+G: only where the viewer can take the focus and nothing else has the keys; else cco edit edits in Claude Code's pane.
+      if (!claudePid || fixed || modal || typing || !canFocusViewer(where())) return writeReply(edit.file, "declined");
+      let initialText = "";
+      try {
+        initialText = readFileSync(edit.file, "utf8");
+      } catch {
+        return writeReply(edit.file, "declined");
+      }
+      setEditor({ id: Date.now(), edit, initialText });
+      writeReply(edit.file, "open");
+      return focusViewerPane(where());
+    }
+    // Starting PowerShell takes a second: it starts with the editor and gets the text when handed over.
+    if (types && detectTerminal() !== "tmux" && !typer.current) typer.current = prepareConsoleInput(claudePid!);
+    setEditor({ id: Date.now() });
+  };
+  const closeEditor = () => {
+    typer.current?.cancel();
+    typer.current = undefined;
+    setEditor(undefined);
+  };
+  // cco edit gone (Ctrl+C in Claude Code's pane): the editor hands over by typing instead.
+  useEffect(() => {
+    const pid = editor?.edit?.pid;
+    if (pid === undefined) return;
+    const timer = setInterval(() => {
+      if (!isAlive(pid)) setEditor((e) => (e?.edit?.pid === pid ? { ...e, edit: undefined } : e));
+    }, TIMING.editPoll * 5);
+    return () => clearInterval(timer);
+  }, [editor?.edit?.pid]);
+  const handOver = (text: string) => {
+    const edit = editor?.edit;
+    if (edit && isAlive(edit.pid)) {
+      writeFileSync(edit.file, text);
+      writeReply(edit.file, "done");
+      clearDraft(draftKey);
+      closeEditor();
+      void focusClaude(where(), claudePid!);
+      return setNotice({ text: "handed over: Enter in Claude Code sends it" });
+    }
+    const used = typer.current;
+    typer.current = undefined;
+    closeEditor();
+    const copied = (why: string) =>
+      void copy(text).then(
+        () => setNotice({ text: `${why}: copied, paste it into Claude Code` }),
+        () => setNotice({ text: `${why}, and copying failed: the draft is kept (e)` }),
+      );
+    if (!types) return copied(fixed ? "a viewer of one session types into no Claude Code" : "no Claude Code to type into");
+    void typePromptInClaude(claudePid!, text, used).then((typed) => {
+      if (!typed) return copied("it could not be typed into Claude Code");
+      clearDraft(draftKey);
+      setNotice({ text: "in Claude Code's prompt line: Enter there sends it" });
+    });
+  };
+  const cancelEditor = () => {
+    const edit = editor?.edit;
+    closeEditor();
+    if (edit) {
+      writeReply(edit.file, "cancelled");
+      void focusClaude(where(), claudePid!);
+    }
+  };
+
   useInput((input, key) => {
+    if (editor) return;
     if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
@@ -494,6 +577,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       setInfoPage("keys");
       setInfoOpen(true);
     }
+    // A viewer of one session has its prompt line below the chat.
+    else if (input === "e" && !key.ctrl && !composer) openEditor();
     else if (input === "<" || input === ">") stepWidth(input === "<" ? -1 : 1);
     else if (input === "|") toggleWidth();
     // Only a viewer that follows the live session moves; one started with --session stays.
@@ -663,6 +748,27 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onHeight={setComposerRows}
             asked={asked && { request: asked, where: "its Claude Code's window" }}
           />
+        )}
+        {editor && (
+          <Box position="absolute" top={0} left={0}>
+          <PromptEditor
+            key={editor.id}
+            layout={layout}
+            title={`Prompt for Claude Code · ${sessionTitle}`}
+            detail={
+              editor.edit
+                ? "Ctrl+G: goes back to Claude Code's prompt line; Enter there sends it."
+                : types
+                  ? "Typed into Claude Code's prompt line; Enter there sends it."
+                  : "Copied when handed over: this viewer types into no Claude Code."
+            }
+            draftKey={draftKey}
+            initialText={editor.initialText}
+            active={!progress.host.open}
+            onSubmit={handOver}
+            onCancel={cancelEditor}
+          />
+          </Box>
         )}
         {placementOpen && (
           <PlacementDialog

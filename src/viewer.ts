@@ -21,8 +21,23 @@ export interface ControlRequest {
   /** An entry to select in the view (`releases` in Settings). */
   select?: string;
   action?: ViewerAction;
+  /** Ctrl+G in Claude Code (`cco edit`): open the prompt editor on this file, and answer in its reply file. */
+  edit?: EditRequest;
   /** Epoch ms; a viewer ignores requests older than its own start. */
   at: number;
+}
+
+/** What `cco edit` (Claude Code's external editor) asks the viewer of its Claude Code to edit. */
+export interface EditRequest {
+  /** The file Claude Code wrote its prompt line into and reads back. */
+  file: string;
+  /** The `cco edit` process, which waits for the reply. */
+  pid: number;
+}
+
+/** Asks the viewer of `claudePid` to open the prompt editor on `edit.file`. */
+export function requestEdit(cwd: string, claudePid: number, edit: EditRequest): void {
+  writeJson(controlFile(cwd, claudePid), { edit, at: Date.now() } satisfies ControlRequest);
 }
 
 /** Whether the viewer was open when Claude Code exited, to restore it on the next start. */

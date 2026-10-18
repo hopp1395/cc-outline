@@ -12,6 +12,7 @@ import { compareVersions, installKind, packageRoot, runCommand, type RunCommand 
 import { VERSION } from "./version.js";
 import { isAlive } from "./viewer.js";
 import { legacyObserversDir, sessionViewersDir } from "./sessionViewers.js";
+import { claudeSettingsFile, readEditorSetup, setUpEditor } from "./promptEdit.js";
 
 /** `ok` passes, `warn` is worth a look (or a repair), `error` keeps cco from working as it should; only errors fail `cco doctor`. */
 export type Severity = "ok" | "warn" | "error";
@@ -53,7 +54,7 @@ export interface DoctorOptions {
 
 const PLUGIN = "cco@cc-outline";
 /** The files in ~/.claude/cco that belong to no project. */
-const GLOBAL_FILES = new Set(["settings.json", "settings.session-viewer.json", "settings.rc-viewer.json", "rc-viewer.json", "rc-viewer-request.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json"]);
+const GLOBAL_FILES = new Set(["settings.json", "settings.session-viewer.json", "settings.rc-viewer.json", "rc-viewer.json", "rc-viewer-request.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json", "editor.json"]);
 /** A project's session marked ended this long ago is history: no viewer waits for it any more. */
 const ENDED_AGE_MS = 24 * 60 * 60 * 1000;
 /** A `.corrupt` copy is kept this long for a look, then counts as a leftover. */
@@ -401,7 +402,26 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
       hint: "run cco watch in a terminal of your own",
     });
   if (readMainSettings().remoteApi) findings.push(remoteLogin(dir));
+  findings.push(promptEditor());
   return findings;
+}
+
+/** What Ctrl+G opens in Claude Code: cco's prompt editor once set up (Settings, Reset), and whether the cco it names still exists. */
+function promptEditor(): Finding {
+  const group = "Environment";
+  const setup = readEditorSetup();
+  if (setup.unreadable) return { group, severity: "warn", text: "Claude Code's settings.json is no valid JSON", paths: [claudeSettingsFile()], hint: "fix it by hand; Claude Code ignores it as it is" };
+  if (setup.stale)
+    return {
+      group,
+      severity: "warn",
+      text: `Ctrl+G runs a cco that is gone: VISUAL ${setup.visual}`,
+      paths: [claudeSettingsFile()],
+      repair: { id: "editor", label: "point VISUAL at this cco", apply: () => setUpEditor() },
+    };
+  if (setup.cco) return { group, severity: "ok", text: "Ctrl+G opens cco's prompt editor" };
+  const editor = setup.visual ?? (process.platform === "win32" ? "Notepad" : "the editor of EDITOR");
+  return { group, severity: "ok", text: `Ctrl+G opens ${editor}; cco's prompt editor is not set up (Settings, Reset)` };
 }
 
 /** The remote API (setting remoteApi) needs the login Claude Code keeps; whether claude.ai accepts it shows in the Sessions view. */

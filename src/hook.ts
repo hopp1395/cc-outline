@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { basename } from "node:path";
 import { clearLocalRequest, recordLocalRequest, removeOldLocalRequests } from "./localRequest.js";
 import { removeStaleSessionViewers } from "./sessionViewers.js";
+import { cleanupPromptFiles } from "./promptDraft.js";
 import { openPane } from "./open.js";
 import { readSessionView, resolvePlacement } from "./sessionViews.js";
 import { readSettings, shownView } from "./settings.js";
@@ -47,6 +48,8 @@ function removeStaleFiles(cwd: string): void {
   }
   // Session viewers belong to no project: those of every account register below the default folder.
   removeStaleSessionViewers();
+  // The prompt editor's images and drafts after 30 days.
+  cleanupPromptFiles();
 }
 
 /**

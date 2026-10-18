@@ -184,6 +184,17 @@ program
   });
 
 program
+  .command("edit")
+  .description("cco's prompt editor for Claude Code's Ctrl+G (VISUAL): in the viewer next to it, else in this terminal")
+  .argument("<file>", "the file Claude Code hands its external editor")
+  .action(async (file: string) => {
+    // Loaded here only: the hook must start fast.
+    const { runEdit } = await import("./promptEdit.js");
+    // Ink leaves stdin open: the editor's end is the command's.
+    process.exit(await runEdit(file, () => importProduction(() => import("./editor.js"))));
+  });
+
+program
   .command("doctor")
   .description("check the installation, state files, settings, terminal and hooks; --fix repairs what it can")
   .option("--cwd <dir>", "project whose hooks are checked", process.cwd())

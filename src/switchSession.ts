@@ -93,6 +93,24 @@ export function promptSteps(text: string): KeyStep[] {
 }
 
 /**
+ * A prompt put into Claude Code's prompt line without sending it (the prompt editor's hand-over): after whatever is
+ * typed there already, each line break as Ctrl+J (Claude Code's chat:newline), no Enter.
+ */
+export function promptLineSteps(text: string): KeyStep[] {
+  const steps: KeyStep[] = [];
+  text.split("\n").forEach((line, i) => {
+    if (i > 0) steps.push(["\n", 0x4a, 8, 0]);
+    if (line) steps.push([line, 0, 0, 0]);
+  });
+  return steps;
+}
+
+/** Puts `text` into the prompt line of the Claude Code process `claudePid` without sending it (`promptLineSteps`). */
+export async function typePromptInClaude(claudePid: number, text: string, typer?: ConsoleTyper): Promise<boolean> {
+  return (await keysInClaude(claudePid, promptLineSteps(text.replace(/\r\n?/g, "\n")), typer)).typed;
+}
+
+/**
  * Types `text` into the Claude Code process `claudePid` and submits it, as `resumeInClaude` does (`/exit` to
  * close it). `typed` is false, with the reason, if it could not.
  */
@@ -114,7 +132,7 @@ export async function keysInClaude(claudePid: number, steps: KeyStep[], typer?: 
   const pane = await tmuxPaneOf(claudePid);
   if (!pane) return { typed: false, message: "its tmux pane was not found" };
   for (const [chars, vk, ctrl, wait] of steps) {
-    const keys = ctrl === 8 && vk === 0x4c ? ["C-l"] : vk === 13 ? ["Enter"] : vk === 0x1b ? ["Escape"] : ["-l", chars];
+    const keys = ctrl === 8 && vk === 0x4c ? ["C-l"] : ctrl === 8 && vk === 0x4a ? ["C-j"] : vk === 13 ? ["Enter"] : vk === 0x1b ? ["Escape"] : ["-l", chars];
     if ((await run("tmux", ["send-keys", "-t", pane, ...keys])) === undefined) return { typed: false, message: "it could not be typed into its pane" };
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
   }
@@ -253,6 +271,33 @@ export function focusClaudePane(placement: Placement | undefined): boolean {
   if (detectTerminal() !== "wt" || !process.env.WT_SESSION || (placement !== "right" && placement !== "left")) return false;
   proc.spawn("wt", ["-w", "0", "move-focus", placement === "right" ? "left" : "right"], { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
+}
+
+/**
+ * Whether the viewer can take the keyboard focus from its Claude Code by itself (Ctrl+G opening the prompt
+ * editor in it): in tmux its own pane, in Windows Terminal only while docked in Claude Code's tab.
+ */
+export function canFocusViewer(placement: Placement | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
+  const terminal = detectTerminal(env);
+  if (terminal === "tmux") return !!env.TMUX_PANE;
+  return terminal === "wt" && !!env.WT_SESSION && (placement === "right" || placement === "left");
+}
+
+/** Moves the keyboard focus to this viewer's pane (`canFocusViewer`). */
+export function focusViewerPane(placement: Placement | undefined): void {
+  if (detectTerminal() === "tmux") {
+    if (process.env.TMUX_PANE) void run("tmux", ["select-pane", "-t", process.env.TMUX_PANE]);
+    return;
+  }
+  if (!canFocusViewer(placement)) return;
+  proc.spawn("wt", ["-w", "0", "move-focus", placement === "right" ? "right" : "left"], { stdio: "ignore", detached: true, windowsHide: true }).unref();
+}
+
+/** Moves the keyboard focus back to the pane of the Claude Code process `claudePid`. */
+export async function focusClaude(placement: Placement | undefined, claudePid: number): Promise<void> {
+  if (detectTerminal() !== "tmux") return void focusClaudePane(placement);
+  const pane = await tmuxPaneOf(claudePid);
+  if (pane) await run("tmux", ["select-pane", "-t", pane]);
 }
 
 /** The id (`%3`) of the tmux pane whose process is `pid` or one of its ancestors. */

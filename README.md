@@ -545,12 +545,25 @@ Keys:
   - When a newer version is out, the first entry is *update to v…*: its details show the notes of every newer release. `Enter` asks, then runs `npm install -g cc-outline@latest`, `claude plugin marketplace update cc-outline` and `claude plugin update cco@cc-outline`, showing each step and its output. When all succeed, the viewer opens again in the same place and view with the new version, and says once that Claude Code needs a restart for the plugin. A dialog then shows the notes of every version since the one you ran before, skipped versions included (`↑↓`/`PgUp`/`PgDn` scroll, `Enter` or `Esc` closes); it also comes after an update by hand, once per new version. If a step fails, the update stops there and shows its output; `c` copies the commands still to run.
   - Another viewer that is still on the old version offers *restart with v…* instead, which only reopens it.
   - A cco run from a checkout (`npm link`) or through npx is not updated: the entry only says that a new version is out.
-- **Reset**, below the settings (above Releases), has four entries; `Enter` shows what would change and asks first:
+- **Reset**, below the settings (above Releases), has five entries; `Enter` shows what would change and asks first:
   - *restart the viewer* closes the viewer and opens it again in the same place and view, with the version of cco installed now (after `npm install -g` by hand, or a rebuild of a linked checkout). `r` does the same in every view but Settings. It asks first, unless *confirm quit* is off; a dialog then says `Restarting…` for a second. `/cco:restart` does the same from Claude Code, without asking. If the viewer cannot reopen itself, the dialog says so; close it with `q` and open it again. The plugin's hooks and commands change only when Claude Code restarts.
   - *doctor: check and repair* runs `cco doctor` (see [Usage](#usage)): `Enter` or a double click asks, then checks one area after the other (`Checking Installation…`, `Checking State files…`, the areas done with their mark) and shows the report; nothing is checked before. If it found something to repair, `Enter` lists the repairs and asks, then runs them one by one with their output, and checks again. `F5` checks again once it has checked; without anything to repair, `Enter` does.
+  - *Ctrl+G: cco's prompt editor* sets `VISUAL` in the `env` of Claude Code's `settings.json` to `cco edit` (the file before is kept as `settings.json.cco-backup`), or takes it out again and puts back what was there; see [Prompt editor](#prompt-editor). Claude Code reads it when it starts.
   - *all settings to default*, the same as `R`, which also removes the marks `★` of the settings.
   - *saved data of this project* deletes what cco remembers for the project: the marks `★` of every list, the selected entries and scroll positions, the view and placement of each session, and whether the viewer was open at the last exit. The settings stay, and transcripts, sessions and git are not touched. The views reload empty.
 - Settings are global, for all projects, in `~/.claude/cco/settings.json`; a viewer of one session keeps some of its own in `settings.session-viewer.json` next to it. *auto open* takes effect at the next start of Claude Code, *remember positions* at the next start of the viewer.
+
+## Prompt editor
+
+Claude Code's prompt line is small for a long prompt, and on Windows an image from the clipboard often does not get in (Windows Terminal takes `Ctrl+V` for itself; images from the Snipping Tool, a browser or a file copied in Explorer fail now and then). `e` in the viewer opens cco's prompt editor over the whole pane:
+
+- Write as in Notepad: `Enter` starts a new line, `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` (`Ctrl` for the whole text), `Ctrl+←`/`→` by word.
+- `Alt+V` takes the clipboard's image: a screenshot (Snipping Tool), an image copied in the browser, or image files copied in Explorer. A paste that brings no text (`Ctrl+V` with only an image in the clipboard) does the same. Each image is saved in `~/.claude/cco/images` and shows as `[Image #1]` in the text; `Backspace` right after it takes the whole placeholder.
+- `Tab` goes to the image list (number, pixels, size, where it came from, time; `Enter` opens one, `d` removes it with its placeholder) and to the button.
+- `Ctrl+Enter`, `Ctrl+S` or the button `[ Hand over to Claude ]` hand the prompt over: each placeholder becomes the image's path in quotes, which Claude reads, and the text is typed into Claude Code's prompt line (Windows: its console, tmux: its pane; line breaks as `Ctrl+J`). Nothing is sent: `Enter` in Claude Code does that. Where the viewer types into no Claude Code (a viewer of one session, no Windows Terminal or tmux), the text is copied instead. In tmux, `Ctrl+Enter` only arrives with `extended-keys` on; `Ctrl+S` always does.
+- `Esc` closes it and keeps the draft, per session in `~/.claude/cco/drafts`, also across restarts; the next `e` brings it back. A prompt handed over clears it. Images and drafts are deleted 30 days after they were last written.
+
+With *Ctrl+G: cco's prompt editor* set up in Settings (Reset), `Ctrl+G` in Claude Code opens the same editor: in the viewer next to it (docked in Windows Terminal, or in tmux), which takes the focus and gives it back, else in Claude Code's own pane. What is in Claude Code's prompt line then comes along (its image paths become placeholders again), and the prompt goes back into the prompt line. `cco doctor` says what `Ctrl+G` opens.
 
 ## Keys
 
@@ -590,6 +603,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 | `<` / `>` | list narrower / wider (setting *list width*), past the ends folded away / over the pane | list narrower / wider | list narrower / wider | list narrower / wider |
 | `\|` | list folded away or over the pane, and back (see below) | list folded away or over the pane | list folded away or over the pane | list folded away or over the pane |
 | `p` | move the viewer: right, left or own window | move the viewer | move the viewer | move the viewer |
+| `e` | write a prompt in the [prompt editor](#prompt-editor) | write a prompt | write a prompt | write a prompt |
 | `r` | restart the viewer, with the version installed now (not in Settings, where it resets the selected setting) | restart the viewer | restart the viewer | restart the viewer |
 | `i` | info dialog | info dialog | info dialog | info dialog |
 | `q` | quit | quit | quit | quit |

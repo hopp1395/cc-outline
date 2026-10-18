@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { activeFile, claudeFile, controlFile, readActive, readJson, type ActiveSession } from "../transcript/locate.js";
 import { watchFile } from "../transcript/tail.js";
-import { isAlive, readControl, type ViewerAction } from "../viewer.js";
+import { isAlive, readControl, type EditRequest, type ViewerAction } from "../viewer.js";
 import type { Mode } from "./layout.js";
 
 /** Grace period so a quick restart (end + start) doesn't close the viewer. */
@@ -23,7 +23,7 @@ export function useViewerControl(opts: {
   /** Whether it takes the requests of `cco open` (default); a viewer of one session takes none. */
   control?: boolean;
   /** A request from `cco open`: a view to show (none: keep the one shown), an entry to select, an action. */
-  onView: (view: Mode | undefined, select?: string, action?: ViewerAction) => void;
+  onView: (view: Mode | undefined, select?: string, action?: ViewerAction, edit?: EditRequest) => void;
   onSessionEnd: () => void;
 }): void {
   const { cwd, claudePid, followActive, control: takesRequests = true, onView, onSessionEnd } = opts;
@@ -33,7 +33,7 @@ export function useViewerControl(opts: {
     const control = takesRequests
       ? watchFile(controlFile(cwd, claudePid), () => {
           const req = readControl(cwd, claudePid);
-          if (req && req.at >= started) onView(req.view, req.select, req.action);
+          if (req && req.at >= started) onView(req.view, req.select, req.action, req.edit);
         })
       : undefined;
 
