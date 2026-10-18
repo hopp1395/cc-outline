@@ -1,7 +1,7 @@
 import { Box, Text, useInput, usePaste } from "ink";
 import { useEffect, useRef, useState } from "react";
 import stringWidth from "string-width";
-import { readClipboardImages } from "../clipboardImage.js";
+import { clipboardImages } from "../clipboardImage.js";
 import { editLine, nextBoundary, previousBoundary, type LineState } from "../filter.js";
 import { detectTerminal, openInDefaultApp } from "../open.js";
 import {
@@ -159,7 +159,7 @@ export function PromptEditor({
     if (reading) return;
     setReading(true);
     setMessage("reading the clipboard…");
-    readClipboardImages(promptImageDir()).then(
+    clipboardImages.read(promptImageDir()).then(
       (read) => {
         setReading(false);
         if (read.images.length === 0) return setMessage("reason" in read ? read.reason : "no image in the clipboard");

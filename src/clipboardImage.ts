@@ -116,6 +116,9 @@ export async function readClipboardImages(dir: string, platform: NodeJS.Platform
   return { images: [], reason: "no image in the clipboard (wl-paste or xclip needed)" };
 }
 
+/** How the prompt editor reads the clipboard, read at each paste, so tests can swap in a platform. */
+export const clipboardImages = { read: (dir: string) => readClipboardImages(dir) };
+
 function sizeOf(path: string): number {
   try {
     return statSync(path).size;

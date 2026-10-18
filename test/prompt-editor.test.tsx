@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { imageSize, readClipboardImages } from "../src/clipboardImage.js";
+import { clipboardImages, imageSize, readClipboardImages } from "../src/clipboardImage.js";
 import { proc } from "../src/proc.js";
 import { promptLineSteps } from "../src/switchSession.js";
 import {
@@ -47,6 +47,7 @@ afterEach(() => {
 
 // PowerShell reading the clipboard: writes a PNG where it is told to, like CLIPBOARD_IMAGE_SCRIPT.
 const real = { ...proc };
+const realImages = { ...clipboardImages };
 let clipboardAnswer: "png" | "none" | { files: string[] } = "png";
 beforeAll(() => {
   proc.execFile = ((cmd: string, _args: string[], opts: { env?: NodeJS.ProcessEnv }, done: (err: Error | null, stdout: string) => void) => {
@@ -59,9 +60,12 @@ beforeAll(() => {
     return done(null, clipboardAnswer.files.map((f) => `file\t${f}`).join("\r\n"));
   }) as never;
   proc.spawn = (() => Object.assign(new EventEmitter(), { unref: () => {} })) as never;
+  // The editor reads the clipboard as on Windows, wherever the tests run.
+  clipboardImages.read = (dir) => readClipboardImages(dir, "win32");
 });
 afterAll(() => {
   Object.assign(proc, real);
+  Object.assign(clipboardImages, realImages);
 });
 
 const image = (n: number, path = join(promptImageDir(), `img-${n}.png`)): PromptImage => ({ n, path, source: "bitmap", bytes: 10, at: 0 });
@@ -133,12 +137,13 @@ describe("clipboard images", () => {
 
     const copied = join(mkdtempSync(join(tmpdir(), "cco-copied-")), "Shot 1.PNG");
     writeFileSync(copied, png(2, 2));
-    clipboardAnswer = { files: [copied, "C:\\notes.txt"] };
+    const notes = join(tmpdir(), "notes.txt");
+    clipboardAnswer = { files: [copied, notes] };
     const files = await readClipboardImages(dir, "win32");
     expect(files.images.map((i) => i.source)).toEqual(["Shot 1.PNG"]);
     expect(files.images[0]!.path.endsWith(".png")).toBe(true);
 
-    clipboardAnswer = { files: ["C:\\notes.txt"] };
+    clipboardAnswer = { files: [notes] };
     expect(await readClipboardImages(dir, "win32")).toEqual({ images: [], reason: "not an image: notes.txt" });
     clipboardAnswer = "none";
     expect(await readClipboardImages(dir, "win32")).toEqual({ images: [], reason: "no image in the clipboard" });
