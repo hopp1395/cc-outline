@@ -25,4 +25,8 @@ export const TIMING = {
   remotePoll: 1000,
   /** How often the chat reads the folders of a running workflow for its agents. */
   workflowPoll: 1000,
+  /** How long `cco edit` waits for the viewer to take its prompt (Ctrl+G) before it edits in Claude Code's pane. */
+  editAnswer: 2000,
+  /** How often `cco edit` looks whether the viewer is done, and the editor whether `cco edit` still waits. */
+  editPoll: 150,
 };

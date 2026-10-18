@@ -47,6 +47,7 @@ const COMMON_KEYS: [string, string][] = [
   ["F5 ^R", "reload this view"],
   ["p", "move: right / left / window"],
   ["r", "restart the viewer"],
+  ["e", "write a prompt for Claude Code"],
   ["i", "this info"],
   ["q", "quit"],
 ];

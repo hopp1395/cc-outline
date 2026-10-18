@@ -30,4 +30,6 @@ Object.assign(TIMING, {
   tailStat: 100,
   remotePoll: 50,
   workflowPoll: 50,
+  editAnswer: 300,
+  editPoll: 20,
 } satisfies typeof TIMING);

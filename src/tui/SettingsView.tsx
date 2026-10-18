@@ -40,6 +40,7 @@ import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
 import { useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
 import { TIMING } from "../timing.js";
+import { claudeSettingsFile, editorCommand, readEditorSetup, removeEditor, setUpEditor, type EditorSetup } from "../promptEdit.js";
 
 interface Props {
   layout: Layout;
@@ -67,7 +68,7 @@ interface Props {
 
 /** The entries of the Reset group below the settings: actions, run with Enter after a confirmation. */
 interface ResetAction {
-  id: "doctor" | "settings" | "data" | "restart" | "main";
+  id: "doctor" | "settings" | "data" | "restart" | "main" | "editor";
   label: string;
   description: string;
 }
@@ -84,6 +85,12 @@ export const RESET_ACTIONS: ResetAction[] = [
     label: "doctor: check and repair",
     description:
       "Checks what cco needs: the installation (npm, the plugin and its version, the path the plugin starts cco by), cco's files in `~/.claude/cco` (of processes that have ended, unfinished writes, files that are no valid JSON, the trash), the settings, the terminal and whether the plugin's hooks run. `Enter` asks, then checks; nothing is changed by that. The report shows below, and `Enter` then offers to repair what it can; some findings name a command to run yourself. `cco doctor` in a shell does the same (`--fix` repairs), `/cco:doctor` shows the report in Claude Code.",
+  },
+  {
+    id: "editor",
+    label: "Ctrl+G: cco's prompt editor",
+    description:
+      "`Ctrl+G` in Claude Code opens its prompt line in an external editor, Notepad on Windows unless `VISUAL` or `EDITOR` names another. Set up, it opens cco's prompt editor instead: in the viewer next to Claude Code (Windows Terminal with the viewer right or left, tmux), else in Claude Code's own pane. Its text goes back into Claude Code's prompt line, where `Enter` sends it. `Enter` here asks, then sets `VISUAL` in the `env` of Claude Code's `settings.json` (a copy of the file before goes next to it, `settings.json.cco-backup`), or takes it out again; Claude Code reads it when it starts. `e` in the viewer opens the same editor without it.",
   },
   {
     id: "settings",
@@ -762,10 +769,15 @@ export function tilde(path: string): string {
 
 /** Detail lines of a setting: its values (current one marked, default named), the view key and notes. */
 /** The preview of a reset action: what it does, and what it would change or delete right now. */
-function resetLines(action: ResetAction, changed: string[], marked: number, saved: { name: string; path: string }[], width: number): string[] {
+function resetLines(action: ResetAction, changed: string[], marked: number, saved: { name: string; path: string }[], width: number, editor?: EditorSetup): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const lines = [...wrap(action.description), ""];
-  if (action.id === "settings" || action.id === "main") {
+  if (action.id === "editor" && editor) {
+    lines.push(bold("Now"));
+    lines.push(...wrap(editorState(editor), "  "));
+    if (editor.visual) lines.push(...wrap(dim(`VISUAL ${editor.visual}`), "  "));
+    lines.push(...wrap(dim(tilde(claudeSettingsFile())), "  "));
+  } else if (action.id === "settings" || action.id === "main") {
     lines.push(bold(action.id === "main" ? "Different" : "Changed"));
     if (changed.length === 0) lines.push(dim(action.id === "main" ? "  none: every setting is as in the project's viewer" : "  none: every setting is at its default"));
     for (const name of changed) lines.push(...wrap(name, "  "));
@@ -777,6 +789,15 @@ function resetLines(action: ResetAction, changed: string[], marked: number, save
   }
   lines.push("", dim(codeMarks("`Enter` asks before anything is changed.")));
   return lines;
+}
+
+/** What Ctrl+G opens now, for the prompt editor's entry. */
+export function editorState(setup: EditorSetup): string {
+  if (setup.unreadable) return "Claude Code's settings.json is no valid JSON: cco leaves it alone";
+  if (setup.stale) return "set up, but the cco it names is gone: Enter sets it up again";
+  if (setup.cco) return "set up: Ctrl+G opens cco's prompt editor (after Claude Code restarted)";
+  if (setup.visual) return `not set up: Ctrl+G opens ${setup.visual}`;
+  return `not set up: Ctrl+G opens ${process.platform === "win32" ? "Notepad" : "the editor of EDITOR"}`;
 }
 
 /** Wraps report lines, keeping each line's indentation for its continuation. */
@@ -1291,6 +1312,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const different = main ? rows.filter((r) => settings[r.key] !== main[r.key]) : [];
   const canReset = changed.length > 0 || marked > 0;
   const saved = useMemo(() => (reset?.id === "data" ? projectData(cwd) : []), [reset?.id, cwd, confirmation]);
+  const editorSetup = useMemo(() => (reset?.id === "editor" ? readEditorSetup() : undefined), [reset?.id, confirmation, flash]);
   const findings = doctorCheck?.findings ?? [];
   const repairs = repairsOf(findings);
   const newer = newerReleases(update);
@@ -1343,7 +1365,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
                       ? `${different.length} different`
                     : reset.id === "data"
                       ? `${saved.length} of 4 files saved`
-                      : restartDetail(update.root),
+                      : reset.id === "editor"
+                        ? editorSetup?.cco && !editorSetup.stale ? "set up" : "not set up"
+                        : restartDetail(update.root),
               ],
             })
           : accountEntry
@@ -1368,7 +1392,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       reset
         ? reset.id === "doctor"
           ? doctorLines(reset, doctorCheck, doctorChecking, doctorRun, previewWidth)
-          : resetLines(reset, (reset.id === "main" ? different : changed).map((r) => `${r.group} ${r.label}`), reset.id === "main" ? 0 : marked, saved, previewWidth)
+          : resetLines(reset, (reset.id === "main" ? different : changed).map((r) => `${r.group} ${r.label}`), reset.id === "main" ? 0 : marked, saved, previewWidth, editorSetup)
         : accountEntry
           ? accountLines(accountEntry, accountState, settings, previewWidth)
         : release
@@ -1407,6 +1431,28 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       lines: [`${different.length} of ${rows.length} differ from it:`, different.map((r) => `${r.group} ${r.label}`).join(", "), "From then on they are apart again."],
       onConfirm: () => resetSessionViewerSettings("main"),
     });
+  const askEditor = () => {
+    const setup = editorSetup ?? readEditorSetup();
+    if (setup.unreadable) return setFlash("Claude Code's settings.json is no valid JSON: cco leaves it alone");
+    const remove = setup.cco && !setup.stale;
+    setConfirmation({
+      title: remove ? "Take cco's prompt editor off Ctrl+G?" : "Open cco's prompt editor with Ctrl+G?",
+      lines: [
+        remove ? "VISUAL goes back to what it was before, or is removed." : `Sets VISUAL to: ${editorCommand()}`,
+        `In ${tilde(claudeSettingsFile())}; the file before goes to settings.json.cco-backup.`,
+        "Claude Code reads it when it starts: restart it.",
+      ],
+      onConfirm: () => {
+        try {
+          if (remove) removeEditor();
+          else setUpEditor();
+          setFlash(remove ? "Ctrl+G opens Claude Code's editor again after a restart" : "set up: restart Claude Code, then Ctrl+G opens cco's prompt editor");
+        } catch (err) {
+          setFlash((err as Error).message);
+        }
+      },
+    });
+  };
   const askResetData = () =>
     setConfirmation({
       title: "Delete the saved data of this project?",
@@ -1495,6 +1541,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       if (reset.id === "settings") return canReset && askResetSettings();
       if (reset.id === "main") return different.length > 0 && askTakeMain();
       if (reset.id === "restart") return onRestart !== undefined && restart();
+      if (reset.id === "editor") return askEditor();
       // Checked with problems to repair: Enter offers the repair; else it checks (again).
       if (reset.id === "doctor") return !doctorBusy && (repairs.length > 0 ? askRepair() : askCheck());
       return saved.length > 0 && askResetData();
