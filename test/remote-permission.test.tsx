@@ -69,7 +69,8 @@ describe("answering a permission in a remote viewer", () => {
     writeFileSync(join(dir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "t", expiresAt: Date.now() + 3_600_000, scopes: [SESSIONS_SCOPE] } }));
     writeFileSync(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "me@example.com", organizationUuid: "org-1" } }));
     posted = [];
-    updateSettings({ remoteApi: true, remoteControl: true });
+    // The recordings are of a fixed day: Sessions lists all, not only the last 7 days.
+    updateSettings({ remoteApi: true, remoteControl: true, sessionsRange: "all" });
     // The deletion waits for its answer.
     remote.fetch = async (url, init) => {
       if (init.method === "POST") {
@@ -87,7 +88,7 @@ describe("answering a permission in a remote viewer", () => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
     setSessionViewer(false);
-    updateSettings({ remoteApi: false, remoteControl: false });
+    updateSettings({ remoteApi: false, remoteControl: false, sessionsRange: "7d" });
   });
 
   const viewer = () =>

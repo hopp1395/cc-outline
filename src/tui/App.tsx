@@ -481,6 +481,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const where = () => placement ?? resolvePlacement(cwd, sessionOf(path));
   const draftKey = sessionOf(path) ?? `project-${projectSlug(cwd)}`;
   const types = claudePid !== undefined && !fixed && resumeHereMethod() === "keys";
+  // e only beside a Claude Code that the keys and the focus go to after the hand-over.
+  const editable = types && canFocusViewer(where());
   const typer = useRef<ConsoleTyper>(undefined);
   const copy = useClipboard();
   const openEditor = (edit?: EditRequest) => {
@@ -497,10 +499,18 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       writeReply(edit.file, "open");
       return focusViewerPane(where());
     }
-    // Starting PowerShell takes a second: it starts with the editor and gets the text when handed over.
-    if (types && detectTerminal() !== "tmux" && !typer.current) typer.current = prepareConsoleInput(claudePid!);
+    if (!editable) return setNotice({ text: fixed || claudePid === undefined ? "e: only in a viewer beside its Claude Code" : "e: only beside Claude Code (p: right or left)" });
     setEditor({ id: Date.now() });
   };
+  // Starting PowerShell takes a second and spawning it blocks for a moment: it starts once the editor is shown and
+  // gets the text when handed over.
+  useEffect(() => {
+    if (!editor || editor.edit || !types || detectTerminal() === "tmux") return;
+    const timer = setTimeout(() => {
+      if (!typer.current) typer.current = prepareConsoleInput(claudePid!);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [editor?.id]);
   const closeEditor = () => {
     typer.current?.cancel();
     typer.current = undefined;
@@ -534,7 +544,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         () => setNotice({ text: `${why}, and copying failed: the draft is kept (e)` }),
       );
     if (!types) return copied(fixed ? "a viewer of one session types into no Claude Code" : "no Claude Code to type into");
+    // Once typed (or copied), the keys go to Claude Code's prompt line.
     void typePromptInClaude(claudePid!, text, used).then((typed) => {
+      void focusClaude(where(), claudePid!);
       if (!typed) return copied("it could not be typed into Claude Code");
       clearDraft(draftKey);
       setNotice({ text: "in Claude Code's prompt line: Enter there sends it" });
@@ -734,7 +746,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         </Box>
         </Fragment>
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
-        {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} oneSession={fixed} page={infoPage} />}
+        {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} oneSession={fixed} page={infoPage} editor={editable} />}
         {composer && mode === "chat" && (
           <SessionComposer
             layout={layout}
