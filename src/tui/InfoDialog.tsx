@@ -26,6 +26,8 @@ interface Props {
   page?: InfoPage;
   /** The Remote Control Viewer (`cco rc-viewer`): its three columns in place of the chat, and its two views. */
   rcViewer?: boolean;
+  /** Whether `e` opens the prompt editor: only beside a Claude Code the focus can go back to. */
+  editor?: boolean;
 }
 
 /** Keys all lists share; each view lists them first. */
@@ -186,7 +188,7 @@ function terminalName(): string {
  * data comes from, and the keys of the current view; on its second page, what
  * the marks of the view's list mean.
  */
-export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false, page = "keys", rcViewer = false }: Props) {
+export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = false, page = "keys", rcViewer = false, editor = true }: Props) {
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   // Border (2) and padding (2).
   const inner = width - 4;
@@ -204,12 +206,13 @@ export function InfoDialog({ layout, mode, cwd, path, gitRoot, oneSession = fals
     </Text>
   );
 
-  const keys =
+  const keys = (
     rcViewer && mode === "chat"
       ? RC_VIEWER_INFO_KEYS
       : oneSession || rcViewer
         ? KEYS[mode].filter(([k]) => !VIEWER_KEYS.has(k)).map((k) => (k[0] === "1 – 6" ? (rcViewer ? RC_VIEWER_VIEW_KEYS : VIEWER_VIEW_KEYS) : k))
-        : KEYS[mode];
+        : KEYS[mode]
+  ).filter(([k]) => editor || k !== "e");
   const title = rcViewer && mode === "chat" ? "Remote Control Viewer" : VIEW_TITLES[mode];
   const half = Math.ceil(keys.length / 2);
   const columnWidth = Math.floor(inner / 2);

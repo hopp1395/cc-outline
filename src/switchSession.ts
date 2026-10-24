@@ -286,7 +286,7 @@ export function canFocusViewer(placement: Placement | undefined, env: NodeJS.Pro
 /** Moves the keyboard focus to this viewer's pane (`canFocusViewer`). */
 export function focusViewerPane(placement: Placement | undefined): void {
   if (detectTerminal() === "tmux") {
-    if (process.env.TMUX_PANE) void run("tmux", ["select-pane", "-t", process.env.TMUX_PANE]);
+    if (process.env.TMUX_PANE) void selectTmuxPane(process.env.TMUX_PANE);
     return;
   }
   if (!canFocusViewer(placement)) return;
@@ -297,7 +297,13 @@ export function focusViewerPane(placement: Placement | undefined): void {
 export async function focusClaude(placement: Placement | undefined, claudePid: number): Promise<void> {
   if (detectTerminal() !== "tmux") return void focusClaudePane(placement);
   const pane = await tmuxPaneOf(claudePid);
-  if (pane) await run("tmux", ["select-pane", "-t", pane]);
+  if (pane) await selectTmuxPane(pane);
+}
+
+/** Selects the tmux pane `pane` with its window: the viewer and its Claude Code may be in windows of their own. */
+async function selectTmuxPane(pane: string): Promise<void> {
+  await run("tmux", ["select-window", "-t", pane]);
+  await run("tmux", ["select-pane", "-t", pane]);
 }
 
 /** The id (`%3`) of the tmux pane whose process is `pid` or one of its ancestors. */
