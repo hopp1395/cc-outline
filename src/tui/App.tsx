@@ -14,7 +14,8 @@ import { detachViewer, isAlive, pairViewer, setViewerView, writeTargetSession, t
 import { readFileSync, writeFileSync } from "node:fs";
 import { writeReply } from "../promptEdit.js";
 import { clearDraft } from "../promptDraft.js";
-import { projectSlug } from "../transcript/locate.js";
+import { claudeDir, projectSlug } from "../transcript/locate.js";
+import type { CommandSource } from "../slashCommands.js";
 import { canFocusViewer, focusClaude, focusViewerPane, prepareConsoleInput, resumeHereMethod, typePromptInClaude, type ConsoleTyper } from "../switchSession.js";
 import { PromptEditor } from "./PromptEditor.js";
 import { useClipboard } from "./useClipboard.js";
@@ -284,6 +285,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     };
   }, [remoteId, remoteControl]);
   const channel = remoteChannel ?? localChannel;
+  // Where the `/` commands come from, for the prompt line's and the prompt editor's list: claude.ai for a remote session.
+  const commandSource: CommandSource = remoteId ? { remoteId } : { transcript: path, cwd, configDir: claudeDir() };
   const remotePending = remoteId ? (remote.pending[0] ?? remote.session?.pending) : undefined;
   // A session of this machine that waits: what it asks, as its hooks recorded it, in the prompt line's place.
   const asked = useLocalRequest(sessionId !== undefined && !remoteId ? sessionOf(path) : undefined, path, running?.activity === "waiting");
@@ -748,6 +751,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
         {whatsNewOpen && <WhatsNewDialog layout={layout} releases={update.whatsNew} from={update.whatsNewFrom} onClose={update.closeWhatsNew} />}
         {infoOpen && <InfoDialog layout={layout} mode={mode} cwd={cwd} path={path} gitRoot={gitRoot} oneSession={fixed} page={infoPage} editor={editable} />}
         {composer && mode === "chat" && (
+          <MouseContext.Provider value={mouseFor("chat")}>
           <SessionComposer
             layout={layout}
             channel={channel}
@@ -759,7 +763,9 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             notify={(text) => setNotice({ text })}
             onHeight={setComposerRows}
             asked={asked && { request: asked, where: "its Claude Code's window" }}
+            commands={commandSource}
           />
+          </MouseContext.Provider>
         )}
         {editor && (
           <Box position="absolute" top={0} left={0}>
@@ -776,6 +782,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             }
             draftKey={draftKey}
             initialText={editor.initialText}
+            commands={commandSource}
             active={!progress.host.open}
             onSubmit={handOver}
             onCancel={cancelEditor}

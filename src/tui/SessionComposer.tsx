@@ -2,7 +2,10 @@ import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "
 import { useEffect, useRef, useState } from "react";
 import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
+import type { CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
+import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
+import { useMouse } from "./mouse.js";
 import { pastable, promptRows } from "./PromptDialog.js";
 import { QuestionDialog, questionsOf } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
@@ -81,6 +84,7 @@ export function SessionComposer({
   draftKey,
   hint = ["Tab", "write a prompt"],
   asked,
+  commands,
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -106,6 +110,8 @@ export function SessionComposer({
    * read-only, since it is answered in its terminal; `where` says how to get there.
    */
   asked?: { request: LocalRequest; where: string };
+  /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
+  commands?: CommandSource;
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
   const drafts = useRef(new Map<string, LineState>()).current;
@@ -153,10 +159,22 @@ export function SessionComposer({
     if (focused && channel.blocked && !request) onFocus(false);
   }, [focused, channel.blocked, request]);
 
+  const picker = useCommandPicker(line.text, line.cursor, focused && !channel.blocked && !request ? commands : undefined);
+
   const box = useRef<DOMElement>(null);
+  const height = useRef(0);
   useEffect(() => {
-    if (box.current) onHeight(measureElement(box.current).height);
+    if (!box.current) return;
+    height.current = measureElement(box.current).height;
+    onHeight(height.current);
   });
+
+  // The list is the composer's top, below its frame, at the bottom of the screen: a click takes a command, the wheel moves.
+  useMouse((e) => {
+    const row = e.y - (layout.rows - height.current) - 1;
+    if (e.kind === "wheel") return picker.move(e.delta);
+    if (e.kind === "click" && row >= 0 && row < pickerRows(picker)) setLine({ ...picker.take(pickerFirst(picker) + row), selected: false });
+  }, focused && picker.open);
 
   const report = (done: string) => (p: Promise<void>) => p.then(() => notify(done), (err: Error) => notify(`not sent: ${err.message}`));
   const answer = (response: Record<string, unknown>, done: string) => {
@@ -166,8 +184,8 @@ export function SessionComposer({
     setTyped("");
     void report(done)(channel.respond(request.requestId, response));
   };
-  const send = () => {
-    const text = line.text.trim();
+  const send = (typed = line.text) => {
+    const text = typed.trim();
     if (!text || sending || channel.blocked) return;
     setSending(true);
     const key = keyNow.current;
@@ -191,7 +209,7 @@ export function SessionComposer({
 
   useInput(
     (input, key) => {
-      if (key.tab) return onFocus(false);
+      if (key.tab && !picker.open) return onFocus(false);
       if (key.pageUp || key.pageDown) return;
       if (reason) {
         if (key.escape) return setReason(undefined);
@@ -213,6 +231,16 @@ export function SessionComposer({
         const id = PERMISSIONS[pick]!.id;
         if (id === "reason") return setReason(EMPTY);
         return answer(permissionResponse(request, id === "allow"), id === "allow" ? "allowed" : "denied");
+      }
+      if (picker.open) {
+        if (key.upArrow || key.downArrow) return picker.move(key.upArrow ? -1 : 1);
+        if (key.escape) return picker.close();
+        if (key.tab || key.return) {
+          const taken = picker.take();
+          setLine({ ...taken, selected: false });
+          if (key.return) send(taken.text);
+          return;
+        }
       }
       if (key.escape) return escape();
       if (input === "\n" || (key.ctrl && input === "j")) return setLine({ text: line.text.slice(0, line.cursor) + "\n" + line.text.slice(line.cursor), cursor: line.cursor + 1, selected: false });
@@ -318,8 +346,11 @@ export function SessionComposer({
   } else {
     body = (
       <Box flexDirection="column" width={width} borderStyle="round" borderColor={focused ? "cyan" : "gray"} paddingX={1} flexShrink={0}>
+        <CommandList picker={picker} width={room} />
         {line.text || focused ? <TextRows line={line} room={room - 2} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
-        {focused
+        {focused && picker.open
+          ? keys([["Tab", "take"], ["Enter", "take and send"], ["↑↓", "choose"], ["Esc", "close the list"]])
+          : focused
           ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"]])
           : keys([hint])}
       </Box>

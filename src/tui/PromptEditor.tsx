@@ -18,6 +18,8 @@ import {
   type PromptDraft,
   type PromptImage,
 } from "../promptDraft.js";
+import type { CommandSource } from "../slashCommands.js";
+import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
 import { parseMouse } from "./mouse.js";
 import { pastable, promptRows } from "./PromptDialog.js";
 import type { Layout } from "./layout.js";
@@ -106,6 +108,7 @@ export function PromptEditor({
   draftKey,
   initialText,
   active = true,
+  commands,
   onSubmit,
   onCancel,
 }: {
@@ -116,6 +119,8 @@ export function PromptEditor({
   draftKey: string;
   initialText?: string;
   active?: boolean;
+  /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens. */
+  commands?: CommandSource;
   /** The text with the images' paths, and the draft it came from (the caller clears or keeps it). */
   onSubmit: (text: string, draft: PromptDraft) => void;
   onCancel: () => void;
@@ -197,8 +202,10 @@ export function PromptEditor({
   const inText = referenced(draft.text);
   const images = draft.images;
   const imageRows = images.length === 0 ? 0 : focus === "images" ? 1 + Math.min(IMAGE_ROWS, images.length) : 1;
-  // Border, title and detail, the images, the status row and the help line.
-  const textRows = Math.max(3, layout.rows - 2 - 2 - imageRows - 2);
+  const picker = useCommandPicker(draft.text, cursor, focus === "text" ? commands : undefined);
+  const listRows = pickerRows(picker);
+  // Border, title and detail, the images, the command list, the status row and the help line.
+  const textRows = Math.max(3, layout.rows - 2 - 2 - imageRows - listRows - 2);
   const { rows, row, column } = promptRows(draft.text, cursor, room);
   if (row < top.current) top.current = row;
   if (row >= top.current + textRows) top.current = row - textRows + 1;
@@ -208,12 +215,19 @@ export function PromptEditor({
   const cycle = (dir: 1 | -1) => setFocus(order[(order.indexOf(focus) + dir + order.length) % order.length]!);
   const sel = Math.min(selected, Math.max(0, images.length - 1));
   const buttonRow = layout.rows - 3;
+  // Below the first line when it shows, else above the text: after the border, the title and the detail.
+  const listTop = 3 + (first === 0 ? 1 : 0);
   const buttonLeft = 2 + inner - HAND_OVER.length;
 
   useInput(
     (input, key) => {
       if (input.startsWith("[<")) {
         for (const e of parseMouse(input)) {
+          if (picker.open && e.kind === "wheel") return picker.move(e.delta);
+          if (picker.open && e.kind === "click" && e.y >= listTop && e.y < listTop + listRows) {
+            const taken = picker.take(pickerFirst(picker) + e.y - listTop);
+            return edit(taken.text, taken.cursor);
+          }
           if (e.kind === "click" && e.y === buttonRow && e.x >= buttonLeft && e.x < buttonLeft + HAND_OVER.length) return submit();
           if (e.kind === "wheel" && focus === "text") setCursor(rowStep(draft.text, cursor, room, e.delta * 3));
         }
@@ -222,6 +236,13 @@ export function PromptEditor({
       if (input === "[I" || input === "[O") return;
       if (key.ctrl && input === "s") return submit();
       if (key.meta && (input === "v" || input === "V")) return pasteImage();
+      // The command list: Enter takes the command too, since Enter here starts a new line rather than sending.
+      if (picker.open && (key.upArrow || key.downArrow)) return picker.move(key.upArrow ? -1 : 1);
+      if (picker.open && key.escape) return picker.close();
+      if (picker.open && ((key.tab && !key.shift) || (key.return && !isCtrlEnter(input, key)))) {
+        const taken = picker.take();
+        return edit(taken.text, taken.cursor);
+      }
       if (key.tab) return cycle(key.shift ? -1 : 1);
       if (focus === "button") {
         if (key.escape) return setFocus("text");
@@ -273,8 +294,9 @@ export function PromptEditor({
 
   const tmux = detectTerminal() === "tmux";
   const handKeys = tmux ? "^S" : "^Enter/^S";
-  const help: [string, string][] =
-    focus === "images"
+  const help: [string, string][] = picker.open
+    ? [["Tab/Enter", "take"], ["↑↓", "choose"], [handKeys, "hand over"], ["Esc", "close the list"]]
+    : focus === "images"
       ? [["↑↓", "choose"], ["Enter", "open"], ["d", "remove"], ["Tab", "button"], ["Esc", "text"]]
       : focus === "button"
         ? [["Enter", "hand over"], ["Tab", "text"], ["Esc", "text"]]
@@ -283,6 +305,26 @@ export function PromptEditor({
   const status = message ?? [lineNo, `${draft.text.length} chars`, images.length > 0 ? `${images.length} ${images.length === 1 ? "image" : "images"}` : ""].filter(Boolean).join(" · ");
   const statusRoom = Math.max(0, inner - HAND_OVER.length - 1);
   const imageFirst = Math.max(0, Math.min(sel - Math.floor(IMAGE_ROWS / 2), images.length - IMAGE_ROWS));
+  const textRow = (r: { text: string }, at: number, i: number) => {
+    const lead = <Text color="yellow">{at === 0 ? "› " : "  "}</Text>;
+    if (at !== row || focus !== "text")
+      return (
+        <Text key={i} wrap="truncate">
+          {lead}
+          <Painted text={r.text} />
+        </Text>
+      );
+    const rest = r.text.slice(column);
+    const char = [...graphemes.segment(rest)][0]?.segment ?? "";
+    return (
+      <Text key={i} wrap="truncate">
+        {lead}
+        <Painted text={r.text.slice(0, column)} />
+        <Text inverse>{char || " "}</Text>
+        <Painted text={rest.slice(char.length)} />
+      </Text>
+    );
+  };
 
   return (
     <Box
@@ -301,28 +343,19 @@ export function PromptEditor({
       <Text dimColor wrap="truncate">
         {detail}
       </Text>
+      {first > 0 && <CommandList picker={picker} width={inner} />}
       {Array.from({ length: textRows }, (_, i) => {
         const at = first + i;
         const r = rows[at];
         if (!r) return <Text key={i}> </Text>;
-        const lead = <Text color="yellow">{at === 0 ? "› " : "  "}</Text>;
-        if (at !== row || focus !== "text")
+        if (at === 0 && first === 0 && picker.open)
           return (
-            <Text key={i} wrap="truncate">
-              {lead}
-              <Painted text={r.text} />
-            </Text>
+            <Box key={i} flexDirection="column">
+              {textRow(r, at, i)}
+              <CommandList picker={picker} width={inner} />
+            </Box>
           );
-        const rest = r.text.slice(column);
-        const char = [...graphemes.segment(rest)][0]?.segment ?? "";
-        return (
-          <Text key={i} wrap="truncate">
-            {lead}
-            <Painted text={r.text.slice(0, column)} />
-            <Text inverse>{char || " "}</Text>
-            <Painted text={rest.slice(char.length)} />
-          </Text>
-        );
+        return textRow(r, at, i);
       })}
       {images.length > 0 && (
         <Text wrap="truncate" color={focus === "images" ? "magenta" : undefined} dimColor={focus !== "images"}>

@@ -7,6 +7,7 @@ import { readSettings } from "./settings.js";
 import { withoutCtrlC } from "./tui/ctrlC.js";
 import { frameBufferedStdout } from "./tui/frameBuffer.js";
 import { useMouseReporting } from "./tui/mouse.js";
+import type { CommandSource } from "./slashCommands.js";
 import { PromptEditor } from "./tui/PromptEditor.js";
 import type { Layout } from "./tui/layout.js";
 
@@ -15,6 +16,8 @@ export interface EditorOptions {
   file: string;
   draftKey: string;
   cwd: string;
+  /** Where the session's `/` commands come from. */
+  commands?: CommandSource;
 }
 
 /** The terminal's size, followed on resize. */
@@ -30,7 +33,7 @@ function useTerminalSize(): { columns: number; rows: number } {
   return size;
 }
 
-function StandaloneEditor({ file, draftKey, cwd, onDone }: EditorOptions & { onDone: (state: "done" | "cancelled") => void }) {
+function StandaloneEditor({ file, draftKey, cwd, commands, onDone }: EditorOptions & { onDone: (state: "done" | "cancelled") => void }) {
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
   useMouseReporting(readSettings().mouse);
@@ -47,6 +50,7 @@ function StandaloneEditor({ file, draftKey, cwd, onDone }: EditorOptions & { onD
     title: `Prompt for Claude Code · ${basename(cwd)}`,
     detail: "Hands it over to Claude Code's prompt line; Enter there sends it.",
     draftKey,
+    commands,
     initialText,
     onSubmit: (text: string) => {
       writeFileSync(file, text);

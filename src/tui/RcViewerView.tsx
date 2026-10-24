@@ -476,6 +476,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             draftKey={entry?.key}
             hint={["Space", "or a click: write a prompt"]}
             asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front" }}
+            commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
           />
         )}
       </Box>

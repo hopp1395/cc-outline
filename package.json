@@ -56,6 +56,7 @@
     "test": "vitest run",
     "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "version": "node scripts/sync-version.mjs && git add plugin/.claude-plugin/plugin.json src/version.ts",
+    "commands:builtin": "node scripts/builtin-commands.mjs",
     "demo": "tsup src/tui/App.tsx --no-config --format esm --platform node --target node22 --out-dir demo/.out --external ink --external react && node demo/record.mjs",
     "demo:accounts": "tsup src/tui/App.tsx --no-config --format esm --platform node --target node22 --out-dir demo/.out --external ink --external react && node demo/record-accounts.mjs",
     "demo:compact": "tsup src/tui/App.tsx --no-config --format esm --platform node --target node22 --out-dir demo/.out --external ink --external react && node demo/record-compact.mjs",
