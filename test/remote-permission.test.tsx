@@ -8,6 +8,7 @@ import { pendingRequests } from "../src/remote/pending.js";
 import { setSessionViewer, updateSettings } from "../src/settings.js";
 import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
+import { stripAnsi } from "../src/tui/links.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 import { permissionResponse, remoteOptions, toolInputLines } from "../src/tui/useRemoteControl.js";
@@ -55,8 +56,18 @@ describe("the recorded permissions", () => {
   it("show the command to run", () => {
     const [request] = pendingRequests(upTo(35));
     expect(toolInputLines(request!, 80)).toEqual(["$ rm /c/workspace/cco-rc/b.txt && ls -la /c/workspace/cco-rc"]);
-    expect(toolInputLines(request!, 20)).toEqual(["$ rm /c/workspace/c…"]);
+    // Too long: wrapped, each row it breaks into indented by two.
+    expect(toolInputLines(request!, 20)).toEqual(["$ rm /c/workspace/", "  cco-rc/b.txt && ls", "  -la /c/workspace/", "  cco-rc"]);
     expect(toolInputLines({ ...request!, input: { file_path: "C:/x/c.txt", content: "a\nb" } })).toEqual(["C:/x/c.txt", "content: a b"]);
+  });
+
+  it("show ten rows at most, then how many are left", () => {
+    const [request] = pendingRequests(upTo(35));
+    const command = Array.from({ length: 14 }, (_, i) => `echo ${i}`).join("\n");
+    const lines = toolInputLines({ ...request!, input: { command } }, 40);
+    expect(lines).toHaveLength(11);
+    expect(lines.slice(0, 2)).toEqual(["$ echo 0", "  echo 1"]);
+    expect(stripAnsi(lines[10]!)).toBe("… 4 more lines");
   });
 });
 

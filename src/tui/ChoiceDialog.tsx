@@ -19,6 +19,9 @@ const MAX_WIDTH = 64;
  * Asks which of a few options to take: ↑↓ move (past disabled ones), Enter takes the selected one,
  * the digits take theirs at once, Esc cancels. Takes all keys while open.
  */
+/** The columns a choice dialog's lines have, inside its border and padding. */
+export const choiceRoom = (layout: Layout) => Math.min(MAX_WIDTH, layout.columns - 4) - 4;
+
 export function ChoiceDialog<T extends string>({
   layout,
   choice,

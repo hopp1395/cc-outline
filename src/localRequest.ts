@@ -74,32 +74,37 @@ export function removeOldLocalRequests(age = 24 * 60 * 60 * 1000, now = Date.now
   }
 }
 
-/** The lines that tell what the request is: the questions with their options, or the tool and what it is to do. */
-export function localRequestLines(request: LocalRequest, width: number): string[] {
-  const cut = (s: string) => (s.length > width ? `${s.slice(0, width - 1)}…` : s);
-  if (request.kind === "question" && Array.isArray(request.input.questions)) {
-    const lines: string[] = [];
-    for (const q of request.input.questions) {
-      if (!isObject(q)) continue;
-      if (typeof q.question === "string") lines.push(cut(q.question));
-      if (Array.isArray(q.options)) for (const o of q.options) if (isObject(o) && typeof o.label === "string") lines.push(cut(`  · ${o.label}`));
-    }
-    return lines;
-  }
-  const { input } = request;
-  if (typeof input.command === "string") return input.command.split("\n").slice(0, 6).map((l, i) => cut(`${i === 0 ? "$ " : "  "}${l}`));
+/** What a tool is to do, one entry per line before wrapping: its command (`$ ` and the lines after it), its file, else its input's fields. */
+export function toolInputText(input: Record<string, unknown>): string[] {
+  if (typeof input.command === "string") return input.command.split("\n").map((l, i) => `${i === 0 ? "$ " : "  "}${l}`);
   const lines: string[] = [];
-  if (typeof input.file_path === "string") lines.push(cut(input.file_path));
+  if (typeof input.file_path === "string") lines.push(input.file_path);
   for (const [key, v] of Object.entries(input)) {
-    if (key === "file_path" || lines.length >= 6) continue;
-    lines.push(cut(`${key}: ${(typeof v === "string" ? v : JSON.stringify(v)).replace(/\s+/g, " ")}`));
+    if (key === "file_path") continue;
+    lines.push(`${key}: ${(typeof v === "string" ? v : JSON.stringify(v)).replace(/\s+/g, " ")}`);
   }
   return lines;
 }
 
+/** The lines that tell what the request is, before wrapping: the questions with their options, or the tool and what it is to do. */
+export function localRequestLines(request: LocalRequest): string[] {
+  if (request.kind === "question" && Array.isArray(request.input.questions)) {
+    const lines: string[] = [];
+    for (const q of request.input.questions) {
+      if (!isObject(q)) continue;
+      if (typeof q.question === "string") lines.push(q.question);
+      if (Array.isArray(q.options)) for (const o of q.options) if (isObject(o) && typeof o.label === "string") lines.push(`  · ${o.label}`);
+    }
+    return lines;
+  }
+  return toolInputText(request.input);
+}
+
 /** The request in one line: the first question, or the tool and its command or file. */
 export function localRequestSummary(request: LocalRequest, width: number): string {
-  if (request.kind === "question") return localRequestLines(request, width)[0] ?? "Claude asks a question";
-  const first = localRequestLines(request, width - request.toolName.length - 8)[0];
-  return `allow ${request.toolName}${first ? `: ${first}` : "?"}`;
+  const cut = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 1)}…` : s);
+  const [first] = localRequestLines(request);
+  if (request.kind === "question") return first ? cut(first, width) : "Claude asks a question";
+  if (first) return `allow ${request.toolName}: ${cut(first, width - request.toolName.length - 8)}`;
+  return `allow ${request.toolName}?`;
 }

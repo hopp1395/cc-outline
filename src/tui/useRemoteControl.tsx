@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { toolInputText } from "../localRequest.js";
 import { listEvents, sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { describeRemoteError } from "../remote/index.js";
 import { pendingRequests, type PendingRequest } from "../remote/pending.js";
 import { TIMING } from "../timing.js";
-import { ChoiceDialog } from "./ChoiceDialog.js";
-import { truncate, type Layout } from "./layout.js";
+import { ChoiceDialog, choiceRoom } from "./ChoiceDialog.js";
+import { capLines, wrapLines, type Layout } from "./layout.js";
 import { PromptDialog } from "./PromptDialog.js";
 import { QuestionDialog, questionsOf } from "./QuestionDialog.js";
 import type { ChoiceOption } from "./resumeChoice.js";
@@ -32,18 +33,20 @@ export const answerable = (pending: PendingRequest | undefined) => pending !== u
 /** The tool's name as the app shows it. */
 const toolName = (pending: PendingRequest) => pending.displayName ?? pending.toolName;
 
-/** The lines that say what a tool is to do: a command, a file, else its input's fields, cut to `width`. */
+/** The rows a request's details take at most, wrapped; a dim row names what is left over. */
+const REQUEST_ROWS = 10;
+
+/** The lines that say what a tool is to do: a command, a file, else its input's fields, wrapped to `width`. */
 export function toolInputLines(pending: PendingRequest, width = 56): string[] {
-  const { input } = pending;
-  const value = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
-  if (typeof input.command === "string") return input.command.split("\n").slice(0, 6).map((l, i) => truncate(`${i === 0 ? "$ " : "  "}${l}`, width));
-  const lines: string[] = [];
-  if (typeof input.file_path === "string") lines.push(truncate(input.file_path, width));
-  for (const [key, v] of Object.entries(input)) {
-    if (key === "file_path" || lines.length >= 6) continue;
-    lines.push(truncate(`${key}: ${value(v).replace(/\s+/g, " ")}`, width));
-  }
-  return lines;
+  return requestRows(toolInputText(pending.input), width);
+}
+
+/** The rows a request's lines wrap into, at most `REQUEST_ROWS` of them: each row it breaks into indented two past its line's own indentation. */
+export function requestRows(lines: string[], width: number): string[] {
+  return capLines(
+    lines.flatMap((line) => wrapLines(line, width, `${/^ */.exec(line)![0]}  `)),
+    REQUEST_ROWS,
+  );
 }
 
 /** What the answer option says it does, by what is asked. */
@@ -53,7 +56,7 @@ function answerOption(pending: PendingRequest | undefined): ChoiceOption<RemoteA
     const [first] = questionsOf(pending.input);
     return { id: "answer", label: "Answer Claude's question", detail: first?.question ?? "", ...(!answerable(pending) && { disabled: "the question is in an unknown shape" }) };
   }
-  return { id: "answer", label: `Allow or deny ${toolName(pending)}`, detail: toolInputLines(pending)[0] ?? "" };
+  return { id: "answer", label: `Allow or deny ${toolName(pending)}`, detail: toolInputText(pending.input)[0] ?? "" };
 }
 
 /**
@@ -181,7 +184,7 @@ export function useRemoteControl(layout: Layout, notify: (message: string) => vo
         layout={layout}
         choice={{
           title: `◈ ${answering.title}: allow ${toolName(pending)}?`,
-          lines: [...toolInputLines(pending), ...(pending.description ? [truncate(pending.description, 56)] : [])],
+          lines: requestRows([...toolInputText(pending.input), ...(pending.description ? [pending.description] : [])], choiceRoom(layout)),
           options,
           initial: 0,
           onChoose: (choice: Permission) => {
