@@ -193,6 +193,15 @@ export async function sendPrompt(id: string, text: string, dir?: string): Promis
   await postEvents(id, [{ type: "user", uuid: randomUUID(), message: { role: "user", content: text } }], dir);
 }
 
+/**
+ * Asks session `id` what it offers, as the app does when it opens one: the worker answers with a `control_response`
+ * (its `commands` are empty for a Remote Control session, 2.1.310) and then writes a whole `system` `init` event,
+ * whose `slash_commands` the app lists.
+ */
+export async function sendInitialize(id: string, dir?: string): Promise<void> {
+  await postEvents(id, [{ type: "control_request", request_id: randomUUID(), request: { subtype: "initialize" } }], dir);
+}
+
 /** Stops what Claude does in session `id`, as Esc in the terminal or the stop button of the app. */
 export async function sendInterrupt(id: string, dir?: string): Promise<void> {
   await postEvents(id, [{ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } }], dir);

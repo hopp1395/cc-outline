@@ -71,7 +71,9 @@ git checkout -b release/<version>
 npm version <version> --no-git-tag-version
 ```
 
-npm bumps `package.json` and `package-lock.json`; its `version` hook (`scripts/sync-version.mjs`) updates `plugin/.claude-plugin/plugin.json` and `src/version.ts`. `git diff --stat` should list exactly these four files. Then `npm run typecheck`, `npm test` (`test/version.test.ts` checks that all four agree) and `npm run build`.
+npm bumps `package.json` and `package-lock.json`; its `version` hook (`scripts/sync-version.mjs`) updates `plugin/.claude-plugin/plugin.json` and `src/version.ts`. `git diff --stat` should list exactly these four files.
+
+Then `npm run commands:builtin`: it asks the installed Claude Code for its own `/` commands and rewrites `src/builtinCommands.ts` (the prompt line's `/` list). If that file changed, it goes into the release commit too; mention a new Claude Code version in the notes only if the list changed visibly. Then `npm run typecheck`, `npm test` (`test/version.test.ts` checks that all four agree) and `npm run build`.
 
 If the notes describe visible changes to a view that `docs/*.svg` or `docs/demo.gif` show, ask whether to re-record them with `npm run demo` (it needs Chrome) before committing. Don't re-record unasked: it changes every image and makes the PR large.
 

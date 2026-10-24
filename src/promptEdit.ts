@@ -4,7 +4,7 @@ import { cliFile } from "./cliPath.js";
 import { proc } from "./proc.js";
 import { TIMING } from "./timing.js";
 import { runningSessions } from "./transcript/trash.js";
-import { claudeDir, claudePidFromEnv, projectSlug, readJson, writeJson } from "./transcript/locate.js";
+import { claudeDir, claudePidFromEnv, projectSlug, readJson, transcriptForSession, writeJson } from "./transcript/locate.js";
 import { isAlive, requestEdit, runningViewer } from "./viewer.js";
 
 /**
@@ -112,7 +112,8 @@ export async function runEdit(file: string, loadEditor: () => Promise<typeof imp
     if (state !== "declined") return 0;
   }
   const { runPromptEditor } = await loadEditor();
-  await runPromptEditor({ file, draftKey: claude?.sessionId ?? `project-${projectSlug(cwd)}`, cwd });
+  const transcript = claude?.sessionId ? transcriptForSession(cwd, claude.sessionId) : undefined;
+  await runPromptEditor({ file, draftKey: claude?.sessionId ?? `project-${projectSlug(cwd)}`, cwd, commands: { transcript, cwd, configDir: claudeDir() } });
   return 0;
 }
 
