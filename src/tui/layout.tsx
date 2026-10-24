@@ -404,6 +404,25 @@ export function wrapPath(path: string, width: number): string[] {
   return lines;
 }
 
+/** Wraps `text` to `width` columns (ANSI kept), its lines after the first behind `indent`; line breaks stay. */
+export function wrapLines(text: string, width: number, indent = ""): string[] {
+  const room = Math.max(4, width - stringWidth(indent));
+  // Each part keeps its own leading spaces (a command's indentation); a row it breaks into does not.
+  const rows = text.split("\n").flatMap((part) =>
+    wrapAnsi(part, room, { hard: true, trim: false })
+      .split("\n")
+      .map((row, i) => (i === 0 ? row : row.replace(/^ +/, ""))),
+  );
+  return rows.map((row, i) => (i === 0 ? row : indent + row));
+}
+
+/** At most `max` lines; what is left over is named in a dim last line. */
+export function capLines(lines: string[], max: number): string[] {
+  if (lines.length <= max) return lines;
+  const left = lines.length - max;
+  return [...lines.slice(0, max), dim(`… ${left} more line${left === 1 ? "" : "s"}`)];
+}
+
 export function truncate(text: string, width: number): string {
   const line = text.split("\n")[0].replace(/\s+/g, " ").trim();
   if (stringWidth(line) <= width) return line;

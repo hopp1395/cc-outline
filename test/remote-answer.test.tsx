@@ -9,13 +9,15 @@ import { setSessionViewer, updateSettings } from "../src/settings.js";
 import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
-import { answersOf, QuestionDialog, questionsOf } from "../src/tui/QuestionDialog.js";
+import { answersOf, QuestionDialog, questionsOf, tabWindow, type Question } from "../src/tui/QuestionDialog.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 import { remoteOptions } from "../src/tui/useRemoteControl.js";
 import { renderInk, until } from "./helpers/ink.js";
 
 const layout: Layout = { columns: 110, rows: 30, listWidth: 40, previewWidth: 67, bodyHeight: 26 };
 const DOWN = "\u001b[B";
+const RIGHT = "\u001b[C";
+const LEFT = "\u001b[D";
 const realFetch = remote.fetch;
 
 const capture = readFileSync(join(import.meta.dirname, "fixtures", "remote-capture.jsonl"), "utf8")
@@ -54,28 +56,91 @@ describe("the question dialog", () => {
     { question: "Parts?", multiSelect: true, options: [{ label: "Intro" }, { label: "End" }] },
   ];
 
-  it("asks every question before sending, then sends the choices", async () => {
-    const sent: Record<string, string>[] = [];
-    const view = renderInk(
-      <Box width={layout.columns} height={layout.rows}>
-        <QuestionDialog layout={layout} title="Claude asks" questions={questions} onSend={(a) => sent.push(a)} onCancel={() => {}} />
+  const dialog = (qs: Question[], sent: Record<string, string>[], at = layout) =>
+    renderInk(
+      <Box width={at.columns} height={at.rows}>
+        <QuestionDialog layout={at} title="Claude asks" questions={qs} onSend={(a) => sent.push(a)} onCancel={() => {}} />
       </Box>,
-      layout,
+      at,
     );
+
+  it("shows one question at a time, a tab each, and sends from Submit once every question has an answer", async () => {
+    const sent: Record<string, string>[] = [];
+    const view = dialog(questions, sent);
     await until(() => view.frame().includes("Colour?"));
+    expect(view.frame()).toContain("☐ Question 1");
+    expect(view.frame()).toContain("✔ Submit");
+    expect(view.frame()).not.toContain("Parts?");
+    // Green: chosen, and on to the second question.
+    await view.press(DOWN);
+    await view.press("\r");
+    await until(() => view.frame().includes("Parts?"));
+    expect(view.frame()).toContain("☒ Question 1");
+    expect(view.frame()).not.toContain("Colour?");
+    // Several: Space checks, Enter goes on to Submit, which lists the answers.
+    await view.press(" ");
     await view.press(DOWN);
     await view.press(" ");
     await view.press("\r");
-    await until(() => view.frame().includes("every question needs an answer"));
-    // Green, Other… of the first question, then Intro and End.
-    await view.press(DOWN);
-    await view.press(DOWN);
-    await view.press(" ");
-    await view.press(DOWN);
-    await view.press(" ");
+    await until(() => view.frame().includes("Review your answers"));
+    expect(view.frame()).toContain("→ Green");
+    expect(view.frame()).toContain("→ Intro, End");
     await view.press("\r");
     await expect.poll(() => sent).toEqual([{ "Colour?": "Green", "Parts?": "Intro, End" }]);
     view.unmount();
+  });
+
+  it("switches questions with ←→ and Tab, and goes to the first question without an answer on Submit", async () => {
+    const sent: Record<string, string>[] = [];
+    const view = dialog(questions, sent);
+    await until(() => view.frame().includes("Colour?"));
+    await view.press(RIGHT);
+    await until(() => view.frame().includes("Parts?"));
+    await view.press("\t");
+    await until(() => view.frame().includes("Review your answers"));
+    expect(view.frame()).toContain("→ no answer yet");
+    await view.press("\r");
+    await until(() => view.frame().includes("every question needs an answer") && view.frame().includes("Colour?"));
+    // A digit chooses at once.
+    await view.press("2");
+    await until(() => view.frame().includes("Parts?"));
+    await view.press(LEFT);
+    await until(() => view.frame().includes("Colour?"));
+    expect(sent).toEqual([]);
+    view.unmount();
+  });
+
+  it("wraps long questions, options and descriptions", async () => {
+    const narrow: Layout = { ...layout, columns: 40 };
+    const long = "Which of these colours should the badge of the account take from now on?";
+    const view = dialog([{ question: long, options: [{ label: "A rather long label that cannot fit in one row", description: "And a description that is too long as well" }] }], [], narrow);
+    await until(() => view.frame().includes("Which of these"));
+    const text = view.frame().replace(/\s+/g, " ");
+    expect(text).toContain("from now on?");
+    expect(text).toContain("cannot fit");
+    expect(text).toContain("in one row");
+    expect(text).toContain("too long as well");
+    view.unmount();
+  });
+
+  it("scrolls the options of a question too tall for the pane", async () => {
+    const small: Layout = { ...layout, rows: 14 };
+    const many = [{ question: "Pick", options: Array.from({ length: 12 }, (_, i) => ({ label: `Option ${i + 1}` })) }];
+    const view = dialog(many, [], small);
+    await until(() => view.frame().includes("Option 1"));
+    expect(view.frame()).toContain("▼ more");
+    expect(view.frame()).not.toContain("Option 12");
+    for (let i = 0; i < 11; i++) await view.press(DOWN);
+    await until(() => view.frame().includes("Option 12"));
+    expect(view.frame()).toContain("▲ more");
+    expect(view.frame()).toContain("Pick");
+    view.unmount();
+  });
+
+  it("keeps the bar's tabs around the active one when they do not fit", () => {
+    expect(tabWindow([10, 10, 10], 0, 40)).toEqual({ from: 0, to: 3 });
+    expect(tabWindow([10, 10, 10, 10, 10], 4, 30)).toEqual({ from: 3, to: 5 });
+    expect(tabWindow([10, 10, 10, 10, 10], 2, 30)).toEqual({ from: 2, to: 4 });
   });
 
   it("takes a typed answer on Other…", async () => {
@@ -90,6 +155,7 @@ describe("the question dialog", () => {
     await view.press(DOWN);
     await view.press(DOWN);
     await view.press("Red");
+    expect(sent).toEqual([]);
     await view.press("\r");
     await expect.poll(() => sent).toEqual([{ "Colour?": "Red" }]);
     view.unmount();

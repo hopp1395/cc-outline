@@ -10,7 +10,7 @@ import { pastable, promptRows } from "./PromptDialog.js";
 import { QuestionDialog, questionsOf } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
 import { useClipboard } from "./useClipboard.js";
-import { permissionResponse, toolInputLines } from "./useRemoteControl.js";
+import { permissionResponse, requestRows, toolInputLines } from "./useRemoteControl.js";
 
 /** The rows of text the prompt line grows to; a longer prompt scrolls with the cursor. */
 const MAX_ROWS = 6;
@@ -324,7 +324,7 @@ export function SessionComposer({
         <Text bold color="yellow" wrap="truncate">
           {request.kind === "question" ? `Claude asks · ${truncate(title, 40)}` : `Allow ${request.toolName}? · ${truncate(title, 40)}`}
         </Text>
-        {localRequestLines(request, room).slice(0, 8).map((l, i) => (
+        {requestRows(localRequestLines(request), room).map((l, i) => (
           <Text key={i} wrap="truncate">
             {l}
           </Text>
