@@ -107,7 +107,8 @@ describe("answering a remote session", () => {
     writeFileSync(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "me@example.com", organizationUuid: "org-1" } }));
     posted = [];
     answered = false;
-    updateSettings({ remoteApi: true, remoteControl: true });
+    // The recordings are of a fixed day: Sessions lists all, not only the last 7 days.
+    updateSettings({ remoteApi: true, remoteControl: true, sessionsRange: "all" });
     remote.fetch = async (url, init) => {
       if (init.method === "POST") {
         posted.push(JSON.parse(String(init.body)).events[0].payload);
@@ -123,7 +124,7 @@ describe("answering a remote session", () => {
     process.env.CLAUDE_CONFIG_DIR = saved;
     remote.fetch = realFetch;
     setSessionViewer(false);
-    updateSettings({ remoteApi: false, remoteControl: false });
+    updateSettings({ remoteApi: false, remoteControl: false, sessionsRange: "7d" });
   });
 
   const viewer = () => {
