@@ -4,13 +4,19 @@ import { join, resolve } from "node:path";
 import { avatarOf } from "./avatar.js";
 import { claudeDir, readJson } from "./transcript/locate.js";
 
-/** The Claude account a Claude Code config folder is signed in to, from its `.claude.json`. */
+/**
+ * The Claude account a Claude Code config folder is signed in to, from its `.claude.json`, or the server it talks
+ * to instead (`api`).
+ */
 export interface Account {
   /** The config folder (`CLAUDE_CONFIG_DIR`, else `~/.claude`). */
   dir: string;
-  /** The `.claude.json` it was read from. */
+  /** The `.claude.json` it was read from (an API profile's `settings.json`). */
   file: string;
+  /** The account's email; an API profile's label (`qwen3.8-27b @ rzisrv051`), which stands where the email does. */
   email: string;
+  /** An API profile: the folder's Claude Code talks to another server (`ANTHROPIC_BASE_URL` in its settings' `env`). */
+  api?: ApiProfile;
   name?: string;
   organization?: string;
   organizationType?: string;
@@ -76,8 +82,38 @@ const same = (a: string, b: string) => (process.platform === "win32" ? resolve(a
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 
-/** The account `dir` is signed in to; none without a `.claude.json` or an email in it. */
+/** The server an API profile's Claude Code talks to, and the model it asks for. */
+export interface ApiProfile {
+  baseUrl: string;
+  /** `ANTHROPIC_MODEL`, if set. */
+  model?: string;
+}
+
+/** The API profile of `dir`: its `settings.json` sets `ANTHROPIC_BASE_URL` in `env`; none otherwise. */
+export function readApiProfile(dir: string): ApiProfile | undefined {
+  const env = readJson<{ env?: Record<string, unknown> }>(join(dir, "settings.json"))?.env;
+  const baseUrl = text(env?.ANTHROPIC_BASE_URL);
+  return baseUrl ? { baseUrl, model: text(env?.ANTHROPIC_MODEL) } : undefined;
+}
+
+/** The name an API profile shows in place of an email: model and host (its first part), `qwen3.8-27b @ rzisrv051`. */
+export function apiProfileLabel(api: ApiProfile): string {
+  let host = api.baseUrl;
+  try {
+    host = new URL(api.baseUrl).hostname.split(".")[0] || host;
+  } catch {
+    // not a URL: as written
+  }
+  return `${api.model ?? "API"} @ ${host}`;
+}
+
+/**
+ * The account `dir` is signed in to; none without a `.claude.json` or an email in it. A folder whose settings point
+ * Claude Code at another server is an API profile, whatever login it may hold, since that login is not used.
+ */
 export function readAccount(dir: string, home = homedir()): Account | undefined {
+  const api = readApiProfile(dir);
+  if (api) return { dir, file: join(dir, "settings.json"), email: apiProfileLabel(api), api, chosenColor: chosenColorOf(dir), avatar: chosenAvatarOf(dir) };
   // Claude Code keeps it in the config folder; only the default folder's lives next to it, in ~/.claude.json.
   const files = [join(dir, ".claude.json"), ...(same(dir, join(home, ".claude")) ? [join(home, ".claude.json")] : [])];
   for (const file of files) {
