@@ -955,7 +955,7 @@ export function accountLines(e: AccountEntry, state: AccountState, settings: Set
   if (e.account === "details") {
     const searched = state.accounts.map((a) => `${tilde(a.dir)}  ${a.email}`);
     return [
-      ...wrap("cco looks for accounts in the config folders of Claude Code: the one of this viewer (`CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.claude` and every folder `~/.claude*` in your home folder. A folder counts as an account when its `.claude.json` names one (`oauthAccount`)."),
+      ...wrap("cco looks for accounts in the config folders of Claude Code: the one of this viewer (`CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.claude` and every folder `~/.claude*` in your home folder. A folder counts as an account when its `.claude.json` names one (`oauthAccount`), and as an API profile when its `settings.json` sets `ANTHROPIC_BASE_URL` in `env` (shown as model and server, e.g. qwen3.8-27b @ rzisrv051)."),
       "",
       bold("This viewer"),
       ...field("CLAUDE_CONFIG_DIR", process.env.CLAUDE_CONFIG_DIR ? tilde(process.env.CLAUDE_CONFIG_DIR) : "not set"),
@@ -978,7 +978,9 @@ export function accountLines(e: AccountEntry, state: AccountState, settings: Set
   return [
     state.current?.dir === account.dir ? GREEN("● active: the account of the Claude Code this viewer follows") : dim("○ another account found"),
     "",
-    ...field("email", account.email),
+    ...(account.api
+      ? [...wrap("API profile: not signed in to claude.ai, its Claude Code talks to another server."), ...field("server", account.api.baseUrl), ...field("model", account.api.model ?? "not set")]
+      : field("email", account.email)),
     ...field("name", account.name),
     ...field("organization", [account.organization, account.organizationType && `(${account.organizationType})`].filter(Boolean).join(" ")),
     ...field("billing", account.billing),

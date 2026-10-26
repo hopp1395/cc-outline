@@ -29,6 +29,24 @@ describe("accounts", () => {
     expect(readAccount(join(home, ".claude-work"), home)).toBeUndefined();
   });
 
+  it("reads a folder whose settings name another server as an API profile, whatever login it holds", () => {
+    const home = homeWith({ ".claude-qwen": undefined, ".claude-gw": "old@example.com", ".claude-raw": undefined });
+    const env = (name: string, values: Record<string, string>) => writeFileSync(join(home, name, "settings.json"), JSON.stringify({ env: values }));
+    env(".claude-qwen", { ANTHROPIC_BASE_URL: "http://rzisrv051.rz.example.com:8000", ANTHROPIC_MODEL: "qwen3.8-27b" });
+    env(".claude-gw", { ANTHROPIC_BASE_URL: "https://gateway.example.com" });
+    env(".claude-raw", { ANTHROPIC_BASE_URL: "not a url" });
+    expect(readAccount(join(home, ".claude-qwen"), home)).toMatchObject({
+      email: "qwen3.8-27b @ rzisrv051",
+      api: { baseUrl: "http://rzisrv051.rz.example.com:8000", model: "qwen3.8-27b" },
+      file: join(home, ".claude-qwen", "settings.json"),
+    });
+    expect(readAccount(join(home, ".claude-gw"), home)?.email).toBe("API @ gateway");
+    expect(readAccount(join(home, ".claude-raw"), home)?.email).toBe("API @ not a url");
+    // Settings without the server's address leave a folder as it was.
+    writeFileSync(join(home, ".claude-raw", "settings.json"), JSON.stringify({ env: { DISABLE_TELEMETRY: "1" } }));
+    expect(readAccount(join(home, ".claude-raw"), home)).toBeUndefined();
+  });
+
   it("finds the folders ~/.claude* with an account, the viewer's own first, and ignores the rest", () => {
     const home = homeWith({ ".claude-work": "work@example.com", ".claude-personal": "me@example.com", ".claude-code-router": undefined, ".config": "other@example.com" });
     writeFileSync(join(home, ".claude-notes"), "a file");

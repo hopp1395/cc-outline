@@ -197,6 +197,9 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     const field = (name: string, value: string | undefined) => (value ? [`  ${dim(`${name}:`)} ${value}`] : []);
     const out: string[] = [heading("Account")];
     out.push(
+      ...(a.api ? [`  ${dim("API profile:")} not signed in to claude.ai, its Claude Code talks to another server`] : []),
+      ...field("server", a.api?.baseUrl),
+      ...field("model", a.api && (a.api.model ?? "not set")),
       ...field("name", a.name),
       ...field("organization", [a.organization, a.organizationType && `(${a.organizationType})`].filter(Boolean).join(" ")),
       ...field("billing", a.billing),
