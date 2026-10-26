@@ -97,7 +97,7 @@ const RUNS = "it runs: use /rename in its Claude Code";
 
 /**
  * The options Enter offers for a session and the one selected at first: the preferred one that can be
- * chosen, else copying the command, which always can. See the matrix in CLAUDE.md (Sessions).
+ * chosen, else copying the command, which always can. See the matrix in docs/dev/sessions.md.
  */
 export function sessionOptions(s: SessionSituation): { options: ChoiceOption<SessionAction>[]; initial: number } {
   const { paired } = s;
