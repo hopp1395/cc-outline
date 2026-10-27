@@ -604,8 +604,8 @@ export const SETTING_ROWS: Row[] = [
     group: "Chat",
     label: "usage line",
     description:
-      "Whether a viewer of a remote session shows a line above its prompt line, like the status line of Claude Code: how many tokens the context held at Claude's last answer, and how much of the account's 5-hour and 7-day windows is used, with the time until each starts anew. It is read from the session's events on claude.ai, so it needs the remote API setting, and shows for the remote sessions and those of this machine connected to claude.ai (⇄), also in the Remote Control Viewer. claude.ai reports the windows now and then only; the newest any viewer of this account read is kept, and a window that has started anew shows – until the next report.",
-    values: ON_OFF("e.g. Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h, the percentages green, yellow from 50 %, red from 80 %", "no line; the chat keeps the row"),
+      "Whether a viewer of a remote session shows at the right of its prompt line's bottom border, like the status line of Claude Code: how many tokens the context held at Claude's last answer, and how much of the account's 5-hour and 7-day windows is used, with the time until each starts anew. It is read from the session's events on claude.ai, so it needs the remote API setting, and shows for the remote sessions and those of this machine connected to claude.ai (⇄), also in the Remote Control Viewer. claude.ai reports the windows now and then only; the newest any viewer of this account read is kept, and a window that has started anew shows – until the next report.",
+    values: ON_OFF("e.g. Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h, the percentages green, yellow from 50 %, red from 80 %; on a narrow pane the times left go first, then Ctx, then 7d", "a plain border"),
   },
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
   listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room."),

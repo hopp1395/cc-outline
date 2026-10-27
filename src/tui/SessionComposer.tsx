@@ -1,10 +1,10 @@
 import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import type { CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
-import { usageParts, type RemoteUsage } from "../remote/usage.js";
+import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/usage.js";
 import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
 import { pastable, promptRows } from "./PromptDialog.js";
@@ -47,29 +47,42 @@ function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: 
 const LEVEL_COLOR = { low: "green", mid: "yellow", high: "red" } as const;
 
 /**
- * The line above the prompt line, like Claude Code's status line: the context of the last answer and the account's
- * windows, `Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h`. It reads the clock each minute, so the times left count down.
+ * The composer's frame: a line above and below, open to the sides so the text has the pane's width. The line below
+ * carries `usage` at its right end, like Claude Code's status line: the context of the last answer and the account's
+ * windows, `─── Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h ──`, shortened to fit (`fitUsage`). It reads the clock each
+ * minute, so the times left count down.
  */
-function UsageLine({ usage }: { usage: RemoteUsage }) {
+function Frame({ width, color, usage, children }: { width: number; color: string; usage?: RemoteUsage; children: ReactNode }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
+    if (!usage) return;
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
-  }, []);
-  const parts = usageParts(usage, now);
-  if (!parts.length) return null;
+  }, [Boolean(usage)]);
+  // At least two ─ before it, a space on each side and two ─ after it.
+  const parts = usage ? fitUsage(usageParts(usage, now), width - 6) : [];
+  const line = (n: number) => <Text color={color}>{"─".repeat(Math.max(0, n))}</Text>;
   return (
-    <Text wrap="truncate">
-      {"  "}
-      {parts.map((p, i) => (
-        <Text key={p.label}>
-          {i > 0 && <Text color="gray">{" · "}</Text>}
-          <Text dimColor>{p.label} </Text>
-          <Text color={p.level && LEVEL_COLOR[p.level]}>{p.value}</Text>
-          {p.rest && <Text dimColor> {p.rest}</Text>}
+    <Box flexDirection="column" width={width} flexShrink={0}>
+      <Text wrap="truncate">{line(width)}</Text>
+      {children}
+      {parts.length ? (
+        <Text wrap="truncate">
+          {line(width - usageWidth(parts) - 4)}{" "}
+          {parts.map((p, i) => (
+            <Text key={p.label}>
+              {i > 0 && <Text color="gray">{" · "}</Text>}
+              <Text dimColor>{p.label} </Text>
+              <Text color={p.level && LEVEL_COLOR[p.level]}>{p.value}</Text>
+              {p.rest && <Text dimColor> {p.rest}</Text>}
+            </Text>
+          ))}{" "}
+          {line(2)}
         </Text>
-      ))}
-    </Text>
+      ) : (
+        <Text wrap="truncate">{line(width)}</Text>
+      )}
+    </Box>
   );
 }
 
@@ -143,7 +156,7 @@ export function SessionComposer({
   asked?: { request: LocalRequest; where: string };
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
   commands?: CommandSource;
-  /** What the line above it shows (setting usageLine): a remote session's context and the account's windows. */
+  /** What its frame's bottom line shows at the right (setting usageLine): a remote session's context and the account's windows. */
   usage?: RemoteUsage;
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
@@ -293,7 +306,7 @@ export function SessionComposer({
   );
 
   const width = layout.columns;
-  const room = width - 4 - 2;
+  const room = width - 2;
   const keys = (items: [string, string][]) => (
     <Text wrap="truncate" dimColor={!focused}>
       {items.map(([k, what], i) => (
@@ -306,6 +319,7 @@ export function SessionComposer({
   );
 
   let body;
+  let color = "yellow";
   if (request && isQuestion) {
     body = (
       <QuestionDialog
@@ -321,7 +335,7 @@ export function SessionComposer({
     );
   } else if (request) {
     body = (
-      <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
+      <>
         <Text bold color="yellow" wrap="truncate">
           {`Allow ${request.displayName ?? request.toolName}?`}
         </Text>
@@ -348,12 +362,12 @@ export function SessionComposer({
             {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [[hint[0], "answer it"]])}
           </>
         )}
-      </Box>
+      </>
     );
   } else if (channel.blocked && asked) {
     const { request } = asked;
     body = (
-      <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
+      <>
         <Text bold color="yellow" wrap="truncate">
           {request.kind === "question" ? `Claude asks · ${truncate(title, 40)}` : `Allow ${request.toolName}? · ${truncate(title, 40)}`}
         </Text>
@@ -365,20 +379,20 @@ export function SessionComposer({
         <Text dimColor wrap="truncate">
           {`Answered in its terminal: ${asked.where}`}
         </Text>
-      </Box>
+      </>
     );
   } else if (channel.blocked) {
+    color = "gray";
     body = (
-      <Box flexDirection="column" width={width} borderStyle="round" borderColor="gray" paddingX={1} flexShrink={0}>
-        <Text dimColor wrap="truncate">
-          {"› "}
-          {channel.blocked}
-        </Text>
-      </Box>
+      <Text dimColor wrap="truncate">
+        {"› "}
+        {channel.blocked}
+      </Text>
     );
   } else {
+    color = focused ? "cyan" : "gray";
     body = (
-      <Box flexDirection="column" width={width} borderStyle="round" borderColor={focused ? "cyan" : "gray"} paddingX={1} flexShrink={0}>
+      <>
         <CommandList picker={picker} width={room} />
         {line.text || focused ? <TextRows line={line} room={room - 2} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
         {focused && picker.open
@@ -386,13 +400,14 @@ export function SessionComposer({
           : focused
           ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"]])
           : keys([hint])}
-      </Box>
+      </>
     );
   }
   return (
     <Box ref={box} flexDirection="column" flexShrink={0}>
-      {usage && <UsageLine usage={usage} />}
-      {body}
+      <Frame width={width} color={color} usage={usage}>
+        {body}
+      </Frame>
     </Box>
   );
 }

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import stringWidth from "string-width";
 import { claudeDir, readJson, writeJson } from "../transcript/locate.js";
 import type { RemoteEvent } from "./api.js";
 
@@ -147,4 +148,18 @@ export function usageParts(usage: RemoteUsage, now: number): UsagePart[] {
     parts.push({ label, value: `${percent}%`, level: levelOf(percent), rest: left });
   }
   return parts;
+}
+
+/** The columns `parts` take, joined by ` · `. */
+export const usageWidth = (parts: UsagePart[]): number =>
+  parts.reduce((sum, p, i) => sum + (i > 0 ? 3 : 0) + stringWidth(`${p.label} ${p.value}${p.rest ? ` ${p.rest}` : ""}`), 0);
+
+/**
+ * What of `parts` fits in `room` columns: all, else without the times left, then without `Ctx`, then `5h` alone;
+ * none when not even that fits.
+ */
+export function fitUsage(parts: UsagePart[], room: number): UsagePart[] {
+  const lean = parts.map(({ rest: _, ...p }) => p);
+  const steps = [parts, lean, lean.filter((p) => p.label !== "Ctx"), lean.filter((p) => p.label === "5h")];
+  return steps.find((s) => s.length > 0 && usageWidth(s) <= room) ?? [];
 }
