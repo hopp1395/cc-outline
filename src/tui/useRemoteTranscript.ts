@@ -3,6 +3,7 @@ import { listEvents, listSessions, type RemoteEvent, type RemoteSession } from "
 import { describeRemoteError } from "../remote/index.js";
 import { pendingRequests, type PendingRequest } from "../remote/pending.js";
 import { toTranscript } from "../remote/toTranscript.js";
+import { contextOf, keepRateLimits, newerLimits, rateLimitsOf, type RateLimits, type RemoteUsage } from "../remote/usage.js";
 import { TIMING } from "../timing.js";
 import { TranscriptParser } from "../transcript/parse.js";
 import type { Transcript } from "./useTranscript.js";
@@ -17,9 +18,11 @@ export interface RemoteTranscript extends Transcript {
   error?: string;
   /** Older events than the first read were left out. */
   truncated: boolean;
+  /** The context of the last answer, and the account's usage windows (also as other viewers read them). */
+  usage: RemoteUsage;
 }
 
-const EMPTY: RemoteTranscript = { turns: [], plans: [], agents: [], workflows: [], version: 0, pending: [], truncated: false };
+const EMPTY: RemoteTranscript = { turns: [], plans: [], agents: [], workflows: [], version: 0, pending: [], truncated: false, usage: {} };
 
 /** How often the list (title, status) is read, in polls of the events. */
 const LIST_EVERY = 3;
@@ -48,10 +51,11 @@ export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteT
     let cancelled = false;
     let busy = false;
     let first = true;
+    let limits: RateLimits | undefined;
     // Published only when something changed: a poll every second must not re-render the chat each time.
     let shown = "";
     const publish = (error?: string) => {
-      const now = `${last}|${session?.title}|${session?.workerStatus}|${session?.connectionStatus}|${error}`;
+      const now = `${last}|${session?.title}|${session?.workerStatus}|${session?.connectionStatus}|${error}|${JSON.stringify(limits)}`;
       if (now === shown) return;
       shown = now;
       setState((s) => ({
@@ -68,13 +72,15 @@ export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteT
         pending: pendingRequests(events),
         error,
         truncated,
+        usage: { context: contextOf(events), limits },
       }));
     };
     const read = async () => {
       if (busy) return;
       busy = true;
       try {
-        if (polls++ % LIST_EVERY === 0) session = (await listSessions()).find((s) => s.id === id) ?? session;
+        const listing = polls++ % LIST_EVERY === 0;
+        if (listing) session = (await listSessions()).find((s) => s.id === id) ?? session;
         const batch = await listEvents(id);
         if (cancelled) return;
         // The first read holds the newest events only; later ones come with each poll.
@@ -87,6 +93,9 @@ export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteT
           const { lines } = toTranscript(fresh);
           if (lines.length) parser.push(lines.join("\n") + "\n");
         }
+        // The account's windows: this session's report, kept for every viewer, and what the others read since.
+        const reported = rateLimitsOf(fresh);
+        if (reported || listing) limits = keepRateLimits(newerLimits(limits, reported));
         publish();
       } catch (err) {
         if (!cancelled) publish(describeRemoteError(err));

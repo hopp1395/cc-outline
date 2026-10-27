@@ -167,6 +167,8 @@ export interface Settings {
   remoteApi: boolean;
   /** Experimental, with remoteApi: sends prompts to Remote Control sessions and interrupts them, as the Claude app does. */
   remoteControl: boolean;
+  /** Viewers of a remote session (and the Remote Control Viewer): a line above the prompt line with the context and the account's 5h and 7d windows. */
+  usageLine: boolean;
   /** Sessions: the active and running sessions show in the Pinned group too, marked or not. */
   pinnedSessions: boolean;
   /** Order of the Chat and Plan lists (s in each). */
@@ -229,6 +231,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionsRemote: "show",
   remoteApi: false,
   remoteControl: false,
+  usageLine: true,
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
@@ -295,6 +298,7 @@ export const SESSION_VIEWER_KEYS = [
   "chatWrap",
   "chatOrder",
   "chatListWidth",
+  "usageLine",
   "settingsListWidth",
   "compactView",
   "compactColumns",
@@ -322,6 +326,7 @@ export const RC_VIEWER_KEYS = [
   "chatOrder",
   "rcViewerSessionsWidth",
   "rcViewerTurnsWidth",
+  "usageLine",
   "settingsListWidth",
   "mouse",
   "marquee",
@@ -334,6 +339,8 @@ export const RC_VIEWER_KEYS = [
 export const isRcViewerKey = (key: string): boolean => (RC_VIEWER_KEYS as readonly string[]).includes(key);
 /** The settings only the Remote Control Viewer has: the project's viewer does not show them. */
 export const isRcViewerOnlyKey = (key: string): boolean => key === "rcViewerSessionsWidth" || key === "rcViewerTurnsWidth";
+/** The settings only a viewer of one session and the Remote Control Viewer use: the project's viewer does not list them. */
+export const isViewerOnlyKey = (key: string): boolean => key === "usageLine";
 
 /**
  * Which settings of its own this process keeps apart from the project's viewer: a viewer of one session's

@@ -4,6 +4,7 @@ import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import type { CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
+import { usageParts, type RemoteUsage } from "../remote/usage.js";
 import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
 import { pastable, promptRows } from "./PromptDialog.js";
@@ -40,6 +41,35 @@ function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: 
         );
       })}
     </>
+  );
+}
+
+const LEVEL_COLOR = { low: "green", mid: "yellow", high: "red" } as const;
+
+/**
+ * The line above the prompt line, like Claude Code's status line: the context of the last answer and the account's
+ * windows, `Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h`. It reads the clock each minute, so the times left count down.
+ */
+function UsageLine({ usage }: { usage: RemoteUsage }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const parts = usageParts(usage, now);
+  if (!parts.length) return null;
+  return (
+    <Text wrap="truncate">
+      {"  "}
+      {parts.map((p, i) => (
+        <Text key={p.label}>
+          {i > 0 && <Text color="gray">{" · "}</Text>}
+          <Text dimColor>{p.label} </Text>
+          <Text color={p.level && LEVEL_COLOR[p.level]}>{p.value}</Text>
+          {p.rest && <Text dimColor> {p.rest}</Text>}
+        </Text>
+      ))}
+    </Text>
   );
 }
 
@@ -85,6 +115,7 @@ export function SessionComposer({
   hint = ["Tab", "write a prompt"],
   asked,
   commands,
+  usage,
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -112,6 +143,8 @@ export function SessionComposer({
   asked?: { request: LocalRequest; where: string };
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
   commands?: CommandSource;
+  /** What the line above it shows (setting usageLine): a remote session's context and the account's windows. */
+  usage?: RemoteUsage;
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
   const drafts = useRef(new Map<string, LineState>()).current;
@@ -358,6 +391,7 @@ export function SessionComposer({
   }
   return (
     <Box ref={box} flexDirection="column" flexShrink={0}>
+      {usage && <UsageLine usage={usage} />}
       {body}
     </Box>
   );

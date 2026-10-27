@@ -133,6 +133,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const sessionTitle = remoteId ? `◈ ${transcript.title ?? remoteId}` : (transcript.title ?? basename(cwd));
   // A viewer of one session has a prompt line below its chat, as Claude Code does; a remote session's needs steer remote.
   const [remoteControl] = useSetting("remoteControl");
+  const [usageLine] = useSetting("usageLine");
   // Like its own settings, it comes with the process (watch.ts).
   const composer = fixed && isSessionViewer();
   useTerminalTitle(
@@ -764,6 +765,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onHeight={setComposerRows}
             asked={asked && { request: asked, where: "its Claude Code's window" }}
             commands={commandSource}
+            usage={remoteId && usageLine ? remote.usage : undefined}
           />
           </MouseContext.Provider>
         )}

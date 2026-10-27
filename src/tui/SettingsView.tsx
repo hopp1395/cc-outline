@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, isViewerOnlyKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
@@ -139,7 +139,7 @@ export const RC_VIEWER_RESET_ACTIONS: ResetAction[] = [
 
 /** The settings this process lists: the Remote Control Viewer's or a viewer of one session's own (`oneSession`), else the project's viewer's. */
 function listedRows(oneSession: boolean): Row[] {
-  if (!oneSession) return SETTING_ROWS;
+  if (!oneSession) return SETTING_ROWS.filter((r) => !isViewerOnlyKey(r.key));
   if (!isRcViewer()) return SETTING_ROWS.filter((r) => isSessionViewerKey(r.key));
   const own = SETTING_ROWS.filter((r) => isRcViewerKey(r.key));
   const settings = own.findIndex((r) => r.group === "Settings");
@@ -599,6 +599,14 @@ export const SETTING_ROWS: Row[] = [
   },
   wrapRow("chatWrap", "Chat", "in the chat", "useful for wide tables and code blocks"),
   listOrder("chatOrder", "Chat", "turns"),
+  {
+    key: "usageLine",
+    group: "Chat",
+    label: "usage line",
+    description:
+      "Whether a viewer of a remote session shows a line above its prompt line, like the status line of Claude Code: how many tokens the context held at Claude's last answer, and how much of the account's 5-hour and 7-day windows is used, with the time until each starts anew. It is read from the session's events on claude.ai, so it needs the remote API setting, and shows for the remote sessions and those of this machine connected to claude.ai (⇄), also in the Remote Control Viewer. claude.ai reports the windows now and then only; the newest any viewer of this account read is kept, and a window that has started anew shows – until the next report.",
+    values: ON_OFF("e.g. Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h, the percentages green, yellow from 50 %, red from 80 %", "no line; the chat keeps the row"),
+  },
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
   listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room."),
   wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),

@@ -105,6 +105,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [accountColor] = useSetting("accountColor");
   const [remoteApi] = useSetting("remoteApi");
   const [remoteControl] = useSetting("remoteControl");
+  const [usageLine] = useSetting("usageLine");
   const copy = useClipboard();
   const foreignKey = foreignDirs(accountState.accounts).join("\n");
   const foreign = useMemo(() => (foreignKey ? foreignKey.split("\n") : []), [foreignKey]);
@@ -477,6 +478,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             hint={["Space", "or a click: write a prompt"]}
             asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front" }}
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
+            usage={usageLine && (session.remote || bridge) ? remoteRead.usage : undefined}
           />
         )}
       </Box>
