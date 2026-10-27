@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RemoteEvent } from "../src/remote/api.js";
-import { contextOf, keepRateLimits, newerLimits, rateLimitsOf, readRateLimits, shortTokens, untilReset, usageParts } from "../src/remote/usage.js";
+import { contextOf, fitUsage, keepRateLimits, newerLimits, rateLimitsOf, readRateLimits, shortTokens, untilReset, usageParts, usageWidth, type UsagePart } from "../src/remote/usage.js";
 
 /** The events of the two recordings from the Claude app, as `listEvents` gives them. */
 function recorded(name: string): RemoteEvent[] {
@@ -73,6 +73,22 @@ describe("the usage of a remote session", () => {
     expect(shortTokens(1_000_000)).toBe("1M");
     expect(shortTokens(1_250_000)).toBe("1.3M");
     expect(untilReset(at(540), now)).toBe("9m");
+  });
+
+  it("shortens to fit: without the times left, then without Ctx, then 5h alone", () => {
+    const parts: UsagePart[] = [
+      { label: "Ctx", value: "62k" },
+      { label: "5h", value: "23%", level: "low", rest: "2h14m" },
+      { label: "7d", value: "97%", level: "high", rest: "3d4h" },
+    ];
+    const labels = (room: number) => fitUsage(parts, room).map((p) => `${p.label} ${p.value}${p.rest ? ` ${p.rest}` : ""}`);
+    expect(usageWidth(parts)).toBe(36);
+    expect(labels(36)).toEqual(["Ctx 62k", "5h 23% 2h14m", "7d 97% 3d4h"]);
+    expect(labels(35)).toEqual(["Ctx 62k", "5h 23%", "7d 97%"]);
+    expect(labels(24)).toEqual(["5h 23%", "7d 97%"]);
+    expect(labels(14)).toEqual(["5h 23%"]);
+    expect(labels(5)).toEqual([]);
+    expect(fitUsage([{ label: "Ctx", value: "62k" }], 5)).toEqual([]);
   });
 });
 

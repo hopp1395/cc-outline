@@ -115,7 +115,7 @@ export function QuestionDialog({
   onCancel: () => void;
   /** Hears what is typed into the "Other…" fields, joined: kept if the dialog closes because another app answered. */
   onTyped?: (text: string) => void;
-  /** Drawn in place of a remote viewer's prompt line, as wide as the pane, instead of over the view. */
+  /** Drawn in place of a remote viewer's prompt line, as wide as the pane and in its frame, instead of over the view. */
   inline?: boolean;
   /** It takes the keys (the prompt line has the focus). */
   active?: boolean;
@@ -193,8 +193,8 @@ export function QuestionDialog({
   usePaste((text) => q !== undefined && row && "other" in row && type(q, editLine(field[q]!, insertable(text), {})));
 
   const width = inline ? layout.columns : Math.min(MAX_WIDTH, layout.columns - 4);
-  // Inside the border and padding.
-  const room = width - 4;
+  // Inside the border and padding (inline: the prompt line's frame, open to the sides).
+  const room = inline ? width : width - 4;
   const asked = (question: Question) => (!tabbed && question.header ? `${cyan(question.header)}  ${question.question}` : question.question);
 
   // The body of a question: its text, then a block of lines per row, the field below "Other…" always kept.
@@ -219,7 +219,7 @@ export function QuestionDialog({
     const other = question.options.length;
     const label = other === at ? bold("Other…") : "Other…";
     rows.push({ text: `${pointer(other)} ${mark(a.other !== undefined)} ${label}`, block: other });
-    rows.push({ text: other === at || a.other !== undefined ? <LineField line={field[qi]!} width={width} /> : " ", block: other });
+    rows.push({ text: other === at || a.other !== undefined ? <LineField line={field[qi]!} width={inline ? width + 4 : width} /> : " ", block: other });
     return { head: [...wrapLines(bold(asked(question)), room), " "], rows, selected: at };
   };
   // The Submit tab: each question with its answer, or that it has none yet.
@@ -291,13 +291,8 @@ export function QuestionDialog({
       </Text>
     </>
   );
-  // In place of the prompt line: framed, as tall as it needs.
-  if (inline)
-    return (
-      <Box flexDirection="column" width={width} borderStyle="round" borderColor="yellow" paddingX={1} flexShrink={0}>
-        {content}
-      </Box>
-    );
+  // In place of the prompt line, as tall as it needs: the prompt line's frame holds it.
+  if (inline) return content;
   return (
     <Dialog layout={layout} width={width} height={fixed + height}>
       {content}
