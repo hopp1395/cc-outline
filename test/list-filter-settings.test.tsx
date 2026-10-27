@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk, tick } from "./helpers/ink.js";
 import type { Layout } from "../src/tui/layout.js";
+import { isViewerOnlyKey } from "../src/settings.js";
 import { SETTING_ROWS, SettingsView } from "../src/tui/SettingsView.js";
 
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
@@ -34,7 +35,7 @@ describe("list filter in the settings", () => {
     let typing = false;
     const view = renderView(<SettingsView cwd={cwd} layout={layout} active onTyping={(t) => (typing = t)} />);
     // Below the settings: the account entries (how they are found, how to add one), the five reset actions and the Releases note (no releases known offline).
-    const total = SETTING_ROWS.length + 9;
+    const total = SETTING_ROWS.filter((r) => !isViewerOnlyKey(r.key)).length + 9;
     await expect.poll(view.frame, { timeout: 2000 }).toContain(SETTING_ROWS[0].label);
     await view.press(CTRL_F);
     await expect.poll(view.frame, { timeout: 2000 }).toContain("Filter");
