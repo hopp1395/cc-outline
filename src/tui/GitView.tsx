@@ -24,6 +24,7 @@ import {
   EntryText,
   previewHeader,
   rule,
+  ruleTail,
   Screen,
   markFooter,
   markKeys,
@@ -144,11 +145,16 @@ export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undef
   return operation ? `${label} · ${operation}` : label;
 }
 
+/** What the header's rule names: what Enter switches to. */
+function headerRuleLabel(isFile: boolean, showFile: boolean): string {
+  return isFile ? (showFile ? "↵ diff" : "↵ whole file") : "↵ open folder";
+}
+
 /**
  * Full path of the file above its diff, like the prompt above a chat answer.
  * The rule names what Enter switches to.
  */
-function fileHeader(file: FileChange, path: string, width: number, showFile: boolean): string[] {
+function fileHeader(file: FileChange, path: string, width: number, showFile: boolean, right: string[] = []): string[] {
   const color = STATUS_ANSI[STATUS_COLOR[file.status]] ?? "39";
   const counts = file.added !== undefined ? ` · +${file.added} -${file.removed}` : "";
   const details = [(STATUS_LABEL[file.status] ?? file.status) + counts + (showFile ? " · whole file" : " · diff")];
@@ -159,14 +165,20 @@ function fileHeader(file: FileChange, path: string, width: number, showFile: boo
     details,
     wrap: wrapPath,
   });
-  return [...header.slice(0, -1), rule(width, showFile ? "↵ diff" : "↵ whole file")];
+  return [...header.slice(0, -1), rule(width, headerRuleLabel(true, showFile), right)];
 }
 
 /**
  * The folder of a repository above its preview, with the operation in progress,
  * its branch, upstream and when it was last fetched (`never fetched` only with an upstream).
  */
-export function repoHeader(repo: Repo, state: RepoState | undefined, live: RepoLive | undefined, width: number): string[] {
+export function repoHeader(
+  repo: Repo,
+  state: RepoState | undefined,
+  live: RepoLive | undefined,
+  width: number,
+  right: string[] = [],
+): string[] {
   const details: string[] = [];
   const branch = state?.branch;
   const parts: string[] = [];
@@ -180,7 +192,28 @@ export function repoHeader(repo: Repo, state: RepoState | undefined, live: RepoL
   else if (live && branch?.upstream) parts.push(bright("never fetched"));
   if (parts.length > 0) details.push(parts.join(" · "));
   const header = previewHeader(repo.root, width, { marker: "  ", style: bold, details, wrap: wrapPath });
-  return [...header.slice(0, -1), rule(width, "↵ open folder")];
+  return [...header.slice(0, -1), rule(width, headerRuleLabel(false, false), right)];
+}
+
+/** When git was read and is read next: a read running since `startedAt`, else the last one's duration and the next one's start. */
+export interface PollTimes {
+  startedAt?: number;
+  lastMs?: number;
+  nextAt?: number;
+}
+
+/**
+ * The texts for the right end of the header's rule, longest first, of which the first that fits
+ * shows: `⟳ git in 18 s · last 6.2 s`, then `⟳ 18 s`; while git reads, `⟳ reading git… 3 s`, then `⟳ git…`.
+ */
+export function pollTexts(times: PollTimes, now: number): string[] {
+  if (times.startedAt !== undefined) {
+    return [`⟳ reading git… ${Math.max(0, Math.floor((now - times.startedAt) / 1000))} s`, "⟳ git…"];
+  }
+  if (times.nextAt === undefined) return [];
+  const left = `${Math.max(0, Math.ceil((times.nextAt - now) / 1000))} s`;
+  const last = times.lastMs !== undefined ? ` · last ${(times.lastMs / 1000).toFixed(1)} s` : "";
+  return [`⟳ git in ${left}${last}`, `⟳ ${left}`];
 }
 
 const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
@@ -397,6 +430,11 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   }, [selectedKey, filter.copySelected]);
   // The refresh running, which another one waits for instead of starting a second.
   const running = useRef<Promise<void> | undefined>(undefined);
+  // The timer at the right of the header's rule, counted down once a second while the view is shown.
+  const [pollTimes, setPollTimes] = useState<PollTimes>({});
+  const [, setNow] = useState(() => Date.now());
+  // Reads at once and plans the next poll from its end (the click on the timer, F5); undefined while hidden.
+  const pollNow = useRef<(() => Promise<void>) | undefined>(undefined);
 
   /**
    * Reads the repositories: with `discover` it searches for them first, with `all`
@@ -405,12 +443,15 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const refresh = useCallback(
     async (opts: { discover?: boolean; all?: boolean }) => {
       if (running.current) return running.current;
+      const start = Date.now();
+      setPollTimes((t) => ({ ...t, startedAt: start }));
       const run = load(opts);
       running.current = run;
       try {
         await run;
       } finally {
         running.current = undefined;
+        setPollTimes((t) => ({ lastMs: Date.now() - start, nextAt: t.nextAt }));
       }
     },
     [cwd, nested],
@@ -497,7 +538,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     void (async () => {
       try {
         await running.current;
-        if (!cancelled) await refresh({ discover: true, all: true });
+        if (!cancelled) await (pollNow.current ? pollNow.current() : refresh({ discover: true, all: true }));
       } finally {
         // Also when it failed: F5 is refused while a reload runs.
         done();
@@ -516,6 +557,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     let timer: NodeJS.Timeout | undefined;
     let stopped = false;
     const poll = async (opts: { discover?: boolean; all?: boolean }) => {
+      clearTimeout(timer);
+      setPollTimes((t) => ({ ...t, nextAt: undefined }));
       const start = Date.now();
       try {
         await refresh(opts);
@@ -523,16 +566,27 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         if (!stopped) {
           tick++;
           const pause = Math.max(TIMING.gitPoll, POLL_PAUSE_FACTOR * (Date.now() - start));
+          setPollTimes((t) => ({ ...t, nextAt: Date.now() + pause }));
           timer = setTimeout(() => void poll({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 }), pause);
         }
       }
     };
+    pollNow.current = () => poll({ discover: true, all: true });
     void poll({ discover: true, all: true });
+    const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       stopped = true;
+      pollNow.current = undefined;
       clearTimeout(timer);
+      clearInterval(clock);
     };
   }, [active, refresh]);
+
+  /** The click on the timer: reads git at once like F5, unless it reads already. */
+  const onRuleClick = (col: number) => {
+    if (col < previewWidth - stringWidth(ruleTail(previewWidth, ruleLabel, timerTexts))) return;
+    if (!running.current) void pollNow.current?.();
+  };
 
   // Load the diff as soon as the selection changes instead of waiting for the next poll.
   useEffect(() => {
@@ -574,15 +628,17 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     if (showFile && !currentFile && ready) toggleFile(false);
   }, [showFile, currentFile, ready]);
 
+  const ruleLabel = headerRuleLabel(currentFile !== undefined, showFile);
+  const timerTexts = pollTexts(pollTimes, Date.now());
   const header = useMemo(() => {
     if (!current) return [];
     const full = currentFile
-      ? fileHeader(currentFile, current.key, previewWidth, showFile)
-      : repoHeader(current.repo, currentState, repoRead?.live, previewWidth);
+      ? fileHeader(currentFile, current.key, previewWidth, showFile, timerTexts)
+      : repoHeader(current.repo, currentState, repoRead?.live, previewWidth, timerTexts);
     const fitted = fitHeader(full, headerHeight);
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
-  }, [current, currentFile, currentState, repoRead?.live, previewWidth, headerHeight, showFile]);
+  }, [current, currentFile, currentState, repoRead?.live, previewWidth, headerHeight, showFile, timerTexts.join("|")]);
   const rendered = useMemo(() => {
     if (onLoadMore && repos) return { ...message(""), lines: loadMoreLines(repos.length, base, loadAll) };
     if (!current) return message("");
@@ -708,6 +764,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         hscroll={Math.min(hscroll, maxHscroll)}
         frozen={rendered.gutterWidth}
         pinned={showFile ? [] : rendered.hunkStarts}
+        onRuleClick={onRuleClick}
       />
     );
 
@@ -780,6 +837,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
+        { text: "F5 git", priority: 2 },
         { text: "1-6/tab view", priority: 1 },
       ]}
     />

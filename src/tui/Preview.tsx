@@ -56,6 +56,8 @@ interface Props {
   onMark?: (mark: Mark) => void;
   /** A click on body line `index` where there is no link or mark; on release, like links. */
   onLineClick?: (index: number) => void;
+  /** A click on column `col` of the rule that closes the header; on release, like links. */
+  onRuleClick?: (col: number) => void;
 }
 
 /** Height left for the scrolling lines below `header`. */
@@ -198,6 +200,7 @@ export function Preview({
   onLink,
   onMark,
   onLineClick,
+  onRuleClick,
 }: Props) {
   const bodyHeight = bodyHeightBelow(header, height);
   const { from, to, above, below } = previewWindow(lines.length, scroll, bodyHeight);
@@ -219,7 +222,7 @@ export function Preview({
     return () => clearTimeout(timer);
   }, [copied]);
   // The press the left button is held since: where a drag selects from, and the link it opens if it is let go without one.
-  const press = useRef<{ region: Region; at?: Point; url?: string; mark?: Mark; line?: number; dragged: boolean }>(undefined);
+  const press = useRef<{ region: Region; at?: Point; url?: string; mark?: Mark; line?: number; ruleCol?: number; dragged: boolean }>(undefined);
   /** The cell of the lines under body row `bodyRow` and column `col`, kept within the lines shown. */
   const pointAt = (bodyRow: number, col: number): Point => {
     const index = Math.max(from, Math.min(to - 1, from + bodyRow - (above > 0 ? 1 : 0)));
@@ -281,6 +284,7 @@ export function Preview({
           onLink?.(held.url);
         } else if (!held.dragged && held.mark) onMark?.(held.mark);
         else if (!held.dragged && held.line !== undefined) onLineClick?.(held.line);
+        else if (!held.dragged && held.ruleCol !== undefined) onRuleClick?.(held.ruleCol);
         return;
       }
       // A drag from where there is nothing to select (the header's rule) no longer opens a link either.
@@ -319,7 +323,8 @@ export function Preview({
     if (at.row < header.length) {
       const url = linkAt(header, at.row, at.col, width);
       const mark = onMark ? markAt(header[at.row], at.col) : undefined;
-      press.current = { region: "header", at: at.row < headerLines ? headerPointAt(at.row, at.col) : undefined, url, mark, dragged: false };
+      const ruleCol = onRuleClick && at.row === header.length - 1 ? at.col : undefined;
+      press.current = { region: "header", at: at.row < headerLines ? headerPointAt(at.row, at.col) : undefined, url, mark, ruleCol, dragged: false };
       return;
     }
     const index = from + bodyRow - (above > 0 ? 1 : 0);
