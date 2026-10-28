@@ -96,14 +96,23 @@ export interface RepoLive {
   commitCount?: number;
 }
 
-export async function repoLive(root: string, dirs: GitDirs | undefined, now = Date.now()): Promise<RepoLive> {
+/**
+ * `known`: `describe` and `commitCount` of a read for the same HEAD, kept instead of starting git
+ * again; in a large repository each takes about a second.
+ */
+export async function repoLive(
+  root: string,
+  dirs: GitDirs | undefined,
+  now = Date.now(),
+  known?: Pick<RepoLive, "describe" | "commitCount">,
+): Promise<RepoLive> {
   const [fetchTimes, stashLog, describe, count] = await Promise.all([
     dirs
       ? Promise.all([dirs.dir, dirs.common].map((d) => stat(join(d, "FETCH_HEAD")).then((s) => s.mtimeMs, () => 0)))
       : Promise.resolve([0]),
     dirs ? readText(join(dirs.common, "logs", "refs", "stash")) : Promise.resolve(undefined),
-    git(root, ["describe", "--tags"]),
-    git(root, ["rev-list", "--count", "HEAD"]),
+    known ? known.describe : git(root, ["describe", "--tags"]),
+    known ? known.commitCount?.toString() : git(root, ["rev-list", "--count", "HEAD"]),
   ]);
   const fetchedAt = Math.max(...fetchTimes);
   const live: RepoLive = { stashes: stashLog ? stashLog.split("\n").filter(Boolean).length : 0 };

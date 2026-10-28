@@ -5,10 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { parseDiff } from "../git/diff.js";
 import {
-  branchStatus,
   fileContent,
   fileDiff,
-  listChanges,
+  readChanges,
   recentCommits,
   type BranchStatus,
   type Commit,
@@ -298,7 +297,14 @@ function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) 
   );
 }
 
+/** The pause between the end of one poll and the start of the next, at least. */
 const POLL_MS = 2000;
+/**
+ * The pause is also at least this many times as long as the last poll took: in a large
+ * repository a `git status` takes seconds and keeps several cores busy, so the view reads it
+ * at most a quarter of the time instead of without a break.
+ */
+const POLL_PAUSE_FACTOR = 3;
 /** The repositories past `REPO_LIMIT` are read every fifth poll (10 s). */
 const SLOW_EVERY = 5;
 /** The folders are searched for repositories every 15th poll (30 s). */
@@ -308,9 +314,8 @@ const HSCROLL_STEP = 8;
 
 async function readRepo(repo: Repo, repos: Repo[]): Promise<RepoState> {
   try {
-    const [files, branch, operation] = await Promise.all([
-      listChanges(repo.root),
-      branchStatus(repo.root),
+    const [{ files, branch }, operation] = await Promise.all([
+      readChanges(repo.root),
       gitDirs(repo.root).then((dirs) => (dirs ? gitOperation(dirs) : undefined)),
     ]);
     const state: RepoState = { files: withoutNested(files, nestedPaths(repo, repos)), branch };
@@ -340,7 +345,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
   // The last commits and details of the selected repository entry, with the root they were read from.
-  const [selectedRepo, setSelectedRepo] = useState<{ root: string; commits: Commit[] } & RepoDetails>();
+  const [selectedRepo, setSelectedRepo] = useState<{ root: string; commits: Commit[]; head?: string } & RepoDetails>();
+  const selectedRepoRef = useRef(selectedRepo);
+  selectedRepoRef.current = selectedRepo;
   const [error, setError] = useState<string>();
   // Marked entries of the project, by key.
   const favorites = useFavorites(cwd, "files");
@@ -412,19 +419,22 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   /**
    * Reads a repository's last commits and what changes often (`repoLive`), with `withInfo` also what
    * rarely does (`repoInfo`, else kept from before), if it is still the selected entry once they
-   * arrive; unchanged ones keep the preview as it is.
+   * arrive; unchanged ones keep the preview as it is. Without `withInfo`, commits, `describe` and
+   * the commit count are kept while HEAD is still `head`.
    */
-  const readSelectedRepo = async (root: string, withInfo: boolean) => {
+  const readSelectedRepo = async (root: string, withInfo: boolean, head?: string) => {
     const dirs = await gitDirs(root);
+    const prior = selectedRepoRef.current;
+    const same = !withInfo && head !== undefined && prior?.root === root && prior.head === head ? prior : undefined;
     const [commits, live, info] = await Promise.all([
-      recentCommits(root, COMMIT_LIMIT + 1),
-      repoLive(root, dirs),
+      same ? same.commits : recentCommits(root, COMMIT_LIMIT + 1),
+      repoLive(root, dirs, undefined, same?.live),
       withInfo ? repoInfo(root, dirs) : undefined,
     ]);
     const entry = currentRef.current;
     if (!entry || entry.file || entry.repo.root !== root) return;
     setSelectedRepo((prev) => {
-      const next = { root, commits, live, info: info ?? (prev?.root === root ? prev.info : undefined) };
+      const next = { root, commits, head, live, info: info ?? (prev?.root === root ? prev.info : undefined) };
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
   };
@@ -456,8 +466,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     });
     // The selected file may have changed again since it was shown, a selected repository got new commits.
     const entry = currentRef.current;
-    if (entry && !entry.file) await readSelectedRepo(entry.repo.root, discover === true);
     const state = entry && read.find(([root]) => root === entry.repo.root)?.[1];
+    if (entry && !entry.file) await readSelectedRepo(entry.repo.root, discover === true, state?.branch?.head);
     const file = entry?.file && state?.files.find((f) => f.path === entry.file!.path);
     if (!entry || !file) return setError(undefined);
     try {
@@ -499,15 +509,29 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   });
 
   // Poll only while visible; Claude edits files between prompts, so this keeps the view current.
+  // The next poll is planned once the last one is done, so slow reads never run back to back.
   useEffect(() => {
     if (!active) return;
     let tick = 0;
-    void refresh({ discover: true, all: true });
-    const timer = setInterval(() => {
-      tick++;
-      void refresh({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 });
-    }, POLL_MS);
-    return () => clearInterval(timer);
+    let timer: NodeJS.Timeout | undefined;
+    let stopped = false;
+    const poll = async (opts: { discover?: boolean; all?: boolean }) => {
+      const start = Date.now();
+      try {
+        await refresh(opts);
+      } finally {
+        if (!stopped) {
+          tick++;
+          const pause = Math.max(POLL_MS, POLL_PAUSE_FACTOR * (Date.now() - start));
+          timer = setTimeout(() => void poll({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 }), pause);
+        }
+      }
+    };
+    void poll({ discover: true, all: true });
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [active, refresh]);
 
   // Load the diff as soon as the selection changes instead of waiting for the next poll.

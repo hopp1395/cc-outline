@@ -44,23 +44,31 @@ async function diffBase(root: string): Promise<string> {
   }
 }
 
-/** Parses `git status --porcelain=v1 -z` output. */
+/** The text after the first `n` space-separated fields: the path, which may contain spaces. */
+function afterFields(entry: string, n: number): string {
+  return entry.split(" ").slice(n).join(" ");
+}
+
+/** Parses the file entries of `git status --porcelain=v2 -z` output; the `#` headers are `parseBranch`'s. */
 export function parseStatus(out: string): FileChange[] {
   const parts = out.split("\0");
   const files: FileChange[] = [];
   for (let i = 0; i < parts.length; i++) {
     const entry = parts[i];
-    if (entry.length < 4) continue;
-    const x = entry[0];
-    const y = entry[1];
-    const path = entry.slice(3);
-    let status: string;
-    if (x === "?") status = "?";
-    else if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D")) status = "U";
-    else status = x !== " " ? x : y;
+    const kind = entry[0];
+    if (kind === "?") {
+      files.push({ path: entry.slice(2), status: "?" });
+      continue;
+    }
+    if (kind !== "1" && kind !== "2" && kind !== "u") continue;
+    const x = entry[2];
+    const y = entry[3];
+    // Ordinary entries have 8 fields before the path, renames and copies 9, unmerged ones 10.
+    const path = afterFields(entry, kind === "1" ? 8 : kind === "2" ? 9 : 10);
+    const status = kind === "u" ? "U" : x !== "." ? x : y;
     const change: FileChange = { path, status };
     // Renames and copies are followed by the source path as a separate field.
-    if (x === "R" || x === "C") change.oldPath = parts[++i];
+    if (kind === "2") change.oldPath = parts[++i];
     files.push(change);
   }
   return files;
@@ -80,11 +88,15 @@ export function parseNumstat(out: string): Map<string, [number, number]> {
   return stats;
 }
 
-/** Working tree and index changes relative to HEAD, sorted by path. */
-export async function listChanges(root: string): Promise<FileChange[]> {
+/**
+ * Working tree and index changes relative to HEAD, sorted by path, and the branch. One `git status`
+ * gives both: in a large repository each run takes seconds. Untracked folders are listed file by
+ * file (`all`), since the view shows and diffs every file; `normal` would give one `dir/` entry.
+ */
+export async function readChanges(root: string): Promise<{ files: FileChange[]; branch: BranchStatus }> {
   const base = await diffBase(root);
   const [status, numstat] = await Promise.all([
-    git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    git(root, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]),
     git(root, ["diff", base, "--numstat", "-z", "-M", "--no-ext-diff"]),
   ]);
   const stats = parseNumstat(numstat);
@@ -95,7 +107,7 @@ export async function listChanges(root: string): Promise<FileChange[]> {
       if (s) [f.added, f.removed] = s;
     }),
   );
-  return files.sort((a, b) => a.path.localeCompare(b.path));
+  return { files: files.sort((a, b) => a.path.localeCompare(b.path)), branch: parseBranch(status) };
 }
 
 /** numstat does not cover untracked files: count their lines, skipping large or binary ones. */
@@ -119,6 +131,8 @@ export interface BranchStatus {
   ahead: number;
   /** Commits to pull (incoming), as of the last fetch. */
   behind: number;
+  /** The commit HEAD points to; undefined without any. */
+  head?: string;
 }
 
 /** Parses the `# branch.*` headers of `git status --porcelain=v2 --branch -z`. */
@@ -127,7 +141,8 @@ export function parseBranch(out: string): BranchStatus {
   for (const entry of out.split("\0")) {
     const [marker, name, ...args] = entry.split(" ");
     if (marker !== "#") continue;
-    if (name === "branch.head" && args[0] !== "(detached)") status.branch = args.join(" ");
+    if (name === "branch.oid" && args[0] !== "(initial)") status.head = args[0];
+    else if (name === "branch.head" && args[0] !== "(detached)") status.branch = args.join(" ");
     else if (name === "branch.upstream") status.upstream = args.join(" ");
     else if (name === "branch.ab") {
       const m = /^\+(\d+) -(\d+)$/.exec(args.join(" "));
@@ -135,11 +150,6 @@ export function parseBranch(out: string): BranchStatus {
     }
   }
   return status;
-}
-
-/** Current branch and how far it is ahead of and behind its upstream. Does not fetch. */
-export async function branchStatus(root: string): Promise<BranchStatus> {
-  return parseBranch(await git(root, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=no"]));
 }
 
 export interface Commit {
