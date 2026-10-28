@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { listChanges, recentCommits, type Commit } from "../src/git/git.js";
+import { readChanges, recentCommits, type Commit } from "../src/git/git.js";
 import { findRepos, nestedPaths, withoutNested, type Repo } from "../src/git/repos.js";
 import { COMMIT_LIMIT, gitEntries, repoHeader, repoLabel, repoLines, REPO_LIMIT, type RepoState } from "../src/tui/GitView.js";
 import { isLoadMore } from "../src/tui/loadMore.js";
@@ -59,10 +59,10 @@ describe("findRepos", () => {
     writeFileSync(join(root, "tools", "bar", "new.cs"), "x\n");
     writeFileSync(join(root, "tools", "other.cs"), "y\n");
     const { repos } = await findRepos(root, true);
-    const files = await listChanges(root);
+    const { files } = await readChanges(root);
     expect(files.map((f) => f.path)).toEqual(["tools/bar/", "tools/other.cs"]);
     expect(withoutNested(files, nestedPaths(repos[0], repos)).map((f) => f.path)).toEqual(["tools/other.cs"]);
-    expect((await listChanges(repos[1].root)).map((f) => f.path)).toEqual(["new.cs"]);
+    expect((await readChanges(repos[1].root)).files.map((f) => f.path)).toEqual(["new.cs"]);
   });
 });
 

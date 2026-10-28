@@ -293,7 +293,7 @@ The Changes view shows what Claude has changed in the working tree, compared wit
 
 **Status.** The top bar shows the branch of the selected entry's repository, the number of repositories (when there are several), the files and line counts over all of them, and the scroll position. If the branch has an upstream, `↑` is followed by the number of outgoing commits (not yet pushed) and `↓` by the number of incoming ones (not yet pulled), e.g. `main ↑2 ↓1`. Non-zero counts are highlighted. cc-outline never fetches, so the incoming count is as of your last `git fetch` or `git pull`.
 
-**Refresh.** While the view is visible, it re-reads git every 2 seconds and searches for repositories every 30 seconds; `F5` does both at once, so a repository created or cloned since (`git init`, `git clone`) shows. The selected file stays selected as long as it is still changed.
+**Refresh.** While the view is visible, it re-reads git and searches for repositories every 30 seconds. After each read it waits at least 5 seconds, and three times as long as the read took, so a large repository whose `git status` takes seconds is not read without a break. The right end of the rule below the details counts down to the next read and says how long the last one took (`⟳ git in 18 s · last 6.2 s`; `⟳ reading git… 3 s` while it reads). A click on it, or `F5`, reads at once and searches for repositories, so one created or cloned since (`git init`, `git clone`) shows; a click while git reads does nothing. The selected file stays selected as long as it is still changed.
 
 **Syntax highlighting** exists so far for C# (`.cs`, `.csx`). Add more languages through the `LANGUAGES` map in `src/render/diff.ts`.
 

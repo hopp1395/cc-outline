@@ -5,7 +5,11 @@ import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
 import { updateSettings } from "../src/settings.js";
-import { GitView } from "../src/tui/GitView.js";
+import { GitView, pollTexts } from "../src/tui/GitView.js";
+import { rule } from "../src/tui/layout.js";
+import { MouseContext } from "../src/tui/mouse.js";
+import { TIMING } from "../src/timing.js";
+import stripAnsi from "strip-ansi";
 import type { Layout } from "../src/tui/layout.js";
 
 const layout: Layout = { columns: 120, rows: 24, listWidth: 40, previewWidth: 77, bodyHeight: 20 };
@@ -105,5 +109,42 @@ describe("Changes with repositories below", () => {
     const view = renderInk(<GitView cwd={cwd} layout={layout} active />, layout);
     await expect.poll(view.frame, { timeout: 5000 }).toContain("No git repository in");
     view.unmount();
+  });
+});
+
+describe("the git timer in the header's rule", () => {
+  it("counts down to the next read, says how long the last took and shortens when narrow", () => {
+    expect(pollTexts({ startedAt: 1000 }, 4500)).toEqual(["⟳ reading git… 3 s", "⟳ git…"]);
+    expect(pollTexts({ lastMs: 6200, nextAt: 20_000 }, 2000)).toEqual(["⟳ git in 18 s · last 6.2 s", "⟳ 18 s"]);
+    expect(pollTexts({}, 0)).toEqual([]);
+    expect(stripAnsi(rule(43, "↵ diff", ["⟳ git in 18 s · last 6.2 s", "⟳ 18 s"]))).toBe(
+      "── ↵ diff ─── ⟳ git in 18 s · last 6.2 s ──",
+    );
+    expect(stripAnsi(rule(24, "↵ diff", ["⟳ git in 18 s · last 6.2 s", "⟳ 18 s"]))).toBe("── ↵ diff ──── ⟳ 18 s ──");
+    expect(stripAnsi(rule(16, "↵ diff", ["⟳ git in 18 s · last 6.2 s", "⟳ 18 s"]))).toBe("── ↵ diff ──────");
+  });
+
+  it("reads git at once when clicked, and names F5 in the help line", async () => {
+    const saved = TIMING.gitPoll;
+    TIMING.gitPoll = 60_000;
+    try {
+      const root = mkdtempSync(join(tmpdir(), "cco-git-timer-"));
+      git(root, "init", "-q");
+      writeFileSync(join(root, "a.cs"), "class A {}\n");
+      const view = renderInk(<GitView cwd={root} layout={layout} active />, layout, {
+        wrap: (e) => <MouseContext.Provider value={true}>{e}</MouseContext.Provider>,
+      });
+      await expect.poll(view.frame, { timeout: 5000 }).toContain("⟳ git in");
+      expect(view.frame()).toContain("F5 git");
+      // Without the click, the next read is a minute away.
+      writeFileSync(join(root, "b.cs"), "class B {}\n");
+      const rows = view.frame().split("\n");
+      const row = rows.findIndex((r) => r.includes("⟳ git in"));
+      await view.click(rows[row].indexOf("⟳") + 1, row + 1);
+      await expect.poll(view.frame, { timeout: 5000 }).toContain("b.cs");
+      view.unmount();
+    } finally {
+      TIMING.gitPoll = saved;
+    }
   });
 });

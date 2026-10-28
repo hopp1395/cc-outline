@@ -377,11 +377,22 @@ export function previewHeader(
   ];
 }
 
-/** Dim horizontal rule, optionally with a label such as a key hint. */
-export function rule(width: number, label?: string): string {
-  if (!label) return dim("─".repeat(width));
-  const text = `── ${label} `;
-  return dim(text + "─".repeat(Math.max(0, width - stringWidth(text))));
+/**
+ * Dim horizontal rule, optionally with a label such as a key hint, and with `right` the first of
+ * those texts that fits at its right end (`── label ──── right ──`); none when none does.
+ */
+export function rule(width: number, label?: string, right: string[] = []): string {
+  const text = label ? `── ${label} ` : "";
+  const tail = ruleTail(width, label, right);
+  return dim(text + "─".repeat(Math.max(0, width - stringWidth(text) - stringWidth(tail))) + tail);
+}
+
+/** The end of `rule(width, label, right)` that holds the right text, `" right ──"`, or "" when none fits. */
+export function ruleTail(width: number, label: string | undefined, right: string[]): string {
+  const used = label ? stringWidth(`── ${label} `) : 0;
+  // At least three dashes stay between the label and the right text.
+  const fit = right.find((r) => used + 3 + stringWidth(` ${r} ──`) <= width);
+  return fit ? ` ${fit} ──` : "";
 }
 
 /** Wraps a file path after "/" or "\" separators, splitting a segment only when it alone is too wide. */

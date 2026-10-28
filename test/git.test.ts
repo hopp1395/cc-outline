@@ -1,17 +1,28 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseDiff } from "../src/git/diff.js";
-import { branchStatus, fileDiff, listChanges, parseBranch, parseNumstat, parseStatus } from "../src/git/git.js";
+import { fileDiff, parseBranch, parseNumstat, parseStatus, readChanges } from "../src/git/git.js";
 
 describe("parseStatus", () => {
-  it("maps porcelain entries including renames and untracked files", () => {
-    const out = [" M src/a.cs", "A  new.cs", "R  to.cs", "from.cs", "?? tmp/x.cs", "UU conflict.cs", ""].join("\0");
+  it("maps porcelain v2 entries including renames, untracked files and paths with spaces", () => {
+    const h = "1111111111111111111111111111111111111111";
+    const out = [
+      `# branch.oid ${h}`,
+      "# branch.head main",
+      `1 .M N... 100644 100644 100644 ${h} ${h} src/a.cs`,
+      `1 A. N... 000000 100644 100644 ${h} ${h} new file.cs`,
+      `2 R. N... 100644 100644 100644 ${h} ${h} R100 to.cs`,
+      "from.cs",
+      "? tmp/x.cs",
+      `u UU N... 100644 100644 100644 100644 ${h} ${h} ${h} conflict.cs`,
+      "",
+    ].join("\0");
     expect(parseStatus(out)).toEqual([
       { path: "src/a.cs", status: "M" },
-      { path: "new.cs", status: "A" },
+      { path: "new file.cs", status: "A" },
       { path: "to.cs", status: "R", oldPath: "from.cs" },
       { path: "tmp/x.cs", status: "?" },
       { path: "conflict.cs", status: "U" },
@@ -73,7 +84,7 @@ describe("git integration", () => {
     writeFileSync(join(root, "a.cs"), "class A { int x; }\n");
     writeFileSync(join(root, "b.cs"), "class B {}\nclass C {}\n");
 
-    const files = await listChanges(root);
+    const { files } = await readChanges(root);
     expect(files).toEqual([
       { path: "a.cs", status: "M", added: 1, removed: 1 },
       { path: "b.cs", status: "?", added: 2, removed: 0 },
@@ -87,6 +98,28 @@ describe("git integration", () => {
     ]);
   });
 
+  it("reads staged renames, paths with spaces and files in untracked folders", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cco-git-"));
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.autocrlf=false", ...args], {
+        cwd: root,
+      });
+    git("init", "-q");
+    writeFileSync(join(root, "old name.cs"), "class A {}\n");
+    git("add", ".");
+    git("commit", "-qm", "init");
+    git("mv", "old name.cs", "new name.cs");
+    mkdirSync(join(root, "tmp", "deep"), { recursive: true });
+    writeFileSync(join(root, "tmp", "deep", "x.cs"), "x\n");
+
+    const { files, branch } = await readChanges(root);
+    expect(files).toEqual([
+      { path: "new name.cs", oldPath: "old name.cs", status: "R", added: 0, removed: 0 },
+      { path: "tmp/deep/x.cs", status: "?", added: 1, removed: 0 },
+    ]);
+    expect(branch.head).toMatch(/^[0-9a-f]{40}$/);
+  });
+
   it("counts outgoing and incoming commits against the upstream", async () => {
     const base = mkdtempSync(join(tmpdir(), "cco-branch-"));
     const run = (cwd: string, ...args: string[]) =>
@@ -96,24 +129,24 @@ describe("git integration", () => {
     execFileSync("git", ["init", "-q", "-b", "main", origin]);
     run(origin, "commit", "-q", "--allow-empty", "-m", "one");
     run(base, "clone", "-q", origin, clone);
-    expect(await branchStatus(clone)).toEqual({ branch: "main", upstream: "origin/main", ahead: 0, behind: 0 });
+    expect((await readChanges(clone)).branch).toMatchObject({ branch: "main", upstream: "origin/main", ahead: 0, behind: 0 });
 
     run(clone, "commit", "-q", "--allow-empty", "-m", "local 1");
     run(clone, "commit", "-q", "--allow-empty", "-m", "local 2");
     run(origin, "commit", "-q", "--allow-empty", "-m", "remote");
     run(clone, "fetch", "-q");
-    expect(await branchStatus(clone)).toEqual({ branch: "main", upstream: "origin/main", ahead: 2, behind: 1 });
+    expect((await readChanges(clone)).branch).toMatchObject({ branch: "main", upstream: "origin/main", ahead: 2, behind: 1 });
   });
 });
 
 describe("parseBranch", () => {
   it("reads branch, upstream and ahead/behind", () => {
     const out = ["# branch.oid abc", "# branch.head main", "# branch.upstream origin/main", "# branch.ab +3 -0", ""].join("\0");
-    expect(parseBranch(out)).toEqual({ branch: "main", upstream: "origin/main", ahead: 3, behind: 0 });
+    expect(parseBranch(out)).toEqual({ head: "abc", branch: "main", upstream: "origin/main", ahead: 3, behind: 0 });
   });
 
   it("handles a detached HEAD and a branch without upstream", () => {
-    expect(parseBranch("# branch.oid abc\0# branch.head (detached)\0")).toEqual({ ahead: 0, behind: 0 });
+    expect(parseBranch("# branch.oid abc\0# branch.head (detached)\0")).toEqual({ head: "abc", ahead: 0, behind: 0 });
     expect(parseBranch("# branch.oid (initial)\0# branch.head main\0")).toEqual({ branch: "main", ahead: 0, behind: 0 });
   });
 });

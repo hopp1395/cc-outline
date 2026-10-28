@@ -5,10 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { parseDiff } from "../git/diff.js";
 import {
-  branchStatus,
   fileContent,
   fileDiff,
-  listChanges,
+  readChanges,
   recentCommits,
   type BranchStatus,
   type Commit,
@@ -25,6 +24,7 @@ import {
   EntryText,
   previewHeader,
   rule,
+  ruleTail,
   Screen,
   markFooter,
   markKeys,
@@ -38,6 +38,7 @@ import { haystack } from "../filter.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
 import { useOnReload } from "./reload.js";
+import { TIMING } from "../timing.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -116,7 +117,7 @@ export const fileKey = (repo: Repo, path: string) => (repo.rel ? `${repo.rel}/${
 /** The key of a repository's entry, the separator above its files. */
 export const repoKey = (repo: Repo) => `repo:${repo.rel}`;
 
-/** How many repositories are read without load more, every `POLL_MS`; the others every `SLOW_EVERY` polls. */
+/** How many repositories are read without load more, with every poll; the others every `SLOW_EVERY` polls. */
 export const REPO_LIMIT = 10;
 
 /**
@@ -144,11 +145,16 @@ export function repoLabel(repo: Repo, base: string, branch: BranchStatus | undef
   return operation ? `${label} · ${operation}` : label;
 }
 
+/** What the header's rule names: what Enter switches to. */
+function headerRuleLabel(isFile: boolean, showFile: boolean): string {
+  return isFile ? (showFile ? "↵ diff" : "↵ whole file") : "↵ open folder";
+}
+
 /**
  * Full path of the file above its diff, like the prompt above a chat answer.
  * The rule names what Enter switches to.
  */
-function fileHeader(file: FileChange, path: string, width: number, showFile: boolean): string[] {
+function fileHeader(file: FileChange, path: string, width: number, showFile: boolean, right: string[] = []): string[] {
   const color = STATUS_ANSI[STATUS_COLOR[file.status]] ?? "39";
   const counts = file.added !== undefined ? ` · +${file.added} -${file.removed}` : "";
   const details = [(STATUS_LABEL[file.status] ?? file.status) + counts + (showFile ? " · whole file" : " · diff")];
@@ -159,14 +165,20 @@ function fileHeader(file: FileChange, path: string, width: number, showFile: boo
     details,
     wrap: wrapPath,
   });
-  return [...header.slice(0, -1), rule(width, showFile ? "↵ diff" : "↵ whole file")];
+  return [...header.slice(0, -1), rule(width, headerRuleLabel(true, showFile), right)];
 }
 
 /**
  * The folder of a repository above its preview, with the operation in progress,
  * its branch, upstream and when it was last fetched (`never fetched` only with an upstream).
  */
-export function repoHeader(repo: Repo, state: RepoState | undefined, live: RepoLive | undefined, width: number): string[] {
+export function repoHeader(
+  repo: Repo,
+  state: RepoState | undefined,
+  live: RepoLive | undefined,
+  width: number,
+  right: string[] = [],
+): string[] {
   const details: string[] = [];
   const branch = state?.branch;
   const parts: string[] = [];
@@ -180,7 +192,28 @@ export function repoHeader(repo: Repo, state: RepoState | undefined, live: RepoL
   else if (live && branch?.upstream) parts.push(bright("never fetched"));
   if (parts.length > 0) details.push(parts.join(" · "));
   const header = previewHeader(repo.root, width, { marker: "  ", style: bold, details, wrap: wrapPath });
-  return [...header.slice(0, -1), rule(width, "↵ open folder")];
+  return [...header.slice(0, -1), rule(width, headerRuleLabel(false, false), right)];
+}
+
+/** When git was read and is read next: a read running since `startedAt`, else the last one's duration and the next one's start. */
+export interface PollTimes {
+  startedAt?: number;
+  lastMs?: number;
+  nextAt?: number;
+}
+
+/**
+ * The texts for the right end of the header's rule, longest first, of which the first that fits
+ * shows: `⟳ git in 18 s · last 6.2 s`, then `⟳ 18 s`; while git reads, `⟳ reading git… 3 s`, then `⟳ git…`.
+ */
+export function pollTexts(times: PollTimes, now: number): string[] {
+  if (times.startedAt !== undefined) {
+    return [`⟳ reading git… ${Math.max(0, Math.floor((now - times.startedAt) / 1000))} s`, "⟳ git…"];
+  }
+  if (times.nextAt === undefined) return [];
+  const left = `${Math.max(0, Math.ceil((times.nextAt - now) / 1000))} s`;
+  const last = times.lastMs !== undefined ? ` · last ${(times.lastMs / 1000).toFixed(1)} s` : "";
+  return [`⟳ git in ${left}${last}`, `⟳ ${left}`];
 }
 
 const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
@@ -298,19 +331,24 @@ function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) 
   );
 }
 
-const POLL_MS = 2000;
-/** The repositories past `REPO_LIMIT` are read every fifth poll (10 s). */
-const SLOW_EVERY = 5;
-/** The folders are searched for repositories every 15th poll (30 s). */
-const DISCOVER_EVERY = 15;
+/**
+ * The pause between the end of one poll and the start of the next is `TIMING.gitPoll` (5 s) at
+ * least, and at least this many times as long as the last poll took: in a large repository a
+ * `git status` takes seconds and keeps several cores busy, so the view reads it at most a quarter
+ * of the time instead of without a break.
+ */
+const POLL_PAUSE_FACTOR = 3;
+/** The repositories past `REPO_LIMIT` are read every second poll (10 s). */
+const SLOW_EVERY = 2;
+/** The folders are searched for repositories every sixth poll (30 s). */
+const DISCOVER_EVERY = 6;
 /** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
 async function readRepo(repo: Repo, repos: Repo[]): Promise<RepoState> {
   try {
-    const [files, branch, operation] = await Promise.all([
-      listChanges(repo.root),
-      branchStatus(repo.root),
+    const [{ files, branch }, operation] = await Promise.all([
+      readChanges(repo.root),
       gitDirs(repo.root).then((dirs) => (dirs ? gitOperation(dirs) : undefined)),
     ]);
     const state: RepoState = { files: withoutNested(files, nestedPaths(repo, repos)), branch };
@@ -340,7 +378,9 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const [hscroll, setHscroll] = useState(0);
   const [content, setContent] = useState<FileContent>();
   // The last commits and details of the selected repository entry, with the root they were read from.
-  const [selectedRepo, setSelectedRepo] = useState<{ root: string; commits: Commit[] } & RepoDetails>();
+  const [selectedRepo, setSelectedRepo] = useState<{ root: string; commits: Commit[]; head?: string } & RepoDetails>();
+  const selectedRepoRef = useRef(selectedRepo);
+  selectedRepoRef.current = selectedRepo;
   const [error, setError] = useState<string>();
   // Marked entries of the project, by key.
   const favorites = useFavorites(cwd, "files");
@@ -390,6 +430,11 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   }, [selectedKey, filter.copySelected]);
   // The refresh running, which another one waits for instead of starting a second.
   const running = useRef<Promise<void> | undefined>(undefined);
+  // The timer at the right of the header's rule, counted down once a second while the view is shown.
+  const [pollTimes, setPollTimes] = useState<PollTimes>({});
+  const [, setNow] = useState(() => Date.now());
+  // Reads at once and plans the next poll from its end (the click on the timer, F5); undefined while hidden.
+  const pollNow = useRef<(() => Promise<void>) | undefined>(undefined);
 
   /**
    * Reads the repositories: with `discover` it searches for them first, with `all`
@@ -398,12 +443,15 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   const refresh = useCallback(
     async (opts: { discover?: boolean; all?: boolean }) => {
       if (running.current) return running.current;
+      const start = Date.now();
+      setPollTimes((t) => ({ ...t, startedAt: start }));
       const run = load(opts);
       running.current = run;
       try {
         await run;
       } finally {
         running.current = undefined;
+        setPollTimes((t) => ({ lastMs: Date.now() - start, nextAt: t.nextAt }));
       }
     },
     [cwd, nested],
@@ -412,19 +460,22 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   /**
    * Reads a repository's last commits and what changes often (`repoLive`), with `withInfo` also what
    * rarely does (`repoInfo`, else kept from before), if it is still the selected entry once they
-   * arrive; unchanged ones keep the preview as it is.
+   * arrive; unchanged ones keep the preview as it is. Without `withInfo`, commits, `describe` and
+   * the commit count are kept while HEAD is still `head`.
    */
-  const readSelectedRepo = async (root: string, withInfo: boolean) => {
+  const readSelectedRepo = async (root: string, withInfo: boolean, head?: string) => {
     const dirs = await gitDirs(root);
+    const prior = selectedRepoRef.current;
+    const same = !withInfo && head !== undefined && prior?.root === root && prior.head === head ? prior : undefined;
     const [commits, live, info] = await Promise.all([
-      recentCommits(root, COMMIT_LIMIT + 1),
-      repoLive(root, dirs),
+      same ? same.commits : recentCommits(root, COMMIT_LIMIT + 1),
+      repoLive(root, dirs, undefined, same?.live),
       withInfo ? repoInfo(root, dirs) : undefined,
     ]);
     const entry = currentRef.current;
     if (!entry || entry.file || entry.repo.root !== root) return;
     setSelectedRepo((prev) => {
-      const next = { root, commits, live, info: info ?? (prev?.root === root ? prev.info : undefined) };
+      const next = { root, commits, head, live, info: info ?? (prev?.root === root ? prev.info : undefined) };
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
   };
@@ -456,8 +507,8 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     });
     // The selected file may have changed again since it was shown, a selected repository got new commits.
     const entry = currentRef.current;
-    if (entry && !entry.file) await readSelectedRepo(entry.repo.root, discover === true);
     const state = entry && read.find(([root]) => root === entry.repo.root)?.[1];
+    if (entry && !entry.file) await readSelectedRepo(entry.repo.root, discover === true, state?.branch?.head);
     const file = entry?.file && state?.files.find((f) => f.path === entry.file!.path);
     if (!entry || !file) return setError(undefined);
     try {
@@ -487,7 +538,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     void (async () => {
       try {
         await running.current;
-        if (!cancelled) await refresh({ discover: true, all: true });
+        if (!cancelled) await (pollNow.current ? pollNow.current() : refresh({ discover: true, all: true }));
       } finally {
         // Also when it failed: F5 is refused while a reload runs.
         done();
@@ -499,16 +550,43 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
   });
 
   // Poll only while visible; Claude edits files between prompts, so this keeps the view current.
+  // The next poll is planned once the last one is done, so slow reads never run back to back.
   useEffect(() => {
     if (!active) return;
     let tick = 0;
-    void refresh({ discover: true, all: true });
-    const timer = setInterval(() => {
-      tick++;
-      void refresh({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 });
-    }, POLL_MS);
-    return () => clearInterval(timer);
+    let timer: NodeJS.Timeout | undefined;
+    let stopped = false;
+    const poll = async (opts: { discover?: boolean; all?: boolean }) => {
+      clearTimeout(timer);
+      setPollTimes((t) => ({ ...t, nextAt: undefined }));
+      const start = Date.now();
+      try {
+        await refresh(opts);
+      } finally {
+        if (!stopped) {
+          tick++;
+          const pause = Math.max(TIMING.gitPoll, POLL_PAUSE_FACTOR * (Date.now() - start));
+          setPollTimes((t) => ({ ...t, nextAt: Date.now() + pause }));
+          timer = setTimeout(() => void poll({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 }), pause);
+        }
+      }
+    };
+    pollNow.current = () => poll({ discover: true, all: true });
+    void poll({ discover: true, all: true });
+    const clock = setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      stopped = true;
+      pollNow.current = undefined;
+      clearTimeout(timer);
+      clearInterval(clock);
+    };
   }, [active, refresh]);
+
+  /** The click on the timer: reads git at once like F5, unless it reads already. */
+  const onRuleClick = (col: number) => {
+    if (col < previewWidth - stringWidth(ruleTail(previewWidth, ruleLabel, timerTexts))) return;
+    if (!running.current) void pollNow.current?.();
+  };
 
   // Load the diff as soon as the selection changes instead of waiting for the next poll.
   useEffect(() => {
@@ -550,15 +628,17 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
     if (showFile && !currentFile && ready) toggleFile(false);
   }, [showFile, currentFile, ready]);
 
+  const ruleLabel = headerRuleLabel(currentFile !== undefined, showFile);
+  const timerTexts = pollTexts(pollTimes, Date.now());
   const header = useMemo(() => {
     if (!current) return [];
     const full = currentFile
-      ? fileHeader(currentFile, current.key, previewWidth, showFile)
-      : repoHeader(current.repo, currentState, repoRead?.live, previewWidth);
+      ? fileHeader(currentFile, current.key, previewWidth, showFile, timerTexts)
+      : repoHeader(current.repo, currentState, repoRead?.live, previewWidth, timerTexts);
     const fitted = fitHeader(full, headerHeight);
     // Keep the labelled rule even when the header had to be shortened.
     return fitted.length < full.length ? [...fitted.slice(0, -1), full.at(-1)!] : fitted;
-  }, [current, currentFile, currentState, repoRead?.live, previewWidth, headerHeight, showFile]);
+  }, [current, currentFile, currentState, repoRead?.live, previewWidth, headerHeight, showFile, timerTexts.join("|")]);
   const rendered = useMemo(() => {
     if (onLoadMore && repos) return { ...message(""), lines: loadMoreLines(repos.length, base, loadAll) };
     if (!current) return message("");
@@ -684,6 +764,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         hscroll={Math.min(hscroll, maxHscroll)}
         frozen={rendered.gutterWidth}
         pinned={showFile ? [] : rendered.hunkStarts}
+        onRuleClick={onRuleClick}
       />
     );
 
@@ -756,6 +837,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
         ...filter.footer,
         { text: showFile ? "[/] change" : "[/] hunk" },
         { text: "w wrap", on: wrap, priority: 2 },
+        { text: "F5 git", priority: 2 },
         { text: "1-6/tab view", priority: 1 },
       ]}
     />
