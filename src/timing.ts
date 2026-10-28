@@ -19,6 +19,8 @@ export const TIMING = {
   freshSelected: 3000,
   /** How long the top bar says `reloaded`. */
   reloaded: 1500,
+  /** The pause of the Changes view between the end of one read of its repositories and the start of the next, at least. */
+  gitPoll: 5000,
   /** How often a `FileTail` stats its file, besides the watcher. */
   tailStat: 1000,
   /** How often a remote viewer asks claude.ai for the session's new events. */

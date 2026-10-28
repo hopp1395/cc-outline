@@ -27,6 +27,7 @@ Object.assign(TIMING, {
   freshIdle: 60_000,
   freshSelected: 300,
   reloaded: 300,
+  gitPoll: 500,
   tailStat: 100,
   remotePoll: 50,
   workflowPoll: 50,

@@ -37,6 +37,7 @@ import { haystack } from "../filter.js";
 import { useFocused } from "./focus.js";
 import { useFavorites } from "./useFavorites.js";
 import { useOnReload } from "./reload.js";
+import { TIMING } from "../timing.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
@@ -115,7 +116,7 @@ export const fileKey = (repo: Repo, path: string) => (repo.rel ? `${repo.rel}/${
 /** The key of a repository's entry, the separator above its files. */
 export const repoKey = (repo: Repo) => `repo:${repo.rel}`;
 
-/** How many repositories are read without load more, every `POLL_MS`; the others every `SLOW_EVERY` polls. */
+/** How many repositories are read without load more, with every poll; the others every `SLOW_EVERY` polls. */
 export const REPO_LIMIT = 10;
 
 /**
@@ -297,18 +298,17 @@ function BranchInfo({ status, bold }: { status?: BranchStatus; bold: boolean }) 
   );
 }
 
-/** The pause between the end of one poll and the start of the next, at least. */
-const POLL_MS = 2000;
 /**
- * The pause is also at least this many times as long as the last poll took: in a large
- * repository a `git status` takes seconds and keeps several cores busy, so the view reads it
- * at most a quarter of the time instead of without a break.
+ * The pause between the end of one poll and the start of the next is `TIMING.gitPoll` (5 s) at
+ * least, and at least this many times as long as the last poll took: in a large repository a
+ * `git status` takes seconds and keeps several cores busy, so the view reads it at most a quarter
+ * of the time instead of without a break.
  */
 const POLL_PAUSE_FACTOR = 3;
-/** The repositories past `REPO_LIMIT` are read every fifth poll (10 s). */
-const SLOW_EVERY = 5;
-/** The folders are searched for repositories every 15th poll (30 s). */
-const DISCOVER_EVERY = 15;
+/** The repositories past `REPO_LIMIT` are read every second poll (10 s). */
+const SLOW_EVERY = 2;
+/** The folders are searched for repositories every sixth poll (30 s). */
+const DISCOVER_EVERY = 6;
 /** Columns moved per Ctrl+←/→ when lines are not wrapped. */
 const HSCROLL_STEP = 8;
 
@@ -522,7 +522,7 @@ export function GitView({ cwd, layout, active, onFileOpen, onTyping }: Props) {
       } finally {
         if (!stopped) {
           tick++;
-          const pause = Math.max(POLL_MS, POLL_PAUSE_FACTOR * (Date.now() - start));
+          const pause = Math.max(TIMING.gitPoll, POLL_PAUSE_FACTOR * (Date.now() - start));
           timer = setTimeout(() => void poll({ discover: tick % DISCOVER_EVERY === 0, all: tick % SLOW_EVERY === 0 }), pause);
         }
       }
