@@ -238,7 +238,15 @@ describe("PromptEditor", () => {
     await view.press("\u001bv");
     await expect.poll(view.frame).toContain("see [Image #1]");
     expect(view.frame()).toContain("⎘ 1 image");
+    // Tab goes to the button first, then to the images; Shift+Tab from the text straight to them.
     await view.press("\t");
+    await expect.poll(view.frame).toContain("Tab images");
+    expect(view.frame()).not.toContain("640×480");
+    await view.press("\t");
+    await expect.poll(view.frame).toContain("640×480");
+    await view.press("\t");
+    await expect.poll(view.frame).toContain("Alt+V image");
+    await view.press("\u001b[Z");
     await expect.poll(view.frame).toContain("640×480");
     await view.press("\u001b");
     // Back in the text: Ink holds a lone Esc a moment, a key right after it would join it.

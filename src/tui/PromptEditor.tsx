@@ -211,7 +211,8 @@ export function PromptEditor({
   if (row >= top.current + textRows) top.current = row - textRows + 1;
   top.current = Math.max(0, Math.min(top.current, Math.max(0, rows.length - textRows)));
   const first = top.current;
-  const order: Focus[] = images.length > 0 ? ["text", "images", "button"] : ["text", "button"];
+  // The button first: handing over is what Tab is for far more often than the image list, which Shift+Tab reaches at once.
+  const order: Focus[] = images.length > 0 ? ["text", "button", "images"] : ["text", "button"];
   const cycle = (dir: 1 | -1) => setFocus(order[(order.indexOf(focus) + dir + order.length) % order.length]!);
   const sel = Math.min(selected, Math.max(0, images.length - 1));
   const buttonRow = layout.rows - 3;
@@ -297,10 +298,10 @@ export function PromptEditor({
   const help: [string, string][] = picker.open
     ? [["Tab/Enter", "take"], ["↑↓", "choose"], [handKeys, "hand over"], ["Esc", "close the list"]]
     : focus === "images"
-      ? [["↑↓", "choose"], ["Enter", "open"], ["d", "remove"], ["Tab", "button"], ["Esc", "text"]]
+      ? [["↑↓", "choose"], ["Enter", "open"], ["d", "remove"], ["Tab", "text"], ["Esc", "text"]]
       : focus === "button"
-        ? [["Enter", "hand over"], ["Tab", "text"], ["Esc", "text"]]
-        : [["Enter", "new line"], [handKeys, "hand over"], ["Alt+V", "image"], ["Tab", images.length > 0 ? "images" : "button"], ["Esc", "close, keep"]];
+        ? [["Enter", "hand over"], ["Tab", images.length > 0 ? "images" : "text"], ["Esc", "text"]]
+        : [["Enter", "new line"], [handKeys, "hand over"], ["Alt+V", "image"], ["Tab", "button"], ["Esc", "close, keep"]];
   const lineNo = `line ${draft.text.slice(0, cursor).split("\n").length}/${draft.text.split("\n").length}`;
   const status = message ?? [lineNo, `${draft.text.length} chars`, images.length > 0 ? `${images.length} ${images.length === 1 ? "image" : "images"}` : ""].filter(Boolean).join(" · ");
   const statusRoom = Math.max(0, inner - HAND_OVER.length - 1);
@@ -360,7 +361,7 @@ export function PromptEditor({
       {images.length > 0 && (
         <Text wrap="truncate" color={focus === "images" ? "magenta" : undefined} dimColor={focus !== "images"}>
           {`⎘ ${images.length} ${images.length === 1 ? "image" : "images"}`}
-          {focus === "images" ? "" : `: ${images.map((i) => `#${i.n}`).join(" ")} · Tab to list them`}
+          {focus === "images" ? "" : `: ${images.map((i) => `#${i.n}`).join(" ")}`}
         </Text>
       )}
       {focus === "images" &&
