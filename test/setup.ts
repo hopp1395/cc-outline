@@ -30,6 +30,7 @@ Object.assign(TIMING, {
   gitPoll: 500,
   tailStat: 100,
   remotePoll: 50,
+  renameConfirm: 300,
   workflowPoll: 50,
   editAnswer: 300,
   editPoll: 20,

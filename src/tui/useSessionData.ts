@@ -174,6 +174,14 @@ export function useRunning(visible: boolean, accounts: string[]): Map<string, Ru
   return running;
 }
 
+/** `read` with the name each running one's Claude Code shows (`sessionTitle` takes it after the titles of its transcript). */
+export function withNames(read: SessionSummary[], running: Map<string, RunningSession>): SessionSummary[] {
+  return read.map((s) => {
+    const name = running.get(sessionKey(s))?.name;
+    return name && name !== s.name ? { ...s, name } : s;
+  });
+}
+
 /**
  * This machine's sessions `read` with the remote ones that are not among them: a session of this machine names the
  * id claude.ai lists it under (`bridge-session` entries); failing that, a remote one may name the local id somewhere in

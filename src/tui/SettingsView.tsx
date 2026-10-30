@@ -701,8 +701,8 @@ export const SETTING_ROWS: Row[] = [
     group: "Sessions",
     label: "steer remote",
     description:
-      "Experimental, with the remote API on. Lets cco steer a Remote Control session like the Claude app: send it a prompt and stop what Claude does, from the `Enter` dialog in Sessions or from the prompt line of its viewer (`Enter`, *Open it in a window of its own*; `Tab` or `i` there takes the keys). It writes to claude.ai through the same undocumented interface, so a change there can make a prompt go nowhere; what was sent shows in the chat once the session has it.",
-    values: ON_OFF("`Enter` on a remote session offers to send a prompt or to interrupt it, and its viewers have a prompt line", "remote sessions are only shown, nothing is sent"),
+      "Experimental, with the remote API on. Lets cco steer a Remote Control session like the Claude app: send it a prompt, stop what Claude does and rename it (on claude.ai and in its Claude Code), from the `Enter` dialog in Sessions or from the prompt line of its viewer (`Enter`, *Open it in a window of its own*; `Tab` or `i` there takes the keys). It writes to claude.ai through the same undocumented interface, so a change there can make a prompt go nowhere; what was sent shows in the chat once the session has it.",
+    values: ON_OFF("`Enter` on a remote session offers to send a prompt, to interrupt it or to rename it, and its viewers have a prompt line", "remote sessions are only shown, nothing is sent"),
   },
   {
     key: "pinnedSessions",

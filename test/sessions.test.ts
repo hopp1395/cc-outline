@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { projectDir } from "../src/transcript/locate.js";
+import { sessionTitle } from "../src/tui/sessionHead.js";
 import { displayPath, formatDuration, insideProject, lastActive, SessionIndex, SessionReader } from "../src/transcript/sessions.js";
 
 const line = (o: unknown) => JSON.stringify(o) + "\n";
@@ -93,6 +94,17 @@ describe("SessionReader", () => {
     );
     expect(s.files).toEqual([]);
     expect(s.end).toBe("2026-09-26T09:00:00.000Z");
+  });
+
+  it("is named as Claude Code names it: /rename title, its own title, its running name, then the first prompt", () => {
+    const read = new SessionReader("x.jsonl").push(prompt("u1", "09:00", "Fix the login"));
+    expect(sessionTitle(read)).toBe("Fix the login");
+    expect(sessionTitle({ ...read, name: "plan-b-a8" })).toBe("plan-b-a8");
+    const ai = new SessionReader("x.jsonl").push(prompt("u1", "09:00", "Fix the login") + line({ type: "ai-title", aiTitle: "Login fix" }));
+    expect(ai.aiTitle).toBe("Login fix");
+    expect(sessionTitle({ ...ai, name: "plan-b-a8" })).toBe("Login fix");
+    const renamed = new SessionReader("x.jsonl").push(prompt("u1", "09:00", "Fix the login") + line({ type: "ai-title", aiTitle: "Login fix" }) + line({ type: "custom-title", customTitle: "Auth" }));
+    expect(sessionTitle(renamed)).toBe("Auth");
   });
 });
 

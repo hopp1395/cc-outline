@@ -1,4 +1,5 @@
 import type { PendingRequest } from "../remote/pending.js";
+import type { RenamePlan } from "../sessionRename.js";
 import type { RunningSession } from "../transcript/trash.js";
 import { viewerOptions, type ChoiceOption } from "../tui/resumeChoice.js";
 import { answerable } from "../tui/useRemoteControl.js";
@@ -14,9 +15,10 @@ import type { RcViewerState } from "./state.js";
  * - `steer`: make an idle session of this machine steerable here: `/remote-control` typed into its Claude Code.
  * - `window`: continue an ended session of this machine in a new Claude Code window.
  * - `viewer`/`viewer-front`: a session viewer of it, as in Sessions.
+ * - `rename`: give it a new name, the same here, in its Claude Code and on claude.ai (`renamePlan`).
  * - `copy`: copy the command that continues it, or a remote one's address.
  */
-export type RcViewerAction = "switch" | "answer" | "prompt" | "interrupt" | "steer" | "window" | "viewer" | "viewer-front" | "copy";
+export type RcViewerAction = "switch" | "answer" | "prompt" | "interrupt" | "steer" | "window" | "viewer" | "viewer-front" | "rename" | "copy";
 
 /** Where the selected session stands, as far as the Remote Control Viewer's Enter dialog cares. */
 export interface RcViewerSituation {
@@ -47,6 +49,8 @@ export interface RcViewerSituation {
   viewers: number;
   /** The command `copy` copies (or the address of a remote session). */
   command: string;
+  /** How it can be renamed (`renamePlan`). */
+  rename: RenamePlan;
 }
 
 const NO_TERMINAL = "no Windows Terminal or tmux";
@@ -77,6 +81,7 @@ export function rcViewerOptions(s: RcViewerSituation): { options: ChoiceOption<R
     }
     preferred = s.state === "waiting" ? ["answer", "viewer"] : ["prompt", "viewer"];
     options.push(...viewerOptions(s.viewers, s.terminal, { control: s.remote.control }));
+    options.push(renameOption(s.rename));
     options.push({ id: "copy", label: "Copy its address", detail: s.command });
     return { options, initial: firstOf(options, preferred) };
   }
@@ -111,9 +116,12 @@ export function rcViewerOptions(s: RcViewerSituation): { options: ChoiceOption<R
     preferred = s.state === "idle" ? ["prompt", "switch"] : answers ? ["answer", "switch"] : ["switch", "prompt"];
   }
   options.push(...viewerOptions(s.viewers, s.terminal));
+  options.push(renameOption(s.rename));
   options.push({ id: "copy", label: "Copy the command", detail: s.command });
   return { options, initial: firstOf(options, [...preferred, "viewer"]) };
 }
+
+const renameOption = (plan: RenamePlan): ChoiceOption<RcViewerAction> => ({ id: "rename", label: "Rename it", detail: plan.detail, disabled: plan.disabled });
 
 /** The answer option of a remote session that waits: what it waits for, if known and in a shape cco can answer. */
 function answerOption(pending: PendingRequest | undefined, off: string | undefined): ChoiceOption<RcViewerAction> {

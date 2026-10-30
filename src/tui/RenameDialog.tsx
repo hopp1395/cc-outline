@@ -7,44 +7,41 @@ import { Dialog, type Layout } from "./layout.js";
 const MAX_WIDTH = 64;
 
 /**
- * Asks for a session's new title, its current one filled in. Enter saves (an empty title is refused,
- * an unchanged one closes), Esc cancels; every other key edits the text.
+ * Asks for a session's new title, its current one filled in. Enter saves (an empty or unchanged title
+ * closes without a change), Esc cancels; every other key edits the text.
  */
 export function RenameDialog({
   layout,
   lines,
   title,
+  how,
   onSave,
   onCancel,
 }: {
   layout: Layout;
   /** The session's head (`sessionHead`). */
   lines: string[];
-  /** Its /rename title so far. */
+  /** The name shown for it so far. */
   title: string;
+  /** How it is renamed (`renamePlan`), under the head. */
+  how?: string;
   onSave: (title: string) => void;
   onCancel: () => void;
 }) {
   const [line, setLine] = useState(() => lineOf(title));
-  const [empty, setEmpty] = useState(false);
-  const change = (next: typeof line) => {
-    setLine(next);
-    setEmpty(false);
-  };
   useInput((input, key) => {
     if (key.escape) return onCancel();
     if (key.return) {
       const name = line.text.trim();
-      if (!name) return setEmpty(true);
-      return name === title ? onCancel() : onSave(name);
+      return !name || name === title ? onCancel() : onSave(name);
     }
     const next = editLine(line, input, key);
-    if (next !== line) change(next);
+    if (next !== line) setLine(next);
   });
-  usePaste((text) => change(editLine(line, insertable(text), {})));
+  usePaste((text) => setLine(editLine(line, insertable(text), {})));
 
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
-  // Title, blank, the head, blank, input, error, blank, keys, plus the border.
+  // Title, blank, the head, blank, input, how, blank, keys, plus the border.
   return (
     <Dialog layout={layout} width={width} height={9 + lines.length}>
       <Text bold color="cyan" wrap="truncate">
@@ -58,8 +55,8 @@ export function RenameDialog({
       ))}
       <Text> </Text>
       <LineField line={line} width={width} />
-      <Text color="red" wrap="truncate">
-        {empty ? "  The name must not be empty" : " "}
+      <Text dimColor wrap="truncate">
+        {how ? `  ${how}` : " "}
       </Text>
       <Text> </Text>
       <Text wrap="truncate">

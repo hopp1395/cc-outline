@@ -25,6 +25,8 @@ export const TIMING = {
   tailStat: 1000,
   /** How often a remote viewer asks claude.ai for the session's new events. */
   remotePoll: 1000,
+  /** How long a rename through claude.ai waits for the Claude Code that runs the session to confirm it. */
+  renameConfirm: 5000,
   /** How often the chat reads the folders of a running workflow for its agents. */
   workflowPoll: 1000,
   /** How long `cco edit` waits for the viewer to take its prompt (Ctrl+G) before it edits in Claude Code's pane. */

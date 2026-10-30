@@ -6,9 +6,12 @@ import type { SessionSummary } from "../transcript/sessions.js";
 import { truncate } from "./layout.js";
 import type { AccountState } from "./useAccount.js";
 
-/** The name shown for a session: its /rename title, else its first prompt that is not a slash or `!` command. */
+/**
+ * The name shown for a session, as Claude Code names it: its /rename title, the title Claude Code gave it, the name
+ * its running Claude Code shows; else its first prompt that is not a slash or `!` command.
+ */
 export function sessionTitle(s: SessionSummary): string {
-  return s.title ?? (s.prompts.find((p) => !isCommand(p.text)) ?? s.prompts[0])?.text ?? s.id;
+  return s.title ?? s.aiTitle ?? s.name ?? (s.prompts.find((p) => !isCommand(p.text)) ?? s.prompts[0])?.text ?? s.id;
 }
 
 /** How wide the lines of a dialog may be: its width less the frame and padding. */

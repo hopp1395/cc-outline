@@ -11,6 +11,7 @@ import { rcViewerOptions, type RcViewerAction } from "../rcViewer/actions.js";
 import { detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, viewerCommand, type ViewerTarget } from "../open.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { describeRemoteError, remotePath, remoteUrl } from "../remote/index.js";
+import { renameAnywhere, renamePlan, type RenameSituation } from "../sessionRename.js";
 import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { switchToSession } from "../switchSession.js";
 import { rangeStart, readSettings, updateSettings, type ColumnWidth, type ListWidth } from "../settings.js";
@@ -26,6 +27,7 @@ import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { useMouse } from "./mouse.js";
 import { SessionComposer, type PromptChannel } from "./SessionComposer.js";
+import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
 import { sessionHead, sessionTitle } from "./sessionHead.js";
 import { useTerminalTitle } from "./title.js";
@@ -35,7 +37,7 @@ import { useLocalPrompt } from "./useLocalPrompt.js";
 import { useLocalRequest } from "./useLocalRequest.js";
 import { localRequestSummary } from "../localRequest.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
-import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers } from "./useSessionData.js";
+import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers, withNames } from "./useSessionData.js";
 import { useSetting } from "./useSetting.js";
 import { useTranscript } from "./useTranscript.js";
 
@@ -123,7 +125,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // Sessions that run but were not read (no prompt yet, nothing written today) stand in with what their Claude Code tells.
   const seen = useRef<SeenStates>(new Map());
   const { entries, twins } = useMemo(() => {
-    const { merged, twins } = mergeRemote(read ?? [], remote.sessions);
+    const { merged, twins } = mergeRemote(withNames(read ?? [], running), remote.sessions);
     const known = new Set(merged.map(sessionKey));
     const standIns: SessionSummary[] = [];
     for (const [key, run] of running) {
@@ -221,8 +223,10 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [chatTyping, setChatTyping] = useState(false);
   const [chatModal, setChatModal] = useState(false);
   const [choice, setChoice] = useState<Choice>();
+  const [renaming, setRenaming] = useState<RcViewerEntry>();
+  const dialog = choice !== undefined || renaming !== undefined;
   useEffect(() => onTyping?.(chatTyping || typingInComposer), [chatTyping, typingInComposer]);
-  useEffect(() => onModal?.(chatModal || choice !== undefined), [chatModal, choice]);
+  useEffect(() => onModal?.(chatModal || dialog), [chatModal, dialog]);
   useEffect(() => onClaimKeys?.(column === "chat" && canCompose), [column, canCompose]);
   const compose = () => {
     setColumn("chat");
@@ -238,6 +242,24 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     const s = e.session;
     if (s.remote) return remoteUrl(s.id);
     return e.running?.kind === "bg" && e.running.jobId ? `claude attach ${e.running.jobId}` : resumeCommand(s);
+  };
+
+  /** Where `e`'s session stands for renaming it: its transcript, the Claude Code it runs in, its session on claude.ai. */
+  const renameSituationOf = (e: RcViewerEntry): RenameSituation => {
+    const s = e.session;
+    const twin = s.remote ? s : !s.account ? twins.get(s.id) : undefined;
+    return {
+      local: s.remote ? undefined : { path: e === entry ? (local.file ?? s.path) : s.path, id: s.id },
+      running: e.running,
+      remote: twin && { id: twin.id, connected: twin.remote?.connectionStatus === "connected" },
+      control: remoteControl,
+      dir: s.account,
+    };
+  };
+  const rename = (e: RcViewerEntry, title: string) => {
+    setRenaming(undefined);
+    notify(`renaming: ${title}…`);
+    void renameAnywhere(renameSituationOf(e), title).then(notify, (err: Error) => notify(`rename failed: ${err.message}`));
   };
 
   /** Enter on a session: what to do with it (`rcViewerOptions`), the usual choice for its state selected. */
@@ -256,6 +278,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       terminal: detectTerminal() !== undefined,
       viewers: viewersFor(s).length,
       command: commandOf(e),
+      rename: renamePlan(renameSituationOf(e)),
     });
     const lines = s.remote
       ? [truncate(sessionTitle(s), 56), "remote: it runs on another machine, read from claude.ai"]
@@ -304,6 +327,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         if (!last?.window) return notify("its viewers were not opened by cco: their window is unknown");
         return notify(focusSessionViewer(last.window) ? "its viewer is in front" : "no Windows Terminal or tmux");
       }
+      case "rename":
+        return setRenaming(e);
       case "copy": {
         const command = commandOf(e);
         return void copy(command).then(() => notify(`copied: ${command}`), (err: Error) => notify(`copy failed: ${err.message}`));
@@ -346,7 +371,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     const sessionsEnd = aside;
     const turnsEnd = sessionsEnd + (aside > 0 ? 2 : 0) + (layout.fold === "hidden" ? 0 : layout.listWidth);
     setColumn(e.x < sessionsEnd ? "sessions" : e.x < turnsEnd ? "turns" : "chat");
-  }, active && !choice);
+  }, active && !dialog);
 
   useInput(
     (input, key) => {
@@ -377,7 +402,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       if (key.pageDown) return select(index + (layout.bodyHeight - 2));
       if (key.return && entry) return start(entry);
     },
-    { isActive: active && !typingInComposer && !choice },
+    { isActive: active && !typingInComposer && !dialog },
   );
 
   const withAccounts = foreign.length > 0;
@@ -454,7 +479,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             path={path}
             transcript={transcript}
             layout={layout}
-            active={active && column !== "sessions" && !choice}
+            active={active && column !== "sessions" && !dialog}
             liveSession={live}
             onTyping={setChatTyping}
             onModal={setChatModal}
@@ -483,6 +508,16 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         )}
       </Box>
       {choice && <ChoiceDialog key={choice.title} layout={full} choice={choice} onClose={() => setChoice(undefined)} />}
+      {renaming && (
+        <RenameDialog
+          layout={full}
+          lines={[truncate(`${renaming.session.remote ? "◈ " : ""}${sessionTitle(renaming.session)}`, 56)]}
+          title={sessionTitle(renaming.session)}
+          how={renamePlan(renameSituationOf(renaming)).detail}
+          onSave={(title) => rename(renaming, title)}
+          onCancel={() => setRenaming(undefined)}
+        />
+      )}
     </ScreenAsideContext.Provider>
   );
 }
