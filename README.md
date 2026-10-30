@@ -5,6 +5,20 @@
 [![npm downloads](https://img.shields.io/npm/dm/cc-outline)](https://www.npmjs.com/package/cc-outline)
 [![License: MIT](https://img.shields.io/github/license/hopp1395/cc-outline)](LICENSE)
 
+**What Claude Code doesn't show you, in a pane right next to it:** its answers as rendered Markdown, diffs of what it changed, the plans you approved, and every session across projects, accounts and machines. Live, without leaving the terminal.
+
+![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
+
+**Quick start** (Node.js 22+, Windows Terminal or tmux):
+
+```sh
+npm install -g cc-outline
+claude plugin marketplace add "$(npm root -g)/cc-outline"
+claude plugin install cco@cc-outline
+```
+
+Restart Claude Code and type `/cco:chat`. Details are in [Installation](#installation).
+
 `cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal or tmux. It has seven views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
@@ -16,8 +30,6 @@
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
 Besides the pane, the **Remote Control Viewer** (`cco rc-viewer` or `/cco:rc-viewer`) is a window of its own that watches every session at once: of every project and account on this machine, and the Remote Control sessions on other machines. It shows which ones wait for you, lets you answer them and sends them prompts. See [Every session in one window](#every-session-in-one-window).
-
-![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
 ## Why
 
