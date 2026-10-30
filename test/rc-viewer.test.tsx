@@ -188,6 +188,15 @@ describe("Remote Control Viewer registration", () => {
     registerRcViewer({ configDir: claudeDir() });
     expect(runningRcViewer()).toMatchObject({ pid: process.pid });
   });
+
+  it("ignores a registration not touched for long, whose pid another program got", () => {
+    // The parent process lives, as the program would that got the pid of a killed Remote Control Viewer.
+    writeFileSync(rcViewerFile(), JSON.stringify({ pid: process.ppid, started: Date.now() - 3_600_000 }));
+    expect(runningRcViewer()).toMatchObject({ pid: process.ppid });
+    const old = new Date(Date.now() - 3_600_000);
+    utimesSync(rcViewerFile(), old, old);
+    expect(runningRcViewer()).toBeUndefined();
+  });
 });
 
 describe("the Remote Control Viewer's three columns", () => {

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, utimesSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { accountsHome } from "../addAccount.js";
 import { readJson, writeJson } from "../transcript/locate.js";
@@ -18,10 +18,25 @@ export interface RcViewerInfo {
 /** Where the Remote Control Viewer registers: below the default `~/.claude`, so a start from any account finds it. */
 export const rcViewerFile = () => join(accountsHome.get(), ".claude", "cco", "rc-viewer.json");
 
-/** The Remote Control Viewer that runs, if any; a registration of a process that is gone counts as none. */
+/** How often the running Remote Control Viewer touches its registration. */
+const BEAT = 10_000;
+/** A registration not touched for this long is a viewer that died without its exit handler (killed, shut down). */
+const STALE = 45_000;
+
+/**
+ * The Remote Control Viewer that runs, if any; a registration of a process that is gone counts as none. Its pid alone
+ * does not tell: Windows gave the pid of one that was killed to another program, and the next start was refused.
+ */
 export function runningRcViewer(): RcViewerInfo | undefined {
-  const info = readJson<RcViewerInfo>(rcViewerFile());
-  return info && typeof info === "object" && typeof info.pid === "number" && isAlive(info.pid) ? info : undefined;
+  const file = rcViewerFile();
+  const info = readJson<RcViewerInfo>(file);
+  if (!info || typeof info !== "object" || typeof info.pid !== "number" || !isAlive(info.pid)) return undefined;
+  if (info.pid === process.pid) return info;
+  try {
+    return Date.now() - statSync(file).mtimeMs < STALE ? info : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Records this process as the Remote Control Viewer until it exits. */
@@ -29,9 +44,21 @@ export function registerRcViewer(info: Omit<RcViewerInfo, "pid" | "started">): v
   const file = rcViewerFile();
   mkdirSync(dirname(file), { recursive: true });
   writeJson(file, { ...info, pid: process.pid, started: Date.now() } satisfies RcViewerInfo);
+  const own = () => readJson<RcViewerInfo>(file)?.pid === process.pid;
+  const beat = setInterval(() => {
+    // Stops once another took the file or it is gone.
+    if (!own()) return clearInterval(beat);
+    try {
+      const now = new Date();
+      utimesSync(file, now, now);
+    } catch {
+      clearInterval(beat);
+    }
+  }, BEAT);
+  beat.unref();
   process.on("exit", () => {
     // Only its own: a Remote Control Viewer started after it (this one hung) may have taken the file.
-    if (readJson<RcViewerInfo>(file)?.pid === process.pid) rmSync(file, { force: true });
+    if (own()) rmSync(file, { force: true });
   });
 }
 
