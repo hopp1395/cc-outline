@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { confirmed, remote, sendRename, setTitle } from "../src/remote/api.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { renameAnywhere, renameIo, renamePlan, type RenameSituation } from "../src/sessionRename.js";
@@ -11,8 +11,15 @@ const realIo = { ...renameIo };
 afterAll(() => {
   remote.fetch = realFetch;
 });
+const realTmux = process.env.TMUX;
+// Typing into a Claude Code needs tmux, except on Windows.
+beforeEach(() => {
+  process.env.TMUX = "/tmp/tmux-1/default,1,0";
+});
 afterEach(() => {
   Object.assign(renameIo, realIo);
+  if (realTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = realTmux;
 });
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

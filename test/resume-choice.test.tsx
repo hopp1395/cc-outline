@@ -534,7 +534,10 @@ describe("renaming a session", () => {
   it("types /rename into the Claude Code of a running session, and greys it out while Claude works", async () => {
     const typed: { pid: number; text: string }[] = [];
     const real = renameIo.type;
+    const tmux = process.env.TMUX;
     renameIo.type = async (pid, text) => (typed.push({ pid, text }), { typed: true, message: "typed" });
+    // Typing into a Claude Code needs tmux, except on Windows.
+    if (process.platform !== "win32") process.env.TMUX = "/tmp/tmux-1/default,1,0";
     try {
       pastSession("s1");
       runs("s1");
@@ -564,6 +567,8 @@ describe("renaming a session", () => {
       busy.unmount();
     } finally {
       renameIo.type = real;
+      if (tmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = tmux;
     }
   });
 });
