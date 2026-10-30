@@ -320,12 +320,12 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         const opened = openSessionViewer(target, truncate(`${s.remote ? "◈ " : ""}${sessionTitle(s)}`, 30), viewerWindow());
         if (opened) return notify(opened);
         const command = viewerCommand(target);
-        return void copy(command).then(() => notify(`no Windows Terminal or tmux: copied ${command}`), (err: Error) => notify(`copy failed: ${err.message}`));
+        return void copy(command).then(() => notify(`no Windows Terminal, WezTerm or tmux: copied ${command}`), (err: Error) => notify(`copy failed: ${err.message}`));
       }
       case "viewer-front": {
         const last = viewersFor(s).filter((v) => v.window).at(-1);
         if (!last?.window) return notify("its viewers were not opened by cco: their window is unknown");
-        return notify(focusSessionViewer(last.window) ? "its viewer is in front" : "no Windows Terminal or tmux");
+        return notify(focusSessionViewer(last.window) ? "its viewer is in front" : "no Windows Terminal, WezTerm or tmux");
       }
       case "rename":
         return setRenaming(e);

@@ -265,7 +265,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
         title,
         status: "done",
         text: "Start it by hand",
-        lines: ["No Windows Terminal or tmux to open a window in. Run in a terminal:", `  ${command}`, `in ${tilde(dir)}`],
+        lines: ["No Windows Terminal, WezTerm or tmux to open a window in. Run in a terminal:", `  ${command}`, `in ${tilde(dir)}`],
         copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
       });
     }
@@ -501,7 +501,7 @@ export function useAccountFlow({ layout, claudePid, onPairStarted, notify, onCop
       title,
       status: "done",
       text: "Start it by hand",
-      lines: [...written, "", `No Windows Terminal or tmux: run ${command} in a terminal`, "and sign in with /login."],
+      lines: [...written, "", `No Windows Terminal, WezTerm or tmux: run ${command} in a terminal`, "and sign in with /login."],
       copy: () => void copy(command).then(() => notify(`copied: ${command}`)),
     });
   };

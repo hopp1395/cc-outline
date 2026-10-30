@@ -18,7 +18,7 @@ export interface SessionViewerInfo {
   remoteId?: string;
   /** The config folder (account) it reads. */
   configDir?: string;
-  /** The Windows Terminal or tmux window it runs in (`viewerWindow`), if cco opened it. */
+  /** The Windows Terminal, WezTerm or tmux window it runs in (`viewerWindow`), if cco opened it. */
   window?: string;
   /** When it started (ms). */
   started: number;

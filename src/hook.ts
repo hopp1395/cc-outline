@@ -88,7 +88,8 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
 
   const session: ActiveSession = { session_id: input.session_id, transcript_path: input.transcript_path, cwd, updated };
   writeActive(session);
-  if (claudePid) writeJson(claudeFile(cwd, claudePid), session);
+  // The hook runs in Claude Code's pane: the pane is the process's, not the project's.
+  if (claudePid) writeJson(claudeFile(cwd, claudePid), { ...session, wezterm_pane: process.env.WEZTERM_PANE || undefined });
 
   // A fresh Claude Code process (not /clear or compaction): open the viewer as the autoOpen setting says.
   if (input.hook_event_name === "SessionStart" && (input.source === "startup" || input.source === "resume")) {

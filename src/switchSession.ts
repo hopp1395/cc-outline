@@ -1,5 +1,8 @@
 import { proc } from "./proc.js";
-import { detectTerminal } from "./open.js";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { detectTerminal, weztermCli, type Terminal } from "./open.js";
+import { claudeDir, readJson, type ActiveSession } from "./transcript/locate.js";
 import type { Placement } from "./settings.js";
 import type { RunningSession } from "./transcript/trash.js";
 
@@ -19,6 +22,11 @@ import type { RunningSession } from "./transcript/trash.js";
 export async function switchToSession(session: RunningSession, titles: string[]): Promise<string> {
   const names = [...new Set([session.name, ...titles].filter((t): t is string => !!t))];
   const attach = session.kind === "bg" && session.jobId ? ` · runs in the background: claude attach ${session.jobId}` : "";
+  if (detectTerminal() === "wezterm") {
+    const pane = weztermPaneOf(session.pid);
+    if (!pane) return `its WezTerm pane is not known${attach}`;
+    return (await activateWeztermPane(pane)) ? "switched to its WezTerm pane" : "its WezTerm pane could not be selected";
+  }
   if (detectTerminal() === "tmux") {
     const pane = await tmuxPaneOf(session.pid);
     if (!pane) return `its tmux pane was not found${attach}`;
@@ -42,12 +50,15 @@ export async function switchToSession(session: RunningSession, titles: string[])
 export const resumeSlashCommand = (sessionId: string) => `/resume ${sessionId}`;
 
 /**
- * How "continue it here" reaches the viewer's Claude Code: under tmux its pane, on Windows its console
+ * How "continue it here" reaches the viewer's Claude Code: under tmux and WezTerm its pane, on Windows its console
  * (`CONSOLE_INPUT_SCRIPT`) gets the command typed in; elsewhere it is copied for the user to paste.
  */
 export function resumeHereMethod(terminal = detectTerminal(), platform: NodeJS.Platform = process.platform): "keys" | "clipboard" {
-  return terminal === "tmux" || platform === "win32" ? "keys" : "clipboard";
+  return terminal === "tmux" || terminal === "wezterm" || platform === "win32" ? "keys" : "clipboard";
 }
+
+/** Whether keys reach a Claude Code through its console (`prepareConsoleInput`): not where its pane takes them (tmux, WezTerm). */
+export const typesIntoConsole = (terminal: Terminal | undefined = detectTerminal()) => terminal !== "tmux" && terminal !== "wezterm";
 
 /**
  * Types `/resume <id>` into the Claude Code process `claudePid` and submits it: into its tmux pane, or on
@@ -120,10 +131,23 @@ export async function typeInClaude(claudePid: number, text: string, typer?: Cons
 }
 
 /**
- * Types `steps` into the Claude Code process `claudePid`: into its tmux pane (selected after it with `select`), or
- * on Windows into its console. `typed` is false, with the reason, if it could not.
+ * Types `steps` into the Claude Code process `claudePid`: into its tmux or WezTerm pane (selected after it with
+ * `select`), or on Windows into its console. `typed` is false, with the reason, if it could not.
  */
 export async function keysInClaude(claudePid: number, steps: KeyStep[], typer?: ConsoleTyper, select = false): Promise<{ typed: boolean; message: string }> {
+  if (detectTerminal() === "wezterm") {
+    const pane = weztermPaneOf(claudePid);
+    if (!pane) return { typed: false, message: "its WezTerm pane is not known" };
+    // A step's characters are the ones its keys send (Ctrl+L is \f, Enter \r); --no-paste writes them as typed.
+    // They go through stdin: control characters do not survive a Windows command line.
+    for (const [chars, , , wait] of steps) {
+      const sent = await new Promise<boolean>((resolve) => weztermCli(["send-text", "--pane-id", pane, "--no-paste"], (out) => resolve(out !== undefined), chars));
+      if (!sent) return { typed: false, message: "it could not be typed into its pane" };
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+    if (select) await activateWeztermPane(pane);
+    return { typed: true, message: "typed" };
+  }
   if (detectTerminal() !== "tmux") {
     const console = typer ?? prepareConsoleInput(claudePid);
     if (!console) return { typed: false, message: "no tmux to type it in" };
@@ -268,18 +292,24 @@ foreach ($s in $steps) {
  * copied command can be pasted right away. Only for a viewer docked in Claude Code's tab; false otherwise.
  */
 export function focusClaudePane(placement: Placement | undefined): boolean {
-  if (detectTerminal() !== "wt" || !process.env.WT_SESSION || (placement !== "right" && placement !== "left")) return false;
+  if (placement !== "right" && placement !== "left") return false;
+  if (detectTerminal() === "wezterm") {
+    weztermCli(["activate-pane-direction", placement === "right" ? "Left" : "Right"]);
+    return true;
+  }
+  if (detectTerminal() !== "wt" || !process.env.WT_SESSION) return false;
   proc.spawn("wt", ["-w", "0", "move-focus", placement === "right" ? "left" : "right"], { stdio: "ignore", detached: true, windowsHide: true }).unref();
   return true;
 }
 
 /**
  * Whether the viewer can take the keyboard focus from its Claude Code by itself (Ctrl+G opening the prompt
- * editor in it): in tmux its own pane, in Windows Terminal only while docked in Claude Code's tab.
+ * editor in it): in tmux and WezTerm its own pane, in Windows Terminal only while docked in Claude Code's tab.
  */
 export function canFocusViewer(placement: Placement | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
   const terminal = detectTerminal(env);
   if (terminal === "tmux") return !!env.TMUX_PANE;
+  if (terminal === "wezterm") return !!env.WEZTERM_PANE;
   return terminal === "wt" && !!env.WT_SESSION && (placement === "right" || placement === "left");
 }
 
@@ -289,12 +319,21 @@ export function focusViewerPane(placement: Placement | undefined): void {
     if (process.env.TMUX_PANE) void selectTmuxPane(process.env.TMUX_PANE);
     return;
   }
+  if (detectTerminal() === "wezterm") {
+    if (process.env.WEZTERM_PANE) void activateWeztermPane(process.env.WEZTERM_PANE);
+    return;
+  }
   if (!canFocusViewer(placement)) return;
   proc.spawn("wt", ["-w", "0", "move-focus", placement === "right" ? "right" : "left"], { stdio: "ignore", detached: true, windowsHide: true }).unref();
 }
 
 /** Moves the keyboard focus back to the pane of the Claude Code process `claudePid`. */
 export async function focusClaude(placement: Placement | undefined, claudePid: number): Promise<void> {
+  if (detectTerminal() === "wezterm") {
+    const pane = weztermPaneOf(claudePid);
+    if (!pane || !(await activateWeztermPane(pane))) focusClaudePane(placement);
+    return;
+  }
   if (detectTerminal() !== "tmux") return void focusClaudePane(placement);
   const pane = await tmuxPaneOf(claudePid);
   if (pane) await selectTmuxPane(pane);
@@ -304,6 +343,27 @@ export async function focusClaude(placement: Placement | undefined, claudePid: n
 async function selectTmuxPane(pane: string): Promise<void> {
   await run("tmux", ["select-window", "-t", pane]);
   await run("tmux", ["select-pane", "-t", pane]);
+}
+
+/** Activates the WezTerm pane `pane` with its tab; true if it could. */
+const activateWeztermPane = (pane: string) => new Promise<boolean>((resolve) => weztermCli(["activate-pane", "--pane-id", pane], (out) => resolve(out !== undefined)));
+
+/**
+ * The WezTerm pane of the Claude Code process `claudePid`, as its hook recorded it (`wezterm_pane` of its
+ * `<slug>.claude-<pid>.json`, in whichever project): `wezterm cli list` names no processes to look it up by.
+ */
+export function weztermPaneOf(claudePid: number, dir = join(claudeDir(), "cco")): string | undefined {
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith(`.claude-${claudePid}.json`));
+  } catch {
+    return undefined;
+  }
+  for (const name of names) {
+    const pane = readJson<ActiveSession>(join(dir, name))?.wezterm_pane;
+    if (typeof pane === "string" && /^\d+$/.test(pane)) return pane;
+  }
+  return undefined;
 }
 
 /** The id (`%3`) of the tmux pane whose process is `pid` or one of its ancestors. */

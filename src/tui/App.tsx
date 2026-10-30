@@ -16,7 +16,7 @@ import { writeReply } from "../promptEdit.js";
 import { clearDraft } from "../promptDraft.js";
 import { claudeDir, projectSlug } from "../transcript/locate.js";
 import type { CommandSource } from "../slashCommands.js";
-import { canFocusViewer, focusClaude, focusViewerPane, prepareConsoleInput, resumeHereMethod, typePromptInClaude, type ConsoleTyper } from "../switchSession.js";
+import { canFocusViewer, focusClaude, focusViewerPane, prepareConsoleInput, resumeHereMethod, typePromptInClaude, typesIntoConsole, type ConsoleTyper } from "../switchSession.js";
 import { PromptEditor } from "./PromptEditor.js";
 import { useClipboard } from "./useClipboard.js";
 import { ChatView } from "./ChatView.js";
@@ -518,7 +518,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // Starting PowerShell takes a second and spawning it blocks for a moment: it starts once the editor is shown and
   // gets the text when handed over.
   useEffect(() => {
-    if (!editor || editor.edit || !types || detectTerminal() === "tmux") return;
+    if (!editor || editor.edit || !types || !typesIntoConsole()) return;
     const timer = setTimeout(() => {
       if (!typer.current) typer.current = prepareConsoleInput(claudePid!);
     }, 100);

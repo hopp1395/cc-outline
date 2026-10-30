@@ -293,8 +293,9 @@ export function PromptEditor({
     { isActive: active },
   );
 
-  const tmux = detectTerminal() === "tmux";
-  const handKeys = tmux ? "^S" : "^Enter/^S";
+  // tmux and WezTerm (by default) send Ctrl+Enter as a plain Enter.
+  const terminal = detectTerminal();
+  const handKeys = terminal === "tmux" || terminal === "wezterm" ? "^S" : "^Enter/^S";
   const help: [string, string][] = picker.open
     ? [["Tab/Enter", "take"], ["↑↓", "choose"], [handKeys, "hand over"], ["Esc", "close the list"]]
     : focus === "images"

@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, r
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { cliFile } from "./cliPath.js";
-import { detectTerminal } from "./open.js";
+import { detectTerminal, SUPPORTED_TERMINALS, TERMINAL_NAMES } from "./open.js";
 import { rcViewerFile, runningRcViewer } from "./rcViewer/registry.js";
 import { DEFAULT_SETTINGS, isRcViewerKey, isSessionViewerKey, rcViewerPart, rcViewerSettingsFile, readRcViewerSettings, readMainSettings, readSessionViewerSettings, sessionViewerSettingsFile, sessionViewerPart, settingsFile, type Settings } from "./settings.js";
 import { activeFile, claudeDir, claudeFile, claudePidFromEnv, projectDir, readJson, transcriptForSession, writeJson, type ActiveSession } from "./transcript/locate.js";
@@ -389,7 +389,7 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
       : { group, severity: "error", text: `Claude Code's folder ${where} does not exist`, hint: "check CLAUDE_CONFIG_DIR, or start Claude Code once" },
   );
   const terminal = detectTerminal(env);
-  if (terminal === "tmux") findings.push({ group, severity: "ok", text: "terminal: tmux" });
+  if (terminal === "tmux" || terminal === "wezterm") findings.push({ group, severity: "ok", text: `terminal: ${TERMINAL_NAMES[terminal]}` });
   else if (terminal === "wt" && env.WT_SESSION) findings.push({ group, severity: "ok", text: "terminal: Windows Terminal" });
   else if (terminal === "wt")
     findings.push({
@@ -402,7 +402,7 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
     findings.push({
       group,
       severity: "warn",
-      text: "neither Windows Terminal nor tmux: cco opens no panes",
+      text: `no ${SUPPORTED_TERMINALS}: cco opens no panes`,
       hint: "run cco watch in a terminal of your own",
     });
   if (readMainSettings().remoteApi) findings.push(remoteLogin(dir));

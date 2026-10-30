@@ -19,17 +19,43 @@ const VIEW_NAMES: Record<Mode, string> = { chat: "chat", git: "git changes", pla
  */
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
 
-export type Terminal = "tmux" | "wt";
+export type Terminal = "tmux" | "wt" | "wezterm";
+
+export const TERMINAL_NAMES: Record<Terminal, string> = { tmux: "tmux", wt: "Windows Terminal", wezterm: "WezTerm" };
+
+/** The terminals cco opens panes and windows in, for messages. */
+export const SUPPORTED_TERMINALS = "Windows Terminal, WezTerm or tmux";
 
 /**
  * The terminal multiplexer the current process runs in. Windows Terminal sets
  * WT_SESSION and WT_PROFILE_ID; WT_SESSION can be missing (e.g. after Claude
- * Code restarted itself), so either one counts.
+ * Code restarted itself), so either one counts. WezTerm sets WEZTERM_PANE in
+ * every pane. tmux comes first: it may run inside either, and WezTerm may
+ * have been started from Windows Terminal, inheriting its variables.
  */
 export function detectTerminal(env: NodeJS.ProcessEnv = process.env): Terminal | undefined {
   if (env.TMUX) return "tmux";
+  if (env.WEZTERM_PANE) return "wezterm";
   if (env.WT_SESSION || env.WT_PROFILE_ID) return "wt";
   return undefined;
+}
+
+/**
+ * Runs `wezterm cli <args>`; `done` gets what it printed, e.g. the pane id of `split-pane` and `spawn` (`""` for
+ * nothing), undefined if it failed; `input` goes to its stdin (`send-text`). WezTerm starts the program of a new
+ * pane with the environment of its own process, not the one of this call.
+ */
+export function weztermCli(args: string[], done?: (out: string | undefined) => void, input?: string): void {
+  const child = proc.execFile("wezterm", ["cli", ...args], { windowsHide: true, timeout: 10_000 }, (err, stdout) => done?.(err ? undefined : String(stdout).trim()));
+  if (input !== undefined) child?.stdin?.end(input);
+}
+
+/**
+ * The window name a session viewer or the Remote Control Viewer registers (`--window`): in WezTerm, which names no
+ * windows, its own pane, so `focusSessionViewer` can bring it to the front.
+ */
+export function ownWindow(window: string | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return window && detectTerminal(env) === "wezterm" && env.WEZTERM_PANE ? `wezterm:${env.WEZTERM_PANE}` : window;
 }
 
 /**
@@ -95,11 +121,21 @@ export function resumeInNewWindow(sessionId: string, dir: string, title: string,
     proc.spawn("wt", args, { stdio: "ignore", detached: true, windowsHide: false, env: withClaudeDir(independentEnv(), account) }).unref();
     return "started in a new Windows Terminal window";
   }
+  if (terminal === "wezterm") {
+    // The environment does not reach the new pane either (see weztermCli): `cco claude` as for Windows Terminal.
+    weztermCli(["spawn", "--new-window", "--cwd", dir, "--", ...weztermClaude(sessionId, configDir, fresh)]);
+    return "started in a new WezTerm window";
+  }
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, tmuxResume(sessionId, configDir, fresh)], { stdio: "ignore", detached: true }).unref();
     return "started in a new tmux window";
   }
-  return `no Windows Terminal or tmux: run ${resumeShellCommand(sessionId, configDir, process.platform, fresh)} in ${dir}`;
+  return `no ${SUPPORTED_TERMINALS}: run ${resumeShellCommand(sessionId, configDir, process.platform, fresh)} in ${dir}`;
+}
+
+/** The program of a WezTerm pane that continues the session under its config folder and keeps a shell afterwards (`cco claude`). */
+function weztermClaude(sessionId: string, configDir?: string, fresh = false): string[] {
+  return [process.execPath, CLI, "claude", "--config-dir", configDir ?? claudeDir(), "--", sessionFlag(fresh), sessionId];
 }
 
 /** What a session viewer is opened for: a session of this machine (in its folder and config folder), or a remote one. */
@@ -124,7 +160,7 @@ export function viewerCommand(target: ViewerTarget, platform: NodeJS.Platform = 
 /**
  * Opens a viewer of `target` (the chat only, live; a prompt line for a remote session while steer remote is on)
  * in a new window named `window` (`viewerWindow`): any number per session. Returns what happened, or undefined
- * without Windows Terminal or tmux (then `viewerCommand` is the way).
+ * without Windows Terminal, WezTerm or tmux (then `viewerCommand` is the way).
  */
 export function openSessionViewer(target: ViewerTarget, title: string, window: string): string | undefined {
   const terminal = detectTerminal();
@@ -135,6 +171,10 @@ export function openSessionViewer(target: ViewerTarget, title: string, window: s
     // A name of its own makes a new window; no windowsHide, see resumeInNewWindow.
     proc.spawn("wt", ["-w", window, "new-tab", "--title", title, ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
     return "opened in a new window";
+  }
+  if (terminal === "wezterm") {
+    weztermCli(["spawn", "--new-window", "--cwd", "cwd" in target ? target.cwd : homedir(), "--", ...args]);
+    return "opened in a new WezTerm window";
   }
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", window, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
@@ -148,7 +188,7 @@ export const RC_VIEWER_WINDOW = "cco-rc-viewer";
 
 /**
  * Opens the Remote Control Viewer (`cco rc-viewer`) in a window of its own (`RC_VIEWER_WINDOW`), or brings the one that runs (`running`,
- * its window) to the front. Returns what happened, or undefined without Windows Terminal or tmux (then `cco rc-viewer`
+ * its window) to the front. Returns what happened, or undefined without Windows Terminal, WezTerm or tmux (then `cco rc-viewer`
  * by hand is the way).
  */
 export function openRcViewer(running?: { pid: number; window?: string }, select?: RcViewerSelect): string | undefined {
@@ -168,6 +208,10 @@ export function openRcViewer(running?: { pid: number; window?: string }, select?
     proc.spawn("wt", ["-w", RC_VIEWER_WINDOW, "new-tab", "--title", "cco rc-viewer", ...args], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
     return "opened the Remote Control Viewer in a new window";
   }
+  if (terminal === "wezterm") {
+    weztermCli(["spawn", "--new-window", "--cwd", homedir(), "--", ...args]);
+    return "opened the Remote Control Viewer in a new WezTerm window";
+  }
   if (terminal === "tmux") {
     proc.spawn("tmux", ["new-window", "-n", RC_VIEWER_WINDOW, args.map(shellQuote).join(" ")], { stdio: "ignore", detached: true, env }).unref();
     return "opened the Remote Control Viewer in a new tmux window";
@@ -175,9 +219,14 @@ export function openRcViewer(running?: { pid: number; window?: string }, select?
   return undefined;
 }
 
-/** Brings the window of a session viewer (`window`) to the front; false without Windows Terminal or tmux. */
+/** Brings the window of a session viewer (`window`, in WezTerm its pane: `ownWindow`) to the front; false without a supported terminal. */
 export function focusSessionViewer(window: string): boolean {
   const terminal = detectTerminal();
+  if (terminal === "wezterm") {
+    const pane = /^wezterm:(\d+)$/.exec(window)?.[1];
+    if (pane) weztermCli(["activate-pane", "--pane-id", pane]);
+    return pane !== undefined;
+  }
   if (terminal === "wt") proc.spawn("wt", ["-w", window, "focus-tab", "-t", "0"], { stdio: "ignore", detached: true, windowsHide: false, env: independentEnv() }).unref();
   else if (terminal === "tmux") proc.spawn("tmux", ["select-window", "-t", window], { stdio: "ignore", detached: true, env: independentEnv() }).unref();
   return terminal !== undefined;
@@ -186,7 +235,7 @@ export function focusSessionViewer(window: string): boolean {
 /**
  * Runs the start script of an account (`script`, its full path) in a new window, in the folder `dir`, with a shell
  * kept open afterwards; for its first start and `/login`. The script sets the config folder itself. Returns what
- * happened, or undefined without Windows Terminal or tmux.
+ * happened, or undefined without Windows Terminal, WezTerm or tmux.
  */
 export function scriptInNewWindow(script: string, dir: string, title: string): string | undefined {
   const terminal = detectTerminal();
@@ -197,9 +246,14 @@ export function scriptInNewWindow(script: string, dir: string, title: string): s
     proc.spawn("wt", ["-w", "new", "new-tab", "--title", title, "-d", dir, "cmd", "/k", script], { stdio: "ignore", detached: true, windowsHide: false, env }).unref();
     return "started in a new Windows Terminal window";
   }
+  const shell = process.env.SHELL || "sh";
+  const posix = `unset ${SESSION_BOUND_VARS.join(" ")} CLAUDE_CONFIG_DIR; ${shellQuote(script)}; exec ${shell}`;
+  if (terminal === "wezterm") {
+    weztermCli(["spawn", "--new-window", "--cwd", dir, "--", ...(process.platform === "win32" ? ["cmd", "/k", script] : [shell, "-c", posix])]);
+    return "started in a new WezTerm window";
+  }
   if (terminal === "tmux") {
-    const shell = process.env.SHELL || "sh";
-    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, `unset ${SESSION_BOUND_VARS.join(" ")} CLAUDE_CONFIG_DIR; ${shellQuote(script)}; exec ${shell}`], { stdio: "ignore", detached: true, env }).unref();
+    proc.spawn("tmux", ["new-window", "-n", title, "-c", dir, posix], { stdio: "ignore", detached: true, env }).unref();
     return "started in a new tmux window";
   }
   return undefined;
@@ -245,13 +299,17 @@ export const pairingWindow = (sessionId: string) => `cco-resume-${sessionId.slic
 /**
  * Like `resumeInNewWindow`, for a viewer that then moves next to the new Claude Code: also returns
  * where it runs, for `cco open --target`. In Windows Terminal a window named after the session
- * (`pairingWindow`), in tmux the id of the new pane (`%7`). No target without a supported terminal.
+ * (`pairingWindow`), in tmux the id of the new pane (`%7`), in WezTerm too (`7`). No target without a supported terminal.
  */
 export async function resumeForPairing(sessionId: string, dir: string, title: string): Promise<{ message: string; target?: string }> {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     const window = pairingWindow(sessionId);
     return { message: resumeInNewWindow(sessionId, dir, title, window), target: window };
+  }
+  if (terminal === "wezterm") {
+    const pane = await new Promise<string | undefined>((resolve) => weztermCli(["spawn", "--new-window", "--cwd", dir, "--", ...weztermClaude(sessionId)], (out) => resolve(out || undefined)));
+    return pane ? { message: "started in a new WezTerm window", target: pane } : { message: "the WezTerm window could not be opened" };
   }
   if (terminal !== "tmux") return { message: resumeInNewWindow(sessionId, dir, title, "new") };
   const pane = await new Promise<string | undefined>((resolve) =>
@@ -296,8 +354,8 @@ const ACTION_DONE: Record<ViewerAction, string> = {
 };
 
 /**
- * Opens the viewer next to the current terminal pane (Windows Terminal or
- * tmux): docked right or left, or in a window of its own.
+ * Opens the viewer next to the current terminal pane (Windows Terminal, WezTerm
+ * or tmux): docked right or left, or in a window of its own.
  */
 export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions = {}): string {
   const { claudePid, action } = opts;
@@ -324,7 +382,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
   // environment of the call, so a viewer of another account's Claude Code ran under the default folder.
   const viewer = [process.execPath, CLI, "watch", "--cwd", cwd, "--config-dir", claudeDir(), ...(view ? ["--view", view] : []), "--placement", placement];
   // The viewer cannot ask the terminal whether it has the focus; tell it.
-  const unfocused = opts.keepFocus && !(placement === "window" && terminal === "wt");
+  const unfocused = opts.keepFocus && !(placement === "window" && (terminal === "wt" || terminal === "wezterm"));
   if (unfocused) viewer.push("--unfocused");
   if (opts.select) viewer.push("--select", opts.select);
   if (opts.updatedTo) viewer.push("--updated-to", opts.updatedTo);
@@ -348,6 +406,19 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
     proc.spawn("tmux", args, { stdio: "ignore", detached: true }).unref();
     return placement === "window" ? `Opened cco${label} in a tmux window.` : `Opened cco${label} in a tmux pane${where}.`;
   }
+  if (terminal === "wezterm") {
+    // Claude Code's own pane, as for tmux; split-pane would take the one WEZTERM_PANE names anyway.
+    const pane = opts.target ?? process.env.WEZTERM_PANE;
+    const args =
+      placement === "window"
+        ? ["spawn", "--new-window", "--cwd", cwd, "--", ...viewer]
+        : ["split-pane", placement === "left" ? "--left" : "--right", ...(pane ? ["--pane-id", pane] : []), "--cwd", cwd, "--", ...viewer];
+    // The new pane takes the focus; Claude Code's gets it back. A new window cannot give it back (like wt).
+    weztermCli(args, (opened) => {
+      if (opened && pane && opts.keepFocus && placement !== "window") weztermCli(["activate-pane", "--pane-id", pane]);
+    });
+    return placement === "window" ? `Opened cco${label} in a WezTerm window.` : `Opened cco${label} in a WezTerm pane${where}.`;
+  }
   if (terminal === "wt") {
     let args: string[];
     if (placement === "window") {
@@ -365,7 +436,7 @@ export function openPane(cwd: string, view: Mode | undefined, opts: OpenOptions 
     if (away) return `Opened cco${label} in a Windows Terminal window: Claude was busy, and the pane would have opened in whichever tab is active now. Press p in it to dock it.`;
     return placement === "window" ? `Opened cco${label} in a Windows Terminal window.` : `Opened cco${label} in a Windows Terminal pane${where}.`;
   }
-  return `No supported terminal detected (Windows Terminal or tmux). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
+  return `No supported terminal detected (${SUPPORTED_TERMINALS}). Run in another terminal: cco watch --view ${view} --cwd "${cwd}"`;
 }
 
 /** The session the Claude Code process `claudePid` (else the project) is in, from the hook's state files. */

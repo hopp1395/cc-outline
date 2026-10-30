@@ -58,8 +58,9 @@ export const FocusContext = createContext(true);
 
 export const useFocused = () => useContext(FocusContext);
 
-/** Key that moves the terminal focus between the panes: Windows Terminal's default or tmux's prefix binding. */
+/** Key that moves the terminal focus between the panes: Windows Terminal's or WezTerm's default, or tmux's prefix binding. */
 export function paneSwitchKey(direction: "left" | "right"): string {
   const arrow = direction === "left" ? "←" : "→";
-  return process.env.TMUX ? `ctrl+b ${arrow}` : `alt+${arrow}`;
+  if (process.env.TMUX) return `ctrl+b ${arrow}`;
+  return process.env.WEZTERM_PANE ? `ctrl+shift+${arrow}` : `alt+${arrow}`;
 }

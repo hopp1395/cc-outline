@@ -34,7 +34,7 @@ import { useProgress, useProgressOpen, type Progress } from "./ProgressDialog.js
 import { rangeStart, updateSettings, type Placement } from "../settings.js";
 import { filterIsSet, filterSettings, passesFilter, sessionFilter, type SessionFilter } from "../sessionFilter.js";
 import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
-import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, type ConsoleTyper } from "../switchSession.js";
+import { focusClaudePane, prepareConsoleInput, resumeHereMethod, resumeInClaude, resumeSlashCommand, switchToSession, typesIntoConsole, type ConsoleTyper } from "../switchSession.js";
 import { runningViewer, type PairTarget } from "../viewer.js";
 import { otherAccounts } from "../accountContinue.js";
 import { ACCOUNT_COLORS, avatarOfAccount, barColorOfAccount, type Account, type AccountColorName } from "../account.js";
@@ -965,7 +965,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     const { options, initial } = sessionOptions(situation);
     // On Windows, PowerShell takes a second or more to start: it does so while the dialog is open.
     const here = options.find((o) => o.id === "here");
-    if (paired && here && !here.disabled && resumeHereMethod() === "keys" && detectTerminal() !== "tmux") typer.current = prepareConsoleInput(paired.claudePid);
+    if (paired && here && !here.disabled && resumeHereMethod() === "keys" && typesIntoConsole()) typer.current = prepareConsoleInput(paired.claudePid);
     setChoice({
       title: "What to do with this session?",
       lines,
@@ -1077,8 +1077,8 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     const opened = openRcViewer(runningRcViewer(), select);
     if (opened) return notify(opened);
     void copy("cco rc-viewer").then(
-      () => notify("no Windows Terminal or tmux: copied cco rc-viewer, run it in a terminal of its own"),
-      () => notify("no Windows Terminal or tmux: run cco rc-viewer in a terminal of its own"),
+      () => notify("no Windows Terminal, WezTerm or tmux: copied cco rc-viewer, run it in a terminal of its own"),
+      () => notify("no Windows Terminal, WezTerm or tmux: run cco rc-viewer in a terminal of its own"),
     );
   };
   /**
@@ -1091,7 +1091,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     if (opened) return notify(opened);
     const command = viewerCommand(target);
     void copy(command).then(
-      () => notify(`no Windows Terminal or tmux: copied ${command}`),
+      () => notify(`no Windows Terminal, WezTerm or tmux: copied ${command}`),
       (err: Error) => notify(`copy failed: ${err.message}`),
     );
   };
@@ -1099,7 +1099,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   const bringViewer = (s: SessionSummary) => {
     const last = viewersFor(s).filter((o) => o.window).at(-1);
     if (!last?.window) return notify("its viewers were not opened by cco: their window is unknown");
-    notify(focusSessionViewer(last.window) ? "its viewer is in front" : "no Windows Terminal or tmux");
+    notify(focusSessionViewer(last.window) ? "its viewer is in front" : "no Windows Terminal, WezTerm or tmux");
   };
   // The PowerShell started for "continue it here", until it is used or the dialog closes.
   const typer = useRef<ConsoleTyper>(undefined);
@@ -1362,7 +1362,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         {[
           "The Remote Control Viewer: one window with the sessions of every project and account that run or ran today, grouped by what they need (waiting for you, working, idle, ended), beside the selected one's turns and chat.",
           "",
-          rcViewer ? "Enter, k or a click brings it to the front." : "Enter, k or a click opens it in a window of its own (Windows Terminal or tmux).",
+          rcViewer ? "Enter, k or a click brings it to the front." : "Enter, k or a click opens it in a window of its own (Windows Terminal, WezTerm or tmux).",
           waitingCount > 0 ? `\n${waitingCount === 1 ? "1 session waits" : `${waitingCount} sessions wait`} for you.` : "",
         ].join("\n")}
       </Text>
