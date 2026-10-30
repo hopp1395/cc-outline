@@ -21,6 +21,8 @@ import { PromptEditor } from "./PromptEditor.js";
 import { useClipboard } from "./useClipboard.js";
 import { ChatView } from "./ChatView.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
+import { DevSwitchDialog } from "./DevSwitchDialog.js";
+import { devInstall } from "../update.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { GitView } from "./GitView.js";
 import { InfoDialog, type InfoPage } from "./InfoDialog.js";
@@ -29,7 +31,7 @@ import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { PlacementDialog } from "./PlacementDialog.js";
 import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./ProgressDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
-import { AccountAvatarContext, AccountBadgeContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, shorter, useLayouts, type Mode } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, DevContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, shorter, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
@@ -170,6 +172,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // r: like quitting, asks first unless confirm quit is off.
   const [restartAsked, setRestartAsked] = useState(false);
   const restart = () => (confirmQuit ? setRestartAsked(true) : restartViewer());
+  // A click on the top bar's DEV (a cco run from a checkout): the switch to the release.
+  const [dev] = useState(() => devInstall.get());
+  const [devOpen, setDevOpen] = useState(false);
+  const openDev = useCallback(() => setDevOpen(true), []);
   const [gitRoot, setGitRoot] = useState<string | null>();
   // |, < and > past the ends fold a view's list away or spread it over the pane (stored as its width);
   // which end | takes next and a detail shown over the pane are kept until the viewer quits.
@@ -249,6 +255,15 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // A viewer of one session takes no requests of cco open: those belong to the project's viewer.
   useViewerControl({ cwd, claudePid, followActive: !fixed, control: !fixed, onView: (...args) => request.current(...args), onSessionEnd: exit });
 
+  // After an update or the switch to the release: the viewer reopens where it is, running the new version's CLI.
+  // A viewer of one session was not opened by cco open, which cannot reopen it.
+  const reopenWith = (version: string, cli?: string) => {
+    if (fixed) return false;
+    const where = placement ?? resolvePlacement(cwd, sessionOf(path));
+    if (!moveViewer(cwd, mode, where, claudePid, version, undefined, cli)) return false;
+    exit();
+    return true;
+  };
   // The update check runs once at the start, unless the setting is off then.
   const [updateMode] = useState(() => readSettings().updateMode);
   const update = useUpdate({
@@ -256,13 +271,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     updatedTo,
     // A viewer of one session has no update entry: its Settings are its own.
     onOpen: () => !fixed && showView("settings", "update"),
-    // The viewer reopens where it is, running the new version's CLI.
-    onRestart: (version) => {
-      const where = placement ?? resolvePlacement(cwd, sessionOf(path));
-      if (!moveViewer(cwd, mode, where, claudePid, version)) return false;
-      exit();
-      return true;
-    },
+    onRestart: (version, cli) => reopenWith(version, cli),
   });
 
   // After an update: the notes of every version since the one run before, until closed.
@@ -293,7 +302,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const asked = useLocalRequest(sessionId !== undefined && !remoteId ? sessionOf(path) : undefined, path, running?.activity === "waiting");
   // e (or Ctrl+G in Claude Code): the prompt editor over the whole pane. With `edit`, cco edit waits for it.
   const [editor, setEditor] = useState<{ id: number; edit?: EditRequest; initialText?: string }>();
-  const blocked = infoOpen || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || editor !== undefined;
+  const blocked = infoOpen || quitAsked || restartAsked || devOpen || placementOpen || whatsNewOpen || progress.host.open || editor !== undefined;
 
   // update: auto: the check at the start found a newer version, so Settings shows it and asks to install it, once.
   const offered = useRef(false);
@@ -567,7 +576,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
 
   useInput((input, key) => {
     if (editor) return;
-    if (modal || typing || quitAsked || restartAsked || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
+    if (modal || typing || quitAsked || restartAsked || devOpen || placementOpen || whatsNewOpen || progress.host.open || typingInComposer) return;
     // The info dialog is modal: it takes all keys until it is closed.
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
@@ -621,6 +630,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
     <OneSessionContext.Provider value={fixed ? { title: sessionTitle } : undefined}>
+    <DevContext.Provider value={dev ? openDev : undefined}>
       <Box flexDirection="column" width={layout.columns} height={layout.rows}>
         <Fragment key={generation}>
         <Box display={mode === "chat" ? "flex" : "none"}>
@@ -822,8 +832,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onClose={() => setRestartAsked(false)}
           />
         )}
+        {devOpen && <DevSwitchDialog layout={layout} root={update.root} onRestart={fixed ? undefined : reopenWith} onClose={() => setDevOpen(false)} />}
         {progress.dialog}
       </Box>
+    </DevContext.Provider>
     </OneSessionContext.Provider>
     </CopySelectionContext.Provider>
     </ScreenNoticeContext.Provider>

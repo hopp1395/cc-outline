@@ -1,11 +1,12 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compareVersions,
   fetchReleases,
   installKind,
+  linkedHere,
   mergeReleases,
   parseReleases,
   readCachedReleases,
@@ -129,8 +130,28 @@ describe("installKind", () => {
   it("tells an npm install from a checkout or an npx cache", () => {
     expect(installKind("C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\cc-outline")).toBe("npm");
     expect(installKind("/usr/lib/node_modules/cc-outline")).toBe("npm");
-    expect(installKind("C:\\Workspace\\cc-outline")).toBe("dev");
-    expect(installKind("/home/me/.npm/_npx/1234/node_modules/cc-outline")).toBe("dev");
+    expect(installKind("C:\\Workspace\\cc-outline")).toBe("checkout");
+    expect(installKind("/home/me/.npm/_npx/1234/node_modules/cc-outline")).toBe("npx");
+  });
+});
+
+describe("linkedHere", () => {
+  it("tells a checkout linked as the cco command (npm link) from one the release replaced", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cco-link-"));
+    const checkout = join(dir, "checkout");
+    const global = join(dir, "npm", "node_modules", "cc-outline");
+    mkdirSync(checkout);
+    mkdirSync(dirname(global), { recursive: true });
+    symlinkSync(checkout, global, "junction");
+    const cli = join(global, "dist", "cli.js");
+    expect(linkedHere(checkout, cli)).toBe(true);
+    // npm install -g put the release in the link's place.
+    rmSync(global);
+    mkdirSync(global);
+    expect(linkedHere(checkout, cli)).toBe(false);
+    // Not started by npm's shim, nor recorded: no link known.
+    expect(linkedHere(checkout, undefined)).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -144,8 +165,9 @@ describe("updateState", () => {
   });
 
   it("only points to the new version from a checkout", () => {
-    expect(updateState("0.8.0", "0.7.0", "dev", "0.9.0")).toEqual({ kind: "dev", target: "0.8.0" });
-    expect(updateState("0.7.0", "0.7.0", "dev", "0.9.0")).toEqual({ kind: "none" });
+    expect(updateState("0.8.0", "0.7.0", "checkout", "0.9.0")).toEqual({ kind: "dev", target: "0.8.0" });
+    expect(updateState("0.8.0", "0.7.0", "npx", "0.9.0")).toEqual({ kind: "dev", target: "0.8.0" });
+    expect(updateState("0.7.0", "0.7.0", "checkout", "0.9.0")).toEqual({ kind: "none" });
   });
 });
 

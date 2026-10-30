@@ -33,4 +33,6 @@ export const TIMING = {
   editAnswer: 2000,
   /** How often `cco edit` looks whether the viewer is done, and the editor whether `cco edit` still waits. */
   editPoll: 150,
+  /** How often a viewer run from a linked checkout looks whether `npm install -g` replaced the link (the switch to the release). */
+  installPoll: 5000,
 };

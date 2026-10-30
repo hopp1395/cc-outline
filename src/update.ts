@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shimCli } from "./cliPath.js";
 import { independentEnv } from "./open.js";
 import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
 
@@ -153,15 +154,36 @@ export function packageRoot(): string {
 
 /**
  * `npm` for an installed package (`…/node_modules/cc-outline`), which
- * `npm install -g` updates; `dev` for a checkout run through `npm link` (Node
- * resolves the link, so the path is the checkout's) or an npx cache, which it must not touch.
+ * `npm install -g` updates; `npx` for an npx cache and `checkout` for a checkout, run through
+ * `npm link` (Node resolves the link, so the path is the checkout's) or `node dist/cli.js`, which it must not touch.
  */
-export type InstallKind = "npm" | "dev";
+export type InstallKind = "npm" | "npx" | "checkout";
 
 export function installKind(root: string): InstallKind {
   const parts = root.split(/[\\/]/);
-  if (parts.includes("_npx")) return "dev";
-  return parts.at(-2) === "node_modules" && parts.at(-1) === "cc-outline" ? "npm" : "dev";
+  if (parts.includes("_npx")) return "npx";
+  return parts.at(-2) === "node_modules" && parts.at(-1) === "cc-outline" ? "npm" : "checkout";
+}
+
+/** Whether this cco runs from a checkout: the top bar says DEV. An object, so tests (which run from the checkout) can swap it. */
+export const devInstall = { get: (): boolean => installKind(packageRoot()) === "checkout" };
+
+const samePath = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+/** The package folder of the CLI npm's shim starts (`…/node_modules/cc-outline`), if known. */
+export function shimRoot(cli = shimCli()): string | undefined {
+  return cli && dirname(dirname(cli));
+}
+
+/** Whether npm's global `cc-outline` is a link to the checkout at `root` (`npm link`), so the `cco` command runs it. */
+export function linkedHere(root: string, cli = shimCli()): boolean {
+  const global = shimRoot(cli);
+  if (!global) return false;
+  try {
+    return samePath(realpathSync.native(global), realpathSync.native(root));
+  } catch {
+    return false;
+  }
 }
 
 /** The version of the package on disk, which is newer than the running one after an update. */

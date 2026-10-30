@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isListFold, readSettings, updateSettings, type ColumnWidth } from "../settings.js";
 import { TIMING } from "../timing.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
+import { DevSwitchDialog } from "./DevSwitchDialog.js";
+import { devInstall, packageRoot } from "../update.js";
 import { onCtrlC } from "./ctrlC.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { InfoDialog, type InfoPage } from "./InfoDialog.js";
 import { RcViewerView } from "./RcViewerView.js";
 import { readRcViewerRequest, type RcViewerSelect } from "../rcViewer/registry.js";
-import { AccountAvatarContext, AccountBadgeContext, RC_VIEWER_TABS, rcViewerLayout, layoutOf, ScreenNoticeContext, tabAt, TabSetContext, type Mode } from "./layout.js";
+import { AccountAvatarContext, AccountBadgeContext, DevContext, RC_VIEWER_TABS, rcViewerLayout, layoutOf, ScreenNoticeContext, tabAt, TabSetContext, type Mode } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
@@ -67,7 +69,11 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
   const progress = useProgressHost(dialogLayout);
   const [mouse] = useSetting("mouse");
   useMouseReporting(mouse);
-  const blocked = infoOpen || quitAsked || progress.host.open;
+  // A click on the top bar's DEV (a cco run from a checkout): the switch to the release; the window then has to be opened again by hand.
+  const [dev] = useState(() => devInstall.get());
+  const [devOpen, setDevOpen] = useState(false);
+  const openDev = useCallback(() => setDevOpen(true), []);
+  const blocked = infoOpen || quitAsked || devOpen || progress.host.open;
   const mouseFor = (m: Mode) => mouse && mode === m && !blocked && !modal;
   const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
 
@@ -120,7 +126,7 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || progress.host.open) return;
+    if (modal || typing || quitAsked || devOpen || progress.host.open) return;
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
       else if (input === "q") quit();
@@ -154,6 +160,7 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
     <ScreenNoticeContext.Provider value={notice?.text}>
     <CopySelectionContext.Provider value={copySelection}>
     <TabSetContext.Provider value={RC_VIEWER_TABS}>
+    <DevContext.Provider value={dev ? openDev : undefined}>
       <Box flexDirection="column" width={columns} height={rows}>
         <Box display={mode === "chat" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("chat")}>
@@ -187,8 +194,10 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
             onClose={() => setQuitAsked(false)}
           />
         )}
+        {devOpen && <DevSwitchDialog layout={dialogLayout} root={packageRoot()} onClose={() => setDevOpen(false)} />}
         {progress.dialog}
       </Box>
+    </DevContext.Provider>
     </TabSetContext.Provider>
     </CopySelectionContext.Provider>
     </ScreenNoticeContext.Provider>

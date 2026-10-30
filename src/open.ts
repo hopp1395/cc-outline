@@ -384,11 +384,12 @@ export function openedFromQueue(cwd: string, claudePid: number | undefined): boo
  * detached, which waits until this process has exited and then opens the
  * viewer there. The caller quits right after. False without a supported terminal.
  * After an update (`updatedTo`), the CLI started is the new one. `target` names where the
- * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`).
+ * Claude Code runs when that is not the viewer's terminal (see `OpenOptions.target`). `cli` replaces this
+ * process's CLI (the release after the switch from a checkout).
  */
-export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string): boolean {
+export function moveViewer(cwd: string, view: Mode, placement: Placement, claudePid: number | undefined, updatedTo?: string, target?: string, cli = CLI): boolean {
   if (!detectTerminal()) return false;
-  const args = [CLI, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
+  const args = [cli, "open", "--cwd", cwd, "--view", view, "--placement", placement, "--after-pid", String(process.pid)];
   if (claudePid) args.push("--claude-pid", String(claudePid));
   if (updatedTo) args.push("--updated-to", updatedTo);
   if (target) args.push("--target", target);

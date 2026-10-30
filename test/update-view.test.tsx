@@ -209,7 +209,7 @@ describe("releases in the settings", () => {
 
   it("offers no update for a checkout run through npm link", async () => {
     const view = renderView(
-      <UpdateContext.Provider value={fakeUpdate({ install: "dev", root: "C:\\Workspace\\cc-outline", state: { kind: "dev", target: "9.9.9" } })}>
+      <UpdateContext.Provider value={fakeUpdate({ install: "checkout", root: "C:\\Workspace\\cc-outline", state: { kind: "dev", target: "9.9.9" } })}>
         <SettingsView cwd={cwd} layout={layout} active select={{ key: "update", at: 1 }} />
       </UpdateContext.Provider>,
     );

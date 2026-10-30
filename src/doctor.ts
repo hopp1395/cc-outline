@@ -98,7 +98,7 @@ function installation(root: string, version: string): Finding[] {
   const group = "Installation";
   const kind = installKind(root);
   const findings: Finding[] = [
-    { group, severity: "ok", text: `${kind === "npm" ? "installed with npm" : "development install (npm link or npx)"}, v${version}: ${tilde(root)}` },
+    { group, severity: "ok", text: `${kind === "npm" ? "installed with npm" : kind === "npx" ? "run through npx" : "development install (a checkout)"}, v${version}: ${tilde(root)}` },
   ];
 
   const cli = join(root, "dist", "cli.js");

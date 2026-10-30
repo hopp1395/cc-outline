@@ -470,6 +470,13 @@ export const AccountBadgeContext = createContext<AccountColorName | undefined>(u
 /** The account's avatar in place of the "cco"; undefined keeps "cco". */
 export const AccountAvatarContext = createContext<string | undefined>(undefined);
 
+/** A cco run from a checkout: the top bar ends in DEV, a click on it calls this (the switch to the release). Undefined for an installed one. */
+export const DevContext = createContext<(() => void) | undefined>(undefined);
+/** The top bar's mark of a cco run from a checkout. */
+export const DEV_LABEL = " DEV ";
+/** Its background: brighter than the red session bar, so it stands out on it too. */
+const DEV_BACKGROUND = "#d02020";
+
 /** A viewer of one session (`--session`, `--remote`): its top bar shows the session's title after its two tabs. Undefined for the project's viewer. */
 export const OneSessionContext = createContext<{ title: string } | undefined>(undefined);
 
@@ -725,20 +732,25 @@ export function Screen({ layout, mode, status, list, preview, footer: viewFooter
   const background = barBackground(useContext(SessionColorContext), focused);
   const update = useUpdateInfo();
   const labels = versionLabels(update.state);
+  // DEV stays at the right end whatever else fits.
+  const dev = useContext(DevContext);
+  const devWidth = dev ? DEV_LABEL.length : 0;
   // The version goes right of the tabs and status, only if they leave room for it; an update always shows.
   const barRef = useRef<DOMElement>(null);
   const [fits, setFits] = useState(false);
   useLayoutEffect(() => {
     if (!barRef.current) return;
-    const now = measureElement(barRef.current).width + labels.full.length <= layout.columns;
+    const now = measureElement(barRef.current).width + labels.full.length + devWidth <= layout.columns;
     if (now !== fits) setFits(now);
   });
   // The compact view leaves out the version; an update on offer still shows.
   const label = layout.compact && !labels.short ? undefined : fits ? labels.full : labels.short;
-  // A click on the update opens it in Settings.
+  // A click on the update opens it in Settings; one on DEV offers the switch to the release.
   useMouse((e) => {
-    if (e.kind === "click" && e.y === 0 && label && e.x >= layout.columns - label.length) update.open();
-  }, labels.short !== undefined);
+    if (e.kind !== "click" || e.y !== 0) return;
+    if (dev && e.x >= layout.columns - devWidth) dev();
+    else if (labels.short !== undefined && label && e.x >= layout.columns - devWidth - label.length) update.open();
+  }, labels.short !== undefined || dev !== undefined);
   const help = focused
     ? typeof footer === "string"
       ? footer
@@ -767,6 +779,13 @@ export function Screen({ layout, mode, status, list, preview, footer: viewFooter
           ) : (
             <Text dimColor={!focused}>{label}</Text>
           ))}
+        {dev && (
+          <Box flexShrink={0}>
+            <Text bold color="whiteBright" backgroundColor={DEV_BACKGROUND}>
+              {DEV_LABEL}
+            </Text>
+          </Box>
+        )}
       </Box>
       {layout.stacked ? (
         <>

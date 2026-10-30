@@ -13,6 +13,13 @@ export function cliFile(): string {
 /** The CLI as npm's shim starts it: in the global node_modules, which stays the same for `npm link` and `npm install -g`. */
 const SHIM_PATH = /[\\/]node_modules[\\/]cc-outline[\\/]dist[\\/]cli\.js$/;
 
+/** The CLI npm's shim starts (`…/node_modules/cc-outline/dist/cli.js`), as recorded, else this process's if the shim started it. */
+export function shimCli(started: string | undefined = process.argv[1]): string | undefined {
+  const recorded = readJson<{ cli?: string }>(cliFile())?.cli;
+  const cli = recorded ?? started;
+  return cli && SHIM_PATH.test(cli) ? cli : undefined;
+}
+
 /** Records the path the CLI was started by, if npm's shim started it and it is not recorded yet. */
 export function recordCli(started: string | undefined = process.argv[1]): void {
   if (!started || !SHIM_PATH.test(started)) return;

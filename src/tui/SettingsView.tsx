@@ -1162,7 +1162,7 @@ function updateLines(update: Update, width: number): string[] {
     lines.push(...wrap(`v${state.target} is installed; this viewer still runs v${VERSION}. \`Enter\` opens it again with the new version.`));
   } else if (state.kind === "dev") {
     lines.push(
-      ...wrap(`v${state.target} is out; this is v${VERSION}, run from \`${tilde(update.root)}\` (\`npm link\` or \`npx\`), which cco does not update. Update the checkout, or install the release (\`c\` copies it):`),
+      ...wrap(`v${state.target} is out; this is v${VERSION}, run from \`${tilde(update.root)}\` (${update.install === "npx" ? "`npx`" : "a checkout"}), which cco does not update. Update the checkout, or install the release (\`c\` copies it):`),
       ...commands,
     );
   }
@@ -1346,7 +1346,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       return previewHeader(entryLabel(e), previewWidth, { marker: "◆ ", style: bold, details: r.url ? [...details, r.url] : details });
     }
     if (e.kind === "releases") return previewHeader("Releases", previewWidth, { marker: "◆ ", style: bold, details: [`update ${update.mode}`] });
-    const detail = update.install === "dev" ? `development install · v${VERSION}` : `installed v${VERSION}`;
+    const detail = update.install !== "npm" ? `development install · v${VERSION}` : `installed v${VERSION}`;
     const title = entryLabel(e);
     return previewHeader(title[0].toUpperCase() + title.slice(1), previewWidth, {
       marker: "↑ ",
