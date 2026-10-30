@@ -177,6 +177,15 @@ describe("installation", () => {
     expect(inGroup(check(), "Installation").filter((f) => f.severity === "error")).toEqual([]);
   });
 
+  it("installs a missing plugin as cco setup does, for an npm install only", () => {
+    const missing = check().find((f) => f.text.includes("not installed"));
+    expect(missing?.hint).toBe("cco setup, then restart Claude Code");
+    expect(missing?.repair?.commands).toEqual([`claude plugin marketplace add ${NPM_ROOT.includes(" ") ? `"${NPM_ROOT}"` : NPM_ROOT}`, "claude plugin install cco@cc-outline"]);
+    expect(check(join(tmpdir(), "checkout")).find((f) => f.text.includes("not installed"))?.repair).toBeUndefined();
+    installPlugin(VERSION, false);
+    expect(check().find((f) => f.text.includes("disabled"))?.repair?.commands).toEqual(["claude plugin enable cco@cc-outline"]);
+  });
+
   it("updates an older plugin of an npm install; a development install only names the commands", () => {
     installPlugin("0.0.1");
     const npm = check().find((f) => f.text.includes(", older than"));
