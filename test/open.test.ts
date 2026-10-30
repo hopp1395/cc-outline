@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { independentEnv, moveViewer, openInDefaultApp, openPane, resumeForPairing, resumeInNewWindow } from "../src/open.js";
+import { detectTerminal, focusSessionViewer, independentEnv, moveViewer, openInDefaultApp, openPane, ownWindow, resumeForPairing, resumeInNewWindow } from "../src/open.js";
 import { proc } from "../src/proc.js";
 import { saveSessionPlacement } from "../src/sessionViews.js";
 import { updateSettings } from "../src/settings.js";
@@ -33,9 +33,62 @@ beforeEach(() => {
   delete process.env.WT_SESSION;
   delete process.env.WT_PROFILE_ID;
   delete process.env.TMUX_PANE;
+  delete process.env.WEZTERM_PANE;
 });
 afterEach(() => {
   process.env = { ...saved };
+});
+
+describe("WezTerm", () => {
+  it("is found by WEZTERM_PANE, inside tmux still tmux, and before Windows Terminal variables it inherited", () => {
+    expect(detectTerminal({ WEZTERM_PANE: "3" })).toBe("wezterm");
+    expect(detectTerminal({ WEZTERM_PANE: "3", TMUX: "/tmp/tmux" })).toBe("tmux");
+    expect(detectTerminal({ WEZTERM_PANE: "3", WT_SESSION: "x" })).toBe("wezterm");
+  });
+
+  it("splits Claude Code's pane right or left and gives it the focus back", () => {
+    process.env.WEZTERM_PANE = "3";
+    const cwd = mkdtempSync(join(tmpdir(), "cco-open-wez-"));
+    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-open-wez-cfg-"));
+    expect(openPane(cwd, "chat", { keepFocus: true, claudePid: 42 })).toBe("Opened cco chat in a WezTerm pane.");
+    expect(spawned[0].cmd).toBe("wezterm");
+    expect(spawned[0].args.slice(0, 8)).toEqual(["cli", "split-pane", "--right", "--pane-id", "3", "--cwd", cwd, "--"]);
+    expect(spawned[0].args.join(" ")).toMatch(/ --placement right --unfocused --claude-pid 42$/);
+    expect(spawned[1].args).toEqual(["cli", "activate-pane", "--pane-id", "3"]);
+    openPane(cwd, "chat", { placement: "left" });
+    expect(spawned[2].args.slice(1, 3)).toEqual(["split-pane", "--left"]);
+    // Without keepFocus the new pane keeps it.
+    expect(spawned).toHaveLength(3);
+  });
+
+  it("opens a window of its own, which keeps the focus", () => {
+    process.env.WEZTERM_PANE = "3";
+    const cwd = mkdtempSync(join(tmpdir(), "cco-open-wez-"));
+    process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-open-wez-cfg-"));
+    expect(openPane(cwd, "plan", { keepFocus: true, placement: "window" })).toBe("Opened cco plan in a WezTerm window.");
+    expect(spawned[0].args.slice(0, 6)).toEqual(["cli", "spawn", "--new-window", "--cwd", cwd, "--"]);
+    expect(spawned[0].args.join(" ")).not.toMatch(/--unfocused/);
+    expect(spawned).toHaveLength(1);
+  });
+
+  it("continues a session in a new window through cco claude, and pairs with its pane", async () => {
+    process.env.WEZTERM_PANE = "3";
+    expect(resumeInNewWindow("abc", "/repo", "orders", "new", "/h/.claude-work")).toBe("started in a new WezTerm window");
+    expect(spawned[0].args.slice(0, 7)).toEqual(["cli", "spawn", "--new-window", "--cwd", "/repo", "--", process.execPath]);
+    expect(spawned[0].args.slice(-6)).toEqual(["claude", "--config-dir", "/h/.claude-work", "--", "--resume", "abc"]);
+    expect(await resumeForPairing("abc", "/repo", "orders")).toEqual({ message: "started in a new WezTerm window", target: "%7" });
+  });
+
+  it("registers a viewer's window as its pane and brings that to the front", () => {
+    expect(ownWindow("cco-rc-viewer", { WEZTERM_PANE: "9" })).toBe("wezterm:9");
+    expect(ownWindow("cco-rc-viewer", { WT_SESSION: "x" })).toBe("cco-rc-viewer");
+    expect(ownWindow(undefined, { WEZTERM_PANE: "9" })).toBeUndefined();
+    process.env.WEZTERM_PANE = "3";
+    expect(focusSessionViewer("wezterm:9")).toBe(true);
+    expect(spawned[0].args).toEqual(["cli", "activate-pane", "--pane-id", "9"]);
+    // One Windows Terminal opened: WezTerm cannot find it.
+    expect(focusSessionViewer("cco-rc-viewer")).toBe(false);
+  });
 });
 
 describe("resumeInNewWindow", () => {
@@ -84,7 +137,7 @@ describe("resumeInNewWindow", () => {
   });
 
   it("names the command when no supported terminal is found", () => {
-    expect(resumeInNewWindow("abc", "/repo", "orders")).toBe("no Windows Terminal or tmux: run claude --resume abc in /repo");
+    expect(resumeInNewWindow("abc", "/repo", "orders")).toBe("no Windows Terminal, WezTerm or tmux: run claude --resume abc in /repo");
     expect(spawned).toEqual([]);
   });
 });
@@ -103,7 +156,7 @@ describe("resumeForPairing", () => {
   });
 
   it("has no target without a supported terminal", async () => {
-    expect(await resumeForPairing("abc", "/repo", "orders")).toEqual({ message: "no Windows Terminal or tmux: run claude --resume abc in /repo" });
+    expect(await resumeForPairing("abc", "/repo", "orders")).toEqual({ message: "no Windows Terminal, WezTerm or tmux: run claude --resume abc in /repo" });
   });
 });
 

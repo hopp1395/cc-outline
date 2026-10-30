@@ -18,7 +18,8 @@ describe("why a prompt cannot be typed into a session of this machine", () => {
   it("names what stands in the way, or nothing", () => {
     expect(localBlocked(undefined, "wt", "win32")).toBe("not running: Enter in Sessions continues it");
     expect(localBlocked({ ...idle, kind: "bg", jobId: "j1" }, "wt", "win32")).toBe("background session: claude attach j1");
-    expect(localBlocked(idle, undefined, "darwin")).toBe("no tmux: cco cannot type into it");
+    expect(localBlocked(idle, undefined, "darwin")).toBe("no tmux or WezTerm: cco cannot type into it");
+    expect(localBlocked(idle, "wezterm", "darwin")).toBeUndefined();
     expect(localBlocked({ ...idle, activity: "waiting" }, "tmux", "linux")).toBe("Claude waits for you in its terminal");
     expect(localBlocked(idle, "tmux", "linux")).toBeUndefined();
     expect(localBlocked(idle, "wt", "win32")).toBeUndefined();

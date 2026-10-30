@@ -43,7 +43,7 @@ export interface RcViewerSituation {
   promptBlocked?: string;
   /** Its folder is gone: it cannot continue. */
   folderMissing?: boolean;
-  /** Windows Terminal or tmux runs the Remote Control Viewer: tabs can be switched and windows opened. */
+  /** Windows Terminal, WezTerm or tmux runs the Remote Control Viewer: tabs can be switched and windows opened. */
   terminal: boolean;
   /** How many session viewers of it run. */
   viewers: number;
@@ -53,7 +53,7 @@ export interface RcViewerSituation {
   rename: RenamePlan;
 }
 
-const NO_TERMINAL = "no Windows Terminal or tmux";
+const NO_TERMINAL = "no Windows Terminal, WezTerm or tmux";
 
 /** Why `switch` cannot bring a local session's terminal to the front. */
 function switchBlocked(s: RcViewerSituation): string | undefined {

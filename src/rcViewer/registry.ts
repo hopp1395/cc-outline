@@ -9,7 +9,7 @@ export interface RcViewerInfo {
   pid: number;
   /** The config folder (account) it was started from. */
   configDir?: string;
-  /** The Windows Terminal or tmux window it runs in, if cco opened it. */
+  /** The Windows Terminal, WezTerm or tmux window it runs in, if cco opened it. */
   window?: string;
   /** When it started (ms). */
   started: number;

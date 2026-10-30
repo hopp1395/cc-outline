@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { basename } from "node:path";
 import { Text } from "ink";
 import stringWidth from "string-width";
-import { detectTerminal } from "../open.js";
+import { detectTerminal, TERMINAL_NAMES } from "../open.js";
 import { ownSettingsFile } from "../settings.js";
 import { AUTHOR, LICENSE, VERSION } from "../version.js";
 import { paneSwitchKey } from "./focus.js";
@@ -180,7 +180,7 @@ function truncateStart(text: string, width: number): string {
 
 function terminalName(): string {
   const terminal = detectTerminal();
-  return terminal === "tmux" ? "tmux" : terminal === "wt" ? "Windows Terminal" : "other";
+  return terminal ? TERMINAL_NAMES[terminal] : "other";
 }
 
 /**

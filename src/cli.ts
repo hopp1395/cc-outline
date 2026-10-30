@@ -1,7 +1,7 @@
 import { Command, Option } from "commander";
 import { recordCli } from "./cliPath.js";
 import { runHook } from "./hook.js";
-import { openedFromQueue, openPane } from "./open.js";
+import { openedFromQueue, openPane, ownWindow } from "./open.js";
 import type { Mode } from "./tui/layout.js";
 import { claudePidFromEnv, setClaudeDir } from "./transcript/locate.js";
 import { VERSION } from "./version.js";
@@ -73,7 +73,7 @@ program
     // belongs to no project's Claude Code here.
     if (opts.remote || opts.session) {
       const [{ registerSessionViewer }, { claudeDir }] = await Promise.all([import("./sessionViewers.js"), import("./transcript/locate.js")]);
-      registerSessionViewer({ sessionId: opts.session, remoteId: opts.session ? undefined : opts.remote, configDir: claudeDir(), window: opts.window });
+      registerSessionViewer({ sessionId: opts.session, remoteId: opts.session ? undefined : opts.remote, configDir: claudeDir(), window: ownWindow(opts.window) });
       const { runViewer } = await importProduction(() => import("./watch.js"));
       await runViewer({ cwd: opts.cwd, remoteId: opts.session ? undefined : opts.remote, sessionId: opts.session, initialMode: "chat" });
       process.exit(0);
@@ -124,7 +124,7 @@ program
       console.error(`cco: the Remote Control Viewer runs already (pid ${other.pid})`);
       process.exit(1);
     }
-    registerRcViewer({ configDir: claudeDir(), window: opts.window });
+    registerRcViewer({ configDir: claudeDir(), window: ownWindow(opts.window) });
     const select = opts.selectRemote ? { id: opts.selectRemote, remote: true } : opts.select ? { id: opts.select, configDir: opts.selectDir ?? claudeDir() } : undefined;
     const { runRcViewer } = await importProduction(() => import("./watch.js"));
     await runRcViewer({ select });
@@ -171,7 +171,7 @@ program
       const pid = validPid(opts.claudePid) ?? claudePidFromEnv();
       const own = pid ? readJson<{ session_id?: string }>(claudeFile(opts.cwd, pid)) : undefined;
       const select = own?.session_id ? { id: own.session_id, configDir: claudeDir() } : undefined;
-      console.log(openRcViewer(runningRcViewer(), select) ?? "no Windows Terminal or tmux: run cco rc-viewer in a terminal of its own");
+      console.log(openRcViewer(runningRcViewer(), select) ?? "no Windows Terminal, WezTerm or tmux: run cco rc-viewer in a terminal of its own");
       return;
     }
     const afterPid = validPid(opts.afterPid);

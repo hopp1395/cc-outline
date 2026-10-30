@@ -9,6 +9,7 @@ import { detectTerminal } from "../src/open.js";
 import {
   claudeFile,
   claudePidFromEnv,
+  continueSession,
   findLatestTranscript,
   projectDir,
   readActive,
@@ -96,6 +97,21 @@ describe("sessions per Claude Code process", () => {
     expect(readActive(cwd)?.session_id).toBe("b");
     expect(own(mine)?.session_id).toBe("a");
     expect(own(other)?.session_id).toBe("b");
+  });
+
+  it("records the WezTerm pane the process runs in, which a continuation keeps", () => {
+    const saved = process.env.WEZTERM_PANE;
+    process.env.WEZTERM_PANE = "4";
+    try {
+      hookOf(mine, "SessionStart", "a");
+    } finally {
+      if (saved === undefined) delete process.env.WEZTERM_PANE;
+      else process.env.WEZTERM_PANE = saved;
+    }
+    expect(own(mine)?.wezterm_pane).toBe("4");
+    expect(readActive(cwd)?.wezterm_pane).toBeUndefined();
+    continueSession(cwd, mine, "/t/a.jsonl", "/t/a2.jsonl");
+    expect(own(mine)).toMatchObject({ session_id: "a2", wezterm_pane: "4" });
   });
 
   it("ending the other session does not end ours", () => {

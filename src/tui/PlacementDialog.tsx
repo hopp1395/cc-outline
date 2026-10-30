@@ -35,7 +35,7 @@ export function PlacementDialog({
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   const note = canMove
     ? "The viewer reopens there; this session remembers the place."
-    : "No Windows Terminal or tmux: remembered for the next start.";
+    : "No Windows Terminal, WezTerm or tmux: remembered for the next start.";
   // Title, blank, three places, blank, note, blank, keys, plus the border.
   const height = PLACEMENT_VALUES.length + 8;
   return (

@@ -9,6 +9,8 @@ export interface ActiveSession {
   updated: string;
   /** Set when the Claude Code session exited; a running viewer closes itself. */
   ended?: boolean;
+  /** The WezTerm pane the Claude Code runs in (its WEZTERM_PANE): `wezterm cli list` names no processes. */
+  wezterm_pane?: string;
 }
 
 export function claudeDir(): string {
@@ -160,7 +162,7 @@ export function continueSession(cwd: string, claudePid: number, from: string, tr
   // Only while the process's session is still the one continued: after /resume or /clear it is another.
   if (!own || own.transcript_path !== from) return;
   const session_id = basename(transcript, ".jsonl");
-  writeJson(file, { session_id, transcript_path: transcript, cwd: own.cwd, updated: new Date().toISOString() } satisfies ActiveSession);
+  writeJson(file, { session_id, transcript_path: transcript, cwd: own.cwd, updated: new Date().toISOString(), wezterm_pane: own.wezterm_pane } satisfies ActiveSession);
 }
 
 /** State files of the project whose name continues with `prefix`, e.g. ".viewer-". */

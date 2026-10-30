@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, isViewerOnlyKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
-import { detectTerminal, type Terminal } from "../open.js";
+import { detectTerminal, TERMINAL_NAMES, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, avatarOfAccount, colorOfAccount, hasChosenColor, type Account, type AccountColorName } from "../account.js";
@@ -243,7 +243,7 @@ const AUTO_OPEN_MEANINGS: Record<(typeof AUTO_OPEN_VALUES)[number], Text> = {
 export const PLACEMENT_MEANINGS: Record<(typeof PLACEMENT_VALUES)[number], string> = {
   right: "a pane right of Claude Code",
   left: "a pane left of Claude Code",
-  window: "a window of its own (in tmux: a tmux window)",
+  window: "a window of its own (in tmux: a tmux window, in WezTerm: a WezTerm window)",
 };
 
 /** The placements as the details explain them: the pane's size, and how to get to a window in this terminal. */
@@ -255,7 +255,9 @@ const PLACEMENT_DETAILS: Record<(typeof PLACEMENT_VALUES)[number], Text> = {
       ? "a Windows Terminal window of its own, one per Claude Code; Claude Code keeps the whole tab, `Alt+Tab` switches"
       : c.terminal === "tmux"
         ? "a tmux window of its own next to Claude Code's; Claude Code keeps the whole window, your prefix and `n` or `p` (`Ctrl+b n`) switch"
-        : PLACEMENT_MEANINGS.window,
+        : c.terminal === "wezterm"
+          ? "a WezTerm window of its own; Claude Code keeps the whole tab, your window manager's key (`Alt+Tab`, `Cmd+backtick`) switches"
+          : PLACEMENT_MEANINGS.window,
 };
 
 const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
@@ -266,7 +268,7 @@ const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
 
 /** How to select text while the viewer has the mouse, in this terminal. */
 function selectText(terminal: Terminal | undefined): string {
-  if (terminal === "wt") return "select text with `Shift+drag`";
+  if (terminal === "wt" || terminal === "wezterm") return "select text with `Shift+drag`";
   if (terminal === "tmux") return "select text with `Shift+drag`, or your terminal's modifier (`Option` in iTerm2)";
   return "select text with `Shift+drag` in Windows Terminal (in tmux, with `Shift` or your terminal's modifier)";
 }
@@ -377,8 +379,8 @@ export const SETTING_ROWS: Row[] = [
     notes: [
       (c) =>
         c.terminal
-          ? `Needs the plugin's hooks, and Windows Terminal or tmux (here: ${c.terminal === "wt" ? "Windows Terminal" : "tmux"}).`
-          : "Needs the plugin's hooks, and Windows Terminal or tmux; neither is found here, so it does not open.",
+          ? `Needs the plugin's hooks, and Windows Terminal, WezTerm or tmux (here: ${TERMINAL_NAMES[c.terminal]}).`
+          : "Needs the plugin's hooks, and Windows Terminal, WezTerm or tmux; neither is found here, so it does not open.",
       "Takes effect at the next start of Claude Code.",
     ],
   },

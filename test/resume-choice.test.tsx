@@ -163,7 +163,7 @@ describe("sessionOptions", () => {
     const { options } = sessionOptions({ ...base, viewers: 2 });
     expect(options.find((o) => o.id === "viewer")!.label).toBe("Open another session viewer");
     expect(options.find((o) => o.id === "viewer-front")!.detail).toBe("the one opened last of 2");
-    expect(sessionOptions({ ...base, viewers: 1, terminal: false }).options.find((o) => o.id === "viewer-front")!.disabled).toBe("no Windows Terminal or tmux");
+    expect(sessionOptions({ ...base, viewers: 1, terminal: false }).options.find((o) => o.id === "viewer-front")!.disabled).toBe("no Windows Terminal, WezTerm or tmux");
   });
 
   it("names the selected action in the help line, and detaching for its own session", () => {

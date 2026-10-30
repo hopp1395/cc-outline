@@ -70,7 +70,7 @@ export interface SessionSituation {
   account?: string;
   /** The session is another account's: only switching to it, continuing it in a new window there and copying the command can be chosen. */
   foreign?: boolean;
-  /** Windows Terminal or tmux runs the viewer: tabs can be switched and windows opened. */
+  /** Windows Terminal, WezTerm or tmux runs the viewer: tabs can be switched and windows opened. */
   terminal: boolean;
   /** How many viewers of it run in windows of their own (◎). */
   viewers?: number;
@@ -92,7 +92,7 @@ const BUSY: Partial<Record<SessionActivity, string>> = {
   waiting: "Claude waits for an answer; continue it here once it has one",
 };
 
-const NO_TERMINAL = "no Windows Terminal or tmux";
+const NO_TERMINAL = "no Windows Terminal, WezTerm or tmux";
 /** Why the options that work on this account's folder cannot be chosen for another account's session. */
 export const OWN_ONLY = "only for sessions of this account";
 
@@ -205,7 +205,7 @@ export function viewerOptions(viewers: number, terminal: boolean, remote?: { con
       id: "viewer",
       label: viewers > 0 ? "Open another session viewer" : "Open it in a session viewer",
       detail: !terminal
-        ? "no Windows Terminal or tmux: copies the command that opens it"
+        ? "no Windows Terminal, WezTerm or tmux: copies the command that opens it"
         : !remote
           ? "its chat, live, with a prompt line while it runs in a Claude Code"
           : remote.control
@@ -233,7 +233,7 @@ export function rcViewerOption(rcViewer: { runs: boolean; listed: boolean }, ter
   return {
     id: "rcViewer",
     label: "Watch it in the Remote Control Viewer",
-    detail: !terminal && !rcViewer.runs ? "no Windows Terminal or tmux: copies cco rc-viewer" : rcViewer.runs ? "the Remote Control Viewer comes to the front with it selected" : "opens the Remote Control Viewer, a window with every session, with it selected",
+    detail: !terminal && !rcViewer.runs ? "no Windows Terminal, WezTerm or tmux: copies cco rc-viewer" : rcViewer.runs ? "the Remote Control Viewer comes to the front with it selected" : "opens the Remote Control Viewer, a window with every session, with it selected",
     disabled: rcViewer.listed ? undefined : "the Remote Control Viewer lists the sessions that run and those of today",
   };
 }
