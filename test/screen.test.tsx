@@ -3,7 +3,8 @@ import { Text } from "ink";
 import { describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
 import type { AccountColorName } from "../src/account.js";
-import { AccountAvatarContext, AccountBadgeContext, Screen, type Layout } from "../src/tui/layout.js";
+import { AccountAvatarContext, AccountBadgeContext, DevContext, Screen, type Layout } from "../src/tui/layout.js";
+import { MouseContext } from "../src/tui/mouse.js";
 import { VERSION } from "../src/version.js";
 
 async function topBar(columns: number, status: string): Promise<string> {
@@ -88,5 +89,33 @@ describe("Screen top bar", () => {
     expect(await bar("🦊")).toMatch(/^ 🦊   1 Chat/);
     expect(await bar("👾👾👾")).toMatch(/^ 👾👾👾   1 Chat/);
     expect(await bar(undefined)).toMatch(/^cco  1 Chat/);
+  });
+
+  it("ends in DEV for a cco run from a checkout, also where the status is cut, and a click on it calls for the switch", async () => {
+    const layout: Layout = { columns: 60, rows: 10, listWidth: 20, previewWidth: 37, bodyHeight: 8 };
+    let clicked = 0;
+    const app = renderInk(
+      <MouseContext.Provider value={true}>
+        <DevContext.Provider value={() => clicked++}>
+          <Screen layout={layout} mode="chat" status={<Text>{"x".repeat(80)}</Text>} list={null} preview={null} footer="" />
+        </DevContext.Provider>
+      </MouseContext.Provider>,
+      layout,
+      { interactive: true },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const line = app.frame().split("\n")[0]!;
+    expect(line.trimEnd().endsWith("… DEV")).toBe(true);
+    expect(line).not.toContain(`v${VERSION}`);
+    // The tabs give way, not DEV.
+    await app.click(30, 1);
+    expect(clicked).toBe(0);
+    await app.click(58, 1);
+    await expect.poll(() => clicked).toBe(1);
+    app.unmount();
+  });
+
+  it("shows no DEV for an installed cco", async () => {
+    expect(await topBar(160, "3 prompts")).not.toContain("DEV");
   });
 });

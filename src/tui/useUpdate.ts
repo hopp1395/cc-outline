@@ -4,12 +4,14 @@ import {
   fetchReleases,
   installedVersion,
   installKind,
+  linkedHere,
   mergeReleases,
   packageRoot,
   readCachedReleases,
   releasesBetween,
   runUpdate,
   saveReleases,
+  shimRoot,
   takeSeenVersion,
   updateState,
   type InstallKind,
@@ -20,6 +22,7 @@ import {
 import type { UpdateMode } from "../settings.js";
 import { VERSION } from "../version.js";
 import { TIMING } from "../timing.js";
+import { shimCli } from "../cliPath.js";
 
 /** An update run from the Settings view: its steps as they go, then whether it worked. */
 export interface UpdateRun {
@@ -72,7 +75,7 @@ const NO_UPDATE: Update = {
   offer: false,
   whatsNew: [],
   closeWhatsNew: () => {},
-  install: "dev",
+  install: "checkout",
   root: "",
   state: { kind: "none" },
   recheck: async () => {},
@@ -92,11 +95,24 @@ const NOTICE_MS = 15_000;
  * Reads the cached releases at once and, unless `mode` (the update setting
  * at the start) is off, asks npm and GitHub once; with auto, `offer` turns
  * true when that check found an update. `onRestart` reopens the
- * viewer with the given version (App: `moveViewer`, then exit).
+ * viewer with the given version (App: `moveViewer`, then exit), run by `cli` when that is not this one's.
  */
-export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: () => void; onRestart: (version: string) => boolean }): Update {
+export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: () => void; onRestart: (version: string, cli?: string) => boolean }): Update {
   const root = useMemo(packageRoot, []);
   const install = useMemo(() => installKind(root), [root]);
+  // A checkout linked as the `cco` command (npm link): once another viewer switched to the release, this one offers a restart into it.
+  const [linked] = useState(() => install === "checkout" && linkedHere(root));
+  const [switched, setSwitched] = useState<{ cli: string; version: string }>();
+  useEffect(() => {
+    if (!linked || switched) return;
+    const timer = setInterval(() => {
+      const cli = shimCli();
+      const global = shimRoot(cli);
+      const version = global && installedVersion(global);
+      if (cli && version && !linkedHere(root, cli)) setSwitched({ cli, version });
+    }, TIMING.installPoll);
+    return () => clearInterval(timer);
+  }, [linked, switched, root]);
   const [cache, setCache] = useState(readCachedReleases);
   const [installed, setInstalled] = useState(() => installedVersion(root));
   const [stale, setStale] = useState(false);
@@ -141,12 +157,13 @@ export function useUpdate(opts: { mode: UpdateMode; updatedTo?: string; onOpen: 
   const from = since && (since.from ?? releases.find((r) => compareVersions(r.version, VERSION) < 0)?.version);
   const whatsNew = from ? releasesBetween(releases, from, VERSION) : [];
 
-  const state = updateState(cache?.latest, VERSION, install, installed);
+  const state: UpdateState = switched ? { kind: "restart", target: switched.version } : updateState(cache?.latest, VERSION, install, installed);
 
   const restart = useCallback(() => {
+    if (switched) return handlers.current.onRestart(switched.version, switched.cli);
     const version = installedVersion(root);
     return version !== undefined && handlers.current.onRestart(version);
-  }, [root]);
+  }, [root, switched]);
 
   const start = () => {
     if (state.kind !== "update" || run?.status === "running") return;
