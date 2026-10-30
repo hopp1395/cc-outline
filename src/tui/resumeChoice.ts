@@ -1,3 +1,4 @@
+import type { RenamePlan } from "../sessionRename.js";
 import type { Turn } from "../transcript/parse.js";
 import type { SessionActivity } from "../transcript/trash.js";
 
@@ -10,7 +11,7 @@ import type { SessionActivity } from "../transcript/trash.js";
  * - `window`: continue it in a new window, where its hook opens a viewer of its own; `window-attach` (only for a
  *   viewer without a Claude Code): and move this viewer next to it, paired.
  * - `move`: bring a session whose folder is gone into the viewer's project folder.
- * - `rename`: give it a new title (`/rename`), only while it runs nowhere.
+ * - `rename`: give it a new title, the same here, in its Claude Code and on claude.ai (`renamePlan`).
  * - `export`: write it (or the marked sessions) into a zip archive; `import`: read the sessions of one.
  * - `account`: copy it into another account's config folder and continue it there, in a new window.
  * - `viewer`: open a viewer of it (the chat only, live) in a new window; `viewer-front`: bring the one opened last
@@ -53,6 +54,8 @@ export interface SessionSituation {
   otherFolder?: string;
   /** Its folder is gone. */
   folderMissing?: boolean;
+  /** How it can be renamed (`renamePlan`); without it, as a session that runs nowhere. */
+  rename?: RenamePlan;
   /** Its folder is gone and it can move into the viewer's: the gone folder's name, shortened. */
   movable?: string;
   /** The viewer's project folder (its name, shortened): where imported and moved sessions go. */
@@ -92,7 +95,8 @@ const BUSY: Partial<Record<SessionActivity, string>> = {
 const NO_TERMINAL = "no Windows Terminal or tmux";
 /** Why the options that work on this account's folder cannot be chosen for another account's session. */
 export const OWN_ONLY = "only for sessions of this account";
-/** A running Claude Code keeps its title and writes it again: only it can rename its session. */
+
+/** Without a `renamePlan`, a running session is renamed in its Claude Code only. */
 const RUNS = "it runs: use /rename in its Claude Code";
 
 /**
@@ -173,7 +177,10 @@ export function sessionOptions(s: SessionSituation): { options: ChoiceOption<Ses
   // Another account's folder is on this machine too.
   options.push({ id: "folder", label: "Open its folder", detail: s.folder, disabled: s.folderMissing ? "its folder is gone" : undefined });
   options.push(
-    { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: own ?? (s.state === "inactive" ? undefined : RUNS) },
+    // Any account's: its transcript, its Claude Code or claude.ai, whichever `renamePlan` takes.
+    s.rename
+      ? { id: "rename", label: "Rename it", detail: s.rename.detail, disabled: s.rename.disabled }
+      : { id: "rename", label: "Rename it", detail: "a new title, as /rename gives it", disabled: s.state === "inactive" ? undefined : RUNS },
     marked > 0 && !own
       ? { id: "export", label: `Export ${marked} marked session${marked === 1 ? "" : "s"}`, detail: "into a zip archive in the downloads folder" }
       : { id: "export", label: "Export it", detail: "into a zip archive in the downloads folder", disabled: own },

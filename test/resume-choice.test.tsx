@@ -10,6 +10,7 @@ import { commandSteps, prepareConsoleInput, promptSteps, stepsLine } from "../sr
 import { claudeDir, pairingFile, projectDir, readJson } from "../src/transcript/locate.js";
 import { TranscriptParser, type Turn } from "../src/transcript/parse.js";
 import { renameSession } from "../src/transcript/rename.js";
+import { renameIo } from "../src/sessionRename.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { enterLabel, isEmptySession, sessionOptions } from "../src/tui/resumeChoice.js";
@@ -148,12 +149,13 @@ describe("sessionOptions", () => {
   });
 
   it("gives another account's session the same list, with what works only here greyed out", () => {
-    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account viewer folder ✗rename ✗export ✗import copy");
+    expect(shown({ paired: idle, foreign: true, accounts: ["b@x"], account: "c@x" })).toBe("✗here ✱window ✗account viewer folder rename ✗export ✗import copy");
     expect(shown({ foreign: true, state: "active" })).toBe("✗attach ✱switch viewer folder ✗rename ✗export ✗import copy");
-    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✱viewer folder ✗rename ✗export ✗import copy");
+    expect(shown({ foreign: true, terminal: false })).toBe("✗here ✗window ✗window-attach ✱viewer folder rename ✗export ✗import copy");
     const window = sessionOptions({ ...base, foreign: true, account: "c@x" }).options.find((o) => o.id === "window")!;
     expect(window).toMatchObject({ label: "Continue it in a new Claude Code window", detail: "claude --resume as c@x" });
-    expect(sessionOptions({ ...base, foreign: true }).options.find((o) => o.id === "rename")!.disabled).toBe("only for sessions of this account");
+    // Renaming works for every account's sessions.
+    expect(sessionOptions({ ...base, foreign: true }).options.find((o) => o.id === "rename")!.disabled).toBeUndefined();
   });
 
   it("opens it in another window while viewers of it run, and brings the newest to the front", () => {
@@ -484,16 +486,26 @@ describe("opening a session's folder", () => {
 });
 
 describe("renaming a session", () => {
-  it("writes the new title into a session that runs nowhere, refusing an empty one", async () => {
+  it("writes the new title into a session that runs nowhere, closing without a change on an empty one", async () => {
     pastSession("s1");
+    const file = join(projectDir(cwd), "s1.jsonl");
+    const before = readFileSync(file, "utf8");
     const view = renderView({});
     await until(() => view.frame().includes("Prompts (1)"));
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
     await view.press("5");
     await until(() => view.frame().includes("Rename the session"));
+    expect(view.frame()).toContain("a new title, as /rename gives it");
+    await view.press("\u0015");
     await view.press("\r");
-    await until(() => view.frame().includes("The name must not be empty"));
+    await until(() => !view.frame().includes("Rename the session"));
+    expect(readFileSync(file, "utf8")).toBe(before);
+    await view.press("\r");
+    await until(() => view.frame().includes("What to do with this session?"));
+    await view.press("5");
+    await until(() => view.frame().includes("Rename the session"));
+    await view.press("\u0015");
     await view.press("Fixed login");
     await view.press("\r");
     await until(() => view.frame().includes("renamed: Fixed login"));
@@ -519,18 +531,40 @@ describe("renaming a session", () => {
     view.unmount();
   });
 
-  it("greys it out for a running session", async () => {
-    pastSession("s1");
-    runs("s1");
-    const view = renderView({ onPair: () => true });
-    await until(() => view.frame().includes("↵ attach"));
-    await view.press("\r");
-    await until(() => view.frame().includes("runs in a Claude Code"));
-    expect(view.frame()).toContain("it runs: use /rename in its Claude Code");
-    await view.press("5");
-    await tick(100);
-    expect(view.frame()).not.toContain("Rename the session");
-    view.unmount();
+  it("types /rename into the Claude Code of a running session, and greys it out while Claude works", async () => {
+    const typed: { pid: number; text: string }[] = [];
+    const real = renameIo.type;
+    renameIo.type = async (pid, text) => (typed.push({ pid, text }), { typed: true, message: "typed" });
+    try {
+      pastSession("s1");
+      runs("s1");
+      const view = renderView({ onPair: () => true });
+      await until(() => view.frame().includes("↵ attach"));
+      await view.press("\r");
+      await until(() => view.frame().includes("runs in a Claude Code"));
+      expect(view.frame()).toContain("types /rename into its Claude Code");
+      await view.press("5");
+      await until(() => view.frame().includes("Rename the session"));
+      await view.press("\u0015");
+      await view.press("Fixed login");
+      await view.press("\r");
+      await until(() => view.frame().includes("typed /rename Fixed login"));
+      expect(typed).toEqual([{ pid: process.pid, text: "/rename Fixed login" }]);
+      view.unmount();
+
+      runs("s1", "busy");
+      const busy = renderView({ onPair: () => true });
+      await until(() => busy.frame().includes("↵ attach"));
+      await busy.press("\r");
+      await until(() => busy.frame().includes("runs in a Claude Code"));
+      expect(busy.frame()).toContain("Claude is working: rename it once it is idle");
+      await busy.press("5");
+      await tick(100);
+      expect(busy.frame()).not.toContain("Rename the session");
+      busy.unmount();
+    } finally {
+      renameIo.type = real;
+    }
   });
 });
 

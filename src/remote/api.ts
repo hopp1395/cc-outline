@@ -111,12 +111,12 @@ function networkError(err: unknown): RemoteError {
   return new RemoteError("offline", "claude.ai cannot be reached");
 }
 
-async function get(path: string, login: RemoteLogin, body?: unknown): Promise<unknown> {
+async function get(path: string, login: RemoteLogin, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<unknown> {
   trustSystemCertificates();
   let response: Response;
   try {
     response = await remote.fetch(BASE + path, {
-      method: body === undefined ? "GET" : "POST",
+      method,
       headers: {
         Authorization: `Bearer ${login.token}`,
         "anthropic-version": "2023-06-01",
@@ -205,6 +205,34 @@ export async function sendInitialize(id: string, dir?: string): Promise<void> {
 /** Stops what Claude does in session `id`, as Esc in the terminal or the stop button of the app. */
 export async function sendInterrupt(id: string, dir?: string): Promise<void> {
   await postEvents(id, [{ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } }], dir);
+}
+
+/**
+ * Gives session `id` the title `title` on claude.ai, as Claude Code does after a /rename (`PUT`, 2.1.314). The Claude
+ * Code that runs it keeps its own name: `sendRename` tells it.
+ */
+export async function setTitle(id: string, title: string, dir?: string): Promise<void> {
+  await get(`/v1/code/sessions/${encodeURIComponent(id)}`, readLogin(dir), { title }, "PUT");
+}
+
+/**
+ * Tells the Claude Code that runs session `id` its new name, as the app does after renaming it: it takes it as if
+ * /rename were typed there (its transcript's `custom-title`, its name in `~/.claude/sessions`) and answers with a
+ * `control_response`. Returns the request's id, which `confirmed` looks for.
+ */
+export async function sendRename(id: string, title: string, dir?: string): Promise<string> {
+  const requestId = randomUUID();
+  await postEvents(id, [{ type: "control_request", request_id: requestId, request: { subtype: "rename_session", title } }], dir);
+  return requestId;
+}
+
+/** Whether the worker of session `id` answered the request `requestId` with success, among the newest events. */
+export async function confirmed(id: string, requestId: string, dir?: string): Promise<boolean> {
+  const { events } = await listEvents(id, dir);
+  return events.some(({ payload }) => {
+    const response = payload.type === "control_response" && isObject(payload.response) ? payload.response : undefined;
+    return response?.request_id === requestId && response.subtype === "success";
+  });
 }
 
 /**

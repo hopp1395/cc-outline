@@ -80,10 +80,10 @@ import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
 import { claudeDir, inClaudeDir, projectSlug } from "../transcript/locate.js";
-import { renameSession } from "../transcript/rename.js";
+import { renameAnywhere, renamePlan, type RenameSituation } from "../sessionRename.js";
 import { isLoadMore, LOAD_MORE, LoadMoreRow, loadMoreLines, showsLoadMore, useListRange, type LoadMore } from "./loadMore.js";
 import { TIMING } from "../timing.js";
-import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers } from "./useSessionData.js";
+import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers, withNames } from "./useSessionData.js";
 
 interface Props {
   cwd: string;
@@ -149,8 +149,8 @@ function dateTime(ts?: string): string {
 }
 
 
-/** Whether `sessionTitle` falls back to a prompt, since the session has no /rename title. */
-const titleIsPrompt = (s: SessionSummary) => s.title === undefined && s.prompts.length > 0;
+/** Whether `sessionTitle` falls back to a prompt, since the session has no name of its own. */
+const titleIsPrompt = (s: SessionSummary) => s.title === undefined && s.aiTitle === undefined && s.name === undefined && s.prompts.length > 0;
 
 /** Shell command that continues the session in Claude Code; for another account's, under its config folder. */
 export function resumeCommand(s: SessionSummary): string {
@@ -627,10 +627,10 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     [...everyRunning.values()].filter((r) => r.activity === "waiting").length + remoteRead.sessions.filter((r) => r.remote?.workerStatus === "requires_action" || r.remote?.pending).length;
   // The row has the selection (↑ from the top of the list, ↓ back): Enter opens the Remote Control Viewer.
   const [rcViewerSelected, setRcViewerSelected] = useState(false);
-  const { merged, connected } = useMemo(() => {
-    if (!read) return { merged: read, connected: new Set<string>() };
-    return mergeRemote(read, remoteRead.sessions);
-  }, [read, remoteRead.sessions]);
+  const { merged, connected, twins } = useMemo(() => {
+    if (!read) return { merged: read, connected: new Set<string>(), twins: new Map<string, SessionSummary>() };
+    return mergeRemote(withNames(read, running), remoteRead.sessions);
+  }, [read, remoteRead.sessions, running]);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   /** The viewer's own session; another account's never is, even under the same id. */
   const isActive = (s: SessionSummary) => !s.account && s.id === activeId;
@@ -914,6 +914,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
     const state: SessionSituation["state"] = paired && isActive(s) ? "current" : claude ? "active" : "inactive";
     const folderMissing = state === "inactive" && !existsSync(dir);
     const situation: SessionSituation = {
+      rename: renamePlan(renameSituationOf(s)),
       paired: paired && { empty: paired.empty, activity: own ? own.activity : undefined, method: resumeHereMethod() },
       state,
       attachBlocked: !onPair ? "this viewer cannot attach" : claude && runningViewer(dir, claude.pid) ? "it has a viewer of its own" : undefined,
@@ -934,6 +935,18 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
     };
     return { situation, claude, dir };
+  };
+
+  /** Where `s` stands for renaming it: its transcript, the Claude Code it runs in, its session on claude.ai. */
+  const renameSituationOf = (s: SessionSummary): RenameSituation => {
+    const twin = s.remote ? s : twins.get(s.id);
+    return {
+      local: s.remote ? undefined : { path: s.path, id: s.id },
+      running: s.remote ? undefined : running.get(sessionKey(s)),
+      remote: twin && { id: twin.id, connected: twin.remote?.connectionStatus === "connected" },
+      control: remoteControl,
+      dir: s.account,
+    };
   };
 
   /** The head every dialog about `s` starts with; where it stands as Enter sees it, unless `state` says. */
@@ -975,9 +988,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   const startRemote = (s: SessionSummary) => {
     const control = remoteControl ? remoteOptions(s.remote?.workerStatus, s.remote?.pending) : [];
     const watching = viewersFor(s).length;
+    const plan = renamePlan(renameSituationOf(s));
     const options: ChoiceOption[] = [
       ...control,
       ...viewerOptions(watching, detectTerminal() !== undefined, { control: remoteControl }),
+      { id: "rename", label: "Rename it", detail: plan.detail, disabled: plan.disabled },
       { id: "copy", label: "Copy its address", detail: remoteUrl(s.id) },
       rcViewerOption({ runs: rcViewer !== undefined, listed: true }, detectTerminal() !== undefined),
     ];
@@ -991,6 +1006,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
         if (id === "viewer") return openViewer(s);
         if (id === "viewer-front") return bringViewer(s);
         if (id === "rcViewer") return openRcViewerFor(s);
+        if (id === "rename") return setRenaming(s);
         if (id === "copy") return act("copy", s, cwd, undefined, remoteUrl(s.id));
         remoteCtl.act(id as RemoteAction, { id: s.id, title: sessionTitle(s), workerStatus: s.remote?.workerStatus, pending: s.remote?.pending });
       },
@@ -1098,16 +1114,11 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   };
   useEffect(() => () => takeTyper()?.cancel(), []);
 
-  /** Writes the new title into the transcript the session continues in; the next scan shows it. */
+  /** Renames the session as `renamePlan` says (its transcript, its Claude Code, claude.ai); the next scan shows it. */
   const rename = (s: SessionSummary, title: string) => {
     setRenaming(undefined);
-    try {
-      renameSession(s.path, s.id, title);
-      notify(`renamed: ${title}`);
-    } catch (err) {
-      notify(`rename failed: ${(err as Error).message}`);
-    }
-    refresh();
+    notify(`renaming: ${title}…`);
+    void renameAnywhere(renameSituationOf(s), title).then(notify, (err: Error) => notify(`rename failed: ${err.message}`)).finally(refresh);
   };
 
   /** Continues the session in the viewer's own Claude Code: types /resume into it, else copies it to paste there. */
@@ -1587,8 +1598,9 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       {renaming && (
         <RenameDialog
           layout={layout}
-          lines={headFor(renaming)}
-          title={renaming.title ?? ""}
+          lines={renaming.remote ? [truncate(sessionTitle(renaming), 56)] : headFor(renaming)}
+          title={sessionTitle(renaming)}
+          how={renamePlan(renameSituationOf(renaming)).detail}
           onSave={(title) => rename(renaming, title)}
           onCancel={() => setRenaming(undefined)}
         />

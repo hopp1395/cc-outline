@@ -14,6 +14,10 @@ export interface SessionSummary {
   path: string;
   /** Name given with /rename, if any. */
   title?: string;
+  /** The title Claude Code gave it itself (`ai-title`), which it shows when it has no /rename one. */
+  aiTitle?: string;
+  /** The name its Claude Code shows while it runs (`~/.claude/sessions`), added by the views that know it. */
+  name?: string;
   prompts: { text: string; timestamp?: string }[];
   plans: Plan[];
   /** Files Claude edited or wrote, in the order first touched. */
@@ -116,6 +120,7 @@ interface RawEntry {
   gitBranch?: string;
   cwd?: string;
   customTitle?: string;
+  aiTitle?: string;
   bridgeSessionId?: string;
   isSidechain?: boolean;
   entrypoint?: string;
@@ -130,6 +135,7 @@ export class SessionReader {
   private file: IncrementalFile;
   private parser = new TranscriptParser();
   private title?: string;
+  private aiTitle?: string;
   private branch?: string;
   private cwd?: string;
   private start?: string;
@@ -162,7 +168,7 @@ export class SessionReader {
 
   private reset(): void {
     this.parser = new TranscriptParser();
-    this.title = this.branch = this.cwd = this.start = this.end = this.background = undefined;
+    this.title = this.aiTitle = this.branch = this.cwd = this.start = this.end = this.background = undefined;
     this.bridgeIds = [];
     this.files = [];
     this.results = [];
@@ -177,6 +183,7 @@ export class SessionReader {
       return;
     }
     if (entry.type === "custom-title" && entry.customTitle?.trim()) this.title = entry.customTitle.trim();
+    if (entry.type === "ai-title" && entry.aiTitle?.trim() && !entry.isSidechain) this.aiTitle = entry.aiTitle.trim();
     // Remote Control connected it: claude.ai lists it under this id.
     if (entry.type === "bridge-session" && entry.bridgeSessionId && !this.bridgeIds.includes(entry.bridgeSessionId)) this.bridgeIds.push(entry.bridgeSessionId);
     if (!entry.isSidechain) {
@@ -253,6 +260,7 @@ export class SessionReader {
       id: basename(this.path, ".jsonl"),
       path: this.path,
       title: this.title,
+      ...(this.aiTitle && { aiTitle: this.aiTitle }),
       // Task notifications and where the session went on are turns too, but not prompts.
       prompts: this.parser.turns
         .filter((t) => t.id !== "start" && !t.notification && !t.continuation && !t.compacted)
@@ -374,6 +382,7 @@ function mergeSessions(earlier: SessionSummary, later: SessionSummary): SessionS
   return {
     ...later,
     title: later.title ?? earlier.title,
+    aiTitle: later.aiTitle ?? earlier.aiTitle,
     prompts: [...earlier.prompts, ...later.prompts.filter((p) => !prompts.has(promptKey(p)))],
     plans: [...earlier.plans, ...later.plans.filter((p) => !plans.has(p.id))],
     files: [...new Set([...earlier.files, ...later.files])],

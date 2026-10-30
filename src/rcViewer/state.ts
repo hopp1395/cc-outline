@@ -96,7 +96,7 @@ export function rcViewerEntries(
  * its id, name and folder, from `~/.claude/sessions/<pid>.json`, and where its transcript will be.
  */
 export function runningStandIn(id: string, run: RunningSession, path: string, account?: string): SessionSummary {
-  return { id, path, title: run.name, cwd: run.cwd, prompts: [], plans: [], files: [], ...(account ? { account } : {}) };
+  return { id, path, name: run.name, cwd: run.cwd, prompts: [], plans: [], files: [], ...(account ? { account } : {}) };
 }
 
 /** A short age: 12s, 3m, 2h, 1d. */

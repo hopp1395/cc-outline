@@ -100,7 +100,7 @@ describe("Remote Control Viewer state", () => {
   });
 
   it("stands in for a running session that was not read, names short ages and finds the next one waiting", () => {
-    expect(runningStandIn("x", { pid: 2, name: "fix the build", cwd: "/w" }, "/p/x.jsonl", "/acc")).toMatchObject({ id: "x", title: "fix the build", cwd: "/w", account: "/acc", prompts: [] });
+    expect(runningStandIn("x", { pid: 2, name: "fix the build", cwd: "/w" }, "/p/x.jsonl", "/acc")).toMatchObject({ id: "x", name: "fix the build", cwd: "/w", account: "/acc", prompts: [] });
     expect([formatAge(5_000), formatAge(3 * 60_000), formatAge(2 * 3600_000), formatAge(50 * 3600_000)]).toEqual(["5s", "3m", "2h", "2d"]);
     const entries = rcViewerEntries(
       [summary("w1", 9), summary("b", 1), summary("w2", 5)],
@@ -339,7 +339,8 @@ describe("opening the Remote Control Viewer from Sessions", () => {
 });
 
 describe("the Remote Control Viewer's Enter dialog", () => {
-  const base: RcViewerSituation = { state: "idle", running: { pid: 1, activity: "idle" }, terminal: true, viewers: 0, command: "claude --resume s1" };
+  const rename = { way: "keys" as const, detail: "types /rename into its Claude Code" };
+  const base: RcViewerSituation = { state: "idle", running: { pid: 1, activity: "idle" }, terminal: true, viewers: 0, command: "claude --resume s1", rename };
   const ids = (s: RcViewerSituation) => rcViewerOptions(s).options.map((o) => o.id);
   const first = (s: RcViewerSituation) => {
     const { options, initial } = rcViewerOptions(s);
@@ -347,7 +348,7 @@ describe("the Remote Control Viewer's Enter dialog", () => {
   };
 
   it("offers to make an idle session of this machine steerable, without selecting it", () => {
-    expect(ids({ ...base, canSteer: true })).toEqual(["switch", "prompt", "steer", "viewer", "copy"]);
+    expect(ids({ ...base, canSteer: true })).toEqual(["switch", "prompt", "steer", "viewer", "rename", "copy"]);
     expect(first({ ...base, canSteer: true })).toBe("prompt");
     // Only while it is idle, and only where it can be typed into.
     expect(ids({ ...base, state: "busy", canSteer: true })).not.toContain("steer");
@@ -356,11 +357,11 @@ describe("the Remote Control Viewer's Enter dialog", () => {
   });
 
   it("offers a session of this machine its terminal, a prompt and, while Claude works, stopping it", () => {
-    expect(ids(base)).toEqual(["switch", "prompt", "viewer", "copy"]);
+    expect(ids(base)).toEqual(["switch", "prompt", "viewer", "rename", "copy"]);
     expect(first(base)).toBe("prompt");
     // Working: its terminal comes first, so a slip of Enter stops nothing.
     const busy = { ...base, state: "busy" as const, running: { pid: 1, activity: "busy" as const } };
-    expect(ids(busy)).toEqual(["switch", "prompt", "interrupt", "viewer", "copy"]);
+    expect(ids(busy)).toEqual(["switch", "prompt", "interrupt", "viewer", "rename", "copy"]);
     expect(first(busy)).toBe("switch");
     // Waiting: its question or permission is answered in its terminal.
     const waiting = { ...base, state: "waiting" as const, promptBlocked: "Claude waits for you in its terminal" };
@@ -375,7 +376,7 @@ describe("the Remote Control Viewer's Enter dialog", () => {
 
   it("continues an ended session in a new window, or views it when its folder is gone", () => {
     const ended = { ...base, state: "ended" as const, running: undefined };
-    expect(ids(ended)).toEqual(["window", "viewer", "copy"]);
+    expect(ids(ended)).toEqual(["window", "viewer", "rename", "copy"]);
     expect(first(ended)).toBe("window");
     expect(first({ ...ended, folderMissing: true })).toBe("viewer");
     expect(first({ ...ended, terminal: false })).toBe("viewer");
@@ -384,7 +385,7 @@ describe("the Remote Control Viewer's Enter dialog", () => {
   it("answers a waiting session of this machine connected to claude.ai there, its terminal next", () => {
     const pending = { requestId: "r1", toolName: "Bash", toolUseId: "t1", input: { command: "ls" }, suggestions: [], needsInteraction: true, sequence: 1 };
     const waiting = { ...base, state: "waiting" as const, bridge: { control: true, pending } };
-    expect(ids(waiting)).toEqual(["answer", "switch", "prompt", "viewer", "copy"]);
+    expect(ids(waiting)).toEqual(["answer", "switch", "prompt", "viewer", "rename", "copy"]);
     expect(first(waiting)).toBe("answer");
     // Steer remote off: answered in its terminal.
     expect(first({ ...waiting, bridge: { control: false, pending } })).toBe("switch");
@@ -395,15 +396,21 @@ describe("the Remote Control Viewer's Enter dialog", () => {
 
   it("answers what a remote session waits for, and sends nothing while steer remote is off", () => {
     const pending = { requestId: "r1", toolName: "Bash", toolUseId: "t1", input: { command: "ls" }, suggestions: [], needsInteraction: true, sequence: 1 };
-    const remote: RcViewerSituation = { state: "waiting", remote: { control: true, pending }, terminal: true, viewers: 0, command: "https://claude.ai/code/x" };
-    expect(ids(remote)).toEqual(["answer", "prompt", "interrupt", "viewer", "copy"]);
+    const remote: RcViewerSituation = { state: "waiting", remote: { control: true, pending }, terminal: true, viewers: 0, command: "https://claude.ai/code/x", rename };
+    expect(ids(remote)).toEqual(["answer", "prompt", "interrupt", "viewer", "rename", "copy"]);
     expect(first(remote)).toBe("answer");
     expect(rcViewerOptions(remote).options[0]!.label).toBe("Allow or deny Bash");
     const off = { ...remote, remote: { control: false, pending } };
     expect(first(off)).toBe("viewer");
     expect(rcViewerOptions(off).options[0]!.disabled).toContain("steer remote is off");
     expect(first({ ...remote, state: "idle", remote: { control: true } })).toBe("prompt");
-    expect(ids({ ...remote, state: "ended", remote: { control: true } })).toEqual(["viewer", "copy"]);
+    expect(ids({ ...remote, state: "ended", remote: { control: true } })).toEqual(["viewer", "rename", "copy"]);
+  });
+
+  it("offers renaming as renamePlan says, greyed out with its reason", () => {
+    const option = (s: RcViewerSituation) => rcViewerOptions(s).options.find((o) => o.id === "rename")!;
+    expect(option(base)).toMatchObject({ label: "Rename it", detail: "types /rename into its Claude Code" });
+    expect(option({ ...base, rename: { detail: "on claude.ai", disabled: "steer remote is off (Settings of a viewer)" } }).disabled).toBe("steer remote is off (Settings of a viewer)");
   });
 });
 
