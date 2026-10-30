@@ -4,7 +4,7 @@ import { cliFile } from "./cliPath.js";
 import { independentEnv } from "./open.js";
 import { settingsFile } from "./settings.js";
 import { claudeDir, inClaudeDir, readJson, withClaudeDir, writeJson } from "./transcript/locate.js";
-import { runCommandWith, type RunCommand, type UpdateStep } from "./update.js";
+import { packageRoot, runCommandWith, type RunCommand, type UpdateStep } from "./update.js";
 
 const PLUGIN = "cco@cc-outline";
 const MARKETPLACE = "cc-outline";
@@ -46,14 +46,23 @@ export function knownMarketplaceSource(dir: string): string | undefined {
 
 const quote = (s: string) => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
 
-/** The commands that make the cco plugin run in the account of `dir`; none when it does already. */
-export function pluginSteps(dir: string, own = claudeDir()): UpdateStep[] {
+/** The commands that make the cco plugin run in the account of `dir`, adding the marketplace from `source`; none when it does already. */
+export function pluginSteps(dir: string, own = claudeDir(), source = marketplaceSource(own)): UpdateStep[] {
   const state = pluginState(dir);
   const steps: UpdateStep[] = [];
-  if (!state.marketplace && !state.installed) steps.push({ label: "marketplace", command: `claude plugin marketplace add ${quote(marketplaceSource(own))}` });
+  if (!state.marketplace && !state.installed) steps.push({ label: "marketplace", command: `claude plugin marketplace add ${quote(source)}` });
   if (!state.installed) steps.push({ label: "plugin", command: `claude plugin install ${PLUGIN}` });
   else if (!state.enabled) steps.push({ label: "enable", command: `claude plugin enable ${PLUGIN}` });
   return steps;
+}
+
+/**
+ * What `cco setup` runs to install the cco plugin in this account: the marketplace from where the account added
+ * it before, else from the running package `root`, so the plugin matches the CLI that runs its hooks.
+ */
+export function setupSteps(root = packageRoot()): UpdateStep[] {
+  const dir = claudeDir();
+  return pluginSteps(dir, dir, knownMarketplaceSource(dir) ?? root);
 }
 
 /** Runs a command as Claude Code of the account in `dir` would: its config folder, without this session's variables. */
