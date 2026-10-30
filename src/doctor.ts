@@ -13,6 +13,7 @@ import { VERSION } from "./version.js";
 import { isAlive } from "./viewer.js";
 import { legacyObserversDir, sessionViewersDir } from "./sessionViewers.js";
 import { claudeSettingsFile, readEditorSetup, setUpEditor } from "./promptEdit.js";
+import { setupSteps } from "./accountSetup.js";
 
 /** `ok` passes, `warn` is worth a look (or a repair), `error` keeps cco from working as it should; only errors fail `cco doctor`. */
 export type Severity = "ok" | "warn" | "error";
@@ -126,18 +127,21 @@ function installation(root: string, version: string): Finding[] {
 
   const entries = readJson<{ plugins?: Record<string, { version?: unknown; scope?: unknown }[]> }>(join(claudeDir(), "plugins", "installed_plugins.json"))?.plugins?.[PLUGIN];
   const installed = Array.isArray(entries) ? (entries.find((e) => e?.scope === "user") ?? entries[0]) : undefined;
+  // What cco setup runs; repaired only for an npm install, like the plugin update below.
+  const setup = (label: string): Repair | undefined => (kind === "npm" ? { id: "setup", label, commands: setupSteps(root).map((s) => s.command) } : undefined);
   if (!installed) {
     findings.push({
       group,
       severity: "error",
       text: `the plugin ${PLUGIN} is not installed: no hooks (auto open, following the session) and no /cco:… commands`,
-      hint: `claude plugin marketplace add "${root}" && claude plugin install ${PLUGIN}, then restart Claude Code`,
+      hint: "cco setup, then restart Claude Code",
+      repair: setup("install the plugin"),
     });
     return findings;
   }
   const enabled = readJson<{ enabledPlugins?: Record<string, unknown> }>(join(claudeDir(), "settings.json"))?.enabledPlugins?.[PLUGIN];
   if (enabled === false)
-    findings.push({ group, severity: "error", text: `the plugin ${PLUGIN} is disabled`, hint: `claude plugin enable ${PLUGIN}, then restart Claude Code` });
+    findings.push({ group, severity: "error", text: `the plugin ${PLUGIN} is disabled`, hint: "cco setup, then restart Claude Code", repair: setup("enable the plugin") });
   const pluginVersion = typeof installed.version === "string" ? installed.version : undefined;
   const cmp = pluginVersion ? compareVersions(pluginVersion, version) : 0;
   if (pluginVersion && cmp < 0) {

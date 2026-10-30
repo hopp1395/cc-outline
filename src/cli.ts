@@ -206,6 +206,15 @@ program
   });
 
 program
+  .command("setup")
+  .description("install the Claude Code plugin (hooks and /cco:… commands) in this account")
+  .action(async () => {
+    // Loaded here only: the hook must start fast.
+    const { runSetup } = await import("./setup.js");
+    process.exitCode = await runSetup();
+  });
+
+program
   .command("import")
   .description("import the session backups of a cco-session-export zip archive into the current folder (Sessions view: Enter, Export it)")
   .argument("<zip>", "the archive")

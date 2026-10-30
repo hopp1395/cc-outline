@@ -5,6 +5,19 @@
 [![npm downloads](https://img.shields.io/npm/dm/cc-outline)](https://www.npmjs.com/package/cc-outline)
 [![License: MIT](https://img.shields.io/github/license/hopp1395/cc-outline)](LICENSE)
 
+**What Claude Code doesn't show you, in a pane right next to it:** its answers as rendered Markdown, diffs of what it changed, the plans you approved, and every session across projects, accounts and machines. Live, without leaving the terminal.
+
+![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
+
+**Quick start** (Node.js 22+, Windows Terminal, WezTerm or tmux):
+
+```sh
+npm install -g cc-outline
+cco setup
+```
+
+Restart Claude Code and type `/cco:chat`. Details are in [Installation](#installation).
+
 `cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal, WezTerm or tmux. It has seven views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
@@ -16,8 +29,6 @@
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
 Besides the pane, the **Remote Control Viewer** (`cco rc-viewer` or `/cco:rc-viewer`) is a window of its own that watches every session at once: of every project and account on this machine, and the Remote Control sessions on other machines. It shows which ones wait for you, lets you answer them and sends them prompts. See [Every session in one window](#every-session-in-one-window).
-
-![cc-outline demo: /cco:chat typed in Claude Code opens the viewer in a split pane, which shows the rendered chat, the changes view with a C# diff, the plan view and the sessions overview](docs/demo.gif)
 
 ## Why
 
@@ -127,12 +138,20 @@ npm install -g cc-outline
 cco --version
 ```
 
-**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:open`, `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings`, `/cco:monitor`, `/cco:releases`, `/cco:update`, `/cco:restart`, `/cco:account` and `/cco:doctor` commands. The npm package is its own plugin marketplace:
+**2. Install the Claude Code plugin.** It provides the hooks and the `/cco:open`, `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings`, `/cco:monitor`, `/cco:releases`, `/cco:update`, `/cco:restart`, `/cco:account` and `/cco:doctor` commands. The npm package is its own plugin marketplace, and `cco setup` installs the plugin from it:
+
+```sh
+cco setup
+```
+
+It runs these two commands, which also work by hand (if the plugin is installed but disabled, it only enables it):
 
 ```sh
 claude plugin marketplace add "$(npm root -g)/cc-outline"
 claude plugin install cco@cc-outline
 ```
+
+With several Claude accounts, `cco setup` installs the plugin in the account of the terminal it runs in (`CLAUDE_CONFIG_DIR`); the Accounts view sets up the others.
 
 **3. Restart Claude Code**, then run `/cco:chat`, `/cco:git`, `/cco:plan`, `/cco:session`, `/cco:settings` or `/cco:monitor`. The viewer then opens on every start; set *auto open* to `remember` or `never` in the Settings view to change that.
 
@@ -173,6 +192,7 @@ A viewer run from a checkout (through `npm link` or `node dist/cli.js`) ends its
 
   A viewer started this way follows the project's latest session. To tie it to one Claude Code instead, select a session running in it in the Sessions view and press `Enter` (`↵ attach`), see [Sessions](#sessions-view).
 - **`cco open`** opens the viewer next to the current pane like the `/cco:…` commands, with `--view` and `--placement right|left|window` (default: the session's placement, else the setting).
+- **`cco setup`** installs the plugin in Claude Code (see [Installation](#installation)), or enables it if it is disabled; it says so if there is nothing to do.
 - **`cco import <zip>`** imports the session backups of an archive that the Sessions view exported into the current folder, see [Sessions](#sessions-view).
 - **`cco doctor`** checks what cco needs and prints a report, one line per check (`✓` fine, `!` worth a look, `✗` error), with what to do below each problem:
   - *Installation:* npm install or checkout, the path the plugin starts cco by (`~/.claude/cco/cli.json`), whether the plugin `cco@cc-outline` is installed and enabled, and whether its version matches the CLI.
@@ -181,7 +201,7 @@ A viewer run from a checkout (through `npm link` or `node dist/cli.js`) ends its
   - *Environment:* Node version, Claude Code's folder (`CLAUDE_CONFIG_DIR`), and the terminal (Windows Terminal, also without `WT_SESSION`, WezTerm or tmux).
   - *Hooks:* while a Claude Code runs in the project (`--cwd`, default: the current folder), whether the plugin's hooks recorded its last prompt.
 
-  It exits with 1 if an error is found. `--fix` repairs without asking what it can: deletes or renames (`.corrupt`) the state files above, records the CLI's path, rewrites `settings.json` with the values that apply, and for an npm install updates an older plugin (`claude plugin marketplace update`, `claude plugin update`; restart Claude Code afterwards). Then it checks again. **`/cco:doctor`** shows the report in Claude Code, and *doctor* in the Settings view's Reset group checks and repairs, each after asking.
+  It exits with 1 if an error is found. `--fix` repairs without asking what it can: deletes or renames (`.corrupt`) the state files above, records the CLI's path, rewrites `settings.json` with the values that apply, and for an npm install installs or enables a missing plugin as `cco setup` does and updates an older plugin (`claude plugin marketplace update`, `claude plugin update`; restart Claude Code afterwards). Then it checks again. **`/cco:doctor`** shows the report in Claude Code, and *doctor* in the Settings view's Reset group checks and repairs, each after asking.
 
 All views share one layout:
 - **Top bar:** the view tabs, a status summary and, on the right if there is room, the version of cc-outline. Options that are on are not repeated there; the help line highlights them.
