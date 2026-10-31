@@ -43,6 +43,17 @@ describe("TodoView", () => {
     view.unmount();
   });
 
+  it("shows the selected item in grey, closed, until the items have the keys, then as a list's selection, open", async () => {
+    const { view } = show();
+    await expect.poll(view.frame).toContain("Parser schreiben");
+    // The lists have the keys: the last selected item is quiet grey and its text stays closed.
+    expect(view.raw()).toContain("\u001b[48;2;58;61;65m");
+    expect(view.raw()).not.toContain("\u001b[7m\u001b[1m○ 1. Parser schreiben");
+    await view.press("\r");
+    await expect.poll(view.raw).toContain("\u001b[7m\u001b[1m○ 1. Parser schreiben");
+    view.unmount();
+  });
+
   it("ticks an item off with Space and back with o", async () => {
     const { view } = show();
     await view.press("\r");
