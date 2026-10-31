@@ -23,9 +23,9 @@ export interface TodoList {
 }
 
 /** How an answer was cut into blocks. */
-export type BlockSource = "numbered" | "headings" | "labels" | "bullets";
+export type BlockSource = "numbered" | "headings" | "labels" | "table" | "bullets";
 
-export const BLOCK_SOURCES: readonly BlockSource[] = ["numbered", "headings", "labels", "bullets"];
+export const BLOCK_SOURCES: readonly BlockSource[] = ["numbered", "headings", "labels", "table", "bullets"];
 
 /** One block found in an answer. */
 export interface Block {
@@ -76,6 +76,19 @@ export function findBlocks(markdown: string): Partial<Record<BlockSource, Block[
     }
     if (current) blocks.push({ text: current.join("").trim() });
     found.labels = blocks;
+  }
+  // A table with a row per block: the first column that is not just a number names the block, the other cells follow.
+  const table = tokens.find((t): t is Tokens.Table => t.type === "table" && t.rows.length >= 2);
+  if (table) {
+    const numeric = (c: number) => table.rows.every((r) => /^\d+$/.test(r[c]?.text.trim() ?? ""));
+    const columns = table.header.map((_, c) => c).filter((c) => !numeric(c));
+    if (columns.length > 0) {
+      found.table = table.rows.flatMap((r) => {
+        const [title, ...rest] = columns.map((c) => (r[c]?.text ?? "").replace(/\s+/g, " ").trim());
+        const text = [title, ...rest.filter(Boolean)].join("\n").trim();
+        return text ? [{ text }] : [];
+      });
+    }
   }
   return found;
 }

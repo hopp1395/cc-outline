@@ -5,10 +5,10 @@ import { Dialog, truncate, type Layout } from "./layout.js";
 
 const MAX_WIDTH = 76;
 
-const SOURCE_LABEL: Record<BlockSource, string> = { numbered: "numbered points", headings: "headings", labels: "bold labels", bullets: "bullet points" };
+const SOURCE_LABEL: Record<BlockSource, string> = { numbered: "numbered points", headings: "headings", labels: "bold labels", table: "table rows", bullets: "bullet points" };
 
 /**
- * Cuts an answer into blocks for a to-do list: the numbered points, else the headings, else the bold label lines, else the bullet points
+ * Cuts an answer into blocks for a to-do list: the numbered points, else the headings, else the bold label lines, else the rows of a table, else the bullet points
  * (`s` takes the next way, if the answer has one). ↑↓ move, Space leaves a block out or takes it in, Enter makes
  * the list of the blocks taken, Esc cancels. Takes all keys while open.
  */

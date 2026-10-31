@@ -28,6 +28,18 @@ describe("findBlocks", () => {
     expect(firstSource(found)).toBe("labels");
   });
 
+  it("takes the rows of a table as blocks: the number column is left out, the first other column names the block", () => {
+    const found = findBlocks(
+      "Die Umsetzung läuft in diesen Blöcken:\n\n| # | Block | Inhalt |\n|---|---|---|\n| 1 | ♻️ Modul anlegen | StoredFile zieht nach Datenablage.Domain. |\n| 2 | ♻️ Registrierung | AddDatenablageInfrastructureServices() verbindet den Kontext. |\n| 3 | ♻️ Endpunkte in die Api | DocumentEndpoints ziehen nach src/Api. |\n",
+    );
+    expect(found.table?.map((b) => b.text)).toEqual([
+      "♻️ Modul anlegen\nStoredFile zieht nach Datenablage.Domain.",
+      "♻️ Registrierung\nAddDatenablageInfrastructureServices() verbindet den Kontext.",
+      "♻️ Endpunkte in die Api\nDocumentEndpoints ziehen nach src/Api.",
+    ]);
+    expect(firstSource(found)).toBe("table");
+  });
+
   it("falls back to bullets and finds nothing in plain text", () => {
     expect(firstSource(findBlocks("- eins\n- zwei\n"))).toBe("bullets");
     expect(firstSource(findBlocks("Nur ein Satz."))).toBeUndefined();
