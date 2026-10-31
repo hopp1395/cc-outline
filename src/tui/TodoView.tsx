@@ -1,9 +1,10 @@
 import { Text, useInput } from "ink";
 import { useEffect, useMemo, useState } from "react";
+import stringWidth from "string-width";
 import { renderMarkdown } from "../render/markdown.js";
 import { itemTitle, moveItem, newList, progress, readTodos, subscribeTodos, updateTodos, type TodoItem, type TodoList, type TodoStatus } from "../todos.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
-import { useFocused } from "./focus.js";
+import { FocusContext, useFocused } from "./focus.js";
 import { bold, dim, EntryText, handleNavigation, List, previewHeader, rule, Screen, truncate, type Layout } from "./layout.js";
 import { PromptDialog } from "./PromptDialog.js";
 import { bodyHeightBelow, fitHeader, Preview } from "./Preview.js";
@@ -32,7 +33,15 @@ const STATUS: Record<TodoStatus, { icon: string; ansi: string; label: string }> 
 const color = (ansi: string, s: string) => `\u001b[${ansi}m${s}\u001b[39m\u001b[22m`;
 
 /** The lines of a list's items; the selected item shows its whole text below its title. Returns where each item starts. */
-export function itemLines(items: TodoItem[], selected: number | undefined, width: number): { lines: string[]; starts: number[] } {
+export function itemLines(
+  items: TodoItem[],
+  selected: number | undefined,
+  width: number,
+  /** The items have the keys: the selected item's text is open below its title. Else it is closed. */
+  open: boolean,
+  /** The selected title is shown as the lists show a selection (the window has the focus too); else in quiet grey. */
+  hot: boolean,
+): { lines: string[]; starts: number[] } {
   const lines: string[] = [];
   const starts: number[] = [];
   const digits = String(items.length).length;
@@ -42,9 +51,15 @@ export function itemLines(items: TodoItem[], selected: number | undefined, width
     starts.push(lines.length);
     const status = STATUS[item.status];
     const title = truncate(itemTitle(item.text), width - digits - 6);
-    const text = `${color(status.ansi, status.icon)} ${dim(`${String(i + 1).padStart(digits)}.`)} ${item.status === "done" ? dim(title) : i === selected ? bold(title) : title}`;
-    lines.push(text);
     if (i === selected) {
+      // The title spans the column, as the selection of a list does.
+      const plain = `${status.icon} ${String(i + 1).padStart(digits)}. ${title}`;
+      const row = plain + " ".repeat(Math.max(0, width - stringWidth(plain)));
+      lines.push(hot ? `\u001b[7;1m${row}\u001b[27;22m` : `\u001b[48;2;58;61;65m${row}\u001b[49m`);
+    } else {
+      lines.push(`${color(status.ansi, status.icon)} ${dim(`${String(i + 1).padStart(digits)}.`)} ${item.status === "done" ? dim(title) : title}`);
+    }
+    if (i === selected && open) {
       const body = item.text.split("\n").slice(1).join("\n").trim();
       const first = item.text.split("\n")[0]!;
       // The title line is a heading or the point's first line; the rest, and the whole of a long first line, below.
@@ -115,7 +130,7 @@ export function TodoView({ cwd, layout, active, blocked, busy, send, onModal }: 
     go();
   };
 
-  const rendered = useMemo(() => itemLines(list?.items ?? [], inItems ? itemIndex : undefined, previewWidth), [list, inItems, itemIndex, previewWidth]);
+  const rendered = useMemo(() => itemLines(list?.items ?? [], itemIndex, previewWidth, inItems, inItems && focused), [list, inItems, focused, itemIndex, previewWidth]);
   const header = useMemo(() => {
     if (!list) return [];
     const { done, total } = progress(list);
@@ -129,7 +144,6 @@ export function TodoView({ cwd, layout, active, blocked, busy, send, onModal }: 
 
   // The selected item stays in view.
   useEffect(() => {
-    if (!inItems) return setTop(0);
     const start = rendered.starts[itemIndex] ?? 0;
     const end = (rendered.starts[itemIndex + 1] ?? rendered.lines.length) - 1;
     setTop((t) => (start < t ? start : end >= t + viewport ? Math.max(0, Math.min(start, end - viewport + 1)) : t));
@@ -241,6 +255,8 @@ export function TodoView({ cwd, layout, active, blocked, busy, send, onModal }: 
           </Text>
         }
         list={
+          // The selected list is quiet grey while the items have the keys.
+          <FocusContext.Provider value={focused && !inItems}>
           <List
             onPick={(i) => {
               selectList(i);
@@ -263,6 +279,7 @@ export function TodoView({ cwd, layout, active, blocked, busy, send, onModal }: 
               );
             }}
           />
+          </FocusContext.Provider>
         }
         preview={preview}
         footer={
