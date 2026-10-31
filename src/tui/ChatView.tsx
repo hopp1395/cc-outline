@@ -58,7 +58,9 @@ import { useFavorites } from "./useFavorites.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSetting } from "./useSetting.js";
-import { isRcViewer } from "../settings.js";
+import { isRcViewer, isViewShown, readSettings } from "../settings.js";
+import { newList, updateTodos } from "../todos.js";
+import { TodoCreateDialog } from "./TodoCreateDialog.js";
 import { useSubagent, type Subagent } from "./useSubagent.js";
 import type { Transcript } from "./useTranscript.js";
 
@@ -878,7 +880,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
   const agentItems = useMemo(() => (agent ? subagentAttachments(agent, subagent, cwd) : []), [agent, subagent.version, subagent.file, cwd]);
   const items = agentPage ? agentItems : turnItems;
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
-  useEffect(() => onModal?.(attachmentsOpen), [attachmentsOpen]);
+  // T: the selected turn's answer cut into a to-do list (the Todo view).
+  const [todoOpen, setTodoOpen] = useState(false);
+  useEffect(() => onModal?.(attachmentsOpen || todoOpen), [attachmentsOpen, todoOpen]);
   /** Opens `item` in its default app. */
   const openItem = (item: AttachmentItem | undefined) => {
     if (!item) return;
@@ -958,6 +962,10 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       if (input === "s") return setOrder(flipOrder);
       // o lists what came with the prompt and what the turn's tools returned, to open one.
       if (input === "o") return items.length ? setAttachmentsOpen(true) : notify(agentPage ? "no images on this page" : "no attachments in this turn");
+      if (input === "T") {
+        if (!isViewShown(readSettings(), "todo")) return notify("to-do lists: the Todo view is off here");
+        return current && current.blocks.some((b) => b.kind === "text") ? setTodoOpen(true) : notify("no answer to make a to-do list from");
+      }
       if (input === "t") return setShowTools(nextToolLevel);
       if (input === "h") return setShowThinking((v) => !v);
       if (input === "c" && current) {
@@ -968,7 +976,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         );
       }
     },
-    { isActive: active && !filter.open && !attachmentsOpen },
+    { isActive: active && !filter.open && !attachmentsOpen && !todoOpen },
   );
 
   const session = path ? basename(path, ".jsonl").slice(0, 8) : "none";
@@ -1098,6 +1106,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
           { text: "h think", on: showThinking, priority: 2 },
           { text: "w wrap", on: wrap, priority: 2 },
           { text: "c copy", priority: 2 },
+          { text: "T to-do", priority: 1 },
           ...(items.length > 0 ? [{ text: `o ${plural(items.length, "attachment")}`, priority: 3 }] : []),
           ...(currentAgents.length > 0 ? [{ text: `a ${plural(currentAgents.length, "agent")}`, priority: 3 }] : []),
           { text: isRcViewer() ? "1/2 view" : "1-6/tab view", priority: 1 },
@@ -1105,6 +1114,18 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
       }
     />
     {filter.dialog}
+    {todoOpen && active && current && (
+      <TodoCreateDialog
+        layout={layout}
+        markdown={current.blocks.flatMap((b) => (b.kind === "text" ? [b.text] : [])).join("\n\n")}
+        name={truncate(current.prompt.trim().split("\n")[0] || "To-do list", 40)}
+        onClose={() => setTodoOpen(false)}
+        onCreate={(name, blocks) => {
+          updateTodos(cwd, (lists) => [...lists, newList(name, blocks, { sessionId: path ? basename(path, ".jsonl") : undefined, turnId: current.id })]);
+          notify(`to-do list "${name}" made: ${blocks.length} items (7 Todo)`);
+        }}
+      />
+    )}
     {attachmentsOpen && active && (
       <AttachmentsDialog layout={layout} items={items} onOpen={openItem} onClose={() => setAttachmentsOpen(false)} />
     )}

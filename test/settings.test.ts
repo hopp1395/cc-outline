@@ -242,7 +242,7 @@ describe("hidden views", () => {
   });
 
   it("steps through the shown views with Tab and Shift+Tab, wrapping around", () => {
-    const settings = hide("viewGit", "viewMonitor");
+    const settings = hide("viewGit", "viewMonitor", "viewTodo");
     expect(nextShownView(settings, "chat", 1)).toBe("plan");
     expect(nextShownView(settings, "sessions", 1)).toBe("settings");
     // Accounts, the "cco" before the tabs, comes first.
@@ -254,7 +254,7 @@ describe("hidden views", () => {
   });
 
   it("keeps the last view besides Settings", () => {
-    const one = hide("viewChat", "viewGit", "viewPlan", "viewSessions");
+    const one = hide("viewChat", "viewGit", "viewPlan", "viewSessions", "viewTodo");
     expect(isLastView(one, "viewMonitor")).toBe(true);
     expect(isLastView(one, "viewChat")).toBe(false);
     expect(isLastView(DEFAULT_SETTINGS, "viewMonitor")).toBe(false);

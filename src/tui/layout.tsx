@@ -31,7 +31,7 @@ const padColumns = (text: string, width: number) => text + " ".repeat(Math.max(0
 /** A short message of the app for the preview's bottom row, like "copied" (the list width after < or >). */
 export const ScreenNoticeContext = createContext<string | undefined>(undefined);
 
-export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor" | "accounts";
+export type Mode = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor" | "accounts" | "todo";
 
 export interface Layout {
   columns: number;
@@ -504,6 +504,7 @@ const TABS: Tab[] = [
   { key: "4", label: "Sessions", mode: "sessions" },
   { key: "5", label: "Monitor", mode: "monitor" },
   { key: "6", label: "Settings", mode: "settings" },
+  { key: "7", label: "Todo", mode: "todo" },
 ];
 /** The Remote Control Viewer's tabs (`cco rc-viewer`): its three columns, drawn by the chat, and its own settings. */
 export const RC_VIEWER_TABS: Tab[] = [

@@ -1,7 +1,7 @@
 import { positionsFile, readJson, writeJson } from "./transcript/locate.js";
 
 /** The lists whose positions are kept, one per view. */
-export type PositionList = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor" | "accounts";
+export type PositionList = "chat" | "git" | "plan" | "sessions" | "settings" | "monitor" | "accounts" | "todo";
 
 /** Which entry of a list was selected, and whether it followed the newest one. */
 export interface Selection {

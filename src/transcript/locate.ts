@@ -217,6 +217,11 @@ export function favoritesFile(cwd: string): string {
   return stateFile(cwd, ".favorites");
 }
 
+/** The project's to-do lists (`src/todos.ts`). */
+export function todosFile(cwd: string): string {
+  return stateFile(cwd, ".todos");
+}
+
 export function readActive(cwd: string): ActiveSession | undefined {
   return readJson<ActiveSession>(activeFile(cwd));
 }

@@ -724,6 +724,8 @@ export const SETTING_ROWS: Row[] = [
     ...listRange("monitorRange", "Monitor", "days", "with responses"),
     notes: ["The usual values (the median of the 30 days before a day) come from the days read, so a short range has fewer of them."],
   },
+  viewTab("viewTodo", "Todo", "7", "to-do lists made from Claude's answers (T in Chat), to work off item by item"),
+  listWidthRow("todoListWidth", "Todo", "list width", "Todo", "A wider list shows more of each list's name; a narrower one leaves the items more room."),
   listWidthRow("settingsListWidth", "Settings", "list width", "Settings", "A wider list cuts fewer labels; a narrower one leaves the descriptions more room."),
 ];
 

@@ -16,7 +16,7 @@ import { writeReply } from "../promptEdit.js";
 import { clearDraft } from "../promptDraft.js";
 import { claudeDir, projectSlug } from "../transcript/locate.js";
 import type { CommandSource } from "../slashCommands.js";
-import { canFocusViewer, focusClaude, focusViewerPane, prepareConsoleInput, resumeHereMethod, typePromptInClaude, typesIntoConsole, type ConsoleTyper } from "../switchSession.js";
+import { canFocusViewer, focusClaude, focusViewerPane, keysInClaude, prepareConsoleInput, promptSteps, resumeHereMethod, typePromptInClaude, typesIntoConsole, type ConsoleTyper } from "../switchSession.js";
 import { PromptEditor } from "./PromptEditor.js";
 import { useClipboard } from "./useClipboard.js";
 import { ChatView } from "./ChatView.js";
@@ -33,6 +33,7 @@ import { ProgressHostProvider, REOPEN_BY_HAND, useProgressHost } from "./Progres
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { AccountAvatarContext, AccountBadgeContext, DevContext, ScreenNoticeContext, SessionColorContext, tabAt, OneSessionContext, shorter, useLayouts, type Mode } from "./layout.js";
 import { PlanView } from "./PlanView.js";
+import { TodoView } from "./TodoView.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { onCtrlC } from "./ctrlC.js";
 import { isEmptySession } from "./resumeChoice.js";
@@ -80,7 +81,7 @@ interface Props {
   remoteId?: string;
 }
 
-const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings" };
+const VIEW_KEYS: Record<string, Mode> = { "0": "accounts", "1": "chat", "2": "git", "3": "plan", "4": "sessions", "5": "monitor", "6": "settings", "7": "todo" };
 
 /**
  * When the last prompt was typed in Claude Code, if that was after `since`: the
@@ -96,7 +97,7 @@ const sessionOf = (path?: string) => (path ? basename(path, ".jsonl") : undefine
 
 /** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
 const REDRAW = "\u001b[?25l";
-const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0, accounts: 0 };
+const NO_RELOADS: Record<Mode, number> = { chat: 0, git: 0, plan: 0, sessions: 0, settings: 0, monitor: 0, accounts: 0, todo: 0 };
 
 export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid, placement, select: initialSelect, updatedTo, action: initialAction, onPair, onDetach, remoteId }: Props) {
   const { exit } = useApp();
@@ -187,6 +188,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     settings: UNFOLDED,
     monitor: UNFOLDED,
     accounts: UNFOLDED,
+    todo: UNFOLDED,
   }));
   const setFold = (m: Mode, state: FoldState) => setFolds((f) => (f[m] === state ? f : { ...f, [m]: state }));
   // Whether each view shows a detail (full prompt, whole file, plan changes, …), as it reported last,
@@ -199,6 +201,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     settings: false,
     monitor: false,
     accounts: false,
+    todo: false,
   });
   const setDetail = (m: Mode) => (open: boolean) => {
     const was = reported.current[m];
@@ -565,6 +568,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       setNotice({ text: "in Claude Code's prompt line: Enter there sends it" });
     });
   };
+  // The to-do list's items go into Claude Code's prompt line and are sent there.
+  const todoBlocked = !types ? (fixed ? "a viewer of one session types into no Claude Code" : "no Claude Code beside this viewer to type into") : undefined;
+  const sendTodo = async (text: string) => {
+    const typed = await keysInClaude(claudePid!, promptSteps(text.replace(/\r\n?/g, "\n")));
+    void focusClaude(where(), claudePid!);
+    return typed.typed ? "sent to Claude Code" : `it could not be typed into Claude Code: ${typed.message}`;
+  };
   const cancelEditor = () => {
     const edit = editor?.edit;
     closeEditor();
@@ -740,6 +750,21 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             sessionPath={continuable ? path : undefined}
             claudePid={claudePid}
             noSession={noSession}
+          />
+          </MouseContext.Provider>
+          </ReloadContext.Provider>
+        </Box>
+        <Box display={mode === "todo" ? "flex" : "none"}>
+          <ReloadContext.Provider value={reloadOf("todo")}>
+          <MouseContext.Provider value={mouseFor("todo")}>
+          <TodoView
+            cwd={cwd}
+            layout={viewLayout("todo")}
+            active={mode === "todo" && !blocked}
+            blocked={todoBlocked}
+            busy={working}
+            send={sendTodo}
+            onModal={setModal}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>
