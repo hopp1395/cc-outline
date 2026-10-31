@@ -20,7 +20,7 @@ afterEach(() => {
 
 /** The list column of the Settings view, `listWidth` wide and tall enough for every entry. */
 async function listLines(listWidth: number): Promise<string[]> {
-  const rows = 76;
+  const rows = 78;
   const columns = listWidth + 60;
   const layout: Layout = { columns, rows, listWidth, previewWidth: columns - listWidth - 3, bodyHeight: rows - 4 };
   const app = renderInk(<SettingsView cwd={cwd} layout={layout} active={false} />, layout);

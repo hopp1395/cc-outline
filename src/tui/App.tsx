@@ -440,6 +440,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
 
   // < and > make the shown view's list narrower or wider, stopping at the ends; the preview says how wide for a moment.
   const [notice, setNotice] = useState<{ text: string }>();
+  // A to-do list just made in Chat: the Todo view goes to it.
+  const [todoGoTo, setTodoGoTo] = useState<{ id: string; n: number }>();
   // A remote viewer says why claude.ai could not be read; the turns read so far stay.
   useEffect(() => {
     if (remoteId && remote.error) setNotice({ text: remote.error });
@@ -572,7 +574,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const todoBlocked = !types ? (fixed ? "a viewer of one session types into no Claude Code" : "no Claude Code beside this viewer to type into") : undefined;
   const sendTodo = async (text: string) => {
     const typed = await keysInClaude(claudePid!, promptSteps(text.replace(/\r\n?/g, "\n")));
-    void focusClaude(where(), claudePid!);
+    // The focus stays here, in the list: Claude works on it in its own pane.
     return typed.typed ? "sent to Claude Code" : `it could not be typed into Claude Code: ${typed.message}`;
   };
   const cancelEditor = () => {
@@ -655,6 +657,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onPromptOpen={setDetail("chat")}
             onTyping={setTyping}
             onModal={setModal}
+            onTodoMade={(id) => {
+              setTodoGoTo({ id, n: Date.now() });
+              setMode("todo");
+            }}
             liveSession={live}
             scrollOnly={typingInComposer}
           />
@@ -765,6 +771,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             busy={working}
             send={sendTodo}
             onModal={setModal}
+            goTo={todoGoTo}
           />
           </MouseContext.Provider>
           </ReloadContext.Provider>

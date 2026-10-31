@@ -478,14 +478,14 @@ Below the chart: the day's overall index, median speed and wait against the usua
 
 The Todo view (`7`, or `/cco:todo`) keeps to-do lists of the project, to work off a plan from a Claude answer block by block instead of all at once.
 
-**Making a list.** In Chat, select the turn whose answer holds the plan and press `T`. A dialog cuts the answer into blocks: the numbered points, else the headings, else the bold label lines (`**Block 1: …**` with bullet points below), else the bullet points (`s` takes another cut if the answer has one, two blocks at least). `Space` leaves a block out, `Enter` makes the list, named after the prompt. A block keeps its sub-points.
+**Making a list.** In Chat, select the turn whose answer holds the plan and press `T`. A dialog cuts the answer into blocks: the numbered points, else the headings, else the bold label lines (`**Block 1: …**` with bullet points below), else the bullet points (`s` takes another cut if the answer has one, two blocks at least). `Space` leaves a block out, `Enter` makes the list, named after the prompt, and opens it in the Todo view with its first item active: one more `Enter` sends it. A block keeps its sub-points.
 
 **Working it off.** The lists are on the left with how many items are done; `Enter` moves the keys to the items on the right, `Esc` back. The selected item shows its whole text. In the items:
 - `Enter` types the item's text into Claude Code's prompt line and sends it (the same way as the [prompt editor](#prompt-editor), so only beside Claude Code), and marks the item `◐` sent. While Claude is still working it asks first; Claude Code queues the prompt.
-- `Space` (or `x`) ticks an item off `✓`, `o` sets it back to `○`. Nothing is ticked off for you: whether the block is really done is yours to say.
+- `Space` (or `x`) ticks an item off `✓` and goes on to the next one; on a done item it opens it again, `o` sets it back to `○` too. Nothing is ticked off for you: whether the block is really done is yours to say.
 - `a` adds an item, `m` edits it, `d` deletes it, `J`/`K` move it down and up. In the list of lists `m` renames and `d` deletes a list; both ask first.
 
-The lists belong to the project, whichever session made them. The tab can be hidden in Settings (*Todo: tab*).
+The lists belong to the project, whichever session made them. As in the other views, `Space` marks a list `★` (while the lists have the keys), `Shift+↑`/`↓` jump between marked ones, `Ctrl+F` filters them, `s` flips the order (*Todo: order*), and the selected list and item are remembered. The tab can be hidden in Settings (*Todo: tab*).
 
 ## Accounts view
 

@@ -14,11 +14,17 @@ An item is `{ id, text, status }`; `text` is the block's Markdown with its sub-p
 
 ## The view
 
-Screen with the lists left (name, `done/total`) and the items right (`Preview` with the list as header). `Enter` on a list moves the keys to its items (`inItems`), `Esc` back; `←`/`→`/`Tab` still switch views. In the items: `Enter` sends, `Space`/`x` ticks, `o` reopens, `a` adds, `m` edits, `d` deletes (asks), `J`/`K` move; in the lists `m` renames and `d` deletes (asks). The selected item shows its whole text below its title (`itemLines`). Text is entered in `PromptDialog` (its `initialText` overrides the draft).
+After `T` made a list, the dialog closes and `App` switches to the Todo view (`onTodoMade` of `ChatView`, `todoGoTo` state, `goTo` prop of `TodoView`): the new list is selected and the keys are already in its items with the first one active, so one `Enter` sends it. `goTo.n` tells one request from the next; the effect waits until the list is in the view's state (`subscribeTodos` delivers it).
+
+Screen with the lists left (name, `done/total`; `◐` in yellow instead of `☰` while an item is `doing`, `✓` once all are done) and the items right (`Preview` with the list as header). `Enter` on a list moves the keys to its items (`inItems`), `Esc` back; `←`/`→`/`Tab` still switch views. In the items: `Enter` sends, `Space`/`x` ticks and goes on to the next item (on a done item it opens it again), `o` reopens, `a` adds, `m` edits, `d` deletes (asks), `J`/`K` move; in the lists `m` renames and `d` deletes (asks). The selected item shows its whole text below its title (`itemLines`). Text is entered in `PromptDialog` (its `initialText` overrides the draft).
+
+## List features
+
+The lists column has what the other views' lists have, as in `PlanView`: marks (`Space` in the lists, `Shift+↑↓` between marked ones, favorites kind `todos`, ★, `pinnedFavorites`), the filter (`Ctrl+F`, by name; `filterIn` details also by the items' texts), the order (`s`, setting `todoOrder`), date separators (`List` `time` = `created`) and the remembered selection (`usePositions` list `todo`: the selected list's id as the selection, each list's selected item as the scroll value of `<id>#item`). These keys work while the lists have the keys; in the items `Space` ticks.
 
 ## Sending
 
-`Enter` on an item calls `send(text)` of the view; `App` implements it with `keysInClaude(claudePid, promptSteps(text))`, the prompt line's way of typing and submitting (`docs/dev/features.md`, prompt editor), then `focusClaude`. The text is the item's block as it is, no wrapper. `doing` is set before sending. While Claude works (`working` of the transcript) a `ConfirmDialog` asks first; Claude Code queues the prompt. Where nothing can be typed into (`!types`: a session viewer, no Claude Code beside the viewer) `blocked` says why and nothing is sent. The Todo view and `T` exist only in the project's viewer: `isViewShown` is false in session viewers and the Remote Control Viewer.
+`Enter` on an item calls `send(text)` of the view; `App` implements it with `keysInClaude(claudePid, promptSteps(text))`, the prompt line's way of typing and submitting (`docs/dev/features.md`, prompt editor), and the focus stays in the viewer (no `focusClaude`, unlike the prompt editor), so the next item is one `Enter` away. The text is the item's block as it is, no wrapper. `doing` is set before sending. While Claude works (`working` of the transcript) a `ConfirmDialog` asks first; Claude Code queues the prompt. Where nothing can be typed into (`!types`: a session viewer, no Claude Code beside the viewer) `blocked` says why and nothing is sent. The Todo view and `T` exist only in the project's viewer: `isViewShown` is false in session viewers and the Remote Control Viewer.
 
 ## Settings and numbers
 

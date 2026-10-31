@@ -30,7 +30,7 @@ describe("favorites", () => {
     expect(toggleFavorite(cwd, "plans", "toolu_1")).toEqual(["toolu_1"]);
     expect(toggleFavorite(cwd, "turns", "a")).toEqual(["b"]);
     expect(toggleFavorite(cwd, "days", "2026-09-27")).toEqual(["2026-09-27"]);
-    expect(stored()).toEqual({ turns: ["b"], files: ["src/x.cs"], plans: ["toolu_1"], sessions: [], days: ["2026-09-27"] });
+    expect(stored()).toEqual({ turns: ["b"], files: ["src/x.cs"], plans: ["toolu_1"], todos: [], sessions: [], days: ["2026-09-27"] });
   });
 
   it("merges the earlier formats into the turns list", () => {
@@ -41,7 +41,7 @@ describe("favorites", () => {
     writeFileSync(favoritesFile(cwd), JSON.stringify({ turns: ["a"] }));
     expect(readFavorites(cwd, "turns")).toEqual(["a"]);
     expect(toggleFavorite(cwd, "files", "f")).toEqual(["f"]);
-    expect(stored()).toEqual({ turns: ["a"], files: ["f"], plans: [], sessions: [], days: [] });
+    expect(stored()).toEqual({ turns: ["a"], files: ["f"], plans: [], todos: [], sessions: [], days: [] });
   });
 
   it("keeps the marks of the settings globally, apart from the project's", () => {
@@ -49,7 +49,7 @@ describe("favorites", () => {
     expect(toggleFavorite(cwd, "settings", "chatWrap")).toEqual(["chatWrap"]);
     expect(toggleFavorite(cwd, "settings", "reset:settings")).toEqual(["chatWrap", "reset:settings"]);
     expect(readFavorites(join(tmpdir(), "other-project"), "settings")).toEqual(["chatWrap", "reset:settings"]);
-    expect(stored()).toEqual({ turns: ["a"], files: [], plans: [], sessions: [], days: [] });
+    expect(stored()).toEqual({ turns: ["a"], files: [], plans: [], todos: [], sessions: [], days: [] });
     expect(JSON.parse(readFileSync(globalFavoritesFile(), "utf8"))).toEqual({ settings: ["chatWrap", "reset:settings"], sessionViewerSettings: [], rcViewerSettings: [], accounts: [] });
     expect(clearFavorites(cwd, "settings")).toEqual([]);
     expect(readFavorites(cwd, "settings")).toEqual([]);

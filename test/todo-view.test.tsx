@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderInk } from "./helpers/ink.js";
+import { readFavorites } from "../src/favorites.js";
 import { newList, readTodos, updateTodos } from "../src/todos.js";
 import type { Layout } from "../src/tui/layout.js";
 import { TodoView } from "../src/tui/TodoView.js";
@@ -54,14 +55,51 @@ describe("TodoView", () => {
     view.unmount();
   });
 
-  it("ticks an item off with Space and back with o", async () => {
+  it("goes to a list just made, with the keys in its items and the first one active: Enter sends it", async () => {
+    const other = newList("Zweite", [{ text: "Erster Punkt" }, { text: "Zweiter Punkt" }]);
+    updateTodos(cwd, (lists) => [...lists, other]);
+    const { view, sent } = show({ goTo: { id: other.id, n: 1 } });
+    await expect.poll(view.raw).toContain("\u001b[7m\u001b[1m○ 1. Erster Punkt");
+    await view.press("\r");
+    await expect.poll(() => sent).toEqual(["Erster Punkt"]);
+    view.unmount();
+  });
+
+  it("ticks an item off with Space and goes on to the next one; Space on a done item opens it again, o too", async () => {
     const { view } = show();
     await view.press("\r");
     await view.press(" ");
     await expect.poll(statuses).toEqual(["done", "open", "open"]);
     await expect.poll(view.frame).toContain("1/3 done");
+    // The next item is the selected one now.
+    await view.press(" ");
+    await expect.poll(statuses).toEqual(["done", "done", "open"]);
+    await view.press("\u001b[A");
+    await view.press("\u001b[A");
+    await view.press(" ");
+    await expect.poll(statuses).toEqual(["open", "done", "open"]);
+    await view.press("\u001b[B");
     await view.press("o");
     await expect.poll(statuses).toEqual(["open", "open", "open"]);
+    view.unmount();
+  });
+
+  it("marks a list with Space, orders them with s and filters them with Ctrl+F", async () => {
+    updateTodos(cwd, (lists) => [...lists, newList("Zweite", [{ text: "Etwas ganz anderes" }])]);
+    const { view } = show();
+    await expect.poll(view.frame).toContain("Zweite");
+    await view.press(" ");
+    await expect.poll(view.frame).toContain("★ 1");
+    expect(readFavorites(cwd, "todos")).toEqual([readTodos(cwd)[0]!.id]);
+    // Newest first: the second list comes above the first.
+    await view.press("s");
+    await expect.poll(() => view.frame().indexOf("Zweite") < view.frame().indexOf("Umbau")).toBe(true);
+    // The filter finds a list by its name.
+    await view.press("\u0006");
+    await view.press("Zwei");
+    await view.press("\r");
+    await expect.poll(view.frame).toContain("Zwei · 1 of 2");
+    expect(view.frame()).not.toContain("Umbau 0/3");
     view.unmount();
   });
 
@@ -72,6 +110,8 @@ describe("TodoView", () => {
     await view.press("\r");
     await expect.poll(() => sent).toEqual(["View bauen\n- mit Tests"]);
     await expect.poll(statuses).toEqual(["open", "doing", "open"]);
+    // The list shows the item's ◐ while one is sent to Claude.
+    await expect.poll(view.frame).toContain("◐ Umbau");
     view.unmount();
   });
 
