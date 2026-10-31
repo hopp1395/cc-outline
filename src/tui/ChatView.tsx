@@ -80,6 +80,8 @@ interface Props {
   onTyping?: (typing: boolean) => void;
   /** The screenshot dialog opened or closed: App ignores its keys meanwhile. */
   onModal?: (open: boolean) => void;
+  /** A to-do list was made from a turn (T): App shows it in the Todo view. */
+  onTodoMade?: (listId: string) => void;
   /** The prompt line below has the keys (a remote viewer): the chat only scrolls, with PgUp/PgDn, as Claude Code's does. */
   scrollOnly?: boolean;
   /** The Remote Control Viewer's chat column has the keys: ↑↓ scroll the answer by line instead of switching turns. */
@@ -641,7 +643,7 @@ function time(ts?: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, scrollOnly = false, previewKeys = false, spaceMarks = true }: Props) {
+export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, liveSession = false, onTyping, onModal, onTodoMade, scrollOnly = false, previewKeys = false, spaceMarks = true }: Props) {
   const { turns, version } = transcript;
   const copy = useClipboard();
   const { listWidth, previewWidth, bodyHeight, headerHeight = bodyHeight, listHeight = bodyHeight } = layout;
@@ -1121,7 +1123,9 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
         name={truncate(current.prompt.trim().split("\n")[0] || "To-do list", 40)}
         onClose={() => setTodoOpen(false)}
         onCreate={(name, blocks) => {
-          updateTodos(cwd, (lists) => [...lists, newList(name, blocks, { sessionId: path ? basename(path, ".jsonl") : undefined, turnId: current.id })]);
+          const made = newList(name, blocks, { sessionId: path ? basename(path, ".jsonl") : undefined, turnId: current.id });
+          updateTodos(cwd, (lists) => [...lists, made]);
+          onTodoMade?.(made.id);
           notify(`to-do list "${name}" made: ${blocks.length} items (7 Todo)`);
         }}
       />

@@ -174,6 +174,7 @@ export interface Settings {
   /** Order of the Chat and Plan lists (s in each). */
   chatOrder: ListOrder;
   planOrder: ListOrder;
+  todoOrder: ListOrder;
   /** How far back the Sessions and Monitor lists reach until "load more". */
   sessionsRange: ListRange;
   monitorRange: ListRange;
@@ -237,6 +238,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pinnedSessions: true,
   chatOrder: "oldest-first",
   planOrder: "oldest-first",
+  todoOrder: "oldest-first",
   sessionsRange: "7d",
   monitorRange: "7d",
   chatListWidth: "normal",
@@ -407,6 +409,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,
+  todoOrder: ORDER_VALUES,
   sessionsFolders: SESSIONS_FOLDERS_VALUES,
   sessionsBackground: SESSIONS_BACKGROUND_VALUES,
   sessionsRemote: SESSIONS_REMOTE_VALUES,
