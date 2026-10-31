@@ -2,6 +2,7 @@ import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { ACCOUNT_COLOR_VALUES, type AccountColorSetting } from "./account.js";
 import { isAvatarSetting } from "./avatar.js";
+import { STATUS_LINE_VALUES, type StatusLineSetting } from "./statusline/render.js";
 import { claudeDir, readJson, writeJson } from "./transcript/locate.js";
 import { TOOL_LEVELS, type ToolLevel } from "./transcript/tools.js";
 import type { Mode } from "./tui/layout.js";
@@ -141,6 +142,11 @@ export interface Settings {
   accountColor: AccountColorSetting;
   /** Up to six columns (letters, symbols, emojis) shown instead of the "cco" in the top bar for this folder's account; empty keeps "cco". */
   accountAvatar: string;
+  /**
+   * Claude Code's status line in this config folder: `unchanged` leaves its settings.json alone, `off` removes it, `own`
+   * is the user's own command (remembered before cco set its own), the rest are cco's presets.
+   */
+  statusLine: StatusLineSetting;
   /** Chat: how much of Claude's tool calls to show (t): off, a line each, or with command and output. With it off, questions still show, framed. */
   showTools: ToolLevel;
   /** Chat: show thinking blocks (h). */
@@ -221,6 +227,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accountTitle: true,
   accountColor: "auto",
   accountAvatar: "",
+  statusLine: "unchanged",
   showTools: "off",
   showThinking: false,
   showAgents: true,
@@ -406,6 +413,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   compactColumns: COMPACT_COLUMNS_VALUES,
   compactSplit: COMPACT_SPLIT_VALUES,
   accountColor: ACCOUNT_COLOR_VALUES,
+  statusLine: STATUS_LINE_VALUES,
   showTools: TOOL_LEVELS,
   chatOrder: ORDER_VALUES,
   planOrder: ORDER_VALUES,

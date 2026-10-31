@@ -2,8 +2,12 @@ import { Text, useInput } from "ink";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
+import sliceAnsi from "slice-ansi";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
+import { gatherExtras } from "../statusline/extras.js";
+import { isStatusLinePreset, renderStatusLine, sampleInput, STATUS_LINE_VALUES, type StatusInput, type StatusLineSetting } from "../statusline/render.js";
+import { applyStatusLine, describeStatusLine, hasOwnStatusLine, readStatusLineState, statusLineInputFile, syncStatusLineSetting } from "../statusline/setup.js";
 import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, isViewerOnlyKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, TERMINAL_NAMES, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
@@ -16,7 +20,7 @@ import { filterAccounts, SessionFilterDialog } from "./SessionFilterDialog.js";
 import { filterSettings, sessionFilter } from "../sessionFilter.js";
 import { otherAccounts } from "../accountContinue.js";
 import { AccountContext, useAccountState, type AccountState } from "./useAccount.js";
-import { claudeDir, positionsFile, sessionViewsFile } from "../transcript/locate.js";
+import { claudeDir, positionsFile, readJson, sessionViewsFile } from "../transcript/locate.js";
 import { dayLabel, dayOf } from "./days.js";
 import { projectData } from "../projectData.js";
 import { ConfirmDialog, type Confirmation } from "./ConfirmDialog.js";
@@ -192,6 +196,10 @@ interface Row {
   legend?: boolean;
   /** Short values with short meanings: one line each, the meaning after the value. */
   inline?: boolean;
+  /** Whether Enter offers a value now (the own status line only once one is remembered); all of them without it. */
+  offered?: (value: string | boolean) => boolean;
+  /** Lines that show a value as it looks, below its meaning (the status lines with the last input). */
+  example?: (value: string | boolean, c: TextContext) => string[] | undefined;
 }
 
 const ON_OFF = (on: Text, off: Text): Row["values"] => [
@@ -267,6 +275,29 @@ const FILTER_IN_MEANINGS: Record<(typeof FILTER_IN_VALUES)[number], string> = {
 };
 
 /** How to select text while the viewer has the mouse, in this terminal. */
+const STATUS_LINE_MEANINGS: Record<StatusLineSetting, Text> = {
+  unchanged: "cco leaves Claude Code's status line as it is; chosen after one of cco's, it puts back what was there before",
+  off: "no status line: `statusLine` is taken out of Claude Code's settings",
+  own: () => {
+    const own = readStatusLineState().own;
+    return own === undefined ? "your own command, once there is one: none is remembered yet" : `your own: ${describeStatusLine(own)}`;
+  },
+  minimal: "the model and how full the context is",
+  compact: "also the 5-hour and 7-day windows with when each starts anew; green, yellow from 75 %, red from 90 %",
+  detailed: "compact, and a second line with the branch, the session's cost and duration and the lines added and removed",
+  cco: "compact with the account in front (its avatar, else the email's name, on its colour) and the open items of the project's to-do lists at the end",
+};
+
+/** A preset as it looks with the input Claude Code handed the command last, else made-up values, and this project's data. */
+function statusLineExample(preset: Parameters<typeof renderStatusLine>[0], c: TextContext): string[] {
+  const last = readJson<StatusInput>(statusLineInputFile());
+  // An input without a model (a run by hand) says too little: the example then shows made-up values.
+  const input: StatusInput = last && typeof last === "object" && last.model ? last : sampleInput(c.now.getTime());
+  // Branch and to-do items of this project, whichever session ran the command last.
+  const extras = gatherExtras(preset, { cwd: c.cwd, workspace: { current_dir: c.cwd, project_dir: c.cwd } });
+  return renderStatusLine(preset, input, extras);
+}
+
 function selectText(terminal: Terminal | undefined): string {
   if (terminal === "wt" || terminal === "wezterm") return "select text with `Shift+drag`";
   if (terminal === "tmux") return "select text with `Shift+drag`, or your terminal's modifier (`Option` in iTerm2)";
@@ -568,6 +599,20 @@ export const SETTING_ROWS: Row[] = [
     ],
     viewKey: "`s` in Accounts",
   },
+  {
+    key: "statusLine",
+    group: "Claude Code",
+    label: "status line",
+    description:
+      "The line Claude Code shows below its prompt line, for the Claude Code of this config folder. compact tells at a glance how full the context is and how much of the account's 5-hour and 7-day windows is used; detailed adds what the session cost and changed, for long sessions; cco puts the account and the open to-do items in, useful with several accounts or a list to work off; minimal suits a narrow terminal. cco sets `statusLine` in Claude Code's `settings.json` (the file before goes to `settings.json.cco-backup`); its command reads the preset chosen here each time, so another preset shows with Claude's next message. A status line of your own is remembered before cco sets its own, and own brings it back. A change of `statusLine` by hand wins: this setting then follows it.",
+    values: STATUS_LINE_VALUES.map((v): [string, Text] => [v, STATUS_LINE_MEANINGS[v]]),
+    offered: (value) => value !== "own" || hasOwnStatusLine(),
+    example: (value, c) => (isStatusLinePreset(value) ? statusLineExample(value, c) : undefined),
+    notes: [
+      () => `The examples show the values Claude Code handed the status line last (kept in \`${tilde(statusLineInputFile())}\`), made-up ones before it ran once.`,
+      "The command runs the `statusline.js` of the cco that `npm install -g` or `npm link` installed; after a reinstall elsewhere the SessionStart hook points it there, and `cco doctor` reports it.",
+    ],
+  },
   viewTab("viewChat", "Chat", "1", "the session's turns, rendered as Markdown"),
   listWidthRow("chatListWidth", "Chat", "list width", "Chat", "A wider list shows more of each prompt; a narrower one leaves the answers more room, e.g. for wide tables and code."),
   {
@@ -772,7 +817,11 @@ export function isLastView(settings: Settings, key: keyof Settings): boolean {
 
 export function nextValue(row: Row, current: string | boolean): string | boolean {
   const i = row.values.findIndex(([v]) => v === current);
-  return row.values[(i + 1) % row.values.length][0];
+  for (let step = 1; step <= row.values.length; step++) {
+    const value = row.values[(i + step) % row.values.length][0];
+    if (row.offered?.(value) !== false) return value;
+  }
+  return current;
 }
 
 export function tilde(path: string): string {
@@ -908,6 +957,8 @@ export function settingLines(row: Row, current: string | boolean, width: number,
     // The value on a line of its own, what it does indented below it.
     // Names in colour, so they stand out from their descriptions: the current one green, the others gray.
     lines.push(selected ? `\u001b[32m● ${name}\u001b[39m` : `${dim("○")} \u001b[90m${name}\u001b[39m`, ...wrap(textOf(meaning, context), "  "));
+    // As it looks, cut to the width rather than wrapped, as Claude Code shows it.
+    for (const line of row.example?.(value, context) ?? []) lines.push(`  ${stringWidth(line) > width - 2 ? sliceAnsi(line, 0, Math.max(10, width - 2)) + "\u001b[0m" : line}`);
   }
   if (row.viewKey) lines.push("", dim(codeMarks(`Also ${row.viewKey}.`)));
   for (const note of (row.notes ?? []).map((n) => textOf(n, context)).filter(Boolean)) lines.push("", ...wrap(dim(note)));
@@ -1272,7 +1323,20 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const entryKey = entries[index];
   const favorites = useFavorites(cwd, !oneSession ? "settings" : isRcViewer() ? "rcViewerSettings" : "sessionViewerSettings");
   // F5: settings.json is read again, so changes by other viewers show in every view, and npm and GitHub are asked again.
+  // Claude Code's settings.json wins over the stored status line: a change by hand shows when the view is shown and on F5.
+  const syncStatusLine = () => {
+    if (oneSession) return;
+    try {
+      syncStatusLineSetting();
+    } catch {
+      // Unreadable files: the stored value stays.
+    }
+  };
+  useEffect(() => {
+    if (active) syncStatusLine();
+  }, [active]);
   useOnReload(({ done }) => {
+    syncStatusLine();
     reloadSettings();
     if (doctorCheck) void runCheck();
     void update.recheck().then(done);
@@ -1422,7 +1486,20 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
 
-  const set = (changes: Partial<Settings>) => updateSettings(changes);
+  /** Stores `changes`; a new status line is written into Claude Code's settings.json first, and stays unchanged if that fails. */
+  const set = (changes: Partial<Settings>) => {
+    if (changes.statusLine !== undefined && changes.statusLine !== settings.statusLine) {
+      try {
+        applyStatusLine(changes.statusLine);
+      } catch (err) {
+        setFlash((err as Error).message);
+        const { statusLine: _, ...rest } = changes;
+        if (Object.keys(rest).length > 0) updateSettings(rest);
+        return;
+      }
+    }
+    updateSettings(changes);
+  };
   const select = (i: number) => setSelectedKey(entries[Math.max(0, Math.min(entries.length - 1, i))]);
   const askResetSettings = () =>
     setConfirmation({

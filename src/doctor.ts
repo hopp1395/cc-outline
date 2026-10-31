@@ -14,6 +14,7 @@ import { isAlive } from "./viewer.js";
 import { legacyObserversDir, sessionViewersDir } from "./sessionViewers.js";
 import { claudeSettingsFile, readEditorSetup, setUpEditor } from "./promptEdit.js";
 import { setupSteps } from "./accountSetup.js";
+import { describeStatusLine, readStatusLineState, repairStatusLine } from "./statusline/setup.js";
 
 /** `ok` passes, `warn` is worth a look (or a repair), `error` keeps cco from working as it should; only errors fail `cco doctor`. */
 export type Severity = "ok" | "warn" | "error";
@@ -407,7 +408,33 @@ function environment(env: NodeJS.ProcessEnv): Finding[] {
     });
   if (readMainSettings().remoteApi) findings.push(remoteLogin(dir));
   findings.push(promptEditor());
+  const line = statusLine();
+  if (line) findings.push(line);
   return findings;
+}
+
+/** Claude Code's status line: cco's, and whether it runs the installed cco; your own or none. Unreadable settings.json is the prompt editor's finding. */
+function statusLine(): Finding | undefined {
+  const group = "Environment";
+  const state = readStatusLineState();
+  if (state.unreadable) return undefined;
+  if (state.stale)
+    return {
+      group,
+      severity: "warn",
+      text: `the status line runs a cco that is gone or another install: ${state.command}`,
+      paths: [claudeSettingsFile()],
+      repair: {
+        id: "statusline",
+        label: "point the status line at this cco",
+        apply: () => {
+          if (!repairStatusLine()) throw new Error("this cco has no statusline.js: rebuild or reinstall it");
+        },
+      },
+    };
+  if (state.cco) return { group, severity: "ok", text: `status line: cco's ${readMainSettings().statusLine}` };
+  if (state.current !== undefined) return { group, severity: "ok", text: `status line: your own, ${describeStatusLine(state.current)}` };
+  return { group, severity: "ok", text: "no status line; cco's can be chosen in Settings (status line)" };
 }
 
 /** What Ctrl+G opens in Claude Code: cco's prompt editor once set up (Settings, Reset), and whether the cco it names still exists. */

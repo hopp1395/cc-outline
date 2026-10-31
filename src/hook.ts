@@ -6,6 +6,7 @@ import { cleanupPromptFiles } from "./promptDraft.js";
 import { openPane } from "./open.js";
 import { readSessionView, resolvePlacement } from "./sessionViews.js";
 import { readSettings, shownView } from "./settings.js";
+import { repairStatusLine, syncStatusLineSetting } from "./statusline/setup.js";
 import {
   claudeFile,
   claudePidFromEnv,
@@ -53,6 +54,19 @@ function removeStaleFiles(cwd: string): void {
 }
 
 /**
+ * cco's status line points at the installed cco (after a reinstall elsewhere), and the setting follows a change of
+ * `statusLine` by hand. A status line of the user's own is never touched.
+ */
+function keepStatusLine(): void {
+  try {
+    repairStatusLine();
+    syncStatusLineSetting();
+  } catch {
+    // An unreadable settings.json: the doctor reports it.
+  }
+}
+
+/**
  * Records which session is active, per Claude Code process (`claudePid`) and
  * for the project, so a running viewer can follow it, and marks it ended when
  * Claude Code exits so the viewer closes itself. Whether the viewer was open
@@ -95,6 +109,7 @@ export function handleHook(input: HookInput, open = openPane, claudePid = claude
   if (input.hook_event_name === "SessionStart" && (input.source === "startup" || input.source === "resume")) {
     removeStaleFiles(cwd);
     removeOldLocalRequests();
+    keepStatusLine();
     const restore = readRestore(cwd);
     const settings = readSettings();
     const { autoOpen, rememberView } = settings;
