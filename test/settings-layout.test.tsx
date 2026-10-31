@@ -20,7 +20,7 @@ afterEach(() => {
 
 /** The list column of the Settings view, `listWidth` wide and tall enough for every entry. */
 async function listLines(listWidth: number): Promise<string[]> {
-  const rows = 78;
+  const rows = 82;
   const columns = listWidth + 60;
   const layout: Layout = { columns, rows, listWidth, previewWidth: columns - listWidth - 3, bodyHeight: rows - 4 };
   const app = renderInk(<SettingsView cwd={cwd} layout={layout} active={false} />, layout);
@@ -38,7 +38,7 @@ describe("Settings list", () => {
   it("puts each group under a separator, in order", async () => {
     const lines = await listLines(30);
     const groups = lines.filter((l) => l.startsWith("── ")).map((l) => l.split(" ")[1]);
-    expect(groups).toEqual(["Start", "General", "Account", "Chat", "Changes", "Plan", "Sessions", "Monitor", "Todo", "Settings", "Reset", "Releases"]);
+    expect(groups).toEqual(["Start", "General", "Account", "Claude", "Chat", "Changes", "Plan", "Sessions", "Monitor", "Todo", "Settings", "Reset", "Releases"]);
   });
 
   it("shows every setting's label in full with its value at the right end", async () => {

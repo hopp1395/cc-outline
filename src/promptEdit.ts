@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { changeClaudeSettings, claudeSettingsFile, readClaudeSettings } from "./claudeSettings.js";
+export { claudeSettingsFile };
 import { cliFile } from "./cliPath.js";
 import { proc } from "./proc.js";
 import { TIMING } from "./timing.js";
@@ -119,8 +121,6 @@ export async function runEdit(file: string, loadEditor: () => Promise<typeof imp
 
 // ---------------------------------------------------------------- Setup (VISUAL in Claude Code's settings.json)
 
-/** Claude Code's settings of this config folder, whose `env` it applies to its own process. */
-export const claudeSettingsFile = () => join(claudeDir(), "settings.json");
 /** What VISUAL was before cco set it up, to put back when it is removed. */
 const editorStateFile = () => join(claudeDir(), "cco", "editor.json");
 
@@ -143,21 +143,6 @@ export interface EditorSetup {
   unreadable: boolean;
 }
 
-function readClaudeSettings(): Record<string, unknown> | null | undefined {
-  let text: string;
-  try {
-    text = readFileSync(claudeSettingsFile(), "utf8");
-  } catch {
-    return undefined;
-  }
-  try {
-    const value = JSON.parse(text) as unknown;
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function readEditorSetup(): EditorSetup {
   const settings = readClaudeSettings();
   const env = settings?.env as Record<string, unknown> | undefined;
@@ -169,18 +154,12 @@ export function readEditorSetup(): EditorSetup {
 
 /** Writes Claude Code's settings.json with `change` applied to its env; a backup of the file before goes next to it. */
 function changeEnv(change: (env: Record<string, unknown>) => void): void {
-  const settings = readClaudeSettings();
-  if (settings === null) throw new Error("settings.json is no valid JSON: cco leaves it alone");
-  const next = { ...(settings ?? {}) };
-  const env = { ...((typeof next.env === "object" && next.env !== null ? next.env : {}) as Record<string, unknown>) };
-  change(env);
-  if (Object.keys(env).length > 0) next.env = env;
-  else delete next.env;
-  const file = claudeSettingsFile();
-  if (existsSync(file)) writeFileSync(`${file}.cco-backup`, readFileSync(file));
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
-  renameSync(tmp, file);
+  changeClaudeSettings((next) => {
+    const env = { ...((typeof next.env === "object" && next.env !== null ? next.env : {}) as Record<string, unknown>) };
+    change(env);
+    if (Object.keys(env).length > 0) next.env = env;
+    else delete next.env;
+  });
 }
 
 /** Sets VISUAL to `cco edit`, keeping what it was before (not cco's) for `removeEditor`. */
