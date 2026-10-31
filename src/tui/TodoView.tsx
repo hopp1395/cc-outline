@@ -361,8 +361,8 @@ export function TodoView({ cwd, layout, active, blocked, busy, send, onModal, go
               const p = progress(l);
               const marked = favorites.isMarked(l.id);
               const tail = ` ${p.done}/${p.total}`;
-              // A list with an item sent to Claude shows the item's ◐.
-              const working = l.items.some((i) => i.status === "doing");
+              // A list being worked off shows the item's ◐: one sent to Claude, or some done and some open.
+              const working = l.items.some((i) => i.status === "doing") || (p.done > 0 && p.done < p.total);
               return (
                 <>
                   {marked && <Star />}

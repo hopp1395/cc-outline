@@ -84,6 +84,18 @@ describe("TodoView", () => {
     view.unmount();
   });
 
+  it("shows ◐ for a list with some items done and the others open, ✓ once all are done", async () => {
+    const { view } = show();
+    await expect.poll(view.frame).toContain("☰ Umbau");
+    await view.press("\r");
+    await view.press(" ");
+    await expect.poll(view.frame).toContain("◐ Umbau");
+    await view.press(" ");
+    await view.press(" ");
+    await expect.poll(view.frame).toContain("✓ Umbau");
+    view.unmount();
+  });
+
   it("marks a list with Space, orders them with s and filters them with Ctrl+F", async () => {
     updateTodos(cwd, (lists) => [...lists, newList("Zweite", [{ text: "Etwas ganz anderes" }])]);
     const { view } = show();

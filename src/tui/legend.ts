@@ -142,7 +142,7 @@ export const LEGENDS: Record<Mode, ShortMark[]> = {
     { mark: "○", color: "2", short: "open" },
     { mark: "◐", color: "33", short: "sent to Claude" },
     { mark: "✓", color: "32", short: "done" },
-    { mark: "◐", color: "33", short: "list with an item sent to Claude" },
+    { mark: "◐", color: "33", short: "list being worked off (an item sent, or some done)" },
     { mark: "☰", short: "list" },
   ],
   accounts: [
