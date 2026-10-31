@@ -18,7 +18,7 @@ cco setup
 
 Restart Claude Code and type `/cco:chat`. Details are in [Installation](#installation).
 
-`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal, WezTerm or tmux. It has seven views:
+`cc-outline` (command `cco`) is a terminal viewer for Claude Code that runs in a split pane next to it, in Windows Terminal, WezTerm or tmux. It has eight views:
 
 - **Chat** renders the answers of the current session as proper Markdown: headings, lists, tables and code blocks with syntax highlighting. It follows the session live.
 - **Changes** lists the files changed in the git repository, and in the repositories in the folders below, and shows their diffs with syntax highlighting.
@@ -26,6 +26,7 @@ Restart Claude Code and type `/cco:chat`. Details are in [Installation](#install
 - **Sessions** gives an overview of your sessions across all projects: when, where, how long, which plans and which changed files. From there a session continues in a new terminal tab, in another Claude account, is exported (Markdown, JSON and a backup to import elsewhere), or goes to the trash. With several accounts it lists their sessions too, each marked in its account's colour.
 - **Monitor** charts how fast Claude answered over the day: output tokens per second, the wait for the first block and the number of responses, compared with the usual values at that time, plus errors such as usage limits.
 - **Accounts** (`0`, or a click on the "cco" at the left of the top bar) lists the Claude accounts on this machine (config folders `~/.claude*`) with their details: organization, plan, colour, whether the cco plugin runs there, the Claude Codes running with them and their sessions of this project. `Enter` on an account offers to continue the current session there, to start a new session there, or to open its config folder. It also sets up a new account (config folder, start script, cco plugin) and moves one you no longer need to a trash. See [Sessions and accounts](#sessions-and-accounts).
+- **Todo** (`7`) keeps to-do lists made from Claude's answers, for example a work plan in blocks. `T` in Chat cuts the selected answer into its numbered points, headings, bold label lines or bullet points; in the Todo view `Enter` sends one item to Claude Code and `Space` ticks it off. See [Todo view](#todo-view).
 - **Settings** lists all options in one place: whether the viewer opens by itself when Claude Code starts, and the display options of the other views.
 
 Besides the pane, the **Remote Control Viewer** (`cco rc-viewer` or `/cco:rc-viewer`) is a window of its own that watches every session at once: of every project and account on this machine, and the Remote Control sessions on other machines. It shows which ones wait for you, lets you answer them and sends them prompts. See [Every session in one window](#every-session-in-one-window).
@@ -473,6 +474,19 @@ Below the chart: the day's overall index, median speed and wait against the usua
 
 **Limits.** It measures only your own sessions, so it shows how fast Claude answered you, not the load of the service as a whole. Speed depends on the model, the effort and how much Claude thinks. Transient API errors (overloaded, rate limits, retries) appear only briefly in Claude Code and are not written to transcripts, so they are missing here.
 
+## Todo view
+
+The Todo view (`7`, or `/cco:todo`) keeps to-do lists of the project, to work off a plan from a Claude answer block by block instead of all at once.
+
+**Making a list.** In Chat, select the turn whose answer holds the plan and press `T`. A dialog cuts the answer into blocks: the numbered points, else the headings, else the bold label lines (`**Block 1: …**` with bullet points below), else the bullet points (`s` takes another cut if the answer has one, two blocks at least). `Space` leaves a block out, `Enter` makes the list, named after the prompt. A block keeps its sub-points.
+
+**Working it off.** The lists are on the left with how many items are done; `Enter` moves the keys to the items on the right, `Esc` back. The selected item shows its whole text. In the items:
+- `Enter` types the item's text into Claude Code's prompt line and sends it (the same way as the [prompt editor](#prompt-editor), so only beside Claude Code), and marks the item `◐` sent. While Claude is still working it asks first; Claude Code queues the prompt.
+- `Space` (or `x`) ticks an item off `✓`, `o` sets it back to `○`. Nothing is ticked off for you: whether the block is really done is yours to say.
+- `a` adds an item, `m` edits it, `d` deletes it, `J`/`K` move it down and up. In the list of lists `m` renames and `d` deletes a list; both ask first.
+
+The lists belong to the project, whichever session made them. The tab can be hidden in Settings (*Todo: tab*).
+
 ## Accounts view
 
 The Accounts view (`0`, a click on the "cco" at the left of the top bar, or `/cco:accounts`) has no tab of its own: the "cco", in the account's colour, is its tab and shows inverted while the view is open. The list holds the active account (the one of the Claude Code the viewer follows, `●`) first, then the other accounts found (`○`, each in its colour) by email, by folder or the one used last first (*accounts order*, `s` goes round; last use is the latest prompt in its `history.jsonl`), then *how accounts are found* and *how to add an account*; without any account, a note says to sign in with `/login`. The details of an account show its email (an API profile: server and model), name, organization, billing, seat and rate limit tier, the `.claude.json` they come from and its colour (chosen in that folder's settings, or from the email); whether the cco plugin is installed and enabled in its config folder and where its marketplace comes from; the Claude Codes running with it now (project, working / waiting / idle, every 3 seconds); and the sessions of this project in its folder (how many, when the last was written and its title, and how many went on in another account `⇢` or came from one `⇠`). The rest is read again every 30 seconds and with `F5`.
@@ -596,7 +610,7 @@ The help line lists the keys of the current view. Options that are on (`f follow
 
 | Key | Chat | Changes | Plan | Sessions |
 |---|---|---|---|---|
-| `0` – `6` | switch view (`0`: Accounts) | switch view | switch view | switch view |
+| `0` – `7` | switch view (`0`: Accounts) | switch view | switch view | switch view |
 | `Tab` / `Shift+Tab`, `→` / `←` | next / previous view | next / previous view | next / previous view | next / previous view |
 | `↑` / `↓` | previous / next turn | previous / next file | previous / next plan | previous / next session |
 | `Home` / `End`, `g` / `G` | first / last turn (`End` and `G` resume follow mode) | first / last file | first / last plan (`End` and `G` resume following) | first / last session |

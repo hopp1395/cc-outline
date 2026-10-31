@@ -21,7 +21,7 @@ describe("← and → in the viewer", () => {
   const layout: Layout = { columns: 140, rows: 30, listWidth: 40, previewWidth: 97, bodyHeight: 26 };
 
   it("switch to the previous and next shown view, wrapping around", async () => {
-    updateSettings({ viewMonitor: false });
+    updateSettings({ viewMonitor: false, viewTodo: false });
     const view = renderInk(<App cwd={mkdtempSync(join(tmpdir(), "cco-view-arrows-app-"))} sessionId="none" initialMode="settings" />, layout, {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });

@@ -121,7 +121,7 @@ describe("the Accounts view", () => {
     updateSettings({ viewAccounts: false });
     expect(tabAt(1, readSettings(), "chat")).toBeUndefined();
     expect(isViewShown(readSettings(), "accounts")).toBe(false);
-    expect(nextShownView(readSettings(), "chat", -1)).toBe("settings");
+    expect(nextShownView(readSettings(), "chat", -1)).toBe("todo");
   });
 
   it("reads the sessions of the project in another account without reading them in full", () => {

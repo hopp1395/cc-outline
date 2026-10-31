@@ -183,6 +183,7 @@ export interface Settings {
   planListWidth: ListWidth;
   sessionsListWidth: ListWidth;
   monitorListWidth: ListWidth;
+  todoListWidth: ListWidth;
   settingsListWidth: ListWidth;
   accountsListWidth: ListWidth;
   /** Remote Control Viewer (`cco rc-viewer`): the width of its sessions list (left) and of the selected session's turn list (middle); the chat takes the rest. */
@@ -198,6 +199,7 @@ export interface Settings {
   viewPlan: boolean;
   viewSessions: boolean;
   viewMonitor: boolean;
+  viewTodo: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -242,6 +244,7 @@ export const DEFAULT_SETTINGS: Settings = {
   planListWidth: "normal",
   sessionsListWidth: "normal",
   monitorListWidth: "normal",
+  todoListWidth: "normal",
   settingsListWidth: "normal",
   accountsListWidth: "normal",
   rcViewerSessionsWidth: "normal",
@@ -253,6 +256,7 @@ export const DEFAULT_SETTINGS: Settings = {
   viewPlan: true,
   viewSessions: true,
   viewMonitor: true,
+  viewTodo: true,
 };
 
 /** The setting that shows or hides each view; Settings has none, so the way back is always there, nor Accounts, which has no tab of its own ("cco"). */
@@ -262,18 +266,20 @@ export const VIEW_SETTINGS: Record<Exclude<Mode, "settings" | "accounts">, keyof
   plan: "viewPlan",
   sessions: "viewSessions",
   monitor: "viewMonitor",
+  todo: "viewTodo",
 };
 
 /** The setting of each view's list width. */
 export const LIST_WIDTH_SETTINGS: Record<
   Mode,
-  "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "settingsListWidth" | "accountsListWidth"
+  "chatListWidth" | "gitListWidth" | "planListWidth" | "sessionsListWidth" | "monitorListWidth" | "todoListWidth" | "settingsListWidth" | "accountsListWidth"
 > = {
   chat: "chatListWidth",
   git: "gitListWidth",
   plan: "planListWidth",
   sessions: "sessionsListWidth",
   monitor: "monitorListWidth",
+  todo: "todoListWidth",
   settings: "settingsListWidth",
   accounts: "accountsListWidth",
 };
@@ -369,7 +375,7 @@ export function isViewShown(settings: Settings, mode: Mode): boolean {
 }
 
 /** The views in tab order. */
-const TAB_ORDER: Mode[] = ["accounts", "chat", "git", "plan", "sessions", "monitor", "settings"];
+const TAB_ORDER: Mode[] = ["accounts", "chat", "git", "plan", "sessions", "monitor", "settings", "todo"];
 
 /** The shown view after (`step` 1) or before (-1) `mode` in tab order, wrapping around; for Tab and Shift+Tab. */
 export function nextShownView(settings: Settings, mode: Mode, step: 1 | -1): Mode {
@@ -411,6 +417,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   planListWidth: LIST_WIDTH_VALUES,
   sessionsListWidth: LIST_WIDTH_VALUES,
   monitorListWidth: LIST_WIDTH_VALUES,
+  todoListWidth: LIST_WIDTH_VALUES,
   settingsListWidth: LIST_WIDTH_VALUES,
   accountsListWidth: LIST_WIDTH_VALUES,
   rcViewerSessionsWidth: LIST_WIDTH_VALUES,

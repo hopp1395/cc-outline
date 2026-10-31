@@ -10,7 +10,8 @@ import type { Layout } from "../src/tui/layout.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 import { renderInk, until } from "./helpers/ink.js";
 
-const layout: Layout = { columns: 120, rows: 26, listWidth: 40, previewWidth: 77, bodyHeight: 22 };
+// Wide enough for the tab bar (with 7 Todo) and the status, where the error shows.
+const layout: Layout = { columns: 140, rows: 26, listWidth: 40, previewWidth: 97, bodyHeight: 22 };
 const DOWN = "\u001b[B";
 
 const realFetch = remote.fetch;

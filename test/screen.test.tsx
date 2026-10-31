@@ -27,7 +27,7 @@ describe("Screen top bar", () => {
   });
 
   it("leaves the version out rather than cutting the status", async () => {
-    const tabs = "cco  1 Chat  2 Changes  3 Plan  4 Sessions  5 Monitor  6 Settings  ".length;
+    const tabs = "cco  1 Chat  2 Changes  3 Plan  4 Sessions  5 Monitor  6 Settings  7 Todo  ".length;
     const status = "x".repeat(160 - tabs - 3);
     const line = await topBar(160, status);
     expect(line).toContain(status);
@@ -35,7 +35,7 @@ describe("Screen top bar", () => {
   });
 
   it("shows the version again once the status is short enough", async () => {
-    const tabs = "cco  1 Chat  2 Changes  3 Plan  4 Sessions  5 Monitor  6 Settings  ".length;
+    const tabs = "cco  1 Chat  2 Changes  3 Plan  4 Sessions  5 Monitor  6 Settings  7 Todo  ".length;
     const status = "x".repeat(160 - tabs - ` v${VERSION} `.length);
     expect(await topBar(160, status)).toContain(`${status} v${VERSION}`);
   });

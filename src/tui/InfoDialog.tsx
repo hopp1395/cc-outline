@@ -117,6 +117,17 @@ const KEYS: Record<Mode, [string, string][]> = {
     ["m", "model"],
     ...COMMON_KEYS,
   ],
+  todo: [
+    ...LIST_KEYS("list"),
+    ["↵ esc", "items / back to the lists"],
+    ["↵ in items", "send the item to Claude"],
+    ["␣ x o", "done / done / open"],
+    ["a m d", "add, edit, delete"],
+    ["J K", "move the item down, up"],
+    ["m d", "rename, delete the list"],
+    ["T in Chat", "to-do list from the answer"],
+    ...COMMON_KEYS,
+  ],
   accounts: [
     ...LIST_KEYS("account"),
     ["↵ s", "actions / order: email → folder → last used"],
@@ -155,7 +166,7 @@ const VIEWER_KEYS = new Set(["Tab → ⇧Tab ←", "p", "r"]);
 /** Its two views, in place of the six. */
 const VIEWER_VIEW_KEYS: [string, string] = ["1 6 ← →", "chat / settings"];
 
-const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor", accounts: "Accounts" };
+const VIEW_TITLES: Record<Mode, string> = { chat: "Chat", git: "Changes", plan: "Plan", sessions: "Sessions", settings: "Settings", monitor: "Monitor", accounts: "Accounts", todo: "Todo" };
 
 const MAX_WIDTH = 78;
 const LABEL_WIDTH = 11;
