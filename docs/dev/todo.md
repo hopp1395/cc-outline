@@ -1,6 +1,6 @@
 # To-do lists
 
-A to-do list is a work plan cut out of one of Claude's answers (blocks of an implementation plan, say), worked off item by item: each item is sent to Claude Code on its own and ticked off by hand. Code: `src/todos.ts` (model, cutting, storage), `src/tui/TodoView.tsx` (view `todo`, key `7`), `src/tui/TodoCreateDialog.tsx` (`T` in Chat).
+A to-do list is a work plan cut out of one of Claude's answers (blocks of an implementation plan, say), worked off item by item: each item is sent to Claude Code on its own and ticked off by hand. Code: `src/todos.ts` (model, storage), `src/todoBlocks.ts` (Claude finds the blocks), `src/tui/TodoView.tsx` (view `todo`, key `7`), `src/tui/TodoCreateDialog.tsx` (`T` in Chat).
 
 ## Storage
 
@@ -10,7 +10,13 @@ An item is `{ id, text, status }`; `text` is the block's Markdown with its sub-p
 
 ## Cutting an answer into blocks
 
-`findBlocks(markdown)` runs marked's lexer over the answer (the text blocks of the selected turn joined) and returns the cuts that exist, each needing at least two blocks: `numbered` (the first top-level ordered list), `headings` (the deepest level used at least twice; a block runs to the next heading of that level, deeper headings stay inside it), `labels` (paragraphs that are only bold text, "**Block 1: Resources**", each with what follows up to the next one: how Claude often writes work blocks, with bullet points below), `table` (the first table with two rows at least, a row per block: columns that hold only numbers, like `#`, are left out, the first other column is the block's title and the other cells follow below it), `bullets` (the first unordered list). `firstSource` prefers them in that order, so the bullets inside labelled blocks are not taken for the blocks; the dialog's `s` steps through the others, Space leaves a block out. Items are flat: sub-points belong to their block's text.
+`T` has Claude find the work blocks (`askBlocks`): the only place where the viewer runs Claude and spends the account's usage (about 0.1 cents a run with Haiku, 8 to 20 s), and only when the user asks. It used to be a parser with an order of cuts (numbered list, headings, bold labels, table, bullets), which took the questions at the end of an answer for the plan and could not see a plan spread over two tables; the shapes Claude writes a plan in are too many to rank.
+
+The run gets the answer (the text blocks of the selected turn joined, as they were when the dialog opened) on stdin. `blocksArgs` makes it leave no trace: `-p --no-session-persistence` (no transcript for Sessions and Monitor), `--settings {"disableAllHooks":true}` (`cco hook` would make it the project's active session and could open a viewer), no tools, skills or MCP servers. `--bare` cannot be used: it reads no keychain, so no subscription login. It runs in the temp folder (no project's `CLAUDE.md`), with `independentEnv` under the viewer's config folder, through the shell on Windows (a `.cmd` shim); stopping it there takes `taskkill /t`, since killing the shell would leave claude running. `TIMING.todoBlocks` limits it to 60 s. Under an API profile the model name `haiku` may not exist: the dialog then shows the error.
+
+`--json-schema` makes it return `{ blocks: [{ title, section, text }] }`, checked by `parseBlocks`. An item's text is the title, the section (only where the blocks stand under more than one heading, a decision of `blockText`, not of the model), then the rest; items are flat. The prompt asks for titles as written (with "Block 2:", since blocks refer to each other that way), and for a table row's cells as `Column: value` lines. Nothing checks that the text is word for word: on 16 real answers no word was foreign, and the Todo view shows the whole text before it is sent. On answers that hold no plan the result varies between runs (nothing, or the steps it finds); that is why the dialog comes before the list.
+
+The dialog stays open during the run with the seconds passed (its own, not the `ProgressDialog`: the same dialog goes on with the selection): `Esc` stops the run, afterwards `↑↓`, `Space` leaves a block out, `Enter` makes the list, `r` asks again. Found blocks are remembered per answer while the viewer runs (`rememberedBlocks`), so `T` again costs nothing; errors and empty results are not. Tests fake the run through `proc.spawn` (`test/helpers/fakeClaude.ts`) and never call Claude; after a change of the prompt, try it on real answers.
 
 ## The view
 
