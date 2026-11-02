@@ -38,5 +38,6 @@ Object.assign(TIMING, {
   workflowPoll: 50,
   editAnswer: 300,
   editPoll: 20,
+  questionKeys: 0.05,
   installPoll: 100,
 } satisfies typeof TIMING);

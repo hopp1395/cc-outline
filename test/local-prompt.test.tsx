@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { recordLocalRequest } from "../src/localRequest.js";
 import { proc } from "../src/proc.js";
 import { questionAnswerSteps } from "../src/switchSession.js";
+import { TIMING } from "../src/timing.js";
 import { setSessionViewer } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import { App } from "../src/tui/App.js";
@@ -29,6 +30,10 @@ describe("why a prompt cannot be typed into a session of this machine", () => {
 });
 
 describe("the keys that answer Claude Code's question dialog", () => {
+  // The pauses as tried on Claude Code, not the tests' shortened ones.
+  const shortened = TIMING.questionKeys;
+  beforeAll(() => void (TIMING.questionKeys = 1));
+  afterAll(() => void (TIMING.questionKeys = shortened));
   const options = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `o${i}` }));
   const DOWN = ["\u0000", 0x28, 0, 150];
   it("picks one answer by its digit, a typed one on the row after the options, and sends a single one at once", () => {

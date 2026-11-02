@@ -1,4 +1,5 @@
 import { proc } from "./proc.js";
+import { TIMING } from "./timing.js";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { detectTerminal, weztermCli, type Terminal } from "./open.js";
@@ -84,9 +85,11 @@ const enter = (wait = 0): KeyStep => ["\r", 13, 0, wait];
 export const ESCAPE: KeyStep[] = [["\u001b", 0x1b, 0, 0]];
 
 /** ↓: the next row of a list in Claude Code. No character; tmux and WezTerm send the key's own sequence. */
-const DOWN: KeyStep = ["\u0000", 0x28, 0, 150];
+const down = (): KeyStep => ["\u0000", 0x28, 0, pause(150)];
 /** A digit, which picks that row of Claude Code's question (and goes on, unless several can be checked). */
-const digit = (n: number, wait = 300): KeyStep => [String(n), 0, 0, wait];
+const digit = (n: number, wait = 300): KeyStep => [String(n), 0, 0, pause(wait)];
+/** A pause after a key of the question's answer, for Claude Code to draw the next state; tests shorten them (`TIMING.questionKeys`). */
+const pause = (ms: number) => Math.round(ms * TIMING.questionKeys);
 
 /**
  * The keys that answer Claude Code's AskUserQuestion dialog in its terminal as `picks` say (per question the rows
@@ -105,13 +108,13 @@ export function questionAnswerSteps(questions: { multiSelect?: boolean; options:
     const count = q.options.length;
     if (!q.multiSelect) {
       if (pick.picked.length) return void steps.push(digit(pick.picked[0]! + 1));
-      steps.push(digit(count + 1), [other ?? "", 0, 0, 300], enter(400));
+      steps.push(digit(count + 1), [other ?? "", 0, 0, pause(300)], enter(pause(400)));
       return;
     }
     for (const p of pick.picked) steps.push(digit(p + 1, 200));
-    if (other) steps.push(digit(count + 1, 200), ...Array.from({ length: count }, () => DOWN), [other, 0, 0, 300], DOWN);
-    else steps.push(...Array.from({ length: count + 1 }, () => DOWN));
-    steps.push(enter(400));
+    if (other) steps.push(digit(count + 1, 200), ...Array.from({ length: count }, down), [other, 0, 0, pause(300)], down());
+    else steps.push(...Array.from({ length: count + 1 }, down));
+    steps.push(enter(pause(400)));
   });
   if (questions.length > 1 || questions[0]?.multiSelect) steps.push(digit(1, 0));
   return steps;

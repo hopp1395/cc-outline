@@ -35,4 +35,6 @@ export const TIMING = {
   editPoll: 150,
   /** How often a viewer run from a linked checkout looks whether `npm install -g` replaced the link (the switch to the release). */
   installPoll: 5000,
+  /** The share of the pauses between the keys that answer Claude Code's question dialog (1: as tried on 2.1.316). */
+  questionKeys: 1,
 };
