@@ -1,20 +1,23 @@
 import { Text, useInput } from "ink";
-import { useMemo, useState } from "react";
-import { BLOCK_SOURCES, findBlocks, firstSource, itemTitle, type Block, type BlockSource } from "../todos.js";
+import { useEffect, useState } from "react";
+import { askBlocks, BLOCKS_MODEL, rememberedBlocks } from "../todoBlocks.js";
+import { itemTitle, type Block } from "../todos.js";
 import { Dialog, truncate, type Layout } from "./layout.js";
 
 const MAX_WIDTH = 76;
 
-const SOURCE_LABEL: Record<BlockSource, string> = { numbered: "numbered points", headings: "headings", labels: "bold labels", table: "table rows", bullets: "bullet points" };
+const MODEL_NAME = BLOCKS_MODEL[0]!.toUpperCase() + BLOCKS_MODEL.slice(1);
+
+type Run = { state: "running" } | { state: "failed"; message: string } | { state: "done"; blocks: Block[] };
 
 /**
- * Cuts an answer into blocks for a to-do list: the numbered points, else the headings, else the bold label lines, else the rows of a table, else the bullet points
- * (`s` takes the next way, if the answer has one). ↑↓ move, Space leaves a block out or takes it in, Enter makes
- * the list of the blocks taken, Esc cancels. Takes all keys while open.
+ * Has Claude find the work blocks of an answer, then makes a to-do list of them (`src/todoBlocks.ts`): Esc stops the
+ * run. Afterwards ↑↓ move, Space leaves a block out or takes it in, Enter makes the list of the blocks taken, r asks
+ * again, Esc cancels. Takes all keys while open.
  */
 export function TodoCreateDialog({
   layout,
-  markdown,
+  markdown: shownAnswer,
   name,
   onCreate,
   onClose,
@@ -27,16 +30,45 @@ export function TodoCreateDialog({
   onCreate: (name: string, blocks: Block[]) => void;
   onClose: () => void;
 }) {
-  const found = useMemo(() => findBlocks(markdown), [markdown]);
-  const sources = BLOCK_SOURCES.filter((s) => found[s]?.length);
-  const [source, setSource] = useState<BlockSource | undefined>(() => firstSource(found));
-  const blocks = source ? (found[source] ?? []) : [];
+  // The answer as it was when the dialog opened: one still being written must not start a run per line.
+  const [markdown] = useState(shownAnswer);
+  // A new value starts a run, past what was found before; 0 takes that if there is any.
+  const [asked, setAsked] = useState(0);
+  const [run, setRun] = useState<Run>(() => {
+    const known = rememberedBlocks(markdown);
+    return known ? { state: "done", blocks: known } : { state: "running" };
+  });
+  const [seconds, setSeconds] = useState(0);
   const [left, setLeft] = useState<Set<number>>(new Set());
   const [selected, setSelected] = useState(0);
+  const blocks = run.state === "done" ? run.blocks : [];
   const taken = blocks.filter((_, i) => !left.has(i));
+
+  useEffect(() => {
+    if (asked === 0 && rememberedBlocks(markdown)) return;
+    setRun({ state: "running" });
+    setSeconds(0);
+    setLeft(new Set());
+    setSelected(0);
+    const started = askBlocks(markdown);
+    let current = true;
+    started.result.then(
+      (found) => current && setRun({ state: "done", blocks: found }),
+      (err: Error) => current && setRun({ state: "failed", message: err.message }),
+    );
+    const clock = setInterval(() => setSeconds((s) => s + 1), 1000);
+    void started.result.catch(() => {}).finally(() => clearInterval(clock));
+    return () => {
+      current = false;
+      clearInterval(clock);
+      started.cancel();
+    };
+  }, [asked, markdown]);
 
   useInput((input, key) => {
     if (key.escape) return onClose();
+    if (run.state === "running") return;
+    if (input === "r") return setAsked((a) => a + 1);
     if (key.upArrow) return setSelected((s) => Math.max(0, s - 1));
     if (key.downArrow) return setSelected((s) => Math.min(blocks.length - 1, s + 1));
     if (key.home) return setSelected(0);
@@ -48,11 +80,6 @@ export function TodoCreateDialog({
         return next;
       });
     }
-    if (input === "s" && sources.length > 1 && source) {
-      setSource(sources[(sources.indexOf(source) + 1) % sources.length]);
-      setLeft(new Set());
-      return setSelected(0);
-    }
     if (key.return && taken.length) {
       onClose();
       onCreate(name, taken);
@@ -62,16 +89,25 @@ export function TodoCreateDialog({
   const width = Math.min(MAX_WIDTH, layout.columns - 4);
   const rows = Math.max(1, Math.min(blocks.length || 1, layout.rows - 10));
   const first = Math.max(0, Math.min(selected - Math.floor(rows / 2), blocks.length - rows));
+  const help = run.state === "running" ? "Esc stop" : blocks.length ? "↑↓ move · Space leave out · ↵ create · r ask again · Esc cancel" : "r ask again · Esc close";
   // Title, blank, the rows, blank, keys, plus the border.
   return (
     <Dialog layout={layout} width={width} height={rows + 6}>
       <Text bold color="cyan" wrap="truncate">
-        {source ? `To-do list from ${SOURCE_LABEL[source]} · ${taken.length} of ${blocks.length}` : "To-do list"}
+        {blocks.length ? `To-do list · ${taken.length} of ${blocks.length}` : "To-do list"}
       </Text>
       <Text> </Text>
-      {blocks.length === 0 ? (
+      {run.state === "running" ? (
         <Text dimColor wrap="truncate">
-          No numbered points, headings or bullet points (two at least) in this answer.
+          Claude ({MODEL_NAME}) reads the answer… {seconds} s
+        </Text>
+      ) : run.state === "failed" ? (
+        <Text color="red" wrap="truncate">
+          ✗ {run.message}
+        </Text>
+      ) : blocks.length === 0 ? (
+        <Text dimColor wrap="truncate">
+          Claude found no work blocks in this answer.
         </Text>
       ) : (
         blocks.slice(first, first + rows).map((b, n) => {
@@ -87,7 +123,7 @@ export function TodoCreateDialog({
       )}
       <Text> </Text>
       <Text dimColor wrap="truncate">
-        ↑↓ move · Space leave out{sources.length > 1 ? " · s other cut" : ""} · ↵ create · Esc cancel
+        {help}
       </Text>
     </Dialog>
   );

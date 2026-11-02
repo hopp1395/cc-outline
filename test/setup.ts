@@ -40,4 +40,5 @@ Object.assign(TIMING, {
   editPoll: 20,
   questionKeys: 0.05,
   installPoll: 100,
+  todoBlocks: 100,
 } satisfies typeof TIMING);
