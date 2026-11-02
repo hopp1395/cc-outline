@@ -149,7 +149,7 @@ const sameRunning = (a: Map<string, RunningSession>, b: Map<string, RunningSessi
   a.size === b.size &&
   [...a].every(([id, r]) => {
     const o = b.get(id);
-    return o !== undefined && o.pid === r.pid && o.activity === r.activity && o.name === r.name;
+    return o !== undefined && o.pid === r.pid && o.activity === r.activity && o.since === r.since && o.name === r.name;
   });
 
 /**

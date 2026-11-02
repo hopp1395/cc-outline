@@ -35,6 +35,7 @@ import { useAccountState } from "./useAccount.js";
 import { useClipboard } from "./useClipboard.js";
 import { useLocalPrompt } from "./useLocalPrompt.js";
 import { useLocalRequest } from "./useLocalRequest.js";
+import { questionsOf } from "./QuestionDialog.js";
 import { localRequestSummary } from "../localRequest.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
 import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers, withNames } from "./useSessionData.js";
@@ -213,9 +214,11 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // An ended session of this machine continues from the Enter dialog.
   const channel: PromptChannel = remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: "not running: Enter continues it in a new window" });
   const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
-  const canCompose = session !== undefined && (!channel.blocked || pending !== undefined);
-  // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal.
-  const asked = useLocalRequest(session && !session.remote ? session.id : undefined, path, entry?.state === "waiting" && !pending, session?.account);
+  // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal; a question
+  // also in the line below the chat, its answer typed into its Claude Code.
+  const asked = useLocalRequest(session && !session.remote ? session.id : undefined, path, entry?.state === "waiting" && !pending, session?.account, entry?.running?.since);
+  const localQuestion = asked?.kind === "question" && channel.answerQuestion !== undefined && questionsOf(asked.input).length > 0 ? asked : undefined;
+  const canCompose = session !== undefined && (!channel.blocked || pending !== undefined || localQuestion !== undefined);
   // The chat and the lists leave the prompt line its rows.
   const layout = session ? shorter(full, composerRows) : full;
 
@@ -272,6 +275,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       running: e.running,
       bridge: e === entry && bridge ? { control: remoteControl, pending } : undefined,
       asked: e === entry && asked ? localRequestSummary(asked, 52) : undefined,
+      localQuestion: e === entry && localQuestion ? (questionsOf(localQuestion.input)[0]?.question ?? "") : undefined,
       canSteer: !s.remote && !s.account && !(e === entry && bridge) && remoteApi && remoteControl,
       promptBlocked: s.remote ? undefined : channel.blocked,
       folderMissing: !s.remote && !existsSync(dir),

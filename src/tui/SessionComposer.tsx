@@ -8,7 +8,7 @@ import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/us
 import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
 import { pastable, promptRows } from "./PromptDialog.js";
-import { QuestionDialog, questionsOf } from "./QuestionDialog.js";
+import { QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
 import { useClipboard } from "./useClipboard.js";
 import { permissionResponse, requestRows, toolInputLines } from "./useRemoteControl.js";
@@ -105,6 +105,11 @@ export interface PromptChannel {
   interrupt(): Promise<void>;
   /** Answers a request the session waits for; only a remote session's are known. */
   respond?(requestId: string, response: Record<string, unknown>): Promise<void>;
+  /**
+   * Answers the question a session of this machine waits for in its terminal (its hooks recorded it, `asked`): the
+   * picks typed into its Claude Code's dialog. Only where keys reach it.
+   */
+  answerQuestion?(questions: Question[], picks: Answer[]): Promise<void>;
 }
 
 /**
@@ -151,7 +156,8 @@ export function SessionComposer({
   hint?: [string, string];
   /**
    * What a session of this machine waits for, as its hooks recorded it: shown in the line's place while it waits,
-   * read-only, since it is answered in its terminal; `where` says how to get there.
+   * read-only, since it is answered in its terminal (`where` says how to get there); a question the channel can
+   * answer (`answerQuestion`) gets the question dialog, its answer typed in there.
    */
   asked?: { request: LocalRequest; where: string };
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
@@ -180,7 +186,11 @@ export function SessionComposer({
   const copy = useClipboard();
   // A request can be answered only where the channel can respond (remote).
   const request = channel.respond && !channel.blocked ? pending : undefined;
-  const isQuestion = request?.toolName === "AskUserQuestion" && questionsOf(request.input).length > 0;
+  // A question of this machine's session, answered by typing into its terminal: once, and not one answered elsewhere.
+  const askedKey = asked ? `${asked.request.sessionId}:${asked.request.at}` : undefined;
+  const localQuestions = !request && asked?.request.kind === "question" && channel.answerQuestion && answered.current !== askedKey ? questionsOf(asked.request.input) : [];
+  const localQuestion = localQuestions.length > 0;
+  const isQuestion = (request?.toolName === "AskUserQuestion" && questionsOf(request.input).length > 0) || localQuestion;
 
   // A new request starts on Allow; one answered elsewhere drops what was typed for it, into the clipboard.
   const shown = useRef<{ key?: string; id?: string }>({ key: draftKey });
@@ -202,8 +212,8 @@ export function SessionComposer({
 
   // Blocked while it has the keys (the session ended, Claude waits in its terminal): the chat takes them back.
   useEffect(() => {
-    if (focused && channel.blocked && !request) onFocus(false);
-  }, [focused, channel.blocked, request]);
+    if (focused && channel.blocked && !request && !localQuestion) onFocus(false);
+  }, [focused, channel.blocked, request, localQuestion]);
 
   const picker = useCommandPicker(line.text, line.cursor, focused && !channel.blocked && !request ? commands : undefined);
 
@@ -320,7 +330,34 @@ export function SessionComposer({
 
   let body;
   let color = "yellow";
-  if (request && isQuestion) {
+  if (localQuestion) {
+    body = (
+      <QuestionDialog
+        key={askedKey}
+        inline
+        active={focused}
+        layout={layout}
+        title={`Claude asks · ${truncate(title, 40)}`}
+        questions={localQuestions}
+        onSend={(_, picks) => {
+          const key = askedKey;
+          answered.current = key;
+          setTyped("");
+          onFocus(false);
+          channel.answerQuestion!(localQuestions, picks).then(
+            () => notify("answer typed into its Claude Code"),
+            (err: Error) => {
+              // Not typed: the dialog comes back, to try again or answer in its terminal.
+              if (answered.current === key) answered.current = undefined;
+              notify(`not typed: ${err.message}`);
+            },
+          );
+        }}
+        onCancel={() => onFocus(false)}
+        onTyped={setTyped}
+      />
+    );
+  } else if (request && isQuestion) {
     body = (
       <QuestionDialog
         inline

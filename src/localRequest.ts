@@ -26,7 +26,8 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 export function recordLocalRequest(input: { hook_event_name?: string; session_id?: string; tool_name?: string; tool_input?: unknown }, now = Date.now()): void {
   const { session_id: sessionId, tool_name: toolName, tool_input: toolInput } = input;
   if (!sessionId || !toolName || !isObject(toolInput)) return;
-  const kind = input.hook_event_name === "PermissionRequest" ? "permission" : toolName === "AskUserQuestion" ? "question" : undefined;
+  // Claude Code (2.1.3xx) also sends a PermissionRequest for AskUserQuestion, right after its PreToolUse: still a question.
+  const kind = toolName === "AskUserQuestion" ? "question" : input.hook_event_name === "PermissionRequest" ? "permission" : undefined;
   if (!kind) return;
   const file = localRequestFile(sessionId);
   mkdirSync(dirname(file), { recursive: true });
@@ -38,21 +39,28 @@ export function clearLocalRequest(sessionId: string): void {
   rmSync(localRequestFile(sessionId), { force: true });
 }
 
+/** How long before the session's status turned to waiting its hook may have written the request (it comes ~0.3 s after). */
+const WAIT_SLACK_MS = 5000;
+
 /**
  * The request the session waits for now, if its hooks recorded one: only while Claude Code says it waits, and only one
- * written after the transcript's last write (once it is answered, Claude Code writes the call and its result).
+ * written as it began to wait (`waitingSince`, the status file's `statusUpdatedAt`): an older one was answered. Without
+ * it, one written after the transcript's last write (once it is answered, Claude Code writes the call and its result);
+ * that is only a fallback, since Claude Code also touches the transcript while it waits, without writing to it.
  */
-export function readLocalRequest(sessionId: string, transcript: string | undefined): LocalRequest | undefined {
+export function readLocalRequest(sessionId: string, transcript: string | undefined, waitingSince?: number): LocalRequest | undefined {
   const request = readJson<LocalRequest>(localRequestFile(sessionId));
   if (!isObject(request) || typeof request.at !== "number" || typeof request.toolName !== "string" || !isObject(request.input)) return undefined;
   if (request.kind !== "question" && request.kind !== "permission") return undefined;
   let written = 0;
   try {
-    if (transcript) written = statSync(transcript).mtimeMs;
+    if (transcript && waitingSince === undefined) written = statSync(transcript).mtimeMs;
   } catch {
     // No transcript yet: nothing was answered after it.
   }
-  return request.at >= written ? request : undefined;
+  if (request.at < (waitingSince === undefined ? written : waitingSince - WAIT_SLACK_MS)) return undefined;
+  // Written as a permission by an older hook (see recordLocalRequest).
+  return request.toolName === "AskUserQuestion" ? { ...request, kind: "question" } : request;
 }
 
 /** Removes the requests of sessions older than `age` (ms): what a session that ended without its hooks left behind. */

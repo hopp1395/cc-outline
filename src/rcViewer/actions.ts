@@ -9,7 +9,8 @@ import type { RcViewerState } from "./state.js";
 /**
  * What Enter in the Remote Control Viewer can do with the selected session:
  * - `switch`: bring the terminal its Claude Code runs in to the front (a local session).
- * - `answer`: answer what a remote session's Claude waits for, in the prompt line's place.
+ * - `answer`: answer what a remote session's Claude waits for, in the prompt line's place; a local session's
+ *   question too, its answer typed into its Claude Code.
  * - `prompt`: write a prompt in the line below the chat.
  * - `interrupt`: stop Claude, like Esc in its terminal.
  * - `steer`: make an idle session of this machine steerable here: `/remote-control` typed into its Claude Code.
@@ -39,6 +40,8 @@ export interface RcViewerSituation {
   canSteer?: boolean;
   /** What a waiting session of this machine asks, as its hooks recorded it, in one line. */
   asked?: string;
+  /** A waiting session of this machine asks a question that can be answered here (typed into its Claude Code): the first question. */
+  localQuestion?: string;
   /** Why a prompt cannot be typed into its Claude Code (`localBlocked`); undefined when it can. */
   promptBlocked?: string;
   /** Its folder is gone: it cannot continue. */
@@ -93,10 +96,12 @@ export function rcViewerOptions(s: RcViewerSituation): { options: ChoiceOption<R
     const through = s.bridge?.control ? "through claude.ai" : undefined;
     const answers = s.state === "waiting" && s.bridge !== undefined;
     if (answers) options.push(answerOption(s.bridge!.pending, s.bridge!.control ? undefined : "steer remote is off (Settings of a viewer)"));
+    const answersHere = s.state === "waiting" && !answers && s.localQuestion !== undefined;
+    if (answersHere) options.push({ id: "answer", label: "Answer Claude's question", detail: s.localQuestion || "in the line below the chat, typed into its Claude Code" });
     options.push({
       id: "switch",
       label: "Bring its terminal to the front",
-      detail: s.state === "waiting" ? (answers ? "or answer it there" : (s.asked ?? "Claude waits there for your answer")) : "the tab or pane its Claude Code runs in",
+      detail: s.state === "waiting" ? (answers || answersHere ? "or answer it there" : (s.asked ?? "Claude waits there for your answer")) : "the tab or pane its Claude Code runs in",
       disabled: switchBlocked(s),
     });
     options.push({
@@ -113,7 +118,7 @@ export function rcViewerOptions(s: RcViewerSituation): { options: ChoiceOption<R
         detail: "types /remote-control into its Claude Code; the first time, it asks once there",
         disabled: s.promptBlocked,
       });
-    preferred = s.state === "idle" ? ["prompt", "switch"] : answers ? ["answer", "switch"] : ["switch", "prompt"];
+    preferred = s.state === "idle" ? ["prompt", "switch"] : answers || answersHere ? ["answer", "switch"] : ["switch", "prompt"];
   }
   options.push(...viewerOptions(s.viewers, s.terminal));
   options.push(renameOption(s.rename));
