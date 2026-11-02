@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { detectTerminal } from "../open.js";
-import { ESCAPE, keysInClaude, prepareConsoleInput, promptSteps, typesIntoConsole, type ConsoleTyper, type KeyStep } from "../switchSession.js";
+import { ESCAPE, keysInClaude, prepareConsoleInput, promptSteps, questionAnswerSteps, typesIntoConsole, type ConsoleTyper, type KeyStep } from "../switchSession.js";
 import type { RunningSession } from "../transcript/trash.js";
 import type { PromptChannel } from "./SessionComposer.js";
 
@@ -19,16 +19,19 @@ export function localBlocked(running: RunningSession | undefined, terminal = det
 
 /**
  * The prompt line's way into a session of this machine: its prompts typed into the Claude Code that runs it, after
- * what is typed there already, and Esc to stop Claude. On Windows the PowerShell that types (`prepareConsoleInput`,
+ * what is typed there already, and Esc to stop Claude. While Claude waits there, only the answer to its question
+ * (`answerQuestion`: the keys of `questionAnswerSteps`) can be typed. On Windows the PowerShell that types (`prepareConsoleInput`,
  * about a second to start) is started while the line has the keys, and again after each use.
  */
 export function useLocalPrompt(running: RunningSession | undefined, focused: boolean): PromptChannel {
   const blocked = localBlocked(running);
+  // Waiting is the only reason it is blocked: the question's dialog can be answered with keys.
+  const answers = blocked !== undefined && running?.activity === "waiting" && localBlocked({ ...running, activity: undefined }) === undefined;
   const pid = running?.pid;
   const typer = useRef<ConsoleTyper>(undefined);
   // Bumped after each use: the next typer starts while the line still has the keys.
   const [used, setUsed] = useState(0);
-  const ahead = focused && !blocked && pid !== undefined && process.platform === "win32" && typesIntoConsole();
+  const ahead = focused && (!blocked || answers) && pid !== undefined && process.platform === "win32" && typesIntoConsole();
   useEffect(() => {
     if (!ahead) return;
     if (!typer.current?.ready()) typer.current = prepareConsoleInput(pid!);
@@ -39,14 +42,19 @@ export function useLocalPrompt(running: RunningSession | undefined, focused: boo
   }, [ahead, pid, used]);
 
   return useMemo((): PromptChannel => {
-    const type = async (steps: KeyStep[]) => {
-      if (pid === undefined || blocked) throw new Error(blocked ?? "not running");
+    const type = async (steps: KeyStep[], answering = false) => {
+      if (pid === undefined || (blocked && !(answering && answers))) throw new Error(blocked ?? "not running");
       const ready = typer.current?.ready() ? typer.current : undefined;
       typer.current = undefined;
       const result = await keysInClaude(pid, steps, ready);
       setUsed((n) => n + 1);
       if (!result.typed) throw new Error(result.message);
     };
-    return { blocked, send: (text) => type(promptSteps(text)), interrupt: () => type(ESCAPE) };
-  }, [pid, blocked]);
+    return {
+      blocked,
+      send: (text) => type(promptSteps(text)),
+      interrupt: () => type(ESCAPE),
+      ...(answers && { answerQuestion: (questions, picks) => type(questionAnswerSteps(questions, picks), true) }),
+    };
+  }, [pid, blocked, answers]);
 }

@@ -3,7 +3,7 @@ import { runningSessions, type RunningSession } from "../transcript/trash.js";
 import { TIMING } from "../timing.js";
 
 const same = (a: RunningSession | undefined, b: RunningSession | undefined) =>
-  a === b || (a !== undefined && b !== undefined && a.pid === b.pid && a.activity === b.activity && a.kind === b.kind && a.jobId === b.jobId);
+  a === b || (a !== undefined && b !== undefined && a.pid === b.pid && a.activity === b.activity && a.since === b.since && a.kind === b.kind && a.jobId === b.jobId);
 
 /**
  * The Claude Code that runs session `id` now (`~/.claude/sessions/<pid>.json` with a live pid), checked every

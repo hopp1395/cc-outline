@@ -83,6 +83,40 @@ const enter = (wait = 0): KeyStep => ["\r", 13, 0, wait];
 /** Esc: Claude Code stops what it does, as when pressed there. */
 export const ESCAPE: KeyStep[] = [["\u001b", 0x1b, 0, 0]];
 
+/** ↓: the next row of a list in Claude Code. No character; tmux and WezTerm send the key's own sequence. */
+const DOWN: KeyStep = ["\u0000", 0x28, 0, 150];
+/** A digit, which picks that row of Claude Code's question (and goes on, unless several can be checked). */
+const digit = (n: number, wait = 300): KeyStep => [String(n), 0, 0, wait];
+
+/**
+ * The keys that answer Claude Code's AskUserQuestion dialog in its terminal as `picks` say (per question the rows
+ * checked, from 0, and the text of its "Type something" row), as tried on Claude Code 2.1.316. One question at a time:
+ * - one answer: its digit picks it and goes on; "Type something" (the row after the options) takes the text and Enter.
+ * - several (`multiSelect`): each digit checks its row and leaves the cursor on the first; the text needs the cursor
+ *   on "Type something" (↓ for each option), then ↓ to Submit below it and Enter goes on.
+ * After the last a review asks once more (1 submits), except for a single question with one answer, which is sent
+ * at once. It starts from the dialog as Claude Code opens it: what was already chosen in its terminal is not undone.
+ */
+export function questionAnswerSteps(questions: { multiSelect?: boolean; options: unknown[] }[], picks: { picked: number[]; other?: string }[]): KeyStep[] {
+  const steps: KeyStep[] = [];
+  questions.forEach((q, i) => {
+    const pick = picks[i] ?? { picked: [] };
+    const other = pick.other?.replace(/\s+/g, " ").trim();
+    const count = q.options.length;
+    if (!q.multiSelect) {
+      if (pick.picked.length) return void steps.push(digit(pick.picked[0]! + 1));
+      steps.push(digit(count + 1), [other ?? "", 0, 0, 300], enter(400));
+      return;
+    }
+    for (const p of pick.picked) steps.push(digit(p + 1, 200));
+    if (other) steps.push(digit(count + 1, 200), ...Array.from({ length: count }, () => DOWN), [other, 0, 0, 300], DOWN);
+    else steps.push(...Array.from({ length: count + 1 }, () => DOWN));
+    steps.push(enter(400));
+  });
+  if (questions.length > 1 || questions[0]?.multiSelect) steps.push(digit(1, 0));
+  return steps;
+}
+
 /** A slash command typed over whatever was typed there (`clear`), then Enter on its own a moment later. */
 export const commandSteps = (text: string): KeyStep[] => [CLEAR, [text, 0, 0, 150], enter()];
 
@@ -140,8 +174,9 @@ export async function keysInClaude(claudePid: number, steps: KeyStep[], typer?: 
     if (!pane) return { typed: false, message: "its WezTerm pane is not known" };
     // A step's characters are the ones its keys send (Ctrl+L is \f, Enter \r); --no-paste writes them as typed.
     // They go through stdin: control characters do not survive a Windows command line.
-    for (const [chars, , , wait] of steps) {
-      const sent = await new Promise<boolean>((resolve) => weztermCli(["send-text", "--pane-id", pane, "--no-paste"], (out) => resolve(out !== undefined), chars));
+    for (const [chars, vk, , wait] of steps) {
+      const text = vk === 0x28 ? "\u001b[B" : chars;
+      const sent = await new Promise<boolean>((resolve) => weztermCli(["send-text", "--pane-id", pane, "--no-paste"], (out) => resolve(out !== undefined), text));
       if (!sent) return { typed: false, message: "it could not be typed into its pane" };
       if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     }
@@ -156,7 +191,7 @@ export async function keysInClaude(claudePid: number, steps: KeyStep[], typer?: 
   const pane = await tmuxPaneOf(claudePid);
   if (!pane) return { typed: false, message: "its tmux pane was not found" };
   for (const [chars, vk, ctrl, wait] of steps) {
-    const keys = ctrl === 8 && vk === 0x4c ? ["C-l"] : ctrl === 8 && vk === 0x4a ? ["C-j"] : vk === 13 ? ["Enter"] : vk === 0x1b ? ["Escape"] : ["-l", chars];
+    const keys = ctrl === 8 && vk === 0x4c ? ["C-l"] : ctrl === 8 && vk === 0x4a ? ["C-j"] : vk === 13 ? ["Enter"] : vk === 0x1b ? ["Escape"] : vk === 0x28 ? ["Down"] : ["-l", chars];
     if ((await run("tmux", ["send-keys", "-t", pane, ...keys])) === undefined) return { typed: false, message: "it could not be typed into its pane" };
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
   }

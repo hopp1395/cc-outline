@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { recordLocalRequest } from "../src/localRequest.js";
 import { proc } from "../src/proc.js";
+import { questionAnswerSteps } from "../src/switchSession.js";
 import { setSessionViewer } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import { App } from "../src/tui/App.js";
@@ -23,6 +25,22 @@ describe("why a prompt cannot be typed into a session of this machine", () => {
     expect(localBlocked({ ...idle, activity: "waiting" }, "tmux", "linux")).toBe("Claude waits for you in its terminal");
     expect(localBlocked(idle, "tmux", "linux")).toBeUndefined();
     expect(localBlocked(idle, "wt", "win32")).toBeUndefined();
+  });
+});
+
+describe("the keys that answer Claude Code's question dialog", () => {
+  const options = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `o${i}` }));
+  const DOWN = ["\u0000", 0x28, 0, 150];
+  it("picks one answer by its digit, a typed one on the row after the options, and sends a single one at once", () => {
+    expect(questionAnswerSteps([{ options: options(3) }], [{ picked: [1] }]).map((s) => s[0])).toEqual(["2"]);
+    expect(questionAnswerSteps([{ options: options(3) }], [{ picked: [], other: "Grün,\n hell" }]).map((s) => s[0])).toEqual(["4", "Grün, hell", "\r"]);
+  });
+  it("checks several by their digits, goes down to Submit, and confirms the review", () => {
+    const steps = questionAnswerSteps([{ options: options(2) }, { multiSelect: true, options: options(3) }], [{ picked: [0] }, { picked: [0, 2] }]);
+    expect(steps).toEqual([["1", 0, 0, 300], ["1", 0, 0, 200], ["3", 0, 0, 200], DOWN, DOWN, DOWN, DOWN, ["\r", 13, 0, 400], ["1", 0, 0, 0]]);
+    // A typed answer: its row checked, the cursor down to it, the text, then down once more to Submit.
+    const typed = questionAnswerSteps([{ multiSelect: true, options: options(2) }], [{ picked: [1], other: "Mango" }]);
+    expect(typed).toEqual([["2", 0, 0, 200], ["3", 0, 0, 200], DOWN, DOWN, ["Mango", 0, 0, 300], DOWN, ["\r", 13, 0, 400], ["1", 0, 0, 0]]);
   });
 });
 
@@ -103,6 +121,29 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     await app.press("\t");
     await until(() => app.frame().includes("confirm quit"));
     expect(keys).toEqual([]);
+    app.unmount();
+  });
+
+  it("answers the question Claude waits for in its terminal, typed into its dialog", async () => {
+    runs("waiting");
+    const questions = [
+      { question: "Which colour?", header: "Colour", multiSelect: false, options: [{ label: "Blue" }, { label: "Green" }] },
+      { question: "Which fruit?", header: "Fruit", multiSelect: true, options: [{ label: "Apple" }, { label: "Kiwi" }] },
+    ];
+    recordLocalRequest({ hook_event_name: "PreToolUse", session_id: "s1", tool_name: "AskUserQuestion", tool_input: { questions } });
+    const app = viewer();
+    await until(() => app.frame().includes("Which colour?") && app.frame().includes("Claude asks"));
+    expect(app.frame()).not.toContain("Answered in its terminal");
+    await app.press("\t");
+    await app.press("2");
+    await until(() => app.frame().includes("Which fruit?"));
+    await app.press(" ");
+    await app.press("\r");
+    await until(() => app.frame().includes("Submit"));
+    await app.press("\r");
+    await expect.poll(() => keys, { timeout: 3000 }).toEqual([["-l", "2"], ["-l", "1"], ["Down"], ["Down"], ["Down"], ["Enter"], ["-l", "1"]]);
+    // Answered once: what it asked shows read-only until Claude Code writes the answer.
+    await until(() => app.frame().includes("Answered in its terminal"));
     app.unmount();
   });
 

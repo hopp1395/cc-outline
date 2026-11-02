@@ -29,6 +29,9 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
     expect(readLocalRequest("s1", transcript)).toMatchObject({ kind: "question", toolName: "AskUserQuestion", input: QUESTION });
     // The hook only records: the project's active session is not touched.
     expect(readActive(cwd)).toBeUndefined();
+    // Claude Code follows the question's PreToolUse with a PermissionRequest of it: still a question.
+    handleHook({ hook_event_name: "PermissionRequest", session_id: "s1", transcript_path: transcript, cwd, tool_name: "AskUserQuestion", tool_input: QUESTION } as never);
+    expect(readLocalRequest("s1", transcript)).toMatchObject({ kind: "question", toolName: "AskUserQuestion" });
     handleHook({ hook_event_name: "PermissionRequest", session_id: "s1", transcript_path: transcript, cwd, tool_name: "Bash", tool_input: { command: "npm test" } } as never);
     const permission = readLocalRequest("s1", transcript)!;
     expect(permission).toMatchObject({ kind: "permission", toolName: "Bash" });
@@ -51,6 +54,10 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
     // Answered: Claude Code writes the call and its result.
     utimesSync(transcript, new Date(at + 1000), new Date(at + 1000));
     expect(readLocalRequest("s1", transcript)).toBeUndefined();
+    // With the time the status turned to waiting, that decides: Claude Code also touches the transcript while it waits.
+    expect(readLocalRequest("s1", transcript, at - 300)?.kind).toBe("question");
+    // A request from before this wait was answered already.
+    expect(readLocalRequest("s1", transcript, at + 60_000)).toBeUndefined();
     clearLocalRequest("s1");
     expect(existsSync(localRequestFile("s1"))).toBe(false);
   });
@@ -78,14 +85,23 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
     const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, { columns: 140, rows: 34 });
     // The session stands in without its title until its transcript is read.
     await until(() => view.frame().includes("Which colour?") && view.frame().includes("Claude asks · asks a colour"));
+    // Keys reach its Claude Code (tmux): the question's dialog, its answer typed in there.
     expect(view.frame()).toContain("Claude asks · asks a colour");
-    expect(view.frame()).toContain("· Green");
-    expect(view.frame()).toContain("Answered in its terminal");
+    expect(view.frame()).toContain("2. Green");
+    expect(view.frame()).not.toContain("Answered in its terminal");
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
-    // Its terminal is where it is answered: selected, the question below it.
-    expect(view.frame()).toMatch(/›\s+Bring its terminal to the front/);
+    expect(view.frame()).toMatch(/›\s+Answer Claude's question/);
+    expect(view.frame()).toContain("Bring its terminal to the front");
     expect(view.frame().split("\n").filter((l) => l.includes("Which colour?")).length).toBeGreaterThanOrEqual(1);
+    await view.press("\u001b");
+    // A permission is answered in its terminal only: shown, its terminal selected first.
+    recordLocalRequest({ hook_event_name: "PermissionRequest", session_id: "s-ask", tool_name: "Bash", tool_input: { command: "npm test" } });
+    await until(() => view.frame().includes("Answered in its terminal"));
+    expect(view.frame()).toContain("Allow Bash? · asks a colour");
+    await view.press("\r");
+    await until(() => view.frame().includes("What to do with this session?"));
+    expect(view.frame()).toMatch(/›\s+Bring its terminal to the front/);
     view.unmount();
     rmSync(join(claudeDir(), "sessions"), { recursive: true, force: true });
   });

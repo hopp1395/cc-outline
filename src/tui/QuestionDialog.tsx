@@ -111,7 +111,8 @@ export function QuestionDialog({
   layout: Layout;
   title: string;
   questions: Question[];
-  onSend: (answers: Record<string, string>) => void;
+  /** The answers as the app sends them, and the choices they come from (for typing them into Claude Code's dialog). */
+  onSend: (answers: Record<string, string>, picks: Answer[]) => void;
   onCancel: () => void;
   /** Hears what is typed into the "Other…" fields, joined: kept if the dialog closes because another app answered. */
   onTyped?: (text: string) => void;
@@ -135,7 +136,7 @@ export function QuestionDialog({
   const go = (t: number) => setTab(Math.max(0, Math.min(lastTab, t)));
   const send = (all: Answer[]) => {
     const result = answersOf(questions, all);
-    if (result) return onSend(result);
+    if (result) return onSend(result, all);
     setNotice("every question needs an answer");
     go(all.findIndex((a) => !isAnswered(a)));
   };
