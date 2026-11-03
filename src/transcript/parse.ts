@@ -507,6 +507,12 @@ function blocksText(blocks: ContentBlock[]): string {
 export const isCommand = (prompt: string) => prompt.startsWith("/") || prompt.startsWith("! ");
 
 /**
+ * A turn someone typed (a prompt, a queued one, a `/` or `!` command), not one the parser made for Claude's reaction to
+ * something else: the session's start, a notification or peer message, a compaction, where it went on.
+ */
+export const isTypedPrompt = (turn: Turn) => turn.id !== "start" && !turn.notification && !turn.continuation && !turn.compacted && !turn.harness;
+
+/**
  * Extracts the prompt text of a user entry, or undefined when the entry is not
  * a real prompt (tool results, meta reminders, interrupt markers, local command output).
  */

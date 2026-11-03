@@ -1,5 +1,6 @@
 import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "ink";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { isTypedPrompt, type Turn } from "../transcript/parse.js";
 import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import type { CommandSource } from "../slashCommands.js";
@@ -7,7 +8,7 @@ import type { PendingRequest } from "../remote/pending.js";
 import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/usage.js";
 import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
-import { pastable, promptRows } from "./PromptDialog.js";
+import { moveRow, pastable, promptRows } from "./PromptDialog.js";
 import { QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
 import { useClipboard } from "./useClipboard.js";
@@ -86,6 +87,24 @@ function Frame({ width, color, usage, children }: { width: number; color: string
   );
 }
 
+/**
+ * What ↑ at the prompt line brings back: the prompts typed in `turns` (also queued ones, `/` and `!` commands, wherever
+ * they were typed), the newest first, each text once where it was used last. A prompt of images alone has no text to
+ * bring back.
+ */
+export function promptHistory(turns: readonly Turn[]): string[] {
+  const seen = new Set<string>();
+  const texts: string[] = [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]!;
+    const text = turn.prompt.trim();
+    if (!isTypedPrompt(turn) || !text || /^\[(Image|\d+ images)\]$/.test(text) || seen.has(text)) continue;
+    seen.add(text);
+    texts.push(text);
+  }
+  return texts;
+}
+
 type Permission = "allow" | "deny" | "reason";
 const PERMISSIONS: { id: Permission; label: string }[] = [
   { id: "allow", label: "Allow" },
@@ -114,7 +133,8 @@ export interface PromptChannel {
 
 /**
  * The bottom of a viewer of one session, like Claude Code's: a prompt line that grows with its text (Enter sends,
- * Ctrl+J starts a new line), through `channel`; while a remote session's Claude waits for an answer, the permission
+ * Ctrl+J starts a new line, ↑↓ move between its rows and, on the first or last, through the session's `history`), through
+ * `channel`; while a remote session's Claude waits for an answer, the permission
  * (allow, deny, deny saying why) or the question takes its place. It has the keys while `focused`: Esc (or Tab) hands
  * them to the chat, Esc while Claude works stops it, as in Claude Code. While the channel is blocked it says why and
  * takes no keys. `onHeight` hears the rows it takes, so the chat above leaves them.
@@ -134,6 +154,7 @@ export function SessionComposer({
   asked,
   commands,
   usage,
+  history = [],
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -164,8 +185,16 @@ export function SessionComposer({
   commands?: CommandSource;
   /** What its frame's bottom line shows at the right (setting usageLine): a remote session's context and the account's windows. */
   usage?: RemoteUsage;
+  /**
+   * The session's prompts, the newest first (`promptHistory`): ↑ on the line's first row brings back the one before,
+   * ↓ on its last the one after, and past the newest what was written before.
+   */
+  history?: readonly string[];
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
+  // Browsing the history: the prompt brought back (its place found by its text, as new prompts come in), and what was
+  // written before, for ↓ past the newest.
+  const [browse, setBrowse] = useState<{ text: string; index: number; draft: LineState }>();
   const drafts = useRef(new Map<string, LineState>()).current;
   const keyNow = useRef(draftKey);
   const setLine = (next: LineState) => {
@@ -176,6 +205,7 @@ export function SessionComposer({
   if (keyNow.current !== draftKey) {
     keyNow.current = draftKey;
     setLineState(draftKey === undefined ? EMPTY : (drafts.get(draftKey) ?? EMPTY));
+    setBrowse(undefined);
   }
   const [sending, setSending] = useState(false);
   const [choice, setChoice] = useState(0);
@@ -215,7 +245,13 @@ export function SessionComposer({
     if (focused && channel.blocked && !request && !localQuestion) onFocus(false);
   }, [focused, channel.blocked, request, localQuestion]);
 
-  const picker = useCommandPicker(line.text, line.cursor, focused && !channel.blocked && !request ? commands : undefined);
+  // A prompt brought back unchanged keeps the list of / commands closed, so ↑↓ go on through the history.
+  const recalled = browse !== undefined && line.text === browse.text;
+  const picker = useCommandPicker(recalled ? "" : line.text, recalled ? 0 : line.cursor, focused && !channel.blocked && !request ? commands : undefined);
+  const width = layout.columns;
+  const room = width - 2;
+  // The rows the text wraps to (`TextRows`' room).
+  const textRoom = room - 2;
 
   const box = useRef<DOMElement>(null);
   const height = useRef(0);
@@ -249,7 +285,10 @@ export function SessionComposer({
       () => {
         // Sent: that session's draft is gone, also when another one is selected by now.
         if (key !== undefined) drafts.delete(key);
-        if (keyNow.current === key) setLineState(EMPTY);
+        if (keyNow.current === key) {
+          setLineState(EMPTY);
+          setBrowse(undefined);
+        }
         setSending(false);
       },
       (err: Error) => {
@@ -257,6 +296,23 @@ export function SessionComposer({
         notify(`not sent: ${err.message}`);
       },
     );
+  };
+  // Where in the history the line is: the prompt brought back, found again by its text when new ones came in.
+  const browsed = browse ? (history.indexOf(browse.text) >= 0 ? history.indexOf(browse.text) : Math.min(browse.index, history.length - 1)) : -1;
+  const recall = (index: number, atEnd: boolean) => {
+    const text = history[index]!;
+    // The cursor where the next key in the same direction goes on browsing: on the first row going back, the last going on.
+    setLine({ text, cursor: atEnd ? text.length : 0, selected: false });
+    setBrowse({ text, index, draft: browse?.draft ?? line });
+  };
+  const arrow = (step: -1 | 1) => {
+    const moved = moveRow(line.text, line.cursor, textRoom, step);
+    if (moved !== undefined) return setLine({ ...line, cursor: moved, selected: false });
+    if (step < 0) return browsed + 1 < history.length && recall(browsed + 1, false);
+    if (!browse) return;
+    if (browsed > 0) return recall(browsed - 1, true);
+    setBrowse(undefined);
+    setLine(browse.draft);
   };
   const escape = () => {
     if (working && !request && !channel.blocked) return void report("interrupt sent")(channel.interrupt());
@@ -299,6 +355,7 @@ export function SessionComposer({
         }
       }
       if (key.escape) return escape();
+      if ((key.upArrow || key.downArrow) && !key.ctrl && !key.meta && !key.shift) return void arrow(key.upArrow ? -1 : 1);
       if (input === "\n" || (key.ctrl && input === "j")) return setLine({ text: line.text.slice(0, line.cursor) + "\n" + line.text.slice(line.cursor), cursor: line.cursor + 1, selected: false });
       if (key.return) return send();
       const next = editLine(line, input, key);
@@ -315,8 +372,6 @@ export function SessionComposer({
     { isActive: focused && !isQuestion },
   );
 
-  const width = layout.columns;
-  const room = width - 2;
   const keys = (items: [string, string][]) => (
     <Text wrap="truncate" dimColor={!focused}>
       {items.map(([k, what], i) => (
@@ -431,11 +486,11 @@ export function SessionComposer({
     body = (
       <>
         <CommandList picker={picker} width={room} />
-        {line.text || focused ? <TextRows line={line} room={room - 2} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
+        {line.text || focused ? <TextRows line={line} room={textRoom} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
         {focused && picker.open
           ? keys([["Tab", "take"], ["Enter", "take and send"], ["↑↓", "choose"], ["Esc", "close the list"]])
           : focused
-          ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"]])
+          ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"], ...(history.length > 0 ? [["↑↓", "history"] as [string, string]] : [])])
           : keys([hint])}
       </>
     );

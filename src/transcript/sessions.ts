@@ -6,7 +6,7 @@ import type { PendingRequest } from "../remote/pending.js";
 import { imageAction, isBrowserTool } from "./chrome.js";
 import { IncrementalFile } from "./incremental.js";
 import { claudeDir, inClaudeDir, projectDir } from "./locate.js";
-import { isCommand, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
+import { isCommand, isTypedPrompt, TranscriptParser, type AgentStatus, type Plan } from "./parse.js";
 
 /** What the Sessions view shows about one session. */
 export interface SessionSummary {
@@ -263,7 +263,7 @@ export class SessionReader {
       ...(this.aiTitle && { aiTitle: this.aiTitle }),
       // Task notifications and where the session went on are turns too, but not prompts.
       prompts: this.parser.turns
-        .filter((t) => t.id !== "start" && !t.notification && !t.continuation && !t.compacted)
+        .filter(isTypedPrompt)
         .map((t) => ({ text: t.prompt, timestamp: t.timestamp })),
       plans: this.parser.plans.map((p) => ({ ...p })),
       files: [...this.files],
