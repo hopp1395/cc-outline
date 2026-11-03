@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { Lexer, type Token, type Tokens } from "marked";
 import { readJson, todosFile, writeJson } from "./transcript/locate.js";
 
 /** Where an item stands: not started, sent to Claude, or ticked off by the user. */
@@ -22,80 +21,9 @@ export interface TodoList {
   turnId?: string;
 }
 
-/** How an answer was cut into blocks. */
-export type BlockSource = "numbered" | "headings" | "labels" | "table" | "bullets";
-
-export const BLOCK_SOURCES: readonly BlockSource[] = ["numbered", "headings", "labels", "table", "bullets"];
-
-/** One block found in an answer. */
+/** One block found in an answer (`src/todoBlocks.ts`). */
 export interface Block {
   text: string;
-}
-
-const isList = (t: Token): t is Tokens.List => t.type === "list";
-
-/** The Markdown of a list's items, one block each (the item's own text and its sub-points). */
-function listBlocks(list: Tokens.List): Block[] {
-  return list.items.map((item) => ({ text: item.raw.replace(/^\s*(?:\d+[.)]|[-*+])\s+(?:\[[ xX]\]\s+)?/, "").replace(/\n {2,4}/g, "\n").trim() })).filter((b) => b.text);
-}
-
-/** Blocks per source for `markdown`; a source that finds nothing is missing. */
-export function findBlocks(markdown: string): Partial<Record<BlockSource, Block[]>> {
-  const tokens = new Lexer().lex(markdown);
-  const found: Partial<Record<BlockSource, Block[]>> = {};
-  // The first top-level list of each kind that has at least two items.
-  const numbered = tokens.find((t): t is Tokens.List => isList(t) && t.ordered && t.items.length >= 2);
-  if (numbered) found.numbered = listBlocks(numbered);
-  const bullets = tokens.find((t): t is Tokens.List => isList(t) && !t.ordered && t.items.length >= 2);
-  if (bullets) found.bullets = listBlocks(bullets);
-  // Headings of the deepest level used at least twice, each with what follows up to the next one of its level.
-  const levels = tokens.filter((t): t is Tokens.Heading => t.type === "heading").map((t) => t.depth);
-  const depth = [...new Set(levels)].sort((a, b) => b - a).find((d) => levels.filter((l) => l === d).length >= 2) ?? undefined;
-  if (depth !== undefined) {
-    const blocks: Block[] = [];
-    let current: string[] | undefined;
-    for (const t of tokens) {
-      if (t.type === "heading" && (t as Tokens.Heading).depth <= depth) {
-        if (current) blocks.push({ text: current.join("").trim() });
-        current = (t as Tokens.Heading).depth === depth ? [t.raw] : undefined;
-      } else if (current) current.push(t.raw);
-    }
-    if (current) blocks.push({ text: current.join("").trim() });
-    found.headings = blocks.map((b) => ({ text: b.text.replace(/^#{1,6}\s+/, "") }));
-  }
-  // Paragraphs that are only bold text ("**Block 1: Resources**") label what follows, up to the next one.
-  const label = (t: Token) => t.type === "paragraph" && /^(\*\*|__)[^\n]+\1$/.test(t.raw.trim());
-  if (tokens.filter(label).length >= 2) {
-    const blocks: Block[] = [];
-    let current: string[] | undefined;
-    for (const t of tokens) {
-      if (label(t)) {
-        if (current) blocks.push({ text: current.join("").trim() });
-        current = [t.raw.trim().replace(/^(\*\*|__)|(\*\*|__)$/g, "") + "\n"];
-      } else if (current) current.push(t.raw);
-    }
-    if (current) blocks.push({ text: current.join("").trim() });
-    found.labels = blocks;
-  }
-  // A table with a row per block: the first column that is not just a number names the block, the other cells follow.
-  const table = tokens.find((t): t is Tokens.Table => t.type === "table" && t.rows.length >= 2);
-  if (table) {
-    const numeric = (c: number) => table.rows.every((r) => /^\d+$/.test(r[c]?.text.trim() ?? ""));
-    const columns = table.header.map((_, c) => c).filter((c) => !numeric(c));
-    if (columns.length > 0) {
-      found.table = table.rows.flatMap((r) => {
-        const [title, ...rest] = columns.map((c) => (r[c]?.text ?? "").replace(/\s+/g, " ").trim());
-        const text = [title, ...rest.filter(Boolean)].join("\n").trim();
-        return text ? [{ text }] : [];
-      });
-    }
-  }
-  return found;
-}
-
-/** The source to start with: numbered points, else headings, else bullets. */
-export function firstSource(found: Partial<Record<BlockSource, Block[]>>): BlockSource | undefined {
-  return BLOCK_SOURCES.find((s) => found[s]?.length);
 }
 
 /** The first line of a block, without Markdown emphasis, for the list. */
