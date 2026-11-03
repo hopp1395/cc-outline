@@ -47,7 +47,7 @@ import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
-import { SessionComposer, type PromptChannel } from "./SessionComposer.js";
+import { promptHistory, SessionComposer, type PromptChannel } from "./SessionComposer.js";
 import { describeRemoteError, remotePath } from "../remote/index.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { useLocalPrompt } from "./useLocalPrompt.js";
@@ -116,6 +116,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const local = useTranscript(remoteId ? undefined : opened, transcriptReload);
   const remote = useRemoteTranscript(remoteId, transcriptReload);
   const transcript = remoteId ? remote : local;
+  // What ↑ brings back at the prompt line: the session's prompts.
+  const history = useMemo(() => promptHistory(transcript.turns), [transcript.turns]);
   // The transcript read now: the session may have continued in another one.
   const path = remoteId ? remotePath(remoteId) : (transcript.file ?? opened);
   // A viewer of one session (--session, --remote) stays where it is: it does not move, restart or follow another.
@@ -808,6 +810,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             asked={asked && { request: asked, where: "its Claude Code's window" }}
             commands={commandSource}
             usage={remoteId && usageLine ? remote.usage : undefined}
+            history={history}
           />
           </MouseContext.Provider>
         )}

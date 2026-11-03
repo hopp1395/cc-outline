@@ -44,6 +44,31 @@ export function promptRows(text: string, cursor: number, room: number): { rows: 
 }
 
 /**
+ * The cursor one row of `promptRows` up (`step` -1) or down (1), as far right as it was as one sees it (an emoji takes
+ * two columns), at most at the row's end; undefined on the first row up or the last row down.
+ */
+export function moveRow(text: string, cursor: number, room: number, step: -1 | 1): number | undefined {
+  const { rows, row, column } = promptRows(text, cursor, room);
+  const target = rows[row + step];
+  if (!target) return undefined;
+  const width = stringWidth(rows[row]!.text.slice(0, column));
+  // A row its line goes on from: its end is the next row's start, so the cursor stays before its last character.
+  const next = rows[row + step + 1];
+  const wrapped = next !== undefined && next.start === target.start + target.text.length;
+  let at = 0;
+  let last = 0;
+  let used = 0;
+  for (const { segment, index } of graphemes.segment(target.text)) {
+    last = index;
+    used += stringWidth(segment);
+    if (used > width) break;
+    at = index + segment.length;
+  }
+  if (wrapped && at === target.text.length) at = last;
+  return target.start + at;
+}
+
+/**
  * Asks for a prompt to send to a remote session: several lines, Enter sends, Ctrl+J starts a new line (Shift+Enter
  * does not reach many terminals), Esc closes and keeps the text as the session's draft. Empty text is not sent.
  */

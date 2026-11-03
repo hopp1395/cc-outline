@@ -26,7 +26,7 @@ import { FocusContext, useFocused } from "./focus.js";
 import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem, type Layout } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { useMouse } from "./mouse.js";
-import { SessionComposer, type PromptChannel } from "./SessionComposer.js";
+import { promptHistory, SessionComposer, type PromptChannel } from "./SessionComposer.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
 import { sessionHead, sessionTitle } from "./sessionHead.js";
@@ -191,6 +191,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const bridge = session && !session.remote && !session.account ? twins.get(session.id) : undefined;
   const remoteRead = useRemoteTranscript(session?.remote ? session.id : bridge?.id);
   const transcript = session?.remote ? remoteRead : local;
+  // What ↑ brings back at the prompt line: the session's prompts.
+  const history = useMemo(() => promptHistory(transcript.turns), [transcript.turns]);
   const path = !session ? undefined : session.remote ? remotePath(session.id) : (local.file ?? session.path);
   const live = entry !== undefined && (entry.state === "busy" || entry.state === "waiting");
 
@@ -508,6 +510,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front" }}
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
             usage={usageLine && (session.remote || bridge) ? remoteRead.usage : undefined}
+            history={history}
           />
         )}
       </Box>
