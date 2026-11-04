@@ -40,9 +40,10 @@ const RC_VIEWER_VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "settings"
 
 /**
  * The Remote Control Viewer (`cco rc-viewer`): a window of its own that watches the sessions of every project and account (and claude.ai),
- * with its own settings (`settings.rc-viewer.json`). It belongs to no Claude Code and follows no project.
+ * with its own settings (`settings.rc-viewer.json`). It belongs to no Claude Code and follows no project. `requestsSince`: when it
+ * was started (`rcViewerStarting`); requests to select a session written since then (another click while it started) are taken too.
  */
-export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused?: boolean; accounts?: AccountState; select?: RcViewerSelect }) {
+export function RcViewerApp({ unfocused = false, accounts, select, requestsSince }: { unfocused?: boolean; accounts?: AccountState; select?: RcViewerSelect; requestsSince?: number }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { columns, rows } = useWindowSize();
@@ -60,7 +61,7 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
   const [startedAt] = useState(Date.now);
   const [request, setRequest] = useState<(RcViewerSelect & { at: number }) | undefined>(() => select && { ...select, at: startedAt });
   useEffect(() => {
-    let seen = startedAt;
+    let seen = requestsSince ?? startedAt;
     const timer = setInterval(() => {
       const next = readRcViewerRequest();
       if (!next || next.at <= seen) return;

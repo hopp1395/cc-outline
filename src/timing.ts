@@ -41,4 +41,8 @@ export const TIMING = {
   answerCheck: 3000,
   /** How long Claude may take to find the work blocks of an answer (`T` in Chat). */
   todoBlocks: 60_000,
+  /** How long the same window, tab or app is not opened again (`openOnce`): a double click, Enter twice. */
+  openGuard: 1500,
+  /** How long a Remote Control Viewer that was started may take to register before another start counts as a new one. */
+  rcViewerStart: 15_000,
 };

@@ -55,7 +55,7 @@ export async function runViewer(opts: WatchOptions): Promise<void> {
 }
 
 /** Runs the Remote Control Viewer (`cco rc-viewer`) until it quits: the sessions of every project and account, with its own settings. */
-export async function runRcViewer(opts: { unfocused?: boolean; select?: RcViewerSelect } = {}): Promise<void> {
+export async function runRcViewer(opts: { unfocused?: boolean; select?: RcViewerSelect; requestsSince?: number } = {}): Promise<void> {
   takeOverKeeperSettings();
   setOwnSettings("rcViewer");
   await renderUntilExit(createElement(RcViewerApp, opts));

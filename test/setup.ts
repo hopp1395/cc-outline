@@ -42,4 +42,7 @@ Object.assign(TIMING, {
   answerCheck: 300,
   installPoll: 100,
   todoBlocks: 100,
+  // Off: tests open the same thing one after another; test/openGuard.test.ts turns it on.
+  openGuard: 0,
+  rcViewerStart: 15_000,
 } satisfies typeof TIMING);

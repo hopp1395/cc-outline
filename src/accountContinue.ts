@@ -2,6 +2,7 @@ import { basename, resolve } from "node:path";
 import type { Account } from "./account.js";
 import { pluginSteps, prepareAccount, runInAccount } from "./accountSetup.js";
 import { copyToAccount, type AccountCopy } from "./export/toAccount.js";
+import { openOnce } from "./openGuard.js";
 import { claudeDir } from "./transcript/locate.js";
 import type { SessionSummary } from "./transcript/sessions.js";
 import { recordTransfer } from "./transfers.js";
@@ -61,7 +62,12 @@ export function continueSteps(plan: ContinuePlan): UpdateStep[] {
  * cco's CLI path and settings, copies the session into that account's config folder and records the move on both
  * sides. The session where it is now stays as it is. The caller then starts the copy there.
  */
-export async function continueInAccount(plan: ContinuePlan, onProgress: (steps: ContinueProgress) => void): Promise<ContinueResult> {
+export function continueInAccount(plan: ContinuePlan, onProgress: (steps: ContinueProgress) => void): Promise<ContinueResult> {
+  // The same continuation asked again while it runs (Enter twice) is that run: one copy, one window.
+  return openOnce(`account:${plan.account.dir}:${plan.session?.id ?? ""}:${plan.skipPlugin === true}`, () => continueRun(plan, onProgress));
+}
+
+async function continueRun(plan: ContinuePlan, onProgress: (steps: ContinueProgress) => void): Promise<ContinueResult> {
   const steps = continueSteps(plan);
   const commands = steps.filter((s) => s.command);
   const results: StepResult[] = steps.map((step) => ({ step, status: "pending", output: "" }));

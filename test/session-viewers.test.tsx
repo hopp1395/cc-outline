@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { focusSessionViewer, RC_VIEWER_WINDOW, openRcViewer, openSessionViewer, viewerCommand } from "../src/open.js";
 import { proc } from "../src/proc.js";
+import { rcViewerStartFile } from "../src/rcViewer/registry.js";
 import { removeStaleSessionViewers, runningSessionViewers, sessionViewersDir, viewersOf, type SessionViewerInfo } from "../src/sessionViewers.js";
 import { setSessionViewer } from "../src/settings.js";
 import { claudeDir, projectDir, writeJson } from "../src/transcript/locate.js";
@@ -33,6 +34,7 @@ beforeEach(() => {
 afterEach(() => {
   process.env = { ...saved };
   rmSync(sessionViewersDir(), { recursive: true, force: true });
+  rmSync(rcViewerStartFile(), { force: true });
 });
 
 /** A registration as `registerSessionViewer` writes it, for process `pid`. */
@@ -76,6 +78,9 @@ describe("opening the Remote Control Viewer", () => {
     expect(openRcViewer({ pid: 7, window: RC_VIEWER_WINDOW })).toBe("brought the Remote Control Viewer to the front");
     expect(spawned[1]).toEqual({ cmd: "wt", args: ["-w", RC_VIEWER_WINDOW, "focus-tab", "-t", "0"] });
     expect(openRcViewer({ pid: 7 })).toBe("the Remote Control Viewer runs already (pid 7), in a terminal of its own");
+    // The one it started is starting still: no second one.
+    expect(openRcViewer()).toBe("the Remote Control Viewer is starting");
+    rmSync(rcViewerStartFile(), { force: true });
     delete process.env.WT_SESSION;
     expect(openRcViewer()).toBeUndefined();
   });

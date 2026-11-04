@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { renderInk, until } from "./helpers/ink.js";
 import { reopenRcViewer } from "../src/open.js";
 import { proc } from "../src/proc.js";
-import { rcViewerFile, registerRcViewer } from "../src/rcViewer/registry.js";
+import { rcViewerFile, rcViewerStartFile, claimRcViewer } from "../src/rcViewer/registry.js";
 import { setOwnSettings, updateSettings } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import { RC_VIEWER_REOPEN_BY_HAND, RcViewerApp, restartLines } from "../src/tui/RcViewerApp.js";
@@ -39,6 +39,7 @@ afterEach(() => {
   setOwnSettings(undefined);
   process.env = { ...saved };
   rmSync(rcViewerFile(), { force: true });
+  rmSync(rcViewerStartFile(), { force: true });
 });
 
 const app = () => renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
@@ -85,7 +86,7 @@ describe("restarting the Remote Control Viewer", () => {
   it("restarts at once with confirm quit off: a new one in its window, after this one has exited", async () => {
     updateSettings({ confirmQuit: false });
     process.env.WT_SESSION = "x";
-    registerRcViewer({ configDir: claudeDir(), window: "cco-rc-viewer" });
+    claimRcViewer({ configDir: claudeDir(), window: "cco-rc-viewer" });
     const view = app();
     await until(() => view.frame().includes("1 Remote Control"));
     await view.press("r");
