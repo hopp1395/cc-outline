@@ -11,6 +11,7 @@ import {
   formatTokens,
   subagentPromptLabel,
   TranscriptParser,
+  noticeMarkdown,
   turnMarkdown,
   turnScreenshots,
   type AgentRun,
@@ -412,6 +413,8 @@ export function sessionMarkdown(
 
   const last = session.turns.at(-1);
   session.turns.forEach((turn, i) => {
+    // Nothing of a command Claude Code did not know reached Claude.
+    if (llm && turn.unknownCommand) return;
     const n = i + 1;
     const kind = turnKind(turn);
     const when = localTime(turn.timestamp);
@@ -431,7 +434,9 @@ export function sessionMarkdown(
               ? "⟳ Compacted automatically"
               : kind === "start"
                 ? escapeMd(turn.prompt)
-                : `❯ Prompt${turn.queued ? " (queued)" : ""}`;
+                : turn.unknownCommand
+                  ? "⚠ Unknown command"
+                  : `❯ Prompt${turn.queued ? " (queued)" : ""}`;
       out.push(`## ${n} · ${label}${when ? ` · ${when}` : ""}`);
       if (kind === "prompt" || (kind === "notification" && turn.prompt.includes("\n"))) out.push(quote(turn.prompt));
     }
@@ -473,6 +478,9 @@ export function sessionMarkdown(
       if (b.kind === "recap") {
         flush();
         if (!llm) out.push(quote(`**※ Recap**\n\n${b.text}`));
+      } else if (b.kind === "notice") {
+        flush();
+        if (!llm) out.push(noticeMarkdown(b));
       } else if (b.kind === "compact") {
         flush();
         const info = compactText(b.info);
@@ -558,6 +566,8 @@ function jsonBlock(
       return [{ type: "recap", text: b.text }];
     case "compact":
       return [{ type: "compact", text: b.text, ...(b.info ? { info: b.info } : {}) }];
+    case "notice":
+      return [{ type: "notice", text: b.text, ...(b.level ? { level: b.level } : {}), ...(b.command ? { command: b.command } : {}) }];
     case "agent": {
       if (opts.agents === "none") return [];
       const { transcript: _, ...agent } = b.agent;

@@ -6,7 +6,7 @@ import { BUILTIN_COMMANDS } from "../src/builtinCommands.js";
 import { remote, type RemoteEvent } from "../src/remote/api.js";
 import { initCommands, remoteCommands } from "../src/remote/commands.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
-import { commandQuery, folderSkills, frontMatter, matchCommands, parseSkillListing, readSkillListing, sessionCommands, takeCommand, type CommandSource } from "../src/slashCommands.js";
+import { commandQuery, folderSkills, frontMatter, matchCommands, parseSkillListing, readSkillListing, sessionCommands, takeCommand, unknownCommand, editDistance, type CommandSource } from "../src/slashCommands.js";
 import { PromptEditor } from "../src/tui/PromptEditor.js";
 import { SessionComposer, type PromptChannel } from "../src/tui/SessionComposer.js";
 import type { Layout } from "../src/tui/layout.js";
@@ -138,6 +138,29 @@ describe("matching", () => {
     expect(takeCommand("/com", "compact")).toEqual({ text: "/compact ", cursor: 9 });
     expect(takeCommand("/co keep this", "compact")).toEqual({ text: "/compact keep this", cursor: 9 });
   });
+
+  it("names a command the session does not know, with the one most likely meant", () => {
+    expect(unknownCommand("/compact now", commands)).toBeUndefined();
+    expect(unknownCommand("/COST", commands)).toBeUndefined();
+    expect(unknownCommand("/cco:open", commands)).toBeUndefined();
+    expect(unknownCommand("/compcat", commands)).toEqual({ name: "compcat", suggestion: "compact" });
+    expect(unknownCommand("/recompil x", commands)).toEqual({ name: "recompil", suggestion: "recompile" });
+    expect(unknownCommand("/open", commands)).toEqual({ name: "open", suggestion: "cco:open" });
+    expect(unknownCommand("/handoff", commands)).toEqual({ name: "handoff" });
+    // No command: a path, text, an MCP server's prompt; and no list yet.
+    expect(unknownCommand("/usr/bin/env is missing", commands)).toBeUndefined();
+    expect(unknownCommand("fix /compcat", commands)).toBeUndefined();
+    expect(unknownCommand("/mcp__github__review", commands)).toBeUndefined();
+    expect(unknownCommand("/compcat", undefined)).toBeUndefined();
+    expect(unknownCommand("/compcat", [])).toBeUndefined();
+  });
+
+  it("counts a swap of neighbours as one edit", () => {
+    expect(editDistance("reanme", "rename")).toBe(1);
+    expect(editDistance("grillng", "grilling")).toBe(1);
+    expect(editDistance("bw", "btw")).toBe(1);
+    expect(editDistance("", "abc")).toBe(3);
+  });
 });
 
 const layout: Layout = { columns: 80, rows: 24, listWidth: 0, previewWidth: 80, bodyHeight: 24 };
@@ -169,6 +192,41 @@ describe("the prompt line's list", () => {
     await expect.poll(view.frame).toContain("/git-review");
     await view.press("\r");
     await expect.poll(() => sent).toEqual(["/git-review"]);
+    view.unmount();
+  });
+
+  it("warns before sending a command the session does not know: Tab takes the one meant, a second Enter sends it anyway", async () => {
+    const sent: string[] = [];
+    const channel: PromptChannel = { send: async (text) => void sent.push(text), interrupt: async () => {} };
+    const view = renderInk(
+      <SessionComposer layout={layout} channel={channel} title="t" working={false} focused onFocus={() => {}} notify={() => {}} onHeight={() => {}} commands={source()} />,
+      layout,
+    );
+    // Checked once the commands are read, which the list showing them says.
+    await view.press("/gr");
+    await expect.poll(view.frame).toContain("does grilling");
+    await view.press("illng the viewer");
+    await view.press("\r");
+    await expect.poll(view.frame).toContain("/grillng is no command of this session · did you mean /grilling?");
+    expect(view.frame()).toContain("Tab take /grilling");
+    expect(sent).toEqual([]);
+    await view.press("\t");
+    await expect.poll(view.frame).toContain("› /grilling the viewer");
+    expect(view.frame()).not.toContain("is no command");
+    await view.press("\r");
+    await expect.poll(() => sent).toEqual(["/grilling the viewer"]);
+
+    await view.press("/handoff");
+    await view.press("\r");
+    await expect.poll(view.frame).toContain("/handoff is no command of this session");
+    expect(view.frame()).not.toContain("did you mean");
+    await view.press("\r");
+    await expect.poll(() => sent).toEqual(["/grilling the viewer", "/handoff"]);
+    // Sent: the same text warns again.
+    await view.press("/handoff");
+    await view.press("\r");
+    await expect.poll(view.frame).toContain("/handoff is no command of this session");
+    expect(sent).toHaveLength(2);
     view.unmount();
   });
 

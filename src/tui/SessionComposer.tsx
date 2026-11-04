@@ -3,11 +3,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { isTypedPrompt, type Turn } from "../transcript/parse.js";
 import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
-import type { CommandSource } from "../slashCommands.js";
+import { takeCommand, unknownCommand, type CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
 import { TIMING } from "../timing.js";
 import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/usage.js";
-import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
+import { CommandList, pickerFirst, pickerRows, useCommandPicker, useSlashCommands } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
 import { moveRow, pastable, promptRows } from "./PromptDialog.js";
 import { annotationsOf, QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
@@ -91,17 +91,25 @@ function Frame({ width, color, usage, children }: { width: number; color: string
 /**
  * What ↑ at the prompt line brings back: the prompts typed in `turns` (also queued ones, `/` and `!` commands, wherever
  * they were typed), the newest first, each text once where it was used last. A prompt of images alone has no text to
- * bring back.
+ * bring back. A `/` command Claude Code did not know is there too, to be put right: as a turn of its own, or, typed
+ * while Claude worked, as the warning in the running turn.
  */
 export function promptHistory(turns: readonly Turn[]): string[] {
   const seen = new Set<string>();
   const texts: string[] = [];
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const turn = turns[i]!;
-    const text = turn.prompt.trim();
-    if (!isTypedPrompt(turn) || !text || /^\[(Image|\d+ images)\]$/.test(text) || seen.has(text)) continue;
+  const add = (prompt: string) => {
+    const text = prompt.trim();
+    if (!text || /^\[(Image|\d+ images)\]$/.test(text) || seen.has(text)) return;
     seen.add(text);
     texts.push(text);
+  };
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]!;
+    for (let j = turn.blocks.length - 1; j >= 0; j--) {
+      const b = turn.blocks[j]!;
+      if (b.kind === "notice" && b.command && !turn.unknownCommand) add(b.command);
+    }
+    if (isTypedPrompt(turn) || turn.unknownCommand) add(turn.prompt);
   }
   return texts;
 }
@@ -234,10 +242,13 @@ export function SessionComposer({
     if (keyNow.current !== undefined) drafts.set(keyNow.current, next);
   };
   // Another session: its own draft, and what was asked of the one before is not "answered elsewhere".
+  // Enter on a `/` command the session does not know: the text warned about, and the command it most likely meant.
+  const [warned, setWarned] = useState<{ text: string; name: string; suggestion?: string }>();
   if (keyNow.current !== draftKey) {
     keyNow.current = draftKey;
     setLineState(draftKey === undefined ? EMPTY : (drafts.get(draftKey) ?? EMPTY));
     setBrowse(undefined);
+    setWarned(undefined);
   }
   const [sending, setSending] = useState(false);
   const [choice, setChoice] = useState(0);
@@ -313,6 +324,10 @@ export function SessionComposer({
   // A prompt brought back unchanged keeps the list of / commands closed, so ↑↓ go on through the history.
   const recalled = browse !== undefined && line.text === browse.text;
   const picker = useCommandPicker(recalled ? "" : line.text, recalled ? 0 : line.cursor, focused && !channel.blocked && !request ? commands : undefined);
+  // The session's commands, also for a prompt brought back: Enter checks its command against them.
+  const known = useSlashCommands(focused && !channel.blocked && !request ? commands : undefined, line.text.startsWith("/"));
+  // The warning holds while the text is the one warned about: a second Enter sends it all the same.
+  const warning = warned && warned.text === line.text ? warned : undefined;
   const width = layout.columns;
   const room = width - 2;
   // The rows the text wraps to (`TextRows`' room).
@@ -353,6 +368,7 @@ export function SessionComposer({
         if (keyNow.current === key) {
           setLineState(EMPTY);
           setBrowse(undefined);
+          setWarned(undefined);
         }
         setSending(false);
       },
@@ -393,6 +409,8 @@ export function SessionComposer({
         if (key.return) asked?.front?.();
         return;
       }
+      // The command it most likely meant, in place of the one warned about; its args stay.
+      if (key.tab && warning?.suggestion && !picker.open && !request) return setLine({ ...takeCommand(line.text, warning.suggestion), selected: false });
       if (key.tab && !picker.open) return onFocus(false);
       if (key.pageUp || key.pageDown) return;
       if (reason) {
@@ -429,7 +447,12 @@ export function SessionComposer({
       if (key.escape) return escape();
       if ((key.upArrow || key.downArrow) && !key.ctrl && !key.meta && !key.shift) return void arrow(key.upArrow ? -1 : 1);
       if (input === "\n" || (key.ctrl && input === "j")) return setLine({ text: line.text.slice(0, line.cursor) + "\n" + line.text.slice(line.cursor), cursor: line.cursor + 1, selected: false });
-      if (key.return) return send();
+      if (key.return) {
+        // A command Claude Code would not know: said first, sent on a second Enter (the list may lack some).
+        const unknown = warning ? undefined : unknownCommand(line.text, known);
+        if (unknown) return setWarned({ text: line.text, ...unknown });
+        return send();
+      }
       const next = editLine(line, input, key);
       if (next !== line) setLine(next);
     },
@@ -580,7 +603,14 @@ export function SessionComposer({
       <>
         <CommandList picker={picker} width={room} />
         {line.text || focused ? <TextRows line={line} room={textRoom} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
-        {focused && picker.open
+        {warning && (
+          <Text color="yellow" wrap="truncate">
+            {`⚠ /${warning.name} is no command of this session${warning.suggestion ? ` · did you mean /${warning.suggestion}?` : ""}`}
+          </Text>
+        )}
+        {focused && warning
+          ? keys([...(warning.suggestion ? [["Tab", `take /${warning.suggestion}`] as [string, string]] : []), ["Enter", "send anyway"], ["Esc", working ? "stop Claude" : "chat"]])
+          : focused && picker.open
           ? keys([["Tab", "take"], ["Enter", "take and send"], ["↑↓", "choose"], ["Esc", "close the list"]])
           : focused
           ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"], ...(history.length > 0 ? [["↑↓", "history"] as [string, string]] : [])])

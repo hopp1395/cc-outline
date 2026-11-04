@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, onTestFinished } from "vitest";
@@ -6,6 +6,7 @@ import { EVENT_LIMIT, listEvents, listSessions, parseSession, remote } from "../
 import { readLogin, RemoteError, SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { describeRemoteError, RemoteSessions, remoteSummary, remoteUrl } from "../src/remote/index.js";
 import { toTranscript } from "../src/remote/toTranscript.js";
+import { TranscriptParser, turnMarkdown } from "../src/transcript/parse.js";
 import { diagnoseGroup } from "../src/doctor.js";
 import { passesFilter, type SessionFilter } from "../src/sessionFilter.js";
 import { writeJson } from "../src/transcript/locate.js";
@@ -145,6 +146,21 @@ describe("the events as a transcript", () => {
     expect(entries[0]).toMatchObject({ uuid: "remote-2", timestamp: "2026-10-14T10:02:00Z", isSidechain: false });
     expect(entries[2]).toMatchObject({ subtype: "turn_duration", durationMs: 1500 });
     expect(unknown).toEqual({ stream_event: 2, control_request: 1 });
+  });
+
+  it("keeps a / command claude.ai sent that the session does not know: the worker hands it Claude as a prompt, who answers", () => {
+    // Recorded (Claude Code 2.1.316): no "Unknown command" comes back, the prompt arrives as typed and Claude asks.
+    const recorded = readFileSync(new URL("./fixtures/remote-unknown-command.jsonl", import.meta.url), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
+      .filter((l) => l.kind === "event")
+      .map((l) => ({ sequence: Number(l.data.sequence_num), source: l.data.source, createdAt: l.data.created_at, payload: l.data.payload }));
+    const parser = new TranscriptParser();
+    parser.push(toTranscript(recorded).lines.join("\n") + "\n");
+    expect(parser.turns.map((t) => t.prompt)).toEqual(["/grillng the remote viewer shows nothing", "/modul"]);
+    expect(parser.turns.some((t) => t.unknownCommand)).toBe(false);
+    expect(turnMarkdown(parser.turns[1]!, { tools: "off", thinking: false })).toContain("`/modul` isn't a command in this session");
   });
 });
 

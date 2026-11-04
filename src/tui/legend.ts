@@ -100,6 +100,7 @@ export const LEGENDS: Record<Mode, ShortMark[]> = {
     { mark: "⊘", color: "31", short: "interrupted" },
     { mark: "↳", color: "36", short: "typed while Claude worked" },
     { mark: "", color: ORANGE, short: "/command" },
+    { mark: "⚠", color: "33", short: "/command Claude Code did not know" },
     { mark: "⤷", color: "34", short: "continued in a new session" },
     { mark: "⟳", color: "34", short: "compacted" },
     { mark: "↩", color: "35", short: "agent report, message" },

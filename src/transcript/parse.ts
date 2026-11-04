@@ -24,7 +24,20 @@ export type Block =
   /** Claude Code's recap of the session when the user comes back after a while (an `away_summary` entry). */
   | { kind: "recap"; text: string }
   /** The summary Claude Code compacted the conversation into, with what the compaction reported. */
-  | { kind: "compact"; text: string; info?: CompactInfo };
+  | { kind: "compact"; text: string; info?: CompactInfo }
+  | NoticeBlock;
+
+/**
+ * What Claude Code reported in its terminal (an `informational` `system` entry): a notice such as "Usage limit
+ * reached · continuing automatically at 6pm", or a warning such as "Unknown command: /grillng. Did you mean
+ * /grilling?". Such a warning names in `command` what was typed (`/grillng` and its args), which Claude never got.
+ */
+export interface NoticeBlock {
+  kind: "notice";
+  text: string;
+  level?: "warning";
+  command?: string;
+}
 
 /** "running" until the tool result (foreground) or the task notification (background) says otherwise. */
 export type AgentStatus = "running" | "completed" | "failed" | "killed";
@@ -158,6 +171,11 @@ export interface Turn {
    * "computed task"); `prompt` is the relayed text without the harness's preamble.
    */
   harness?: string;
+  /**
+   * Not a prompt Claude got: a `/` command Claude Code did not know ("Unknown command: …"); `prompt` is what was typed,
+   * its only block the warning. Typed all the same, so the prompt line's history brings it back to be put right.
+   */
+  unknownCommand?: boolean;
 }
 
 /**
@@ -266,6 +284,8 @@ interface Entry {
   compactMetadata?: { trigger?: unknown; preTokens?: unknown; postTokens?: unknown; durationMs?: unknown };
   /** Text of a `system` entry, e.g. a `local_command`. */
   content?: string;
+  /** `informational` entry: "warning" or "notice". */
+  level?: string;
   /** `custom-title` (set with /rename) and `ai-title` (named by Claude Code) entries. */
   customTitle?: string;
   aiTitle?: string;
@@ -292,6 +312,9 @@ interface Entry {
     lineCount?: number;
     lineStart?: number;
     lineEnd?: number;
+    // unknown_command_fallback
+    commandName?: string;
+    suggestion?: string;
   };
 }
 
@@ -508,9 +531,13 @@ export const isCommand = (prompt: string) => prompt.startsWith("/") || prompt.st
 
 /**
  * A turn someone typed (a prompt, a queued one, a `/` or `!` command), not one the parser made for Claude's reaction to
- * something else: the session's start, a notification or peer message, a compaction, where it went on.
+ * something else: the session's start, a notification or peer message, a compaction, where it went on. A command
+ * Claude Code did not know (`unknownCommand`) is no prompt either.
  */
-export const isTypedPrompt = (turn: Turn) => turn.id !== "start" && !turn.notification && !turn.continuation && !turn.compacted && !turn.harness;
+export const isTypedPrompt = (turn: Turn) => turn.id !== "start" && !turn.notification && !turn.continuation && !turn.compacted && !turn.harness && !turn.unknownCommand;
+
+/** Notices Claude Code writes whatever happens in the session; the chat leaves them out. */
+const IGNORED_NOTICES = [/^Your organization may apply global configuration/, /^Backgrounding/];
 
 /**
  * Extracts the prompt text of a user entry, or undefined when the entry is not
@@ -717,6 +744,7 @@ export class TranscriptParser {
       this.takesAttachments = true;
       return true;
     }
+    if (entry.type === "attachment" && !entry.isSidechain && entry.attachment?.type === "unknown_command_fallback") return this.addCommandFallback(entry);
     if (entry.type === "attachment" && !entry.isSidechain) {
       const changed = this.trackPlanMode(entry) || this.trackAttachment(entry);
       if (changed) return true;
@@ -750,6 +778,7 @@ export class TranscriptParser {
       this.lastCompact = compactInfo(entry);
     }
     if (entry.type === "system" && entry.subtype === "informational" && entry.content?.startsWith("Backgrounding")) this.backgrounded = true;
+    if (entry.type === "system" && entry.subtype === "informational") return this.addInformational(entry);
     if (entry.type === "system" && entry.subtype === "away_summary") return this.addRecap(entry.content);
     if (entry.type === "system" && entry.subtype === "turn_duration") {
       const stats = this.turns.at(-1)?.stats;
@@ -1131,6 +1160,56 @@ export class TranscriptParser {
     return true;
   }
 
+  /**
+   * What Claude Code reported in its terminal. "Unknown command: /grillng. Did you mean /grilling?" (and "Args from
+   * unknown skill: …" right after it, the rest of the line) is a turn of its own: nothing went to Claude. Typed while
+   * Claude works, it is a warning in the running turn instead, whose further answer must not land below it. Any other
+   * entry is a notice where it was written; those that come whatever happens are left out.
+   */
+  private addInformational(entry: Entry): boolean {
+    const text = entry.content?.trim();
+    const turn = this.turns.at(-1);
+    if (!text || IGNORED_NOTICES.some((re) => re.test(text))) return false;
+    const unknown = /^Unknown command: (\/\S+?)\.?(?:\s|$)/.exec(text);
+    if (unknown) {
+      const block: NoticeBlock = { kind: "notice", text, level: "warning", command: unknown[1] };
+      if (turn && !turn.done) {
+        turn.blocks.push(block);
+        return true;
+      }
+      this.turns.push({ id: entry.uuid ?? String(this.turns.length), prompt: block.command!, timestamp: entry.timestamp, blocks: [block], done: true, unknownCommand: true });
+      this.takesAttachments = false;
+      return true;
+    }
+    const args = /^Args from unknown skill: ([\s\S]*)$/.exec(text)?.[1]?.trim();
+    const last = turn?.blocks.at(-1);
+    if (args !== undefined) {
+      // Belongs to the warning just written, which has no args yet.
+      if (!turn || last?.kind !== "notice" || !last.command || /\s/.test(last.command)) return false;
+      if (!args) return false;
+      if (turn.unknownCommand) turn.prompt = `${last.command} ${args}`;
+      last.command = `${last.command} ${args}`;
+      return true;
+    }
+    if (!turn) return false;
+    turn.blocks.push({ kind: "notice", text, ...(entry.level === "warning" && { level: "warning" as const }) });
+    return true;
+  }
+
+  /**
+   * A prompt that starts with a `/` command the session does not know, which Claude Code hands Claude as text all the
+   * same (a prompt from claude.ai, Remote Control), with a reminder that it did not run and which one comes closest:
+   * a warning before Claude's answer, which usually asks about it.
+   */
+  private addCommandFallback(entry: Entry): boolean {
+    const a = entry.attachment!;
+    const turn = this.turns.at(-1);
+    if (!turn || !a.commandName || !turn.prompt.startsWith(`/${a.commandName}`)) return false;
+    const meant = a.suggestion ? ` Did you mean /${a.suggestion}?` : "";
+    turn.blocks.unshift({ kind: "notice", text: `Unknown command: /${a.commandName}.${meant} Claude got the prompt as text.`, level: "warning" });
+    return true;
+  }
+
   /** Marks the last turn finished when `finished`; returns whether that changed anything. */
   private finish(finished: boolean): boolean {
     const turn = this.turns.at(-1);
@@ -1336,6 +1415,9 @@ export function turnMarkdown(
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** A notice of Claude Code in Markdown (copying, export): a warning marked `⚠`, in italics. */
+export const noticeMarkdown = (b: NoticeBlock) => `*${b.level === "warning" ? "⚠ " : ""}${escapeMd(b.text)}*`;
 
 /** Marks the start of a running agent's status in the rendered answer; the chat spins it. */
 export const AGENT_RUNNING_MARK = "⠿";
