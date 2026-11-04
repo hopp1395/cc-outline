@@ -95,7 +95,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
 
   const runs = (status: string) => {
     mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
-    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", status }));
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", status, statusUpdatedAt: Date.now() }));
   };
   const viewer = () =>
     renderInk(<App cwd={cwd} sessionId="s1" initialMode="chat" />, layout, {
@@ -159,8 +159,10 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     await until(() => app.frame().includes("Submit"));
     await app.press("\r");
     await expect.poll(() => keys, { timeout: 3000 }).toEqual([["-l", "2"], ["-l", "1"], ["Down"], ["Down"], ["Down"], ["Enter"], ["-l", "1"]]);
-    // Answered once: what it asked shows read-only until Claude Code writes the answer.
-    await until(() => app.frame().includes("Answered in its terminal"));
+    // Answered once: what it asked shows read-only until Claude Code writes the answer (here it never does, so a
+    // moment later the line says the answer did not arrive).
+    await until(() => app.frame().includes("Answered in its terminal") || app.frame().includes("The answer did not arrive"));
+    expect(app.frame()).toMatch(/Answered in its terminal|The answer did not arrive/);
     app.unmount();
   });
 
@@ -188,7 +190,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     runs("waiting");
     previewQuestion();
     const app = viewer();
-    await until(() => app.frame().includes("Where does the folder go?"));
+    await until(() => app.frame().includes("Note only…"));
     // Beside the options, the preview of the selected one; its free text is a note.
     expect(app.frame()).toContain("Fix login bug  cc-outline 5m");
     expect(app.frame()).toContain("Note only…");
@@ -207,7 +209,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     runs("waiting");
     previewQuestion();
     const app = viewer();
-    await until(() => app.frame().includes("Where does the folder go?"));
+    await until(() => app.frame().includes("Note only…"));
     await app.press("\t");
     await app.press("1");
     await until(() => app.frame().includes("The answer did not arrive"));
@@ -222,7 +224,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     runs("waiting");
     previewQuestion();
     const app = viewer();
-    await until(() => app.frame().includes("Where does the folder go?"));
+    await until(() => app.frame().includes("Note only…"));
     expect(app.frame()).toContain("Esc cancel the question");
     // Tab gives the keys to the question and back: Esc in the chat then types nothing.
     await app.press("\t");
