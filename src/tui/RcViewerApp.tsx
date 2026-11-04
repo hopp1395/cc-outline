@@ -9,19 +9,31 @@ import { onCtrlC } from "./ctrlC.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { InfoDialog, type InfoPage } from "./InfoDialog.js";
 import { RcViewerView } from "./RcViewerView.js";
-import { readRcViewerRequest, type RcViewerSelect } from "../rcViewer/registry.js";
+import { readRcViewerRequest, runningRcViewer, type RcViewerSelect } from "../rcViewer/registry.js";
+import { reopenRcViewer } from "../open.js";
 import { AccountAvatarContext, AccountBadgeContext, DevContext, RC_VIEWER_TABS, rcViewerLayout, layoutOf, ScreenNoticeContext, tabAt, TabSetContext, type Mode } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { MouseContext, parseMouse, useMouseReporting } from "./mouse.js";
 import { COPIED_MS, CopySelectionContext } from "./Preview.js";
 import { ProgressHostProvider, useProgressHost } from "./ProgressDialog.js";
 import { ReloadContext, useReloadKey } from "./reload.js";
-import { SettingsView } from "./SettingsView.js";
+import { restartDetail, SettingsView } from "./SettingsView.js";
+import type { UnsentDrafts } from "./SessionComposer.js";
 import { AccountContext, useAccounts, type AccountState } from "./useAccount.js";
 import { useSetting, useSettings } from "./useSetting.js";
 
 /** A control-only write: the frame buffer draws the next frame in full, clearing the screen. */
 const REDRAW = "\u001b[?25l";
+
+/** Why a restart failed: the window was not opened by cco (started by hand in a terminal), or no supported terminal. */
+export const RC_VIEWER_REOPEN_BY_HAND = "The Remote Control Viewer cannot reopen itself here: close it with q and start cco rc-viewer again.";
+
+/** What the restart's question says: what the new one runs and that it starts afresh, and the prompts not sent that go with it. */
+export function restartLines(root: string, unsent: number): string[] {
+  const lines = [`It opens again in its window with ${restartDetail(root)}, starting afresh: no session selected, every time in its state from 0.`];
+  if (unsent > 0) lines.push(unsent === 1 ? "The prompt written but not sent for 1 session is lost." : `The prompts written but not sent for ${unsent} sessions are lost.`);
+  return lines;
+}
 
 /** The Remote Control Viewer's views: its three columns (in the chat's place) and its own settings. */
 const RC_VIEWER_VIEW_KEYS: Record<string, Mode> = { "1": "chat", "2": "settings" };
@@ -73,9 +85,36 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
   const [dev] = useState(() => devInstall.get());
   const [devOpen, setDevOpen] = useState(false);
   const openDev = useCallback(() => setDevOpen(true), []);
-  const blocked = infoOpen || quitAsked || devOpen || progress.host.open;
+  // r and Reset: restart: asked first like q, and always while a prompt line has a draft not sent (the count when asked).
+  const [restartAsked, setRestartAsked] = useState<number>();
+  const unsent = useRef<UnsentDrafts>({}).current;
+  const blocked = infoOpen || quitAsked || restartAsked !== undefined || devOpen || progress.host.open;
   const mouseFor = (m: Mode) => mouse && mode === m && !blocked && !modal;
   const quit = () => (confirmQuit ? setQuitAsked(true) : exit());
+  // The restart: says so for a moment, then a new one starts in this window with the CLI on disk now, once this one has exited.
+  const restarting = useRef(false);
+  const restartNow = () => {
+    if (restarting.current) return;
+    restarting.current = true;
+    const title = "Restart the Remote Control Viewer";
+    progress.host.set("restart", { title, status: "running", text: "Restarting" });
+    setTimeout(() => {
+      if (reopenRcViewer(runningRcViewer()?.window)) return exit();
+      restarting.current = false;
+      progress.host.set("restart", {
+        title,
+        status: "failed",
+        text: "The Remote Control Viewer did not reopen",
+        lines: [RC_VIEWER_REOPEN_BY_HAND],
+        onClose: () => progress.host.set("restart", undefined),
+      });
+    }, TIMING.restartDelay);
+  };
+  const restart = () => {
+    const drafts = unsent.current?.() ?? 0;
+    if (confirmQuit || drafts > 0) setRestartAsked(drafts);
+    else restartNow();
+  };
 
   // A short message in the bottom row: the width after < or >, "Ctrl+C does not quit".
   const [notice, setNotice] = useState<{ text: string }>();
@@ -126,7 +165,7 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
   };
 
   useInput((input, key) => {
-    if (modal || typing || quitAsked || devOpen || progress.host.open) return;
+    if (modal || typing || quitAsked || restartAsked !== undefined || devOpen || progress.host.open) return;
     if (infoOpen) {
       if (input === "i" || key.escape) setInfoOpen(false);
       else if (input === "q") quit();
@@ -147,6 +186,8 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
       setInfoOpen(true);
     } else if (key.tab) setMode((m) => (m === "chat" ? "settings" : "chat"));
     else if (RC_VIEWER_VIEW_KEYS[input]) setMode(RC_VIEWER_VIEW_KEYS[input]);
+    // r restarts like Reset's entry (Settings keeps r for back to the default); Ctrl+R reloads.
+    else if (input === "r" && !key.ctrl && mode !== "settings") restart();
     // The Remote Control Viewer's columns take ← → < > | themselves; Settings has one list.
     else if (mode === "settings" && (input === "<" || input === ">" || input === "|")) changeSettingsWidth(input);
   });
@@ -175,6 +216,7 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
               notify={notify}
               request={request}
               onClaimKeys={setClaimed}
+              unsent={unsent}
             />
           </MouseContext.Provider>
           </ReloadContext.Provider>
@@ -182,7 +224,7 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
         <Box display={mode === "settings" ? "flex" : "none"}>
           <ReloadContext.Provider value={reloadOf("settings")}>
           <MouseContext.Provider value={mouseFor("settings")}>
-            <SettingsView cwd={process.cwd()} layout={layoutOf(columns, rows, settings.settingsListWidth)} active={mode === "settings" && !blocked} onModal={setModal} onTyping={setTyping} oneSession />
+            <SettingsView cwd={process.cwd()} layout={layoutOf(columns, rows, settings.settingsListWidth)} active={mode === "settings" && !blocked} onModal={setModal} onTyping={setTyping} onRestart={restart} oneSession />
           </MouseContext.Provider>
           </ReloadContext.Provider>
         </Box>
@@ -192,6 +234,13 @@ export function RcViewerApp({ unfocused = false, accounts, select }: { unfocused
             layout={dialogLayout}
             confirmation={{ title: "Quit the Remote Control Viewer?", lines: ["The window closes; /cco:rc-viewer opens it again."], onConfirm: exit }}
             onClose={() => setQuitAsked(false)}
+          />
+        )}
+        {restartAsked !== undefined && (
+          <ConfirmDialog
+            layout={dialogLayout}
+            confirmation={{ title: "Restart the Remote Control Viewer?", lines: restartLines(packageRoot(), restartAsked), onConfirm: restartNow }}
+            onClose={() => setRestartAsked(undefined)}
           />
         )}
         {devOpen && <DevSwitchDialog layout={dialogLayout} root={packageRoot()} onClose={() => setDevOpen(false)} />}

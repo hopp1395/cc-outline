@@ -39,7 +39,7 @@ import { ownSession, useAccountFlow } from "./useAccountFlow.js";
 import { renderMarkdown } from "../render/markdown.js";
 import { codeSpan } from "../render/terminal.js";
 import { countFindings, countText, diagnoseGroup, DOCTOR_GROUPS, repairsOf, repairSteps, reportLines, runRepairs, type DoctorGroup, type Finding, type RepairResult } from "../doctor.js";
-import { compareVersions, installedVersion, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
+import { compareVersions, installedVersion, packageRoot, remainingCommands, UPDATE_STEPS, type Release } from "../update.js";
 import { VERSION } from "../version.js";
 import { useClipboard } from "./useClipboard.js";
 import { useUpdateInfo, type Update, type UpdateRun } from "./useUpdate.js";
@@ -125,8 +125,14 @@ export const SESSION_RESET_ACTIONS: ResetAction[] = [
   },
 ];
 
-/** The Reset group of the Remote Control Viewer (`cco rc-viewer`): its own settings back to the default, or to the project's viewer's. */
+/** The Reset group of the Remote Control Viewer (`cco rc-viewer`): a restart, its own settings back to the default, or to the project's viewer's. */
 export const RC_VIEWER_RESET_ACTIONS: ResetAction[] = [
+  {
+    id: "restart",
+    label: "restart the Remote Control Viewer",
+    description:
+      "Closes the Remote Control Viewer and opens it again in its window, with the version of cco installed now: after an update by hand (`npm install -g`, a rebuild of a linked checkout) or when it misbehaves. It starts afresh: no session is selected, and the time each session has been in its state counts from 0. Prompts written but not sent are lost, so it then always asks first; else only unless confirm quit is off. `r` in the Remote Control Viewer does the same. Started by hand in a terminal, not by cco, it cannot reopen itself: close it with `q` and start `cco rc-viewer` again.",
+  },
   {
     id: "settings",
     label: "all settings to default",
@@ -844,7 +850,7 @@ function resetLines(action: ResetAction, changed: string[], marked: number, save
     if (changed.length === 0) lines.push(dim(action.id === "main" ? "  none: every setting is as in the project's viewer" : "  none: every setting is at its default"));
     for (const name of changed) lines.push(...wrap(name, "  "));
     if (marked > 0) lines.push("", bold("Marked"), `  ${marked} ★`);
-  } else {
+  } else if (action.id === "data") {
     lines.push(bold("Saved"));
     if (saved.length === 0) lines.push(dim("  nothing saved for this project"));
     for (const d of saved) lines.push(...wrap(d.name, "  "), ...wrap(dim(tilde(d.path)), "    "));
@@ -1446,7 +1452,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
                       ? `${saved.length} of 4 files saved`
                       : reset.id === "editor"
                         ? editorSetup?.cco && !editorSetup.stale ? "set up" : "not set up"
-                        : restartDetail(update.root),
+                        : restartDetail(update.root || packageRoot()),
               ],
             })
           : accountEntry
@@ -1593,8 +1599,9 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       lines: [`It opens again here, in this view, with ${restartDetail(update.root)}.`, "Claude Code keeps running; restart it for changes to the plugin."],
       onConfirm: () => onRestart?.(),
     });
-  // Like q: with confirm quit off, no question. The app shows the restart's progress.
-  const restart = () => (settings.confirmQuit ? askRestart() : onRestart?.());
+  // Like q: with confirm quit off, no question. The app shows the restart's progress. The Remote Control Viewer asks itself: it
+  // knows the prompts not sent that a restart loses.
+  const restart = () => (settings.confirmQuit && !isRcViewer() ? askRestart() : onRestart?.());
   const { state } = update;
   const canUpdate = state.kind === "update" && !updating && update.run?.status !== "done";
   const askUpdate = () =>

@@ -26,7 +26,7 @@ import { FocusContext, useFocused } from "./focus.js";
 import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem, type Layout } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { useMouse } from "./mouse.js";
-import { promptHistory, SessionComposer, type PromptChannel } from "./SessionComposer.js";
+import { promptHistory, SessionComposer, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
 import { sessionHead, sessionTitle } from "./sessionHead.js";
@@ -66,6 +66,8 @@ interface Props {
    * app then leaves them alone.
    */
   onClaimKeys?: (claims: boolean) => void;
+  /** Filled with how many sessions have a prompt written but not sent, which a restart would lose. */
+  unsent?: UnsentDrafts;
 }
 
 /** The sessions of the accounts other than this one, among those found. */
@@ -101,7 +103,7 @@ function RcViewerMarker({ entry, fresh }: { entry: RcViewerEntry; fresh: boolean
  * (setting remote API), grouped by what they need (waiting, working, idle, ended); beside them the selected session's
  * turns and the chat of the selected turn, live. `←` and `→` move the keys between the three columns.
  */
-export function RcViewerView({ layout: full, aside, visible, active, onTyping, onModal, notify, request, onClaimKeys }: Props) {
+export function RcViewerView({ layout: full, aside, visible, active, onTyping, onModal, notify, request, onClaimKeys, unsent }: Props) {
   const focused = useFocused();
   const [column, setColumn] = useState<RcViewerColumn>("sessions");
   const accountState = useAccountState();
@@ -528,6 +530,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
             usage={usageLine && (session.remote || bridge) ? remoteRead.usage : undefined}
             history={history}
+            unsent={unsent}
           />
         )}
       </Box>
