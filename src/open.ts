@@ -200,7 +200,23 @@ export function openRcViewer(running?: { pid: number; window?: string }, select?
     return `the Remote Control Viewer runs already (pid ${running.pid}), in a terminal of its own`;
   }
   const chosen = !select ? [] : select.remote ? ["--select-remote", select.id] : ["--select", select.id, ...(select.configDir ? ["--select-dir", select.configDir] : [])];
-  const args = [process.execPath, CLI, "rc-viewer", "--config-dir", claudeDir(), "--window", RC_VIEWER_WINDOW, ...chosen];
+  return startRcViewer(terminal, chosen);
+}
+
+/**
+ * Restarts the Remote Control Viewer this process is (`r`, Reset: restart): a new one with the CLI on disk now in the window cco opened
+ * it in (`window`, from its registration), which waits until this one has exited (`--after-pid`), so the one per machine holds. False
+ * where cco did not open it (no window: started by hand in a terminal, which cannot be reopened) or without a supported terminal.
+ */
+export function reopenRcViewer(window: string | undefined): boolean {
+  const terminal = detectTerminal();
+  if (!window || !terminal) return false;
+  return startRcViewer(terminal, ["--after-pid", String(process.pid)]) !== undefined;
+}
+
+/** Starts `cco rc-viewer` with `extra` in a new window named `RC_VIEWER_WINDOW` (in Windows Terminal a new tab of it, if open). */
+function startRcViewer(terminal: Terminal | undefined, extra: string[]): string | undefined {
+  const args = [process.execPath, CLI, "rc-viewer", "--config-dir", claudeDir(), "--window", RC_VIEWER_WINDOW, ...extra];
   // It watches every session; claude's variables must not make it a part of the Claude Code it was opened from.
   const env = independentEnv();
   if (terminal === "wt") {

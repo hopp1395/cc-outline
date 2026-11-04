@@ -113,6 +113,9 @@ const PERMISSIONS: { id: Permission; label: string }[] = [
   { id: "reason", label: "Deny, saying why…" },
 ];
 
+/** Asks the prompt line how many sessions have a draft not sent yet (the Remote Control Viewer, before a restart). */
+export type UnsentDrafts = { current?: () => number };
+
 /**
  * Where the prompt line's text goes: a remote session's events on claude.ai, or the Claude Code that runs a session of
  * this machine (typed in). Each call rejects with an `Error` whose message says why it failed.
@@ -171,6 +174,7 @@ export function SessionComposer({
   commands,
   usage,
   history = [],
+  unsent,
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -208,6 +212,8 @@ export function SessionComposer({
    * ↓ on its last the one after, and past the newest what was written before.
    */
   history?: readonly string[];
+  /** Filled with how many sessions have a draft (`draftKey`) that was not sent: what a restart of the Remote Control Viewer would lose. */
+  unsent?: UnsentDrafts;
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
   // Browsing the history: the prompt brought back (its place found by its text, as new prompts come in), and what was
@@ -215,6 +221,14 @@ export function SessionComposer({
   const [browse, setBrowse] = useState<{ text: string; index: number; draft: LineState }>();
   const drafts = useRef(new Map<string, LineState>()).current;
   const keyNow = useRef(draftKey);
+  if (unsent) unsent.current = () => [...drafts.values()].filter((d) => d.text.trim() !== "").length;
+  // Gone (no session selected): its drafts are gone with it.
+  useEffect(
+    () => () => {
+      if (unsent) unsent.current = undefined;
+    },
+    [],
+  );
   const setLine = (next: LineState) => {
     setLineState(next);
     if (keyNow.current !== undefined) drafts.set(keyNow.current, next);

@@ -156,6 +156,7 @@ const RC_VIEWER_INFO_KEYS: [string, string][] = [
   ["1 2 Tab", "Remote Control Viewer / settings"],
   ["click wheel", "select, focus a column / scroll"],
   ["F5 ^R", "reload"],
+  ["r", "restart with the version installed"],
   ["i", "this info"],
   ["q", "quit"],
 ];

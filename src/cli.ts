@@ -115,8 +115,12 @@ program
   .addOption(new Option("--select <id>", "select this session").conflicts("selectRemote"))
   .addOption(new Option("--select-dir <dir>").hideHelp())
   .addOption(new Option("--select-remote <id>", "select this Remote Control session"))
-  .action(async (opts: { configDir?: string; window?: string; select?: string; selectDir?: string; selectRemote?: string }) => {
+  // A restart (r, Reset: restart): the Remote Control Viewer before, which must have exited, since one runs per machine.
+  .addOption(pidOption("--after-pid <pid>", "start once this Remote Control Viewer has exited"))
+  .action(async (opts: { configDir?: string; window?: string; select?: string; selectDir?: string; selectRemote?: string; afterPid?: number }) => {
     if (opts.configDir) setClaudeDir(opts.configDir);
+    const afterPid = validPid(opts.afterPid);
+    if (afterPid) await waitForExit(afterPid, 10_000);
     const [{ registerRcViewer, runningRcViewer }, { claudeDir }] = await Promise.all([import("./rcViewer/registry.js"), import("./transcript/locate.js")]);
     // One per machine: a second one would only show the same.
     const other = runningRcViewer();
