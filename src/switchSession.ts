@@ -91,21 +91,41 @@ const digit = (n: number, wait = 300): KeyStep => [String(n), 0, 0, pause(wait)]
 /** A pause after a key of the question's answer, for Claude Code to draw the next state; tests shorten them (`TIMING.questionKeys`). */
 const pause = (ms: number) => Math.round(ms * TIMING.questionKeys);
 
+/** A question of AskUserQuestion as far as its keys go: whether it takes several answers, and its options' previews. */
+export interface QuestionShape {
+  multiSelect?: boolean;
+  options: { label?: unknown; preview?: unknown }[];
+}
+
+/**
+ * Whether Claude Code shows `q` in its preview layout: one answer, and an option with a `preview` (the others then
+ * say "No preview available"). There a digit only moves the cursor, and instead of "Type something" there are notes.
+ */
+export const usesPreviews = (q: QuestionShape) => !q.multiSelect && q.options.some((o) => typeof o.preview === "string" && o.preview.trim() !== "");
+
 /**
  * The keys that answer Claude Code's AskUserQuestion dialog in its terminal as `picks` say (per question the rows
  * checked, from 0, and the text of its "Type something" row), as tried on Claude Code 2.1.316. One question at a time:
  * - one answer: its digit picks it and goes on; "Type something" (the row after the options) takes the text and Enter.
+ * - one answer with previews (`usesPreviews`): the digit only moves the cursor, Enter picks and goes on. There is no
+ *   "Type something": a text is a note without an option (`n`, the text, Enter, with the cursor where it opened), which
+ *   Claude gets as "(no option selected) notes: …".
  * - several (`multiSelect`): each digit checks its row and leaves the cursor on the first; the text needs the cursor
  *   on "Type something" (↓ for each option), then ↓ to Submit below it and Enter goes on.
  * After the last a review asks once more (1 submits), except for a single question with one answer, which is sent
  * at once. It starts from the dialog as Claude Code opens it: what was already chosen in its terminal is not undone.
  */
-export function questionAnswerSteps(questions: { multiSelect?: boolean; options: unknown[] }[], picks: { picked: number[]; other?: string }[]): KeyStep[] {
+export function questionAnswerSteps(questions: QuestionShape[], picks: { picked: number[]; other?: string }[]): KeyStep[] {
   const steps: KeyStep[] = [];
   questions.forEach((q, i) => {
     const pick = picks[i] ?? { picked: [] };
     const other = pick.other?.replace(/\s+/g, " ").trim();
     const count = q.options.length;
+    if (usesPreviews(q)) {
+      if (pick.picked.length) steps.push(digit(pick.picked[0]! + 1, 200), enter(pause(400)));
+      else steps.push(["n", 0, 0, pause(300)], [other ?? "", 0, 0, pause(300)], enter(pause(400)));
+      return;
+    }
     if (!q.multiSelect) {
       if (pick.picked.length) return void steps.push(digit(pick.picked[0]! + 1));
       steps.push(digit(count + 1), [other ?? "", 0, 0, pause(300)], enter(pause(400)));

@@ -16,7 +16,7 @@ import { writeReply } from "../promptEdit.js";
 import { clearDraft } from "../promptDraft.js";
 import { claudeDir, projectSlug } from "../transcript/locate.js";
 import type { CommandSource } from "../slashCommands.js";
-import { canFocusViewer, focusClaude, focusViewerPane, keysInClaude, prepareConsoleInput, promptSteps, resumeHereMethod, typePromptInClaude, typesIntoConsole, type ConsoleTyper } from "../switchSession.js";
+import { canFocusViewer, focusClaude, focusViewerPane, keysInClaude, prepareConsoleInput, promptSteps, resumeHereMethod, switchToSession, typePromptInClaude, typesIntoConsole, type ConsoleTyper } from "../switchSession.js";
 import { PromptEditor } from "./PromptEditor.js";
 import { useClipboard } from "./useClipboard.js";
 import { ChatView } from "./ChatView.js";
@@ -807,7 +807,13 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onFocus={setComposing}
             notify={(text) => setNotice({ text })}
             onHeight={setComposerRows}
-            asked={asked && { request: asked, where: "its Claude Code's window" }}
+            asked={
+              asked && {
+                request: asked,
+                where: "its Claude Code's window",
+                front: running && (() => void switchToSession(running, [sessionTitle]).then((text) => setNotice({ text }))),
+              }
+            }
             commands={commandSource}
             usage={remoteId && usageLine ? remote.usage : undefined}
             history={history}

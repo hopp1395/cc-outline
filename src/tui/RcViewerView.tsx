@@ -507,7 +507,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             onHeight={setComposerRows}
             draftKey={entry?.key}
             hint={["Space", "or a click: write a prompt"]}
-            asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front" }}
+            asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front", front: entry && (() => act("switch", entry)) }}
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
             usage={usageLine && (session.remote || bridge) ? remoteRead.usage : undefined}
             history={history}

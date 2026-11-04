@@ -9,7 +9,7 @@ import { setSessionViewer, updateSettings } from "../src/settings.js";
 import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
-import { answersOf, QuestionDialog, questionsOf, tabWindow, type Question } from "../src/tui/QuestionDialog.js";
+import { annotationsOf, answersOf, previewBox, QuestionDialog, questionsOf, tabWindow, type Question } from "../src/tui/QuestionDialog.js";
 import { SessionsView } from "../src/tui/SessionsView.js";
 import { remoteOptions } from "../src/tui/useRemoteControl.js";
 import { renderInk, until } from "./helpers/ink.js";
@@ -47,6 +47,47 @@ describe("the question of the recorded session", () => {
   it("joins several choices and the typed answer", () => {
     const questions = [{ question: "Which?", multiSelect: true, options: [{ label: "A" }, { label: "B" }] }];
     expect(answersOf(questions, [{ picked: [0, 1], other: "C" }])).toEqual({ "Which?": "A, B, C" });
+  });
+
+  it("adds the chosen preview, or the note typed instead of an option, as Claude Code does", () => {
+    const questions = questionsOf({
+      questions: [
+        { question: "Layout?", options: [{ label: "List", preview: "| 1 |" }, { label: "Grid", preview: 7 }] },
+        { question: "Colour?", options: [{ label: "Blue" }] },
+      ],
+    });
+    // A preview that is no text is left out.
+    expect(questions[0]!.options).toEqual([{ label: "List", preview: "| 1 |" }, { label: "Grid" }]);
+    expect(answersOf(questions, [{ picked: [0] }, { picked: [0] }])).toEqual({ "Layout?": "List", "Colour?": "Blue" });
+    expect(annotationsOf(questions, [{ picked: [0] }, { picked: [0] }])).toEqual({ "Layout?": { preview: "| 1 |" } });
+    expect(answersOf(questions, [{ picked: [], other: " mine " }, { picked: [0] }])).toEqual({ "Layout?": "(notes only)", "Colour?": "Blue" });
+    expect(annotationsOf(questions, [{ picked: [], other: " mine " }, { picked: [0] }])).toEqual({ "Layout?": { notes: "mine" } });
+    // An option without a preview, or no question with previews: nothing to add.
+    expect(annotationsOf(questions, [{ picked: [1] }, { picked: [0] }])).toBeUndefined();
+  });
+});
+
+describe("an option's preview", () => {
+  it("stands in a box as written, cut to its width and rows", () => {
+    const box = previewBox("ab\ncdefgh\n\tx\n4\n5", 8, 5).map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""));
+    expect(box).toEqual(["┌──────┐", "│ ab   │", "│ cdef │", "│ … 3  │", "└──────┘"]);
+    expect(previewBox(undefined, 20).map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))).toEqual(["No preview available"]);
+  });
+
+  it("goes below the options in a narrow pane, and the dialog grows for it", async () => {
+    const narrow: Layout = { columns: 60, rows: 30, listWidth: 20, previewWidth: 40, bodyHeight: 26 };
+    const tall = Array.from({ length: 12 }, (_, i) => `row ${i + 1}`).join("\n");
+    const questions: Question[] = [{ question: "Layout?", options: [{ label: "List", preview: tall }, { label: "Grid" }] }];
+    const view = renderInk(
+      <Box width={narrow.columns} height={narrow.rows}>
+        <QuestionDialog layout={narrow} title="Claude asks" questions={questions} onSend={() => {}} onCancel={() => {}} />
+      </Box>,
+      narrow,
+    );
+    await until(() => view.frame().includes("row 12"));
+    const lines = view.frame().split("\n");
+    expect(lines.findIndex((l) => l.includes("row 1 "))).toBeGreaterThan(lines.findIndex((l) => l.includes("Note only…")));
+    view.unmount();
   });
 });
 
@@ -217,6 +258,19 @@ describe("answering a remote session", () => {
       },
     });
     expect((posted[0]!.response as { response: { updatedInput: { questions: unknown[] } } }).response.updatedInput.questions).toHaveLength(1);
+    app.unmount();
+  });
+
+  it("cancels the question with Esc, as Esc in the terminal does", async () => {
+    const app = viewer();
+    await until(() => app.frame().includes("Welche Farbe magst du?") && app.frame().includes("Blau"));
+    await app.press("\t");
+    await until(() => app.frame().includes("Esc cancel the question"));
+    await app.press("\u001b");
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0]).toMatchObject({
+      response: { request_id: REQUEST, response: { behavior: "deny", message: "The user declined to answer", toolUseID: "toolu_01LtNgDX5KgXtp7t61wt7Ffy" } },
+    });
     app.unmount();
   });
 

@@ -12,7 +12,7 @@ import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
 import { localBlocked } from "../src/tui/useLocalPrompt.js";
-import { renderInk, until } from "./helpers/ink.js";
+import { renderInk, tick, until } from "./helpers/ink.js";
 
 const layout: Layout = { columns: 110, rows: 24, listWidth: 40, previewWidth: 67, bodyHeight: 20 };
 
@@ -46,6 +46,18 @@ describe("the keys that answer Claude Code's question dialog", () => {
     // A typed answer: its row checked, the cursor down to it, the text, then down once more to Submit.
     const typed = questionAnswerSteps([{ multiSelect: true, options: options(2) }], [{ picked: [1], other: "Mango" }]);
     expect(typed).toEqual([["2", 0, 0, 200], ["3", 0, 0, 200], DOWN, DOWN, ["Mango", 0, 0, 300], DOWN, ["\r", 13, 0, 400], ["1", 0, 0, 0]]);
+  });
+  it("picks an option with a preview by its digit and Enter, and types a text as a note without an option", () => {
+    const previewed = [{ label: "List", preview: "+--+\n|  |" }, { label: "Grid" }];
+    // The digit only moves the cursor there; Enter picks and goes on (a single question: sent at once).
+    expect(questionAnswerSteps([{ options: previewed }], [{ picked: [1] }])).toEqual([["2", 0, 0, 200], ["\r", 13, 0, 400]]);
+    // No "Type something": n opens the note, Enter sends it (Claude gets "(no option selected) notes: …").
+    expect(questionAnswerSteps([{ options: previewed }], [{ picked: [], other: "a\nnote" }])).toEqual([["n", 0, 0, 300], ["a note", 0, 0, 300], ["\r", 13, 0, 400]]);
+    // A plain question after one with previews keeps its digit; the review follows.
+    expect(questionAnswerSteps([{ options: previewed }, { options: options(2) }], [{ picked: [0] }, { picked: [1] }]).map((s) => s[0])).toEqual(["1", "\r", "2", "1"]);
+    // Previews of a question with several answers do not change its keys, nor an empty one.
+    expect(questionAnswerSteps([{ multiSelect: true, options: previewed }], [{ picked: [0] }]).map((s) => s[0])).toEqual(["1", DOWN[0], DOWN[0], DOWN[0], "\r", "1"]);
+    expect(questionAnswerSteps([{ options: [{ label: "A", preview: " " }, { label: "B" }] }], [{ picked: [1] }]).map((s) => s[0])).toEqual(["2"]);
   });
 });
 
@@ -83,7 +95,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
 
   const runs = (status: string) => {
     mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
-    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", status }));
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", status, statusUpdatedAt: Date.now() }));
   };
   const viewer = () =>
     renderInk(<App cwd={cwd} sessionId="s1" initialMode="chat" />, layout, {
@@ -147,8 +159,87 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     await until(() => app.frame().includes("Submit"));
     await app.press("\r");
     await expect.poll(() => keys, { timeout: 3000 }).toEqual([["-l", "2"], ["-l", "1"], ["Down"], ["Down"], ["Down"], ["Enter"], ["-l", "1"]]);
-    // Answered once: what it asked shows read-only until Claude Code writes the answer.
-    await until(() => app.frame().includes("Answered in its terminal"));
+    // Answered once: what it asked shows read-only until Claude Code writes the answer (here it never does, so a
+    // moment later the line says the answer did not arrive).
+    await until(() => app.frame().includes("Answered in its terminal") || app.frame().includes("The answer did not arrive"));
+    expect(app.frame()).toMatch(/Answered in its terminal|The answer did not arrive/);
+    app.unmount();
+  });
+
+  const previewQuestion = () =>
+    recordLocalRequest({
+      hook_event_name: "PreToolUse",
+      session_id: "s1",
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [
+          {
+            question: "Where does the folder go?",
+            header: "Position",
+            multiSelect: false,
+            options: [
+              { label: "Before the time", preview: "● Fix login bug  cc-outline 5m" },
+              { label: "After the time", preview: "● Fix login bug 5m  cc-outline" },
+            ],
+          },
+        ],
+      },
+    });
+
+  it("shows the selected option's preview, picks it with its digit and Enter, and says when Claude still asks", async () => {
+    runs("waiting");
+    previewQuestion();
+    const app = viewer();
+    await until(() => app.frame().includes("Note only…"));
+    // Beside the options, the preview of the selected one; its free text is a note.
+    expect(app.frame()).toContain("Fix login bug  cc-outline 5m");
+    expect(app.frame()).toContain("Note only…");
+    await app.press("\t");
+    await app.press("\u001b[B");
+    await until(() => app.frame().includes("Fix login bug 5m  cc-outline"));
+    await app.press("2");
+    await expect.poll(() => keys, { timeout: 3000 }).toEqual([["-l", "2"], ["Enter"]]);
+    // Claude still waits for the same question: the keys did not arrive.
+    await until(() => app.frame().includes("The answer did not arrive"));
+    expect(app.frame()).toContain("The answer did not arrive");
+    app.unmount();
+  });
+
+  it("types the answer again with r where Claude still asks after the keys", async () => {
+    runs("waiting");
+    previewQuestion();
+    const app = viewer();
+    await until(() => app.frame().includes("Note only…"));
+    await app.press("\t");
+    await app.press("1");
+    await until(() => app.frame().includes("The answer did not arrive"));
+    await app.press("\t");
+    await until(() => app.frame().includes("r type the answer again"));
+    await app.press("r");
+    await expect.poll(() => keys, { timeout: 3000 }).toEqual([["-l", "1"], ["Enter"], ["-l", "1"], ["Enter"]]);
+    app.unmount();
+  });
+
+  it("cancels the question with Esc, as Esc in its terminal does, and gives the keys back with Tab", async () => {
+    runs("waiting");
+    previewQuestion();
+    const app = viewer();
+    await until(() => app.frame().includes("Note only…"));
+    expect(app.frame()).toContain("Esc cancel the question");
+    // Tab gives the keys to the question and back: Esc in the chat then types nothing.
+    await app.press("\t");
+    await app.press("\t");
+    await app.press("\u001b");
+    await tick(100);
+    expect(keys).toEqual([]);
+    await app.press("\t");
+    await app.press("\u001b");
+    await expect.poll(() => keys).toEqual([["Escape"]]);
+    // Still asked: Esc again where it says so.
+    await until(() => app.frame().includes("Not cancelled: Claude still asks"));
+    await app.press("\t");
+    await app.press("\u001b");
+    await expect.poll(() => keys).toEqual([["Escape"], ["Escape"]]);
     app.unmount();
   });
 

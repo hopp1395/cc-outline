@@ -37,6 +37,8 @@ export const TIMING = {
   installPoll: 5000,
   /** The share of the pauses between the keys that answer Claude Code's question dialog (1: as tried on 2.1.316). */
   questionKeys: 1,
+  /** How long after the keys of an answer (or Esc) Claude may still wait for the same question before they count as lost. */
+  answerCheck: 3000,
   /** How long Claude may take to find the work blocks of an answer (`T` in Chat). */
   todoBlocks: 60_000,
 };
