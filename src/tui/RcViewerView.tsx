@@ -138,6 +138,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     }
     return { entries: rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart), twins };
   }, [read, remote.sessions, running, now, dayStart]);
+  // The entries whose folder is gone: their folder shows struck through, as in Sessions.
+  const goneFolders = useMemo(() => new Set(entries.filter((e) => !e.session.remote && e.session.cwd && !existsSync(e.session.cwd)).map((e) => e.key)), [entries]);
 
   // Kept by key: the entries move between the groups as their sessions change.
   const [selectedKey, setSelectedKey] = useState<string>();
@@ -432,11 +434,17 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         }}
         lead={withAccounts ? (e) => <Text color={barOf(e.session)}>▌</Text> : undefined}
         render={(e, isSelected) => {
-          const age = formatAge(now - e.since);
-          const project = e.session.remote ? "claude.ai" : projectName(e.session);
+          // The age right-aligned in three columns at the row's end, so the ages stand one below the other.
+          const age = formatAge(now - e.since).padStart(3);
+          // The folder first, cyan as in Sessions (struck through once it is gone), cut to 12 columns.
+          const project = truncate(e.session.remote ? "claude.ai" : projectName(e.session), 12);
+          const gone = goneFolders.has(e.key);
           // ⇄: answered here, through claude.ai (a remote session, or one of this machine connected there); dim while steer remote is off.
           const steerable = e.state !== "ended" && (e.session.remote !== undefined || (!e.session.account && twins.has(e.session.id)));
-          const width = Math.max(4, aside - (withAccounts ? 1 : 0) - 2 - (steerable ? 2 : 0) - stringWidth(age) - 1);
+          const width = Math.max(4, aside - (withAccounts ? 1 : 0) - 2 - (steerable ? 2 : 0) - stringWidth(project) - 1 - 1 - age.length);
+          const title = sessionTitle(e.session);
+          // Only the title scrolls (marquee); the spaces after it put the age at the row's end.
+          const fill = " ".repeat(Math.max(0, width - stringWidth(truncate(title, width))));
           return (
             <>
               <RcViewerMarker entry={e} fresh={isFresh(e)} />
@@ -446,7 +454,16 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
                   {"⇄ "}
                 </Text>
               )}
-              <EntryText text={`${sessionTitle(e.session)} · ${project}`} width={width} selected={isSelected} active={sessionsFocused} />
+              {gone ? (
+                <Text dimColor strikethrough>
+                  {project}
+                </Text>
+              ) : (
+                <Text color="cyan">{project}</Text>
+              )}
+              <Text> </Text>
+              <EntryText text={title} width={width} selected={isSelected} active={sessionsFocused} />
+              <Text>{fill}</Text>
               <Text dimColor={!isSelected}>{` ${age}`}</Text>
             </>
           );

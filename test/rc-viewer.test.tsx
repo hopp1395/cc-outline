@@ -234,11 +234,14 @@ describe("the Remote Control Viewer's three columns", () => {
   it("groups the sessions by what they need, shows the selected one's turns and chat, and moves the keys between the columns", async () => {
     session("s-ended", "finished work", 30, "All done here.");
     session("s-wait", "needs an answer", 10, "Shall I go on?");
+    const long = session("s-long", `a long title ${"that goes on ".repeat(8)}to its end`, 40, "Long answer.");
+    utimesSync(long, new Date(Date.now() - 40 * 60_000), new Date(Date.now() - 40 * 60_000));
     const old = session("s-old", "yesterday's work", 60 * 30, "Old answer.");
     utimesSync(old, new Date(Date.now() - 30 * 3600_000), new Date(Date.now() - 30 * 3600_000));
     running("s-wait", "waiting");
     const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
-    await until(() => view.frame().includes("needs an answer") && view.frame().includes("finished work"));
+    // Waits for the rows, not the chat: until its transcript is read, the running session stands in under its id.
+    await until(() => view.frame().includes("cco-rc-view… needs an answer") && view.frame().includes("finished work"));
     const frame = view.frame();
     const rows = frame.split("\n");
     const waitingRow = rows.findIndex((l) => l.includes("── Waiting"));
@@ -246,8 +249,15 @@ describe("the Remote Control Viewer's three columns", () => {
     expect(waitingRow).toBeGreaterThan(0);
     expect(endedRow).toBeGreaterThan(waitingRow);
     // Its ⚠ blinks: in the off phase a space stands in its place.
-    expect(rows[waitingRow + 1]).toMatch(/[⚠ ] needs an answer/);
-    expect(rows[endedRow + 1]).toContain("∅ finished work");
+    // The folder first (cut to 12 columns), then the title; the age right-aligned at the column's border.
+    expect(rows[waitingRow + 1]).toMatch(/[⚠ ] cco-rc-view… needs an answer +\d+[smhd]│/);
+    expect(rows[endedRow + 1]).toMatch(/∅ cco-rc-view… finished work +\d+[smhd]│/);
+    const ageEnd = (row: string) => row.search(/[smhd]│/);
+    expect(ageEnd(rows[waitingRow + 1]!)).toBe(ageEnd(rows[endedRow + 1]!));
+    // A title too long for the column is cut before the age, the folder stays.
+    const longRow = rows.find((l) => l.includes("a long title"))!;
+    expect(longRow).toMatch(/∅ cco-rc-view… a long title .*… +\d+[smhd]│/);
+    expect(ageEnd(longRow)).toBe(ageEnd(rows[endedRow + 1]!));
     expect(frame).not.toContain("yesterday's work");
     expect(frame).toContain("1 Remote Control");
     expect(frame).toContain("⚠ 1 waiting");
@@ -595,7 +605,7 @@ describe("answering a remote session in the Remote Control Viewer", () => {
     await until(() => view.frame().includes("local twin") && view.frame().includes("Welche Farbe magst du?"));
     expect(view.frame()).not.toContain("rc-test");
     // Marked as answered here.
-    expect(view.frame()).toMatch(/[⚠ ] ⇄ local twin/);
+    expect(view.frame()).toMatch(/[⚠ ] ⇄ cco-rc-view… local twin/);
     await until(() => view.frame().includes("ask me a colour"));
     expect(view.frame()).toContain("ask me a colour");
     await view.press("\r");
@@ -688,7 +698,7 @@ describe("blinking marks", () => {
     await until(() => view.frame().includes("asks you"));
     await tick(4 * TIMING.blink);
     const row = (f: string) => f.split("\n").find((l) => l.includes("asks you"));
-    expect(blinked(view.frames, row, "⚠ asks you")).toBe(true);
+    expect(blinked(view.frames, row, "⚠ cco-rc-view… asks you")).toBe(true);
     view.unmount();
     rmSync(join(claudeDir(), "sessions"), { recursive: true, force: true });
   });
@@ -720,12 +730,12 @@ describe("blinking marks", () => {
     const plain = (f: string) => stripVTControlCharacters(f);
     const row = (title: string) => (f: string) => plain(f).split("\n").find((l) => l.includes(title));
     await tick(4 * TIMING.blink);
-    expect(blinked(view.frames, row("idle before"), "● idle before")).toBe(false);
+    expect(blinked(view.frames, row("idle before"), "● cco-rc-view… idle before")).toBe(false);
     status(process.pid, "s-run", "idle");
     await until(() => plain(view.frame()).split("\n").findIndex((l) => l.includes("── Idle")) < plain(view.frame()).split("\n").findIndex((l) => l.includes("finishes now")));
     const from = view.frames.length;
     await tick(4 * TIMING.blink);
-    expect(blinked(view.frames.slice(from), row("finishes now"), "● finishes now")).toBe(true);
+    expect(blinked(view.frames.slice(from), row("finishes now"), "● cco-rc-view… finishes now")).toBe(true);
     view.unmount();
     rmSync(sessions, { recursive: true, force: true });
   });
