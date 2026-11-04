@@ -1,7 +1,9 @@
 import { Box, Text, useInput, usePaste } from "ink";
 import { useState, type ReactNode } from "react";
+import sliceAnsi from "slice-ansi";
 import stringWidth from "string-width";
 import { editLine, insertable, type LineState } from "../filter.js";
+import { usesPreviews } from "../switchSession.js";
 import { LineField } from "./FilterDialog.js";
 import { bold, Dialog, dim, wrapLines, type Layout } from "./layout.js";
 
@@ -12,12 +14,12 @@ const green = (s: string) => `\u001b[32m${s}\u001b[39m`;
 const yellow = (s: string) => `\u001b[33m${s}\u001b[39m`;
 const inverse = (s: string) => `\u001b[7m${s}\u001b[27m`;
 
-/** One question of an AskUserQuestion call, as Claude asks it. */
+/** One question of an AskUserQuestion call, as Claude asks it; an option's `preview` is shown beside the options. */
 export interface Question {
   question: string;
   header?: string;
   multiSelect?: boolean;
-  options: { label: string; description?: string }[];
+  options: { label: string; description?: string; preview?: string }[];
 }
 
 /** The questions of an AskUserQuestion input, those in an unknown shape left out. */
@@ -26,10 +28,18 @@ export function questionsOf(input: Record<string, unknown>): Question[] {
   return list.flatMap((q): Question[] => {
     if (typeof q !== "object" || q === null || typeof (q as Question).question !== "string") return [];
     const { question, header, multiSelect, options } = q as Question;
-    const labels = Array.isArray(options) ? options.filter((o) => typeof o?.label === "string") : [];
-    return [{ question, header: typeof header === "string" ? header : undefined, multiSelect: multiSelect === true, options: labels }];
+    const labelled = Array.isArray(options) ? options.filter((o) => typeof o?.label === "string") : [];
+    const kept = labelled.map(({ label, description, preview }) => ({
+      label,
+      ...(typeof description === "string" && { description }),
+      ...(typeof preview === "string" && { preview }),
+    }));
+    return [{ question, header: typeof header === "string" ? header : undefined, multiSelect: multiSelect === true, options: kept }];
   });
 }
+
+/** What Claude Code answers for a question with previews that got a note but no option. */
+export const NOTES_ONLY = "(notes only)";
 
 /** The choice for one question: the options checked (indexes), and the text of "Other…" when it is checked. */
 export interface Answer {
@@ -52,9 +62,26 @@ export function answersOf(questions: Question[], answers: Answer[]): Record<stri
   for (const [i, q] of questions.entries()) {
     const a = answers[i] ?? { picked: [] };
     if (!isAnswered(a)) return undefined;
-    result[q.question] = answerText(q, a);
+    // In the preview layout a typed text is a note without an option.
+    result[q.question] = usesPreviews(q) && a.picked.length === 0 ? NOTES_ONLY : answerText(q, a);
   }
   return result;
+}
+
+/**
+ * What Claude Code adds for the questions with previews: the chosen option's preview, or the note typed in place
+ * of an option; undefined when there is nothing to add.
+ */
+export function annotationsOf(questions: Question[], answers: Answer[]): Record<string, { preview?: string; notes?: string }> | undefined {
+  const result: Record<string, { preview?: string; notes?: string }> = {};
+  for (const [i, q] of questions.entries()) {
+    const a = answers[i];
+    if (!usesPreviews(q) || !a) continue;
+    const preview = a.picked.length ? q.options[a.picked[0]!]?.preview : undefined;
+    const notes = a.picked.length ? undefined : a.other?.trim();
+    if (preview || notes) result[q.question] = { ...(preview && { preview }), ...(notes && { notes }) };
+  }
+  return Object.keys(result).length ? result : undefined;
 }
 
 /**
@@ -91,12 +118,54 @@ interface BodyLine {
   block?: number;
 }
 
+/** From this many columns on, a preview stands beside the options (as in Claude Code); below them in narrower ones. */
+const PREVIEW_BESIDE = 100;
+
+/**
+ * An option's preview in a box `width` columns wide, its text as written (not Markdown), lines too wide cut and at
+ * most `rows` rows, the rest named in its last line; without one, that there is none.
+ */
+export function previewBox(preview: string | undefined, width: number, rows = Infinity): string[] {
+  if (!preview?.trim()) return [dim("No preview available")];
+  let lines = preview.replace(/\t/g, "  ").replace(/\s+$/, "").split(/\r?\n/);
+  const room = Math.max(1, rows - 2);
+  if (lines.length > room) {
+    const left = lines.length - room + 1;
+    lines = [...lines.slice(0, room - 1), dim(`… ${left} more line${left === 1 ? "" : "s"}`)];
+  }
+  // As wide as its widest line, at most `width`.
+  const inner = Math.max(1, Math.min(width - 4, Math.max(...lines.map((l) => stringWidth(l)))));
+  const fit = (line: string) => {
+    const cut = stringWidth(line) > inner ? sliceAnsi(line, 0, inner) : line;
+    return cut + " ".repeat(Math.max(0, inner - stringWidth(cut)));
+  };
+  const edge = dim("─".repeat(inner + 2));
+  return [dim("┌") + edge + dim("┐"), ...lines.map((l) => `${dim("│")} ${fit(l)} ${dim("│")}`), dim("└") + edge + dim("┘")];
+}
+
+/** The rows a question's previews take at most, box included (its tallest preview, uncut). */
+const previewHeight = (q: Question, width: number) => (usesPreviews(q) ? Math.max(...q.options.map((o) => previewBox(o.preview, width).length)) : 0);
+
+/** `rows` cut to `space` lines around the `selected` row, a line above and below saying there is more. */
+function scrolled(rows: BodyLine[], selected: number, space: number): ReactNode[] {
+  if (rows.length <= space) return rows.map((r) => r.text);
+  const inner = Math.max(1, space - 2);
+  const first = rows.findIndex((r) => r.block === selected);
+  const last = rows.length - 1 - [...rows].reverse().findIndex((r) => r.block === selected);
+  let start = last < inner ? 0 : Math.min(last - inner + 1, rows.length - inner);
+  if (first < start) start = first;
+  return [start > 0 ? dim("▲ more") : " ", ...rows.slice(start, start + inner).map((r) => r.text), start + inner < rows.length ? dim("▼ more") : " "];
+}
+
 /**
  * Answers Claude's questions (AskUserQuestion) as Claude Code does: one question at a time, a tab each in a bar
  * above, then a "Submit" tab with the answers. ←→ and Tab switch the tab, ↑↓ pick a row of the question, Enter (or
  * Space, or its digit) chooses an option of a question with one answer and goes on to the next tab; with several,
  * Space checks and Enter goes on. Typing on "Other…" writes the answer. Enter on "Submit" sends once every question
- * has an answer; a single question has no tabs and sends at once. Esc closes without answering.
+ * has an answer; a single question has no tabs and sends at once. Esc closes without answering. A question with
+ * previews (`usesPreviews`) shows the selected option's preview beside the options (below them in a narrow pane),
+ * its "Other…" is a note without an option ("Note only…"), as in Claude Code; the dialog is as tall as its tallest
+ * preview needs, up to three quarters of the pane.
  */
 export function QuestionDialog({
   layout,
@@ -104,6 +173,7 @@ export function QuestionDialog({
   questions,
   onSend,
   onCancel,
+  onLeave,
   onTyped,
   inline = false,
   active = true,
@@ -113,7 +183,10 @@ export function QuestionDialog({
   questions: Question[];
   /** The answers as the app sends them, and the choices they come from (for typing them into Claude Code's dialog). */
   onSend: (answers: Record<string, string>, picks: Answer[]) => void;
+  /** Esc: closes it, or where `onLeave` is given, cancels the question as Esc in Claude Code does. */
   onCancel: () => void;
+  /** Tab: hands the keys back without answering (`←→` still switch the question); without it Tab switches the question. */
+  onLeave?: () => void;
   /** Hears what is typed into the "Other…" fields, joined: kept if the dialog closes because another app answered. */
   onTyped?: (text: string) => void;
   /** Drawn in place of a remote viewer's prompt line, as wide as the pane and in its frame, instead of over the view. */
@@ -166,6 +239,7 @@ export function QuestionDialog({
   useInput((input, key) => {
     setNotice(undefined);
     if (key.escape) return onCancel();
+    if (key.tab && onLeave) return onLeave();
     if (key.tab) return go(tab + (key.shift ? -1 : 1));
     const onOther = row !== undefined && "other" in row;
     // ←→ move the cursor of a typed answer; elsewhere they switch the tab.
@@ -198,9 +272,15 @@ export function QuestionDialog({
   const room = inline ? width : width - 4;
   const asked = (question: Question) => (!tabbed && question.header ? `${cyan(question.header)}  ${question.question}` : question.question);
 
+  // A question with previews: the options in `cols` columns, the preview beside them in the rest (or below, in all).
+  const beside = room >= PREVIEW_BESIDE;
+  const optionCols = (question: Question) => (usesPreviews(question) && beside ? Math.min(60, Math.floor((room - 2) / 2)) : room);
+  const previewCols = (question: Question) => (beside ? room - optionCols(question) - 2 : room);
+
   // The body of a question: its text, then a block of lines per row, the field below "Other…" always kept.
   const questionBody = (qi: number): { head: string[]; rows: BodyLine[]; selected: number } => {
     const question = questions[qi]!;
+    const cols = optionCols(question);
     const a = answers[qi]!;
     const at = cursor[qi]!;
     const mark = (on: boolean) => {
@@ -214,14 +294,24 @@ export function QuestionDialog({
       const number = `${String(oi + 1).padStart(digits)}. `;
       const indent = " ".repeat(6 + stringWidth(number));
       const label = oi === at ? bold(option.label) : option.label;
-      for (const text of wrapLines(`${pointer(oi)} ${mark(a.picked.includes(oi))} ${number}${label}`, room, indent)) rows.push({ text, block: oi });
-      if (option.description) for (const text of wrapLines(option.description, room - indent.length)) rows.push({ text: indent + dim(text), block: oi });
+      for (const text of wrapLines(`${pointer(oi)} ${mark(a.picked.includes(oi))} ${number}${label}`, cols, indent)) rows.push({ text, block: oi });
+      if (option.description) for (const text of wrapLines(option.description, cols - indent.length)) rows.push({ text: indent + dim(text), block: oi });
     }
     const other = question.options.length;
-    const label = other === at ? bold("Other…") : "Other…";
+    const name = usesPreviews(question) ? "Note only…" : "Other…";
+    const label = other === at ? bold(name) : name;
     rows.push({ text: `${pointer(other)} ${mark(a.other !== undefined)} ${label}`, block: other });
-    rows.push({ text: other === at || a.other !== undefined ? <LineField line={field[qi]!} width={inline ? width + 4 : width} /> : " ", block: other });
+    // The field's own width counts its border and padding (`LineField`): four columns more than its text.
+    rows.push({ text: other === at || a.other !== undefined ? <LineField line={field[qi]!} width={cols + 4} /> : " ", block: other });
     return { head: [...wrapLines(bold(asked(question)), room), " "], rows, selected: at };
+  };
+  // The rows a question takes: its text and options, and beside or below them its tallest preview.
+  const questionHeight = (qi: number) => {
+    const { head, rows } = questionBody(qi);
+    const question = questions[qi]!;
+    const preview = previewHeight(question, previewCols(question));
+    if (!preview) return head.length + rows.length;
+    return head.length + (beside ? Math.max(rows.length, preview) : rows.length + 1 + preview);
   };
   // The Submit tab: each question with its answer, or that it has none yet.
   const submitBody = (): string[] => [
@@ -233,29 +323,44 @@ export function QuestionDialog({
   ];
 
   // Title, the bar, blank, the body, notice, keys; plus the border. The body is as tall as the tallest tab, so
-  // the chat above does not jump, at most what leaves the pane (inline: half of it) room.
+  // the chat above does not jump, at most what leaves the pane (inline: half of it, three quarters with previews) room.
   const fixed = 1 + (tabbed ? 1 : 0) + 1 + 1 + 1 + 2;
-  const tallest = Math.max(...questions.map((_, qi) => questionBody(qi)).map((b) => b.head.length + b.rows.length), tabbed ? submitBody().length : 0);
-  const most = Math.max(4, (inline ? Math.floor(layout.rows / 2) : layout.rows - 2) - fixed);
+  const tallest = Math.max(...questions.map((_, qi) => questionHeight(qi)), tabbed ? submitBody().length : 0);
+  const share = questions.some(usesPreviews) ? 3 / 4 : 1 / 2;
+  const most = Math.max(4, (inline ? Math.floor(layout.rows * share) : layout.rows - 2) - fixed);
   const height = Math.min(tallest, most);
 
   let body: ReactNode[];
   if (q === undefined) body = submitBody().slice(0, height);
   else {
+    const question = questions[q]!;
     const { head: fullHead, rows, selected } = questionBody(q);
     const head = fullHead.slice(0, Math.max(1, height - 3));
     const space = height - head.length;
-    let shown: ReactNode[] = rows.map((r) => r.text);
-    if (rows.length > space) {
-      // Too tall: the rows scroll with the selected one, a row above and below saying there is more.
-      const inner = Math.max(1, space - 2);
-      const first = rows.findIndex((r) => r.block === selected);
-      const last = rows.length - 1 - [...rows].reverse().findIndex((r) => r.block === selected);
-      let start = last < inner ? 0 : Math.min(last - inner + 1, rows.length - inner);
-      if (first < start) start = first;
-      shown = [start > 0 ? dim("▲ more") : " ", ...shown.slice(start, start + inner), start + inner < rows.length ? dim("▼ more") : " "];
+    // The selected option's preview; none on "Note only…".
+    const preview = (rowsLeft: number) => (row && "option" in row ? previewBox(question.options[row.option]!.preview, previewCols(question), rowsLeft) : []);
+    if (!usesPreviews(question)) body = [...head, ...scrolled(rows, selected, space)];
+    else if (beside) {
+      // Too tall: the rows scroll with the selected one; the preview is cut.
+      const left = scrolled(rows, selected, space);
+      const right = preview(space);
+      const cols = optionCols(question);
+      const lines = Array.from({ length: Math.min(space, Math.max(left.length, right.length)) }, (_, i) => (
+        <Box key={i}>
+          <Box width={cols} flexShrink={0}>
+            {typeof left[i] === "string" || left[i] === undefined ? <Text wrap="truncate">{left[i] ?? " "}</Text> : left[i]}
+          </Box>
+          <Text wrap="truncate">{`  ${right[i] ?? ""}`}</Text>
+        </Box>
+      ));
+      body = [...head, ...lines];
+    } else {
+      // Below the options: they keep a few rows, the preview gets the rest.
+      const wanted = previewHeight(question, previewCols(question));
+      const optionRows = Math.min(rows.length, space, Math.max(Math.min(rows.length, 4), space - 1 - wanted));
+      const left = space - optionRows - 1;
+      body = [...head, ...scrolled(rows, selected, optionRows), ...(left >= 3 ? [" ", ...preview(left)] : [])];
     }
-    body = [...head, ...shown];
   }
   while (body.length < height) body.push(" ");
 
@@ -268,7 +373,8 @@ export function QuestionDialog({
           ? [["↑↓", "row"], ["Space", "check"], ["Enter", tabbed ? "next" : "send"]]
           : [["↑↓", "row"], ["Enter", tabbed ? "choose" : "send"], [questions[q]!.options.length > 1 ? `1-${questions[q]!.options.length}` : "1", ""]];
   if (tabbed) keyItems.push(["←→", "question"]);
-  keyItems.push(["Esc", inline ? "chat" : "later"]);
+  if (onLeave) keyItems.push(["Esc", "cancel the question"], ["Tab", "chat"]);
+  else keyItems.push(["Esc", inline ? "chat" : "later"]);
 
   const content: ReactNode = (
     <>

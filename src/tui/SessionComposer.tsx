@@ -5,11 +5,12 @@ import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import type { CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
+import { TIMING } from "../timing.js";
 import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/usage.js";
 import { CommandList, pickerFirst, pickerRows, useCommandPicker } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
 import { moveRow, pastable, promptRows } from "./PromptDialog.js";
-import { QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
+import { annotationsOf, QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
 import { useClipboard } from "./useClipboard.js";
 import { permissionResponse, requestRows, toolInputLines } from "./useRemoteControl.js";
@@ -129,6 +130,21 @@ export interface PromptChannel {
    * picks typed into its Claude Code's dialog. Only where keys reach it.
    */
   answerQuestion?(questions: Question[], picks: Answer[]): Promise<void>;
+  /** Cancels that question as Esc in its terminal does (Claude hears the user declined it). Where `answerQuestion` is. */
+  cancelQuestion?(): Promise<void>;
+}
+
+/**
+ * What cco typed into a session's question dialog (`key`: the question as its hooks recorded it), and whether
+ * Claude still waits for that same question `TIMING.answerCheck` after the last key: then it did not arrive.
+ */
+interface TypedIn {
+  key: string;
+  kind: "answer" | "cancel";
+  picks?: Answer[];
+  /** All keys are typed; the check runs from then on. */
+  done: boolean;
+  stuck: boolean;
 }
 
 /**
@@ -178,9 +194,11 @@ export function SessionComposer({
   /**
    * What a session of this machine waits for, as its hooks recorded it: shown in the line's place while it waits,
    * read-only, since it is answered in its terminal (`where` says how to get there); a question the channel can
-   * answer (`answerQuestion`) gets the question dialog, its answer typed in there.
+   * answer (`answerQuestion`) gets the question dialog, its answer typed in there (Esc there types Esc: the question is
+   * cancelled). Should Claude still wait for that question after the keys, the line says the keys did not arrive and,
+   * while it has the keys, `r` types the answer again, Esc cancels and Enter brings its terminal to the front (`front`).
    */
-  asked?: { request: LocalRequest; where: string };
+  asked?: { request: LocalRequest; where: string; front?: () => void };
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
   commands?: CommandSource;
   /** What its frame's bottom line shows at the right (setting usageLine): a remote session's context and the account's windows. */
@@ -221,6 +239,38 @@ export function SessionComposer({
   const localQuestions = !request && asked?.request.kind === "question" && channel.answerQuestion && answered.current !== askedKey ? questionsOf(asked.request.input) : [];
   const localQuestion = localQuestions.length > 0;
   const isQuestion = (request?.toolName === "AskUserQuestion" && questionsOf(request.input).length > 0) || localQuestion;
+  // What was typed into its dialog for the question it waits for, once Claude still waits for it after the keys.
+  const [typedIn, setTypedIn] = useState<TypedIn>();
+  const stuck = typedIn?.stuck && typedIn.key === askedKey && asked?.request.kind === "question" && channel.answerQuestion ? typedIn : undefined;
+  useEffect(() => {
+    if (!typedIn?.done || typedIn.stuck || typedIn.key !== askedKey) return;
+    // Another question, or none: Claude took it. The same one still after a moment: the keys did not arrive.
+    const timer = setTimeout(() => setTypedIn((t) => (t === typedIn ? { ...t, stuck: true } : t)), TIMING.answerCheck);
+    return () => clearTimeout(timer);
+  }, [typedIn, askedKey]);
+  /** Types the answer (`picks`) into the dialog of the question its Claude Code waits for, or Esc, which cancels it. */
+  const typeIn = (kind: TypedIn["kind"], picks?: Answer[]) => {
+    const key = askedKey;
+    if (!key || !asked) return;
+    const run = kind === "answer" ? channel.answerQuestion?.(questionsOf(asked.request.input), picks ?? []) : channel.cancelQuestion?.();
+    if (!run) return;
+    answered.current = key;
+    setTyped("");
+    const entry: TypedIn = { key, kind, picks, done: false, stuck: false };
+    setTypedIn(entry);
+    run.then(
+      () => {
+        setTypedIn((t) => (t === entry ? { ...entry, done: true } : t));
+        notify(kind === "answer" ? "answer typed into its Claude Code" : "Esc typed into its Claude Code: the question is cancelled");
+      },
+      (err: Error) => {
+        // Not typed: the dialog comes back, to try again or answer in its terminal.
+        if (answered.current === key) answered.current = undefined;
+        setTypedIn((t) => (t === entry ? undefined : t));
+        notify(`not typed: ${err.message}`);
+      },
+    );
+  };
 
   // A new request starts on Allow; one answered elsewhere drops what was typed for it, into the clipboard.
   const shown = useRef<{ key?: string; id?: string }>({ key: draftKey });
@@ -240,10 +290,11 @@ export function SessionComposer({
     }
   }, [request?.requestId, draftKey]);
 
-  // Blocked while it has the keys (the session ended, Claude waits in its terminal): the chat takes them back.
+  // Blocked while it has the keys (the session ended, Claude waits in its terminal): the chat takes them back, except
+  // where keys typed into its dialog did not arrive (again, cancel, to the front).
   useEffect(() => {
-    if (focused && channel.blocked && !request && !localQuestion) onFocus(false);
-  }, [focused, channel.blocked, request, localQuestion]);
+    if (focused && channel.blocked && !request && !localQuestion && !stuck) onFocus(false);
+  }, [focused, channel.blocked, request, localQuestion, stuck]);
 
   // A prompt brought back unchanged keeps the list of / commands closed, so ↑↓ go on through the history.
   const recalled = browse !== undefined && line.text === browse.text;
@@ -321,6 +372,13 @@ export function SessionComposer({
 
   useInput(
     (input, key) => {
+      if (stuck) {
+        if (key.tab) return onFocus(false);
+        if (key.escape) return typeIn("cancel");
+        if (input === "r" && stuck.kind === "answer") return typeIn("answer", stuck.picks);
+        if (key.return) asked?.front?.();
+        return;
+      }
       if (key.tab && !picker.open) return onFocus(false);
       if (key.pageUp || key.pageDown) return;
       if (reason) {
@@ -365,6 +423,7 @@ export function SessionComposer({
   );
   usePaste(
     (text) => {
+      if (stuck) return;
       const add = pastable(text);
       if (reason) return setReason({ ...reason, text: reason.text.slice(0, reason.cursor) + add + reason.text.slice(reason.cursor), cursor: reason.cursor + add.length });
       if (!request) setLine({ text: line.text.slice(0, line.cursor) + add + line.text.slice(line.cursor), cursor: line.cursor + add.length, selected: false });
@@ -395,33 +454,33 @@ export function SessionComposer({
         title={`Claude asks · ${truncate(title, 40)}`}
         questions={localQuestions}
         onSend={(_, picks) => {
-          const key = askedKey;
-          answered.current = key;
-          setTyped("");
           onFocus(false);
-          channel.answerQuestion!(localQuestions, picks).then(
-            () => notify("answer typed into its Claude Code"),
-            (err: Error) => {
-              // Not typed: the dialog comes back, to try again or answer in its terminal.
-              if (answered.current === key) answered.current = undefined;
-              notify(`not typed: ${err.message}`);
-            },
-          );
+          typeIn("answer", picks);
         }}
-        onCancel={() => onFocus(false)}
+        onCancel={() => {
+          onFocus(false);
+          typeIn("cancel");
+        }}
+        onLeave={() => onFocus(false)}
         onTyped={setTyped}
       />
     );
   } else if (request && isQuestion) {
+    const questions = questionsOf(request.input);
     body = (
       <QuestionDialog
         inline
         active={focused}
         layout={layout}
         title={`Claude asks · ${truncate(title, 40)}`}
-        questions={questionsOf(request.input)}
-        onSend={(answers) => answer({ behavior: "allow", toolUseID: request.toolUseId, tool_name: request.toolName, updatedInput: { ...request.input, answers } }, "answer sent")}
-        onCancel={() => onFocus(false)}
+        questions={questions}
+        onSend={(answers, picks) => {
+          // With previews, Claude Code also hands Claude the chosen preview, or the note typed instead.
+          const annotations = annotationsOf(questions, picks);
+          answer({ behavior: "allow", toolUseID: request.toolUseId, tool_name: request.toolName, updatedInput: { ...request.input, answers, ...(annotations && { annotations }) } }, "answer sent");
+        }}
+        onCancel={() => answer(permissionResponse(request, false, "The user declined to answer"), "question cancelled")}
+        onLeave={() => onFocus(false)}
         onTyped={setTyped}
       />
     );
@@ -468,9 +527,29 @@ export function SessionComposer({
             {l}
           </Text>
         ))}
-        <Text dimColor wrap="truncate">
-          {`Answered in its terminal: ${asked.where}`}
-        </Text>
+        {stuck ? (
+          <>
+            <Text color="yellow" wrap="truncate">
+              {stuck.kind === "answer"
+                ? "The answer did not arrive: Claude still asks. Its dialog there may be half filled in."
+                : "Not cancelled: Claude still asks. Its dialog there may be in its notes field."}
+            </Text>
+            {keys(
+              focused
+                ? [
+                    ...(stuck.kind === "answer" ? [["r", "type the answer again"] as [string, string]] : []),
+                    ["Esc", "cancel the question"],
+                    ...(asked.front ? [["Enter", "bring its terminal to the front"] as [string, string]] : []),
+                    ["Tab", "chat"],
+                  ]
+                : [[hint[0], "try again or cancel"]],
+            )}
+          </>
+        ) : (
+          <Text dimColor wrap="truncate">
+            {`Answered in its terminal: ${asked.where}`}
+          </Text>
+        )}
       </>
     );
   } else if (channel.blocked) {

@@ -20,7 +20,7 @@ export function localBlocked(running: RunningSession | undefined, terminal = det
 /**
  * The prompt line's way into a session of this machine: its prompts typed into the Claude Code that runs it, after
  * what is typed there already, and Esc to stop Claude. While Claude waits there, only the answer to its question
- * (`answerQuestion`: the keys of `questionAnswerSteps`) can be typed. On Windows the PowerShell that types (`prepareConsoleInput`,
+ * (`answerQuestion`: the keys of `questionAnswerSteps`), or Esc to cancel it (`cancelQuestion`), can be typed. On Windows the PowerShell that types (`prepareConsoleInput`,
  * about a second to start) is started while the line has the keys, and again after each use.
  */
 export function useLocalPrompt(running: RunningSession | undefined, focused: boolean): PromptChannel {
@@ -54,7 +54,10 @@ export function useLocalPrompt(running: RunningSession | undefined, focused: boo
       blocked,
       send: (text) => type(promptSteps(text)),
       interrupt: () => type(ESCAPE),
-      ...(answers && { answerQuestion: (questions, picks) => type(questionAnswerSteps(questions, picks), true) }),
+      ...(answers && {
+        answerQuestion: (questions, picks) => type(questionAnswerSteps(questions, picks), true),
+        cancelQuestion: () => type(ESCAPE, true),
+      }),
     };
   }, [pid, blocked, answers]);
 }
