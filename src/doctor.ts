@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { cliFile } from "./cliPath.js";
 import { detectTerminal, SUPPORTED_TERMINALS, TERMINAL_NAMES } from "./open.js";
-import { rcViewerFile, runningRcViewer } from "./rcViewer/registry.js";
+import { rcViewerFile, rcViewerStartFile, rcViewerStarting, runningRcViewer } from "./rcViewer/registry.js";
 import { DEFAULT_SETTINGS, isRcViewerKey, isSessionViewerKey, rcViewerPart, rcViewerSettingsFile, readRcViewerSettings, readMainSettings, readSessionViewerSettings, sessionViewerSettingsFile, sessionViewerPart, settingsFile, type Settings } from "./settings.js";
 import { activeFile, claudeDir, claudeFile, claudePidFromEnv, projectDir, readJson, transcriptForSession, writeJson, type ActiveSession } from "./transcript/locate.js";
 import { runningSessions } from "./transcript/trash.js";
@@ -56,7 +56,7 @@ export interface DoctorOptions {
 
 const PLUGIN = "cco@cc-outline";
 /** The files in ~/.claude/cco that belong to no project. */
-const GLOBAL_FILES = new Set(["settings.json", "settings.session-viewer.json", "settings.rc-viewer.json", "rc-viewer.json", "rc-viewer-request.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json", "editor.json", "rate-limits.json"]);
+const GLOBAL_FILES = new Set(["settings.json", "settings.session-viewer.json", "settings.rc-viewer.json", "rc-viewer.json", "rc-viewer-starting.json", "rc-viewer-request.json", "favorites.json", "releases.json", "version.json", "cli.json", "export.json", "editor.json", "rate-limits.json"]);
 /** A project's session marked ended this long ago is history: no viewer waits for it any more. */
 const ENDED_AGE_MS = 24 * 60 * 60 * 1000;
 /** A `.corrupt` copy is kept this long for a look, then counts as a leftover. */
@@ -254,6 +254,8 @@ function stateFiles(now: number): Finding[] {
   stale.push(...staleViewers(sessionViewersDir()), ...legacyObservers());
   // So does the Remote Control Viewer; its registration outlives a Remote Control Viewer that was killed.
   if (existsSync(rcViewerFile()) && !runningRcViewer()) stale.push(rcViewerFile());
+  // Its start, recorded until it registered: one that never started leaves it behind.
+  if (existsSync(rcViewerStartFile()) && rcViewerStarting() === undefined) stale.push(rcViewerStartFile());
 
   const findings: Finding[] = [];
   const add = (paths: string[], text: string, id: string, label: string, apply: () => void) =>

@@ -121,17 +121,21 @@ program
     if (opts.configDir) setClaudeDir(opts.configDir);
     const afterPid = validPid(opts.afterPid);
     if (afterPid) await waitForExit(afterPid, 10_000);
-    const [{ registerRcViewer, runningRcViewer }, { claudeDir }] = await Promise.all([import("./rcViewer/registry.js"), import("./transcript/locate.js")]);
-    // One per machine: a second one would only show the same.
-    const other = runningRcViewer();
-    if (other && other.pid !== process.pid) {
-      console.error(`cco: the Remote Control Viewer runs already (pid ${other.pid})`);
-      process.exit(1);
+    const [{ claimRcViewer, rcViewerStarting }, { claudeDir }] = await Promise.all([import("./rcViewer/registry.js"), import("./transcript/locate.js")]);
+    // Requests written since it was started (a second click on another session) are for this one; read before the claim forgets the start.
+    const startedFor = rcViewerStarting();
+    // One per machine: a second one would only show the same. Its tab says so until a key closes it, with exit code 0, so
+    // Windows Terminal closes the tab; an error code kept it open with a bare line.
+    const other = claimRcViewer({ configDir: claudeDir(), window: ownWindow(opts.window) });
+    if (other) {
+      const [{ alreadyRunningNotice, waitForKey }, { detectTerminal }] = await Promise.all([import("./rcViewer/alreadyRunning.js"), import("./open.js")]);
+      console.log(alreadyRunningNotice(other, opts.window, detectTerminal()).join("\n"));
+      await waitForKey();
+      process.exit(0);
     }
-    registerRcViewer({ configDir: claudeDir(), window: ownWindow(opts.window) });
     const select = opts.selectRemote ? { id: opts.selectRemote, remote: true } : opts.select ? { id: opts.select, configDir: opts.selectDir ?? claudeDir() } : undefined;
     const { runRcViewer } = await importProduction(() => import("./watch.js"));
-    await runRcViewer({ select });
+    await runRcViewer({ select, requestsSince: startedFor });
     process.exit(0);
   });
 

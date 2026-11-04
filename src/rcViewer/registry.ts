@@ -1,6 +1,7 @@
-import { mkdirSync, rmSync, statSync, utimesSync } from "node:fs";
+import { linkSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { accountsHome } from "../addAccount.js";
+import { TIMING } from "../timing.js";
 import { readJson, writeJson } from "../transcript/locate.js";
 import { isAlive } from "../viewer.js";
 
@@ -39,15 +40,31 @@ export function runningRcViewer(): RcViewerInfo | undefined {
   }
 }
 
-/** Records this process as the Remote Control Viewer until it exits. */
-export function registerRcViewer(info: Omit<RcViewerInfo, "pid" | "started">): void {
+/**
+ * Records this process as the Remote Control Viewer until it exits, unless another one runs: then that one, and nothing is
+ * written. The file is made in one step that fails where it exists (a link to a complete copy), so of two that start at the
+ * same moment only one gets it; a registration of one that is gone is removed and the claim tried again.
+ */
+export function claimRcViewer(info: Omit<RcViewerInfo, "pid" | "started">): RcViewerInfo | undefined {
   const file = rcViewerFile();
   mkdirSync(dirname(file), { recursive: true });
-  writeJson(file, { ...info, pid: process.pid, started: Date.now() } satisfies RcViewerInfo);
-  const own = () => readJson<RcViewerInfo>(file)?.pid === process.pid;
+  const own: RcViewerInfo = { ...info, pid: process.pid, started: Date.now() };
+  let created = false;
+  for (let attempt = 0; attempt < 3 && !created; attempt++) {
+    created = createOnly(file, JSON.stringify(own, null, 2));
+    if (created) break;
+    const other = runningRcViewer();
+    if (other && other.pid !== process.pid) return other;
+    rmSync(file, { force: true });
+  }
+  // Removed three times and still taken by none that runs: it is written over, as before the claim.
+  if (!created) writeJson(file, own);
+  // It started: the next start finds it registered, no longer starting.
+  rmSync(rcViewerStartFile(), { force: true });
+  const owned = () => readJson<RcViewerInfo>(file)?.pid === process.pid;
   const beat = setInterval(() => {
     // Stops once another took the file or it is gone.
-    if (!own()) return clearInterval(beat);
+    if (!owned()) return clearInterval(beat);
     try {
       const now = new Date();
       utimesSync(file, now, now);
@@ -58,8 +75,57 @@ export function registerRcViewer(info: Omit<RcViewerInfo, "pid" | "started">): v
   beat.unref();
   process.on("exit", () => {
     // Only its own: a Remote Control Viewer started after it (this one hung) may have taken the file.
-    if (own()) rmSync(file, { force: true });
+    if (owned()) rmSync(file, { force: true });
   });
+  return undefined;
+}
+
+/**
+ * Creates `file` with `content` unless it exists; false if it does. A hard link of a complete copy: a reader never sees
+ * the file half written, which would look like a registration of none. Where the file system has no links, `wx`.
+ */
+function createOnly(file: string, content: string): boolean {
+  const temp = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, content);
+    linkSync(temp, file);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    try {
+      writeFileSync(file, content, { flag: "wx" });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw err;
+    }
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
+/**
+ * Where a start of the Remote Control Viewer is recorded until it registered (`TIMING.rcViewerStart` at most): a second
+ * start in that time (a double click, /cco:rc-viewer of another session) opens no second tab.
+ */
+export const rcViewerStartFile = () => join(accountsHome.get(), ".claude", "cco", "rc-viewer-starting.json");
+
+/** Records that a Remote Control Viewer is being started now. */
+export function markRcViewerStarting(): void {
+  const file = rcViewerStartFile();
+  mkdirSync(dirname(file), { recursive: true });
+  writeJson(file, { at: Date.now(), by: process.pid });
+}
+
+/** Forgets the start recorded by `markRcViewerStarting` (it could not be opened). */
+export function clearRcViewerStarting(): void {
+  rmSync(rcViewerStartFile(), { force: true });
+}
+
+/** When a Remote Control Viewer was started that has not registered yet, if within `TIMING.rcViewerStart`. */
+export function rcViewerStarting(now = Date.now()): number | undefined {
+  const at = readJson<{ at?: unknown }>(rcViewerStartFile())?.at;
+  return typeof at === "number" && now - at >= 0 && now - at < TIMING.rcViewerStart ? at : undefined;
 }
 
 /** A session the Remote Control Viewer is asked to select: one of this machine's (its id in config folder `configDir`) or a remote one. */

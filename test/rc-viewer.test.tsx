@@ -1,12 +1,14 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { renderInk, tick, until } from "./helpers/ink.js";
 import { stripVTControlCharacters } from "node:util";
 import { TIMING } from "../src/timing.js";
 import { formatAge, rcViewerEntries, rcViewerState, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type RcViewerEntry, type SeenStates } from "../src/rcViewer/state.js";
-import { registerRcViewer, runningRcViewer, rcViewerFile } from "../src/rcViewer/registry.js";
+import { claimRcViewer, runningRcViewer, rcViewerFile, rcViewerStartFile } from "../src/rcViewer/registry.js";
+import { forgetOpens } from "../src/openGuard.js";
+import { MouseContext } from "../src/tui/mouse.js";
 import { openRcViewer } from "../src/open.js";
 import { DEFAULT_SETTINGS, isViewShown, RC_VIEWER_KEYS, rcViewerSettingsFile, readMainSettings, readSettings, setOwnSettings, updateSettings } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
@@ -185,12 +187,13 @@ describe("Remote Control Viewer registration", () => {
 
   it("records the running Remote Control Viewer, one per machine", () => {
     expect(runningRcViewer()).toBeUndefined();
-    registerRcViewer({ configDir: claudeDir() });
+    claimRcViewer({ configDir: claudeDir() });
     expect(runningRcViewer()).toMatchObject({ pid: process.pid });
   });
 
   it("ignores a registration not touched for long, whose pid another program got", () => {
     // The parent process lives, as the program would that got the pid of a killed Remote Control Viewer.
+    mkdirSync(dirname(rcViewerFile()), { recursive: true });
     writeFileSync(rcViewerFile(), JSON.stringify({ pid: process.ppid, started: Date.now() - 3_600_000 }));
     expect(runningRcViewer()).toMatchObject({ pid: process.ppid });
     const old = new Date(Date.now() - 3_600_000);
@@ -295,6 +298,8 @@ describe("the Remote Control Viewer's three columns", () => {
   });
 });
 
+const guard = TIMING.openGuard;
+
 describe("opening the Remote Control Viewer from Sessions", () => {
   const spawned: { cmd: string; args: string[] }[] = [];
   const real = { ...proc };
@@ -311,6 +316,9 @@ describe("opening the Remote Control Viewer from Sessions", () => {
   afterEach(() => {
     for (const v of ["WT_SESSION", "TMUX"]) if (env[v] === undefined) delete process.env[v];
     rmSync(rcViewerFile(), { force: true });
+    rmSync(rcViewerStartFile(), { force: true });
+    TIMING.openGuard = guard;
+    forgetOpens();
   });
 
   it("reaches the Remote Control Viewer's row above the list with ↑ and opens it with Enter, and k opens it from anywhere", async () => {
@@ -329,18 +337,40 @@ describe("opening the Remote Control Viewer from Sessions", () => {
     await view.press("\r");
     await until(() => spawned.length > 0);
     expect(spawned[0]!.args).toEqual(expect.arrayContaining(["rc-viewer", "--window", "cco-rc-viewer"]));
-    // ↓ goes back to the list; k opens it too.
+    // ↓ goes back to the list; k opens it too, once the one started is no longer starting.
     await view.press("\u001b[B");
     await until(() => !view.frame().includes("↵ Remote Control Viewer"));
+    await view.press("k");
+    await until(() => view.frame().includes("the Remote Control Viewer is starting"));
+    expect(spawned).toHaveLength(1);
+    rmSync(rcViewerStartFile(), { force: true });
     await view.press("k");
     await until(() => spawned.length > 1);
     expect(spawned[1]!.args).toContain("rc-viewer");
     view.unmount();
   });
 
+  it("opens one Remote Control Viewer for a double click on its row", async () => {
+    process.env.WT_SESSION = "x";
+    delete process.env.TMUX;
+    TIMING.openGuard = 60_000;
+    const cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-double-"));
+    mkdirSync(projectDir(cwd), { recursive: true });
+    writeFileSync(join(projectDir(cwd), "s1.jsonl"), JSON.stringify({ type: "user", uuid: "u1", timestamp: new Date().toISOString(), cwd, message: { role: "user", content: "only work" } }) + "\n");
+    spawned.length = 0;
+    const view = renderInk(<SessionsView cwd={cwd} layout={layout} visible active />, size, { wrap: (e) => <MouseContext.Provider value={true}>{e}</MouseContext.Provider> });
+    await until(() => view.frame().includes("only work"));
+    const row = view.frame().split("\n").findIndex((l) => l.includes("Remote Control Viewer"));
+    await view.click(20, row + 1);
+    await view.click(20, row + 1);
+    await until(() => view.frame().includes("opened the Remote Control Viewer in a new window"));
+    expect(spawned.filter((s) => s.args.includes("rc-viewer"))).toHaveLength(1);
+    view.unmount();
+  });
+
   it("asks a running Remote Control Viewer to select the session, and brings it to the front", () => {
     process.env.WT_SESSION = "x";
-    registerRcViewer({ window: "cco-rc-viewer" });
+    claimRcViewer({ window: "cco-rc-viewer" });
     spawned.length = 0;
     expect(openRcViewer(runningRcViewer(), { id: "s1", configDir: claudeDir() })).toBe("brought the Remote Control Viewer to the front");
     expect(readRcViewerRequest()).toMatchObject({ id: "s1", configDir: claudeDir() });

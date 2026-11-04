@@ -1,5 +1,6 @@
+import { openOnce } from "./openGuard.js";
 import { proc } from "./proc.js";
-import { requestRcViewerSelect, type RcViewerSelect } from "./rcViewer/registry.js";
+import { clearRcViewerStarting, markRcViewerStarting, rcViewerStarting, requestRcViewerSelect, type RcViewerSelect } from "./rcViewer/registry.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,6 +91,10 @@ export function independentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
 
 /** Opens `file` in the app the system uses for it (e.g. an image viewer), without waiting for it. */
 export function openInDefaultApp(file: string, platform: NodeJS.Platform = process.platform): void {
+  openOnce(`app:${file}`, () => openApp(file, platform));
+}
+
+function openApp(file: string, platform: NodeJS.Platform): void {
   // explorer.exe hands the file to its default app, with no shell quoting involved.
   const command = platform === "win32" ? "explorer.exe" : platform === "darwin" ? "open" : "xdg-open";
   // No windowsHide: explorer applies the hidden start to the window it opens for a folder, which then never shows.
@@ -108,6 +113,10 @@ export function openInDefaultApp(file: string, platform: NodeJS.Platform = proce
  * account: under that config folder (`withClaudeDir`). `fresh`: a new session under the id `sessionId` instead.
  */
 export function resumeInNewWindow(sessionId: string, dir: string, title: string, window = "new", configDir?: string, fresh = false): string {
+  return openOnce(`window:${configDir ?? claudeDir()}:${sessionId}:${window}:${fresh}`, () => resumeWindow(sessionId, dir, title, window, configDir, fresh));
+}
+
+function resumeWindow(sessionId: string, dir: string, title: string, window: string, configDir: string | undefined, fresh: boolean): string {
   const terminal = detectTerminal();
   if (terminal === "wt") {
     // -w new: without it, wt may add a tab to an open window (its windowingBehavior setting).
@@ -163,6 +172,11 @@ export function viewerCommand(target: ViewerTarget, platform: NodeJS.Platform = 
  * without Windows Terminal, WezTerm or tmux (then `viewerCommand` is the way).
  */
 export function openSessionViewer(target: ViewerTarget, title: string, window: string): string | undefined {
+  // Not by window: each viewer gets a name of its own.
+  return openOnce(`viewer:${JSON.stringify(target)}`, () => sessionViewerWindow(target, title, window));
+}
+
+function sessionViewerWindow(target: ViewerTarget, title: string, window: string): string | undefined {
   const terminal = detectTerminal();
   const args = [process.execPath, CLI, ...viewerArgs(target, window)];
   // The viewer reads the session; claude's variables must not make it a part of the Claude Code it was opened from.
@@ -192,12 +206,21 @@ export const RC_VIEWER_WINDOW = "cco-rc-viewer";
  * by hand is the way).
  */
 export function openRcViewer(running?: { pid: number; window?: string }, select?: RcViewerSelect): string | undefined {
+  return openOnce(`rc-viewer:${select?.configDir ?? ""}:${select?.id ?? ""}`, () => rcViewerWindow(running, select));
+}
+
+function rcViewerWindow(running: { pid: number; window?: string } | undefined, select: RcViewerSelect | undefined): string | undefined {
   const terminal = detectTerminal();
   if (running) {
     // It selects the session as soon as it reads the request, also where its window cannot be raised.
     if (select) requestRcViewerSelect(select);
     if (running.window && terminal && focusSessionViewer(running.window)) return "brought the Remote Control Viewer to the front";
     return `the Remote Control Viewer runs already (pid ${running.pid}), in a terminal of its own`;
+  }
+  // One was started and has not registered yet (a double click, /cco:rc-viewer of another session): it takes the request once it runs.
+  if (rcViewerStarting() !== undefined) {
+    if (select) requestRcViewerSelect(select);
+    return "the Remote Control Viewer is starting";
   }
   const chosen = !select ? [] : select.remote ? ["--select-remote", select.id] : ["--select", select.id, ...(select.configDir ? ["--select-dir", select.configDir] : [])];
   return startRcViewer(terminal, chosen);
@@ -216,6 +239,14 @@ export function reopenRcViewer(window: string | undefined): boolean {
 
 /** Starts `cco rc-viewer` with `extra` in a new window named `RC_VIEWER_WINDOW` (in Windows Terminal a new tab of it, if open). */
 function startRcViewer(terminal: Terminal | undefined, extra: string[]): string | undefined {
+  if (!terminal) return undefined;
+  markRcViewerStarting();
+  const opened = spawnRcViewer(terminal, extra);
+  if (!opened) clearRcViewerStarting();
+  return opened;
+}
+
+function spawnRcViewer(terminal: Terminal, extra: string[]): string | undefined {
   const args = [process.execPath, CLI, "rc-viewer", "--config-dir", claudeDir(), "--window", RC_VIEWER_WINDOW, ...extra];
   // It watches every session; claude's variables must not make it a part of the Claude Code it was opened from.
   const env = independentEnv();
@@ -254,6 +285,10 @@ export function focusSessionViewer(window: string): boolean {
  * happened, or undefined without Windows Terminal, WezTerm or tmux.
  */
 export function scriptInNewWindow(script: string, dir: string, title: string): string | undefined {
+  return openOnce(`script:${script}:${dir}`, () => scriptWindow(script, dir, title));
+}
+
+function scriptWindow(script: string, dir: string, title: string): string | undefined {
   const terminal = detectTerminal();
   const env = independentEnv();
   delete env.CLAUDE_CONFIG_DIR;
