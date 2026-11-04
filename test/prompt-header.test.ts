@@ -60,6 +60,32 @@ describe("answerLines", () => {
     const lines = answerLines(turn, { tools: "off", thinking: false, agents: false }, 40, true).map(stripAnsi);
     expect(lines).toEqual(["Fixed.", "", "▌ ※ Recap", "▌ Goal: fix it."]);
   });
+
+  it("shows Claude Code's notices where they were written, a warning yellow with ⚠, wrapped", () => {
+    const turn: Turn = {
+      id: "a",
+      prompt: "fix it",
+      blocks: [
+        { kind: "text", text: "Looking." },
+        { kind: "notice", text: "Unknown command: /modul. Did you mean /model?", level: "warning", command: "/modul" },
+        { kind: "notice", text: "Usage limit reset · continuing automatically" },
+        { kind: "text", text: "Fixed." },
+      ],
+    };
+    const raw = answerLines(turn, { tools: "off", thinking: false, agents: false }, 30, true);
+    expect(raw.map(stripAnsi)).toEqual([
+      "Looking.",
+      "",
+      "⚠ Unknown command: /modul. Did",
+      "  you mean /model?",
+      "",
+      "· Usage limit reset ·",
+      "  continuing automatically",
+      "",
+      "Fixed.",
+    ]);
+    expect(raw[2]).toContain("\u001b[33m");
+  });
 });
 
 describe("continuationDetails", () => {

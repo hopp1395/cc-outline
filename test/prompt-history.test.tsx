@@ -32,6 +32,15 @@ describe("promptHistory", () => {
     ];
     expect(promptHistory(turns)).toEqual(["typed"]);
   });
+
+  it("brings back a / command Claude Code did not know, a turn of its own or a warning in the turn it was typed in", () => {
+    const warning = (command: string) => ({ kind: "notice" as const, text: `Unknown command: ${command.split(" ")[0]}`, level: "warning" as const, command });
+    const turns = [
+      turn("fix it", { blocks: [{ kind: "text", text: "Looking." }, warning("/modul sonnet"), { kind: "text", text: "Fixed." }] }),
+      turn("/grillng the viewer", { unknownCommand: true, blocks: [warning("/grillng the viewer")] }),
+    ];
+    expect(promptHistory(turns)).toEqual(["/grillng the viewer", "/modul sonnet", "fix it"]);
+  });
 });
 
 describe("moveRow", () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { TranscriptParser, turnMarkdown } from "../src/transcript/parse.js";
+import { isTypedPrompt, TranscriptParser, turnMarkdown } from "../src/transcript/parse.js";
 
 const fixture = readFileSync(new URL("./fixtures/session.jsonl", import.meta.url), "utf8");
 
@@ -130,6 +130,71 @@ describe("TranscriptParser", () => {
       ]);
       // Not part of the answer's Markdown (copied with c).
       expect(turnMarkdown(p.turns[0], { tools: "off", thinking: false })).toBe("Fixed.");
+    });
+
+    const info = (content: string, level = "warning", uuid?: string) => line({ type: "system", subtype: "informational", content, level, isMeta: false, ...(uuid && { uuid }) });
+
+    it("makes a / command Claude Code did not know a finished turn of its own, with what was typed after it", () => {
+      const p = new TranscriptParser();
+      p.push(
+        prompt("a", "fix it") +
+          assistant("end_turn", [{ type: "text", text: "Fixed." }]) +
+          info("Unknown command: /grillng. Did you mean /grilling?", "warning", "u1") +
+          info("Args from unknown skill: the remote viewer\nshows nothing") +
+          info("Unknown command: /main", "warning", "u2"),
+      );
+      expect(p.turns.slice(1)).toEqual([
+        {
+          id: "u1",
+          prompt: "/grillng the remote viewer\nshows nothing",
+          timestamp: undefined,
+          blocks: [{ kind: "notice", text: "Unknown command: /grillng. Did you mean /grilling?", level: "warning", command: "/grillng the remote viewer\nshows nothing" }],
+          done: true,
+          unknownCommand: true,
+        },
+        { id: "u2", prompt: "/main", timestamp: undefined, blocks: [{ kind: "notice", text: "Unknown command: /main", level: "warning", command: "/main" }], done: true, unknownCommand: true },
+      ]);
+      // Nobody asked Claude: not one of the session's prompts.
+      expect(isTypedPrompt(p.turns[1]!)).toBe(false);
+      expect(isTypedPrompt(p.turns[0]!)).toBe(true);
+    });
+
+    it("keeps a command Claude Code did not know while Claude works as a warning in that turn, which goes on", () => {
+      const p = new TranscriptParser();
+      p.push(
+        prompt("a", "fix it") +
+          assistant("tool_use", [{ type: "text", text: "Looking." }]) +
+          info("Unknown command: /modul. Did you mean /model?") +
+          info("Args from unknown skill: sonnet") +
+          assistant("end_turn", [{ type: "text", text: "Fixed." }]),
+      );
+      expect(p.turns).toHaveLength(1);
+      expect(p.turns[0]!.blocks).toEqual([
+        { kind: "text", text: "Looking." },
+        { kind: "notice", text: "Unknown command: /modul. Did you mean /model?", level: "warning", command: "/modul sonnet" },
+        { kind: "text", text: "Fixed." },
+      ]);
+    });
+
+    it("puts Claude Code's notices where they were written, leaving out the one that comes whatever happens", () => {
+      const p = new TranscriptParser();
+      p.push(
+        info("Your organization may apply global configuration to Claude Code.", "notice") +
+          prompt("a", "fix it") +
+          assistant("tool_use", [{ type: "text", text: "Looking." }]) +
+          info("Usage limit reached · continuing automatically at 6pm · esc to cancel", "notice") +
+          info("Usage limit reset · continuing automatically", "notice") +
+          assistant("end_turn", [{ type: "text", text: "Fixed." }]),
+      );
+      expect(p.turns).toHaveLength(1);
+      expect(p.turns[0]!.blocks).toEqual([
+        { kind: "text", text: "Looking." },
+        { kind: "notice", text: "Usage limit reached · continuing automatically at 6pm · esc to cancel" },
+        { kind: "notice", text: "Usage limit reset · continuing automatically" },
+        { kind: "text", text: "Fixed." },
+      ]);
+      // Not part of the answer's Markdown (copied with c), like a recap.
+      expect(turnMarkdown(p.turns[0]!, { tools: "off", thinking: false })).toBe("Looking.\n\nFixed.");
     });
 
     it("names the answer a continued transcript starts with, whose prompt is in the one before", () => {

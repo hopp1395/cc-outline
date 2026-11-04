@@ -14,7 +14,7 @@ const read = new Map<string, { at: number; commands: Promise<SlashCommand[]> }>(
 const keyOf = (source: CommandSource) => ("remoteId" in source ? `remote|${source.remoteId}` : `${source.configDir}|${source.cwd}|${source.transcript ?? ""}`);
 
 /** The commands of `source`, read when `wanted` turns true (the list opens) and again once its transcript changed. */
-function useSlashCommands(source: CommandSource | undefined, wanted: boolean): SlashCommand[] | undefined {
+export function useSlashCommands(source: CommandSource | undefined, wanted: boolean): SlashCommand[] | undefined {
   const [commands, setCommands] = useState<{ key: string; list: SlashCommand[] }>();
   const key = source ? keyOf(source) : undefined;
   useEffect(() => {

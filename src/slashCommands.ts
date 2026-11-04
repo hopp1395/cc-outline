@@ -229,6 +229,43 @@ export function takeCommand(text: string, name: string): { text: string; cursor:
   return { text: head + rest, cursor: head.length };
 }
 
+/**
+ * The command a prompt starts with when `commands` does not know it (Claude Code would answer "Unknown command"), with
+ * the known one it most likely meant. Undefined for a known command, a prompt that is no command (`/usr/bin …`, text),
+ * an MCP server's prompt (`mcp__…`, not listed) and while the commands are not read yet.
+ */
+export function unknownCommand(text: string, commands: readonly SlashCommand[] | undefined): { name: string; suggestion?: string } | undefined {
+  if (!commands?.length) return undefined;
+  const name = /^\/([^\s/]+)(?=\s|$)/.exec(text.trimStart())?.[1];
+  if (!name || name.startsWith("mcp__")) return undefined;
+  const typed = name.toLowerCase();
+  const names = (c: SlashCommand) => [c.name, ...(c.aliases ?? [])].map((n) => n.toLowerCase());
+  if (commands.some((c) => names(c).includes(typed))) return undefined;
+  // A plugin's command typed without its prefix (`/open` for `cco:open`) is meant for sure; else the closest name.
+  const unprefixed = commands.find((c) => names(c).some((n) => n.slice(n.lastIndexOf(":") + 1) === typed));
+  if (unprefixed) return { name, suggestion: unprefixed.name };
+  const most = Math.max(1, Math.floor(typed.length / 3));
+  let best: { name: string; distance: number } | undefined;
+  for (const c of commands) {
+    const distance = Math.min(...names(c).map((n) => editDistance(typed, n)));
+    if (distance <= most && (!best || distance < best.distance)) best = { name: c.name, distance };
+  }
+  return { name, ...(best && { suggestion: best.name }) };
+}
+
+/** Edits from `a` to `b`: a character added, dropped, changed, or two neighbours swapped (each counts one). */
+export function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1);
+    }
+  }
+  return d[a.length]![b.length]!;
+}
+
 /** The modification time of `path`, or 0: a changed transcript is read again. */
 export function modifiedAt(path: string | undefined): number {
   if (!path) return 0;

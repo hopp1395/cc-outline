@@ -22,6 +22,7 @@ import {
   type Attachment,
   type CompactInfo,
   type Continuation,
+  type NoticeBlock,
   type TaskNotification,
   type Turn,
   type WorkflowRun,
@@ -205,6 +206,15 @@ export function recapLines(text: string, width: number, wrap: boolean): string[]
   return [bar + yellow(bold("※ Recap")), ...body];
 }
 
+/** What Claude Code reported in its terminal, where it wrote it: a warning yellow with `⚠`, a notice dim. Always wrapped. */
+export function noticeLines(b: NoticeBlock, width: number): string[] {
+  const lead = b.level === "warning" ? "⚠ " : "· ";
+  const style = b.level === "warning" ? yellow : dim;
+  return wrapAnsi(b.text, Math.max(10, width - 2), { hard: true })
+    .split("\n")
+    .map((l, i) => style((i === 0 ? lead : "  ") + l));
+}
+
 /** A message from another agent, set apart from Claude's reaction below it: a heading and a bar down its left side. */
 export function peerLines(n: TaskNotification, width: number, wrap: boolean): string[] {
   const bar = magenta("▌ ");
@@ -249,12 +259,12 @@ export function answerLines(turn: Turn, opts: { tools: ToolLevel; thinking: bool
     run = [];
   };
   for (const b of turn.blocks) {
-    if (b.kind !== "recap" && b.kind !== "compact") {
+    if (b.kind !== "recap" && b.kind !== "compact" && b.kind !== "notice") {
       run.push(b);
       continue;
     }
     flush();
-    add(b.kind === "recap" ? recapLines(b.text, width, wrap) : compactLines(b.text, b.info, width, wrap));
+    add(b.kind === "recap" ? recapLines(b.text, width, wrap) : b.kind === "notice" ? noticeLines(b, width) : compactLines(b.text, b.info, width, wrap));
   }
   flush();
   return lines;
@@ -1022,7 +1032,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
             const media = mediaCount(t);
             const mediaBadge = media > 0 ? `▣${media} ` : "";
             // Slash commands stand out, like above the answer.
-            const command = t.notification || t.continuation || t.compacted ? undefined : commandName(t.prompt);
+            const command = t.notification || t.continuation || t.compacted || t.unknownCommand ? undefined : commandName(t.prompt);
             return (
               <>
                 {marked && <Star />}
@@ -1042,6 +1052,8 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                 )}
                 {t.continuation && <Text color="blue">⤷ </Text>}
                 {t.compacted && <Text color="blue">⟳ </Text>}
+                {/* A / command Claude Code did not know: nothing went to Claude. */}
+                {t.unknownCommand && <Text color="yellow">⚠ </Text>}
                 {badge && <Text color="magenta">{badge}</Text>}
                 {mediaBadge && <Text color="cyan">{mediaBadge}</Text>}
                 <EntryText
@@ -1051,7 +1063,7 @@ export function ChatView({ cwd, path, transcript, layout, active, onPromptOpen, 
                     4,
                     listWidth -
                       7 -
-                      (t.queued || t.notification || t.continuation || t.compacted ? 2 : 0) -
+                      (t.queued || t.notification || t.continuation || t.compacted || t.unknownCommand ? 2 : 0) -
                       (marked ? 2 : 0) -
                       (running || t.interrupted ? 2 : 0) -
                       badge.length -
