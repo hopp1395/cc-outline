@@ -312,6 +312,9 @@ interface Entry {
     lineCount?: number;
     lineStart?: number;
     lineEnd?: number;
+    // unknown_command_fallback
+    commandName?: string;
+    suggestion?: string;
   };
 }
 
@@ -741,6 +744,7 @@ export class TranscriptParser {
       this.takesAttachments = true;
       return true;
     }
+    if (entry.type === "attachment" && !entry.isSidechain && entry.attachment?.type === "unknown_command_fallback") return this.addCommandFallback(entry);
     if (entry.type === "attachment" && !entry.isSidechain) {
       const changed = this.trackPlanMode(entry) || this.trackAttachment(entry);
       if (changed) return true;
@@ -1189,6 +1193,20 @@ export class TranscriptParser {
     }
     if (!turn) return false;
     turn.blocks.push({ kind: "notice", text, ...(entry.level === "warning" && { level: "warning" as const }) });
+    return true;
+  }
+
+  /**
+   * A prompt that starts with a `/` command the session does not know, which Claude Code hands Claude as text all the
+   * same (a prompt from claude.ai, Remote Control), with a reminder that it did not run and which one comes closest:
+   * a warning before Claude's answer, which usually asks about it.
+   */
+  private addCommandFallback(entry: Entry): boolean {
+    const a = entry.attachment!;
+    const turn = this.turns.at(-1);
+    if (!turn || !a.commandName || !turn.prompt.startsWith(`/${a.commandName}`)) return false;
+    const meant = a.suggestion ? ` Did you mean /${a.suggestion}?` : "";
+    turn.blocks.unshift({ kind: "notice", text: `Unknown command: /${a.commandName}.${meant} Claude got the prompt as text.`, level: "warning" });
     return true;
   }
 

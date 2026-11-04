@@ -176,6 +176,33 @@ describe("TranscriptParser", () => {
       ]);
     });
 
+    it("warns above Claude's answer when a / command it did not know reached Claude as text (a prompt from claude.ai)", () => {
+      const fallback = (commandName: string, suggestion?: string) =>
+        line({ type: "attachment", attachment: { type: "unknown_command_fallback", commandName, ...(suggestion && { suggestion }), availableCommandNames: ["grilling"] } });
+      const p = new TranscriptParser();
+      p.push(
+        prompt("a", "/grillng the viewer") +
+          fallback("grillng", "grilling") +
+          assistant("end_turn", [{ type: "text", text: "Did you mean /grilling?" }]) +
+          prompt("b", "/modul") +
+          fallback("modul") +
+          // Not the prompt's command: nothing.
+          fallback("other"),
+      );
+      expect(p.turns.map((t) => [t.prompt, t.unknownCommand, t.blocks])).toEqual([
+        [
+          "/grillng the viewer",
+          undefined,
+          [
+            { kind: "notice", text: "Unknown command: /grillng. Did you mean /grilling? Claude got the prompt as text.", level: "warning" },
+            { kind: "text", text: "Did you mean /grilling?" },
+          ],
+        ],
+        ["/modul", undefined, [{ kind: "notice", text: "Unknown command: /modul. Claude got the prompt as text.", level: "warning" }]],
+      ]);
+      expect(isTypedPrompt(p.turns[0]!)).toBe(true);
+    });
+
     it("puts Claude Code's notices where they were written, leaving out the one that comes whatever happens", () => {
       const p = new TranscriptParser();
       p.push(
