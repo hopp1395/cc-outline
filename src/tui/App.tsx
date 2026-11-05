@@ -50,7 +50,7 @@ import { useRemoteTranscript } from "./useRemoteTranscript.js";
 import { promptHistory, SessionComposer, type PromptChannel } from "./SessionComposer.js";
 import { describeRemoteError, remotePath } from "../remote/index.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
-import { useLocalPrompt } from "./useLocalPrompt.js";
+import { terminalOf, useLocalPrompt } from "./useLocalPrompt.js";
 import { useLocalRequest } from "./useLocalRequest.js";
 import { useViewerControl } from "./useViewerControl.js";
 import { useRunningSession } from "./useRunningSession.js";
@@ -305,6 +305,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   const remotePending = remoteId ? (remote.pending[0] ?? remote.session?.pending) : undefined;
   // A session of this machine that waits: what it asks, as its hooks recorded it, in the prompt line's place.
   const asked = useLocalRequest(sessionId !== undefined && !remoteId ? sessionOf(path) : undefined, path, running?.activity === "waiting", undefined, running?.since);
+  // The terminal its Claude Code runs in: Enter in the prompt line brings it to the front while Claude waits there.
+  const terminal = remoteId || !running ? undefined : terminalOf(running, () => void switchToSession(running, [sessionTitle]).then((text) => setNotice({ text })));
   // e (or Ctrl+G in Claude Code): the prompt editor over the whole pane. With `edit`, cco edit waits for it.
   const [editor, setEditor] = useState<{ id: number; edit?: EditRequest; initialText?: string }>();
   const blocked = infoOpen || quitAsked || restartAsked || devOpen || placementOpen || whatsNewOpen || progress.host.open || editor !== undefined;
@@ -600,8 +602,10 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
       return;
     }
     // A remote viewer's chat: Tab and i go back to the prompt line; the views switch with their number, ← and → there.
-    // A blocked one (the session runs nowhere, steer remote is off) leaves Tab and i to the view switch and the info.
-    if (composer && mode === "chat" && (key.tab || input === "i") && (!channel.blocked || remotePending || (asked?.kind === "question" && channel.answerQuestion))) return setComposing(true);
+    // A blocked one (the session runs nowhere, steer remote is off) leaves Tab and i to the view switch and the info,
+    // except while Claude waits in a terminal it can bring to the front.
+    if (composer && mode === "chat" && (key.tab || input === "i") && (!channel.blocked || remotePending || (asked?.kind === "question" && channel.answerQuestion) || (terminal?.waits && terminal.front)))
+      return setComposing(true);
     // A click on a tab of the top bar switches to its view.
     if (input.startsWith("[<")) {
       if (!mouse) return;
@@ -807,13 +811,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
             onFocus={setComposing}
             notify={(text) => setNotice({ text })}
             onHeight={setComposerRows}
-            asked={
-              asked && {
-                request: asked,
-                where: "its Claude Code's window",
-                front: running && (() => void switchToSession(running, [sessionTitle]).then((text) => setNotice({ text }))),
-              }
-            }
+            asked={asked}
+            terminal={terminal}
             commands={commandSource}
             usage={remoteId && usageLine ? remote.usage : undefined}
             history={history}

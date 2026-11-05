@@ -1,5 +1,6 @@
 import type { PendingRequest } from "../remote/pending.js";
 import type { RenamePlan } from "../sessionRename.js";
+import { frontBlocked } from "../switchSession.js";
 import type { RunningSession } from "../transcript/trash.js";
 import { viewerOptions, type ChoiceOption } from "../tui/resumeChoice.js";
 import { answerable } from "../tui/useRemoteControl.js";
@@ -59,12 +60,7 @@ export interface RcViewerSituation {
 const NO_TERMINAL = "no Windows Terminal, WezTerm or tmux";
 
 /** Why `switch` cannot bring a local session's terminal to the front. */
-function switchBlocked(s: RcViewerSituation): string | undefined {
-  if (!s.terminal) return NO_TERMINAL;
-  const run = s.running;
-  if (run?.kind === "bg") return run.jobId ? `a background session has no tab: claude attach ${run.jobId}` : "a background session has no tab";
-  return undefined;
-}
+const switchBlocked = (s: RcViewerSituation): string | undefined => frontBlocked(s.running, s.terminal);
 
 /**
  * The options Enter offers in the Remote Control Viewer for a session, and the one selected at first. A waiting session: a local one's

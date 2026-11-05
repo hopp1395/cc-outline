@@ -13,6 +13,7 @@ import { moveRow, pastable, promptRows } from "./PromptDialog.js";
 import { annotationsOf, QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
 import { useClipboard } from "./useClipboard.js";
+import { WAITS_IN_TERMINAL } from "./useLocalPrompt.js";
 import { permissionResponse, requestRows, toolInputLines } from "./useRemoteControl.js";
 
 /** The rows of text the prompt line grows to; a longer prompt scrolls with the cursor. */
@@ -146,6 +147,17 @@ export interface PromptChannel {
 }
 
 /**
+ * The terminal the Claude Code of a session of this machine runs in (`terminalOf`): `front` brings it to the front, or
+ * `why` it cannot. `waits`: Claude waits there for something the line cannot answer (a dialog the hooks do not see,
+ * a permission), and not through claude.ai; the line then keeps the keys, and Enter brings that terminal to the front.
+ */
+export interface PromptTerminal {
+  front?: () => void;
+  why?: string;
+  waits: boolean;
+}
+
+/**
  * What cco typed into a session's question dialog (`key`: the question as its hooks recorded it), and whether
  * Claude still waits for that same question `TIMING.answerCheck` after the last key: then it did not arrive.
  */
@@ -164,7 +176,8 @@ interface TypedIn {
  * `channel`; while a remote session's Claude waits for an answer, the permission
  * (allow, deny, deny saying why) or the question takes its place. It has the keys while `focused`: Esc (or Tab) hands
  * them to the chat, Esc while Claude works stops it, as in Claude Code. While the channel is blocked it says why and
- * takes no keys. `onHeight` hears the rows it takes, so the chat above leaves them.
+ * takes no keys, except while Claude waits in its `terminal`: then Enter brings that to the front. `onHeight` hears
+ * the rows it takes, so the chat above leaves them.
  */
 export function SessionComposer({
   layout,
@@ -179,6 +192,7 @@ export function SessionComposer({
   draftKey,
   hint = ["Tab", "write a prompt"],
   asked,
+  terminal,
   commands,
   usage,
   history = [],
@@ -205,12 +219,14 @@ export function SessionComposer({
   hint?: [string, string];
   /**
    * What a session of this machine waits for, as its hooks recorded it: shown in the line's place while it waits,
-   * read-only, since it is answered in its terminal (`where` says how to get there); a question the channel can
+   * read-only, since it is answered in its terminal; a question the channel can
    * answer (`answerQuestion`) gets the question dialog, its answer typed in there (Esc there types Esc: the question is
    * cancelled). Should Claude still wait for that question after the keys, the line says the keys did not arrive and,
-   * while it has the keys, `r` types the answer again, Esc cancels and Enter brings its terminal to the front (`front`).
+   * while it has the keys, `r` types the answer again, Esc cancels and Enter brings its terminal to the front.
    */
-  asked?: { request: LocalRequest; where: string; front?: () => void };
+  asked?: LocalRequest;
+  /** The terminal a session of this machine runs in: brought to the front with Enter where Claude waits there. */
+  terminal?: PromptTerminal;
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
   commands?: CommandSource;
   /** What its frame's bottom line shows at the right (setting usageLine): a remote session's context and the account's windows. */
@@ -260,13 +276,13 @@ export function SessionComposer({
   // A request can be answered only where the channel can respond (remote).
   const request = channel.respond && !channel.blocked ? pending : undefined;
   // A question of this machine's session, answered by typing into its terminal: once, and not one answered elsewhere.
-  const askedKey = asked ? `${asked.request.sessionId}:${asked.request.at}` : undefined;
-  const localQuestions = !request && asked?.request.kind === "question" && channel.answerQuestion && answered.current !== askedKey ? questionsOf(asked.request.input) : [];
+  const askedKey = asked ? `${asked.sessionId}:${asked.at}` : undefined;
+  const localQuestions = !request && asked?.kind === "question" && channel.answerQuestion && answered.current !== askedKey ? questionsOf(asked.input) : [];
   const localQuestion = localQuestions.length > 0;
   const isQuestion = (request?.toolName === "AskUserQuestion" && questionsOf(request.input).length > 0) || localQuestion;
   // What was typed into its dialog for the question it waits for, once Claude still waits for it after the keys.
   const [typedIn, setTypedIn] = useState<TypedIn>();
-  const stuck = typedIn?.stuck && typedIn.key === askedKey && asked?.request.kind === "question" && channel.answerQuestion ? typedIn : undefined;
+  const stuck = typedIn?.stuck && typedIn.key === askedKey && asked?.kind === "question" && channel.answerQuestion ? typedIn : undefined;
   useEffect(() => {
     if (!typedIn?.done || typedIn.stuck || typedIn.key !== askedKey) return;
     // Another question, or none: Claude took it. The same one still after a moment: the keys did not arrive.
@@ -277,7 +293,7 @@ export function SessionComposer({
   const typeIn = (kind: TypedIn["kind"], picks?: Answer[]) => {
     const key = askedKey;
     if (!key || !asked) return;
-    const run = kind === "answer" ? channel.answerQuestion?.(questionsOf(asked.request.input), picks ?? []) : channel.cancelQuestion?.();
+    const run = kind === "answer" ? channel.answerQuestion?.(questionsOf(asked.input), picks ?? []) : channel.cancelQuestion?.();
     if (!run) return;
     answered.current = key;
     setTyped("");
@@ -315,11 +331,15 @@ export function SessionComposer({
     }
   }, [request?.requestId, draftKey]);
 
+  // Claude waits in its terminal for something the line cannot answer (a dialog its hooks do not see, a permission):
+  // Enter brings that terminal to the front, where it can be.
+  const front = terminal?.front;
+  const waitsThere = !!terminal?.waits && channel.blocked !== undefined && !request && !localQuestion && !stuck;
   // Blocked while it has the keys (the session ended, Claude waits in its terminal): the chat takes them back, except
-  // where keys typed into its dialog did not arrive (again, cancel, to the front).
+  // where keys typed into its dialog did not arrive (again, cancel, to the front), or Enter brings its terminal forward.
   useEffect(() => {
-    if (focused && channel.blocked && !request && !localQuestion && !stuck) onFocus(false);
-  }, [focused, channel.blocked, request, localQuestion, stuck]);
+    if (focused && channel.blocked && !request && !localQuestion && !stuck && !(waitsThere && front)) onFocus(false);
+  }, [focused, channel.blocked, request, localQuestion, stuck, waitsThere, front]);
 
   // A prompt brought back unchanged keeps the list of / commands closed, so ↑↓ go on through the history.
   const recalled = browse !== undefined && line.text === browse.text;
@@ -406,7 +426,12 @@ export function SessionComposer({
         if (key.tab) return onFocus(false);
         if (key.escape) return typeIn("cancel");
         if (input === "r" && stuck.kind === "answer") return typeIn("answer", stuck.picks);
-        if (key.return) asked?.front?.();
+        if (key.return) front?.();
+        return;
+      }
+      if (waitsThere) {
+        if (key.tab || key.escape) return onFocus(false);
+        if (key.return) front?.();
         return;
       }
       // The command it most likely meant, in place of the one warned about; its args stay.
@@ -460,7 +485,7 @@ export function SessionComposer({
   );
   usePaste(
     (text) => {
-      if (stuck) return;
+      if (stuck || waitsThere) return;
       const add = pastable(text);
       if (reason) return setReason({ ...reason, text: reason.text.slice(0, reason.cursor) + add + reason.text.slice(reason.cursor), cursor: reason.cursor + add.length });
       if (!request) setLine({ text: line.text.slice(0, line.cursor) + add + line.text.slice(line.cursor), cursor: line.cursor + add.length, selected: false });
@@ -478,6 +503,9 @@ export function SessionComposer({
       ))}
     </Text>
   );
+
+  // Claude waits in its terminal: Enter there brings it to the front.
+  const frontKeys = keys(focused ? [["Enter", "bring its terminal to the front"], ["Esc", "chat"]] : [[hint[0], "bring its terminal to the front"]]);
 
   let body;
   let color = "yellow";
@@ -553,7 +581,7 @@ export function SessionComposer({
       </>
     );
   } else if (channel.blocked && asked) {
-    const { request } = asked;
+    const request = asked;
     body = (
       <>
         <Text bold color="yellow" wrap="truncate">
@@ -576,17 +604,31 @@ export function SessionComposer({
                 ? [
                     ...(stuck.kind === "answer" ? [["r", "type the answer again"] as [string, string]] : []),
                     ["Esc", "cancel the question"],
-                    ...(asked.front ? [["Enter", "bring its terminal to the front"] as [string, string]] : []),
+                    ...(front ? [["Enter", "bring its terminal to the front"] as [string, string]] : []),
                     ["Tab", "chat"],
                   ]
                 : [[hint[0], "try again or cancel"]],
             )}
           </>
         ) : (
-          <Text dimColor wrap="truncate">
-            {`Answered in its terminal: ${asked.where}`}
-          </Text>
+          <>
+            <Text dimColor wrap="truncate">
+              {`Answered in its terminal${waitsThere && !front && terminal?.why ? ` · ${terminal.why}` : ""}`}
+            </Text>
+            {waitsThere && front && frontKeys}
+          </>
         )}
+      </>
+    );
+  } else if (waitsThere) {
+    body = (
+      <>
+        <Text wrap="truncate">
+          {"› "}
+          {WAITS_IN_TERMINAL}
+          {!front && terminal?.why ? <Text dimColor>{` · ${terminal.why}`}</Text> : ""}
+        </Text>
+        {front && frontKeys}
       </>
     );
   } else if (channel.blocked) {

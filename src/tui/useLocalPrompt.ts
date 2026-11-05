@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { detectTerminal } from "../open.js";
-import { ESCAPE, keysInClaude, prepareConsoleInput, promptSteps, questionAnswerSteps, typesIntoConsole, type ConsoleTyper, type KeyStep } from "../switchSession.js";
+import { ESCAPE, frontBlocked, keysInClaude, prepareConsoleInput, promptSteps, questionAnswerSteps, typesIntoConsole, type ConsoleTyper, type KeyStep } from "../switchSession.js";
 import type { RunningSession } from "../transcript/trash.js";
-import type { PromptChannel } from "./SessionComposer.js";
+import type { PromptChannel, PromptTerminal } from "./SessionComposer.js";
+
+/** What the prompt line says while Claude waits in the terminal of a session of this machine. */
+export const WAITS_IN_TERMINAL = "Claude waits for you in its terminal";
 
 /**
  * Why a prompt cannot be typed into the Claude Code `running` (the session of this machine a viewer of one session
@@ -13,8 +16,19 @@ export function localBlocked(running: RunningSession | undefined, terminal = det
   if (!running) return "not running: Enter in Sessions continues it";
   if (running.kind === "bg") return running.jobId ? `background session: claude attach ${running.jobId}` : "background session: no terminal to type into";
   if (terminal !== "tmux" && terminal !== "wezterm" && platform !== "win32") return "no tmux or WezTerm: cco cannot type into it";
-  if (running.activity === "waiting") return "Claude waits for you in its terminal";
+  if (running.activity === "waiting") return WAITS_IN_TERMINAL;
   return undefined;
+}
+
+/**
+ * The terminal the Claude Code `running` runs in, for the prompt line (`SessionComposer`'s `terminal`): `front` brings
+ * it to the front, or `why` it cannot (`frontBlocked`); `waits` while Claude waits there for something the line
+ * cannot answer, unless the session is connected to claude.ai (`bridged`), where that is answered.
+ */
+export function terminalOf(running: RunningSession | undefined, front: () => void, bridged = false, terminal = detectTerminal() !== undefined): PromptTerminal | undefined {
+  if (!running) return undefined;
+  const why = frontBlocked(running, terminal);
+  return { ...(why ? { why } : { front }), waits: running.activity === "waiting" && !bridged };
 }
 
 /**
