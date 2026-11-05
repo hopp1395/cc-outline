@@ -8,6 +8,16 @@ import type { Placement } from "./settings.js";
 import type { RunningSession } from "./transcript/trash.js";
 
 /**
+ * Why `switchToSession` cannot bring the terminal of `session` to the front, or undefined when it can: no Windows
+ * Terminal, WezTerm or tmux runs the viewer (`terminal` false), or it is a background session, which has no tab.
+ */
+export function frontBlocked(session: RunningSession | undefined, terminal = detectTerminal() !== undefined): string | undefined {
+  if (!terminal) return "no Windows Terminal, WezTerm or tmux";
+  if (session?.kind === "bg") return session.jobId ? `a background session has no tab: claude attach ${session.jobId}` : "a background session has no tab";
+  return undefined;
+}
+
+/**
  * Brings the terminal tab of a session running in another Claude Code to the
  * front. Returns what happened, for the help line.
  *

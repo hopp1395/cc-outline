@@ -99,6 +99,8 @@ describe("what a session of this machine asks, recorded by its hooks", () => {
     recordLocalRequest({ hook_event_name: "PermissionRequest", session_id: "s-ask", tool_name: "Bash", tool_input: { command: "npm test" } });
     await until(() => view.frame().includes("Answered in its terminal"));
     expect(view.frame()).toContain("Allow Bash? · asks a colour");
+    // The prompt line takes the keys for it too: Enter there brings its terminal to the front.
+    expect(view.frame()).toContain("Space bring its terminal to the front");
     await view.press("\r");
     await until(() => view.frame().includes("What to do with this session?"));
     expect(view.frame()).toMatch(/›\s+Bring its terminal to the front/);

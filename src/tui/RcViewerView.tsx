@@ -33,7 +33,7 @@ import { sessionHead, sessionTitle } from "./sessionHead.js";
 import { useTerminalTitle } from "./title.js";
 import { useAccountState } from "./useAccount.js";
 import { useClipboard } from "./useClipboard.js";
-import { useLocalPrompt } from "./useLocalPrompt.js";
+import { terminalOf, useLocalPrompt } from "./useLocalPrompt.js";
 import { useLocalRequest } from "./useLocalRequest.js";
 import { questionsOf } from "./QuestionDialog.js";
 import { localRequestSummary } from "../localRequest.js";
@@ -224,7 +224,10 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // also in the line below the chat, its answer typed into its Claude Code.
   const asked = useLocalRequest(session && !session.remote ? session.id : undefined, path, entry?.state === "waiting" && !pending, session?.account, entry?.running?.since);
   const localQuestion = asked?.kind === "question" && channel.answerQuestion !== undefined && questionsOf(asked.input).length > 0 ? asked : undefined;
-  const canCompose = session !== undefined && (!channel.blocked || pending !== undefined || localQuestion !== undefined);
+  // The terminal its Claude Code runs in: while Claude waits there (not through claude.ai), Enter in the prompt line
+  // brings it to the front.
+  const terminal = session && !session.remote && entry?.running ? terminalOf(entry.running, () => act("switch", entry), bridge !== undefined) : undefined;
+  const canCompose = session !== undefined && (!channel.blocked || pending !== undefined || localQuestion !== undefined || (terminal?.waits === true && terminal.front !== undefined));
   // The chat and the lists leave the prompt line its rows.
   const layout = session ? shorter(full, composerRows) : full;
 
@@ -526,7 +529,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             onHeight={setComposerRows}
             draftKey={entry?.key}
             hint={["Space", "or a click: write a prompt"]}
-            asked={asked && { request: asked, where: "Enter in the sessions column brings it to the front", front: entry && (() => act("switch", entry)) }}
+            asked={asked}
+            terminal={terminal}
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
             usage={usageLine && (session.remote || bridge) ? remoteRead.usage : undefined}
             history={history}

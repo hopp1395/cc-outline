@@ -11,7 +11,7 @@ import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import { App } from "../src/tui/App.js";
 import type { Layout } from "../src/tui/layout.js";
 import { ProgressProvider } from "../src/tui/ProgressDialog.js";
-import { localBlocked } from "../src/tui/useLocalPrompt.js";
+import { localBlocked, terminalOf } from "../src/tui/useLocalPrompt.js";
 import { renderInk, tick, until } from "./helpers/ink.js";
 
 const layout: Layout = { columns: 110, rows: 24, listWidth: 40, previewWidth: 67, bodyHeight: 20 };
@@ -26,6 +26,18 @@ describe("why a prompt cannot be typed into a session of this machine", () => {
     expect(localBlocked({ ...idle, activity: "waiting" }, "tmux", "linux")).toBe("Claude waits for you in its terminal");
     expect(localBlocked(idle, "tmux", "linux")).toBeUndefined();
     expect(localBlocked(idle, "wt", "win32")).toBeUndefined();
+  });
+
+  it("brings its terminal to the front while Claude waits there, unless claude.ai answers or it cannot", () => {
+    const front = () => {};
+    const waiting = { ...idle, activity: "waiting" as const };
+    expect(terminalOf(waiting, front, false, true)).toEqual({ front, waits: true });
+    expect(terminalOf(idle, front, false, true)).toEqual({ front, waits: false });
+    // Connected to claude.ai (⇄): what it waits for is answered there.
+    expect(terminalOf(waiting, front, true, true)?.waits).toBe(false);
+    expect(terminalOf(waiting, front, false, false)).toEqual({ why: "no Windows Terminal, WezTerm or tmux", waits: true });
+    expect(terminalOf({ ...waiting, kind: "bg" }, front, false, true)).toEqual({ why: "a background session has no tab", waits: true });
+    expect(terminalOf(undefined, front)).toBeUndefined();
   });
 });
 
@@ -62,8 +74,9 @@ describe("the keys that answer Claude Code's question dialog", () => {
 });
 
 describe("the prompt line of a viewer of a session of this machine", () => {
-  // tmux types: every send-keys is recorded, the pane of this process is %1.
+  // tmux types: every send-keys is recorded, the pane of this process is %1; the panes switched to as well.
   const keys: string[][] = [];
+  const switched: string[] = [];
   const real = { ...proc };
   const saved = { ...process.env };
   beforeAll(() => {
@@ -72,6 +85,9 @@ describe("the prompt line of a viewer of a session of this machine", () => {
       else if (cmd === "tmux" && args[0] === "send-keys") {
         keys.push(args.slice(3));
         done(null, "");
+      } else if (cmd === "tmux" && args[0] === "switch-client") {
+        switched.push(args[2]!);
+        done(null, "");
       } else done(new Error("not faked"), "");
     }) as never;
   });
@@ -79,6 +95,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
   let cwd: string;
   beforeEach(() => {
     keys.length = 0;
+    switched.length = 0;
     process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-local-prompt-"));
     process.env.TMUX = "/tmp/tmux";
     process.env.TMUX_PANE = "%9";
@@ -131,13 +148,45 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     app.unmount();
   });
 
-  it("says why nothing can be typed, and keeps the keys in the chat", async () => {
+  it("brings its terminal to the front with Enter while Claude waits there for a dialog its hooks do not see", async () => {
     runs("waiting");
     const app = viewer();
-    await until(() => app.frame().includes("Claude waits for you in its terminal"));
+    await until(() => app.frame().includes("Claude waits for you in its terminal") && app.frame().includes("Tab bring its terminal to the front"));
+    await app.press("\t");
+    await until(() => app.frame().includes("Enter bring its terminal to the front"));
+    await app.press("\r");
+    await expect.poll(() => switched).toEqual(["%1"]);
+    // Nothing typed into the dialog; Esc gives the keys back to the chat.
+    expect(keys).toEqual([]);
+    await app.press("\u001b");
+    await until(() => app.frame().includes("Tab bring its terminal to the front"));
+    expect(keys).toEqual([]);
+    app.unmount();
+  });
+
+  it("does the same for a permission its hooks recorded, shown above", async () => {
+    runs("waiting");
+    recordLocalRequest({ hook_event_name: "PermissionRequest", session_id: "s1", tool_name: "Bash", tool_input: { command: "npm test" } });
+    const app = viewer();
+    await until(() => app.frame().includes("Allow Bash?") && app.frame().includes("Answered in its terminal"));
+    await app.press("\t");
+    await until(() => app.frame().includes("Enter bring its terminal to the front"));
+    await app.press("\r");
+    await expect.poll(() => switched).toEqual(["%1"]);
+    expect(keys).toEqual([]);
+    app.unmount();
+  });
+
+  it("says why its terminal cannot come to the front, and keeps the keys in the chat", async () => {
+    mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s1", status: "waiting", kind: "bg", jobId: "j1" }));
+    const app = viewer();
+    await until(() => app.frame().includes("Claude waits for you in its terminal · a background session has no tab: claude attach j1"));
+    expect(app.frame()).not.toContain("bring its terminal to the front");
     await app.press("\t");
     await until(() => app.frame().includes("confirm quit"));
     expect(keys).toEqual([]);
+    expect(switched).toEqual([]);
     app.unmount();
   });
 
