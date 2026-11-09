@@ -40,6 +40,7 @@ import { localRequestSummary } from "../localRequest.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
 import { mergeRemote, sessionKey, useRemoteSessions, useRunning, useSessions, useSessionViewers, withNames } from "./useSessionData.js";
 import { useSetting } from "./useSetting.js";
+import { useQuota } from "./useQuota.js";
 import { useTranscript } from "./useTranscript.js";
 
 /** The Remote Control Viewer's columns, left to right: `←` and `→` move the keys between them. */
@@ -110,7 +111,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [accountColor] = useSetting("accountColor");
   const [remoteApi] = useSetting("remoteApi");
   const [remoteControl] = useSetting("remoteControl");
-  const [usageLine] = useSetting("usageLine");
+  // The account's 5-hour and 7-day windows, at the right of the prompt line's bottom border (with the remote API setting).
+  const quota = useQuota(accountState.current);
   const copy = useClipboard();
   const foreignKey = foreignDirs(accountState.accounts).join("\n");
   const foreign = useMemo(() => (foreignKey ? foreignKey.split("\n") : []), [foreignKey]);
@@ -532,7 +534,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             asked={asked}
             terminal={terminal}
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
-            usage={usageLine && (session.remote || bridge) ? remoteRead.usage : undefined}
+            usage={{ context: session.remote || bridge ? remoteRead.usage.context : undefined, limits: quota.limits, stale: quota.stale }}
             history={history}
             unsent={unsent}
           />

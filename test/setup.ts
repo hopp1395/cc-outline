@@ -45,4 +45,6 @@ Object.assign(TIMING, {
   // Off: tests open the same thing one after another; test/openGuard.test.ts turns it on.
   openGuard: 0,
   rcViewerStart: 15_000,
+  quotaPoll: 500,
+  quotaCheck: 100,
 } satisfies typeof TIMING);

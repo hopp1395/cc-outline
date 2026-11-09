@@ -8,7 +8,7 @@ import wrapAnsi from "wrap-ansi";
 import { gatherExtras } from "../statusline/extras.js";
 import { isStatusLinePreset, renderStatusLine, sampleInput, STATUS_LINE_VALUES, type StatusInput, type StatusLineSetting } from "../statusline/render.js";
 import { applyStatusLine, describeStatusLine, hasOwnStatusLine, readStatusLineState, statusLineInputFile, syncStatusLineSetting } from "../statusline/setup.js";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, isViewerOnlyKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, TERMINAL_NAMES, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
@@ -35,6 +35,10 @@ import { isReloadKey, useOnReload } from "./reload.js";
 import { useListFilter } from "./useListFilter.js";
 import { usePositions } from "./usePositions.js";
 import { useSettings } from "./useSetting.js";
+import { useQuota, type QuotaState } from "./useQuota.js";
+import { quotaLines } from "./quotaLines.js";
+import { levelOf, percentOf } from "../remote/usage.js";
+import { LEVEL_COLOR } from "./UsageText.js";
 import { ownSession, useAccountFlow } from "./useAccountFlow.js";
 import { renderMarkdown } from "../render/markdown.js";
 import { codeSpan } from "../render/terminal.js";
@@ -149,7 +153,7 @@ export const RC_VIEWER_RESET_ACTIONS: ResetAction[] = [
 
 /** The settings this process lists: the Remote Control Viewer's or a viewer of one session's own (`oneSession`), else the project's viewer's. */
 function listedRows(oneSession: boolean): Row[] {
-  if (!oneSession) return SETTING_ROWS.filter((r) => !isViewerOnlyKey(r.key));
+  if (!oneSession) return SETTING_ROWS;
   if (!isRcViewer()) return SETTING_ROWS.filter((r) => isSessionViewerKey(r.key));
   const own = SETTING_ROWS.filter((r) => isRcViewerKey(r.key));
   const settings = own.findIndex((r) => r.group === "Settings");
@@ -652,14 +656,6 @@ export const SETTING_ROWS: Row[] = [
   },
   wrapRow("chatWrap", "Chat", "in the chat", "useful for wide tables and code blocks"),
   listOrder("chatOrder", "Chat", "turns"),
-  {
-    key: "usageLine",
-    group: "Chat",
-    label: "usage line",
-    description:
-      "Whether a viewer of a remote session shows at the right of its prompt line's bottom border, like the status line of Claude Code: how many tokens the context held at Claude's last answer, and how much of the account's 5-hour and 7-day windows is used, with the time until each starts anew. It is read from the session's events on claude.ai, so it needs the remote API setting, and shows for the remote sessions and those of this machine connected to claude.ai (⇄), also in the Remote Control Viewer. claude.ai reports the windows now and then only; the newest any viewer of this account read is kept, and a window that has started anew shows – until the next report.",
-    values: ON_OFF("e.g. Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h, the percentages green, yellow from 50 %, red from 80 %; on a narrow pane the times left go first, then Ctx, then 7d", "a plain border"),
-  },
   viewTab("viewGit", "Changes", "2", "the changed files with their diffs"),
   listWidthRow("gitListWidth", "Changes", "list width", "Changes", "A wider list shows long paths in full, e.g. `src/tui/SettingsView.tsx` deep in a folder; a narrower one leaves the diffs more room."),
   wrapRow("wrap", "Changes", "in diffs", "long lines of code keep their shape and indentation"),
@@ -746,8 +742,8 @@ export const SETTING_ROWS: Row[] = [
     group: "Sessions",
     label: "remote API",
     description:
-      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the steer remote setting.",
-    values: ON_OFF("Remote Control sessions are listed in Sessions, and the preview shows their prompts", "nothing is asked of claude.ai"),
+      "Experimental. Reads the Remote Control sessions of this account from claude.ai through an interface that Anthropic does not document and may change at any time, with the login Claude Code keeps in `.credentials.json` (read, never written or renewed; once it has expired, start Claude Code or run `/login`). It also reads how much of the account's 5-hour and 7-day windows is used, as Claude Code's `/usage` shows it, once a minute for all viewers of the account: useful to see a limit coming before Claude stops. Needs a Pro, Max, Team or Enterprise login; behind a company proxy it needs the system's certificates (`NODE_OPTIONS=--use-system-ca`). It only reads: sending is the steer remote setting.",
+    values: ON_OFF("Remote Control sessions are listed in Sessions, and the windows show in the Account group here and at the right of the Remote Control Viewer's prompt line border, e.g. 5h 42% ↻ 2h13m · 7d 18% ↻ 3d4h", "nothing is asked of claude.ai"),
   },
   {
     key: "remoteControl",
@@ -1007,7 +1003,7 @@ const colorNameOf = (account: Account, state: AccountState, chosen: Settings["ac
 
 /** The label of an Account entry in the list. */
 function accountLabel(e: AccountEntry, state: AccountState): string {
-  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : e.account === "add" ? "how to add an account" : "no account found";
+  if (!("dir" in e)) return e.account === "details" ? "how accounts are found" : e.account === "add" ? "how to add an account" : e.account === "quota" ? "usage: 5-hour and 7-day windows" : "no account found";
   const account = state.accounts.find((a) => a.dir === e.dir);
   // The active account is marked; the folder tells accounts with the same email apart.
   return `${e.dir === state.current?.dir ? "● " : "○ "}${account?.email ?? e.dir} (${basename(e.dir)})`;
@@ -1017,11 +1013,12 @@ function accountLabel(e: AccountEntry, state: AccountState): string {
 const accountOf = (e: AccountEntry, state: AccountState): Account | undefined =>
   "dir" in e ? state.accounts.find((a) => a.dir === e.dir) : undefined;
 
-/** The preview of an Account entry: the account's data, or how the accounts were looked for. */
-export function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number): string[] {
+/** The preview of an Account entry: the account's data, its windows (`quota`), or how the accounts were looked for. */
+export function accountLines(e: AccountEntry, state: AccountState, settings: Settings, width: number, quota?: QuotaState): string[] {
   const wrap = (text: string, indent = "") => wrapText(text, width, indent);
   const field = (name: string, value: string | undefined) => (value ? wrap(`${name}: ${value}`) : []);
   if (e.account === "add") return addAccountLines(width);
+  if (e.account === "quota") return quotaLines(quota, (text) => wrap(text));
   if (e.account === "details") {
     const searched = state.accounts.map((a) => `${tilde(a.dir)}  ${a.email}`);
     return [
@@ -1111,8 +1108,11 @@ export function addAccountLines(width: number, platform: NodeJS.Platform = proce
 
 /** The entries of the Releases group: the update on offer, then each release, or a note while there are none. */
 type ReleaseEntry = { kind: "update" } | { kind: "release"; release: Release } | { kind: "releases" };
-/** The info entries of the Account group: one per account found (the active one marked), a note while there is none, and how they were found. */
-export type AccountEntry = { account: "none" | "details" | "add" } | { account: "item"; dir: string };
+/**
+ * The info entries of the Account group: one per account found (the active one marked), a note while there is none,
+ * the active one's 5-hour and 7-day windows (`quota`), and how they were found.
+ */
+export type AccountEntry = { account: "none" | "details" | "add" | "quota" } | { account: "item"; dir: string };
 type Entry = Row | ReleaseEntry | ResetAction | AccountEntry;
 
 /** The group an entry is listed under. */
@@ -1257,7 +1257,8 @@ export function restartDetail(root: string): string {
  * session (`oneSession`) has only the settings it keeps for itself and their resets.
  */
 export function settingsEntries(update: Update, accounts: AccountState = { accounts: [], multiple: false, own: "" }, oneSession = false): Entry[] {
-  if (oneSession) return [...listedRows(true), ...(isRcViewer() ? RC_VIEWER_RESET_ACTIONS : SESSION_RESET_ACTIONS)];
+  // A viewer of one session has no Account group but the account's windows, read-only, after its settings.
+  if (oneSession) return [...listedRows(true), { account: "quota" }, ...(isRcViewer() ? RC_VIEWER_RESET_ACTIONS : SESSION_RESET_ACTIONS)];
   const rows = listedRows(false);
   // The Account group sits after General: its info entries come before its settings.
   const first = rows.findIndex((r) => r.group === "Account");
@@ -1266,6 +1267,7 @@ export function settingsEntries(update: Update, accounts: AccountState = { accou
   return [
     ...rows.slice(0, first),
     ...items,
+    { account: "quota" },
     ...rows.slice(first, last + 1),
     { account: "details" },
     { account: "add" },
@@ -1312,6 +1314,8 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   const [updateDialog, setUpdateDialog] = useState(false);
   const [repairDialog, setRepairDialog] = useState(false);
   const accountState = useAccountState();
+  // The active account's windows, shown read-only in the Account group.
+  const quota = useQuota(accountState.current);
   const otherDirs = otherAccounts(accountState.accounts).map((a) => a.dir);
   const listEntries = settingsEntries(update, accountState, oneSession);
   // The settings the list has: a viewer of one session's are its own.
@@ -1344,6 +1348,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
   useOnReload(({ done }) => {
     syncStatusLine();
     reloadSettings();
+    quota.refresh();
     if (doctorCheck) void runCheck();
     void update.recheck().then(done);
   });
@@ -1355,13 +1360,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
       "key" in e
         ? { list: haystack([rowValueName(e, settings[e.key]), e.group, e.label]), details: plainMarks(textOf(e.description, context)) }
         : "account" in e
-          ? { list: haystack(["Account", accountLabel(e, accountState)]), details: accountLines(e, accountState, settings, 80).join("\n") }
+          ? { list: haystack(["Account", accountLabel(e, accountState)]), details: accountLines(e, accountState, settings, 80, quota).join("\n") }
         : "id" in e
           ? { list: haystack(["Reset", e.label]), details: plainMarks(e.description) }
           : e.kind === "release"
             ? { list: haystack(["Releases", e.release.tag, e.release.title]), details: e.release.body }
             : { list: haystack(["Releases", entryLabel(e)]), details: "" },
-    deps: [settings, update.releases, update.state, context, accountState],
+    deps: [settings, update.releases, update.state, context, accountState, quota.limits, quota.reason],
     selected: index,
     select: (i) => select(i),
     layout,
@@ -1459,7 +1464,11 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
             ? previewHeader(`Account: ${accountLabel(accountEntry, accountState)}`, previewWidth, {
                 marker: "◉ ",
                 style: bold,
-                details: [`${accountState.accounts.length} ${accountState.accounts.length === 1 ? "account" : "accounts"} found`],
+                details: [
+                  accountEntry.account === "quota"
+                    ? (accountState.current?.email ?? "no account")
+                    : `${accountState.accounts.length} ${accountState.accounts.length === 1 ? "account" : "accounts"} found`,
+                ],
               })
           : release
             ? releaseHeader(release)
@@ -1479,7 +1488,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
           ? doctorLines(reset, doctorCheck, doctorChecking, doctorRun, previewWidth)
           : resetLines(reset, (reset.id === "main" ? different : changed).map((r) => `${r.group} ${r.label}`), reset.id === "main" ? 0 : marked, saved, previewWidth, editorSetup)
         : accountEntry
-          ? accountLines(accountEntry, accountState, settings, previewWidth)
+          ? accountLines(accountEntry, accountState, settings, previewWidth, quota)
         : release
           ? release.kind === "update"
             ? updateLines(update, previewWidth)
@@ -1487,7 +1496,7 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
               ? releaseLines(release.release, previewWidth)
               : releasesNote(update, previewWidth)
           : settingLines(row!, current!, previewWidth, context),
-    [entry, update, current, changed.length, different, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context, accountState],
+    [entry, update, current, changed.length, different, marked, saved, doctorCheck, doctorChecking, doctorRun, previewWidth, context, accountState, quota],
   );
   const viewport = bodyHeightBelow(header, bodyHeight);
   const scroll = positions.scroll(entryKey, lines.length, viewport);
@@ -1690,6 +1699,13 @@ export function SettingsView({ layout, active, onModal, onTyping, cwd, onResetDa
     if ("key" in e) {
       const value = settings[e.key];
       return { value: rowValueName(e, value), color: value === DEFAULT_SETTINGS[e.key] ? undefined : "yellow", label: e.label };
+    }
+    if ("account" in e && e.account === "quota") {
+      // The fuller window's percentage, coloured as in the top bar.
+      const windows = [quota.limits?.fiveHour, quota.limits?.sevenDay].filter((w) => w !== undefined);
+      const percent = windows.length > 0 ? Math.max(...windows.map(percentOf)) : undefined;
+      const color = percent === undefined || quota.stale ? undefined : LEVEL_COLOR[levelOf(percent)];
+      return { value: percent === undefined ? "" : `${percent}%`, color, label: accountLabel(e, accountState) };
     }
     if ("account" in e) {
       const account = accountOf(e, accountState);

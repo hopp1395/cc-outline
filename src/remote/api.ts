@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import tls from "node:tls";
-import { readLogin, RemoteError, type RemoteLogin } from "./credentials.js";
+import { PROFILE_SCOPE, readLogin, readToken, RemoteError, type RemoteLogin } from "./credentials.js";
 import type { PendingRequest } from "./pending.js";
 
 /**
@@ -111,28 +111,36 @@ function networkError(err: unknown): RemoteError {
   return new RemoteError("offline", "claude.ai cannot be reached");
 }
 
-async function get(path: string, login: RemoteLogin, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<unknown> {
+/** What a 403 says: the sessions' calls are refused where Remote Control is off for the organisation. */
+const SESSIONS_FORBIDDEN = "claude.ai refused access (Remote Control may be off for the organisation)";
+
+/** The headers of the sessions' calls, as the web and the app send them. */
+const sessionHeaders = (login: RemoteLogin): Record<string, string> => ({
+  Authorization: `Bearer ${login.token}`,
+  "anthropic-version": "2023-06-01",
+  // As the web and the app: another platform makes the worker take a prompt as a peer's message, which starts no turn.
+  "anthropic-client-platform": "web_claude_ai",
+  "x-organization-uuid": login.org,
+  "anthropic-beta": "ccr-byoc-2025-07-29",
+});
+
+const get = (path: string, login: RemoteLogin, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<unknown> =>
+  request(path, sessionHeaders(login), SESSIONS_FORBIDDEN, body, method);
+
+async function request(path: string, headers: Record<string, string>, forbidden: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<unknown> {
   trustSystemCertificates();
   let response: Response;
   try {
     response = await remote.fetch(BASE + path, {
       method,
-      headers: {
-        Authorization: `Bearer ${login.token}`,
-        "anthropic-version": "2023-06-01",
-        // As the web and the app: another platform makes the worker take a prompt as a peer's message, which starts no turn.
-        "anthropic-client-platform": "web_claude_ai",
-        "x-organization-uuid": login.org,
-        "anthropic-beta": "ccr-byoc-2025-07-29",
-        ...(body !== undefined && { "content-type": "application/json" }),
-      },
+      headers: { ...headers, ...(body !== undefined && { "content-type": "application/json" }) },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
   } catch (err) {
     throw networkError(err);
   }
   if (response.status === 401) throw new RemoteError("unauthorized", "claude.ai refused the login: run /login");
-  if (response.status === 403) throw new RemoteError("forbidden", "claude.ai refused access (Remote Control may be off for the organisation)");
+  if (response.status === 403) throw new RemoteError("forbidden", forbidden);
   if (response.status === 429) throw new RemoteError("rate-limit", "claude.ai asks to slow down");
   if (response.status >= 500) throw new RemoteError("server", `claude.ai answered ${response.status}`);
   if (!response.ok) {
@@ -147,6 +155,15 @@ async function get(path: string, login: RemoteLogin, body?: unknown, method = bo
     if (body !== undefined) return undefined;
     throw new RemoteError("format", "claude.ai sent no JSON");
   }
+}
+
+/**
+ * The plan's usage of the account of config folder `dir`, as Claude Code's `/usage` asks for it: `GET /api/oauth/usage`
+ * with the login's token (scope `user:profile`), unchecked (`parseUsage` in `quota.ts` checks it).
+ */
+export function getUsage(dir?: string): Promise<unknown> {
+  const token = readToken(dir, Date.now(), PROFILE_SCOPE);
+  return request("/api/oauth/usage", { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" }, "claude.ai refused to tell the usage of this login");
 }
 
 /**

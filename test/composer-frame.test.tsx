@@ -37,13 +37,13 @@ describe("the prompt line's frame", () => {
     const lines = rows(60, { usage });
     expect(lines[0]).toBe("─".repeat(60));
     expect(lines[1]).toMatch(/^›/);
-    expect(lines.at(-1)).toBe(`${"─".repeat(20)} Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h ──`);
+    expect(lines.at(-1)).toBe(`${"─".repeat(16)} Ctx 62k · 5h 23% ↻ 2h14m · 7d 97% ↻ 3d4h ──`);
   });
 
   it("shortens the usage on a narrow pane, also while the line is blocked", () => {
     expect(rows(32, { usage }).at(-1)).toBe(`${"─".repeat(3)} Ctx 62k · 5h 23% · 7d 97% ──`);
     expect(rows(22, { usage, blocked: "steer remote is off" }).at(-1)).toBe(`${"─".repeat(3)} 5h 23% · 7d 97% ──`);
-    expect(rows(12, { usage }).at(-1)).toBe(`${"─".repeat(2)} 5h 23% ──`);
+    expect(rows(12, { usage }).at(-1)).toBe(`${"─".repeat(2)} 7d 97% ──`);
     expect(rows(11, { usage }).at(-1)).toBe("─".repeat(11));
   });
 });

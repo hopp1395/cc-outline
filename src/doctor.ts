@@ -324,6 +324,7 @@ function trashOrphans(): string[] {
 const LEGACY_SETTINGS: Record<string, string> = {
   updateCheck: "the former on/off of update",
   pinnedGroup: "the former name of pinned favorites",
+  usageLine: "the former switch of the usage line (the windows now show with remote API)",
 };
 
 function settingsCheck(): Finding[] {

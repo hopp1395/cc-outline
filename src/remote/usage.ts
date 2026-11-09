@@ -6,30 +6,32 @@ import type { RemoteEvent } from "./api.js";
 /** One usage window of the account (5 hours, 7 days): how much of it is used (0–1) and when it starts again. */
 export interface LimitWindow {
   utilization: number;
-  /** Unix seconds. */
-  resetsAt: number;
+  /** Unix seconds; none for a window that has not started (nothing used in it yet). */
+  resetsAt?: number;
 }
 
-/** The account's usage windows as the worker last reported them in a `rate_limit_event`, and when (`seen`, ISO). */
+/** The account's usage windows as claude.ai last told them (`/api/oauth/usage`, a worker's `rate_limit_event`), and when (`seen`, ISO). */
 export interface RateLimits {
   fiveHour?: LimitWindow;
   sevenDay?: LimitWindow;
   seen: string;
 }
 
-/** What the usage line of a remote session's viewer shows: the context of its last answer, and the account's windows. */
+/** What the usage line shows: the context of a remote session's last answer, and the account's windows. */
 export interface RemoteUsage {
   /** The tokens Claude read for its last answer of the main conversation (input, cache read and cache creation). */
   context?: number;
   limits?: RateLimits;
+  /** The windows are older than the last reads should make them (claude.ai could not be asked): shown dim. */
+  stale?: boolean;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 function limitWindow(v: unknown): LimitWindow | undefined {
-  if (!isObject(v) || typeof v.utilization !== "number" || typeof v.resetsAt !== "number") return undefined;
-  return { utilization: v.utilization, resetsAt: v.resetsAt };
+  if (!isObject(v) || typeof v.utilization !== "number" || (v.resetsAt !== undefined && typeof v.resetsAt !== "number")) return undefined;
+  return { utilization: v.utilization, ...(typeof v.resetsAt === "number" && { resetsAt: v.resetsAt }) };
 }
 
 /**
@@ -76,12 +78,12 @@ export function newerLimits(a: RateLimits | undefined, b: RateLimits | undefined
   return { ...(fiveHour && { fiveHour }), ...(sevenDay && { sevenDay }), seen: recent.seen };
 }
 
-/** The account's windows as any viewer last read them, in its config folder's cco folder. */
-export const rateLimitsFile = () => join(claudeDir(), "cco", "rate-limits.json");
+/** The account's windows as any viewer last read them from a remote session's events, in its config folder's cco folder. */
+export const rateLimitsFile = (dir = claudeDir()) => join(dir, "cco", "rate-limits.json");
 
-/** The windows kept for this account, if the file holds them. */
-export function readRateLimits(): RateLimits | undefined {
-  const stored = readJson<unknown>(rateLimitsFile());
+/** The windows kept for the account of config folder `dir`, if the file holds them. */
+export function readRateLimits(dir?: string): RateLimits | undefined {
+  const stored = readJson<unknown>(rateLimitsFile(dir));
   if (!isObject(stored) || typeof stored.seen !== "string") return undefined;
   const fiveHour = limitWindow(stored.fiveHour);
   const sevenDay = limitWindow(stored.sevenDay);
@@ -124,28 +126,36 @@ export function untilReset(resetsAt: number, now: number): string | undefined {
 export interface UsagePart {
   label: string;
   value: string;
-  level?: "low" | "mid" | "high";
+  level?: UsageLevel;
   rest?: string;
+  /** A window's percentage, for the one that stays when only one fits. */
+  percent?: number;
 }
 
-const levelOf = (percent: number): UsagePart["level"] => (percent >= 80 ? "high" : percent >= 50 ? "mid" : "low");
+/** How full a window is: `high` from 90 %, `mid` from 75 %, else `low` (shown without a colour). */
+export type UsageLevel = "low" | "mid" | "high";
+export const levelOf = (percent: number): UsageLevel => (percent >= 90 ? "high" : percent >= 75 ? "mid" : "low");
+
+/** A window's percentage, rounded. */
+export const percentOf = (window: LimitWindow): number => Math.round(window.utilization * 100);
 
 /**
- * The parts of the usage line: `Ctx 62k`, `5h 23% 2h14m`, `7d 97% 3d4h`. A window whose reset has passed shows `–`:
- * it started anew and what it holds now is not known. None at all when nothing is known.
+ * The parts of the usage line: `Ctx 62k`, `5h 23% ↻ 2h14m`, `7d 97% ↻ 3d4h`. A window whose reset has passed shows `–`:
+ * it started anew and what it holds now is not known; one that has not started shows its percentage alone. None at all
+ * when nothing is known.
  */
 export function usageParts(usage: RemoteUsage, now: number): UsagePart[] {
   const parts: UsagePart[] = [];
   if (usage.context !== undefined) parts.push({ label: "Ctx", value: shortTokens(usage.context) });
   for (const [label, window] of [["5h", usage.limits?.fiveHour], ["7d", usage.limits?.sevenDay]] as const) {
     if (!window) continue;
-    const left = untilReset(window.resetsAt, now);
-    if (!left) {
+    const left = window.resetsAt === undefined ? undefined : untilReset(window.resetsAt, now);
+    if (window.resetsAt !== undefined && !left) {
       parts.push({ label, value: "–" });
       continue;
     }
-    const percent = Math.round(window.utilization * 100);
-    parts.push({ label, value: `${percent}%`, level: levelOf(percent), rest: left });
+    const percent = percentOf(window);
+    parts.push({ label, value: `${percent}%`, level: levelOf(percent), percent, ...(left && { rest: `↻ ${left}` }) });
   }
   return parts;
 }
@@ -155,11 +165,13 @@ export const usageWidth = (parts: UsagePart[]): number =>
   parts.reduce((sum, p, i) => sum + (i > 0 ? 3 : 0) + stringWidth(`${p.label} ${p.value}${p.rest ? ` ${p.rest}` : ""}`), 0);
 
 /**
- * What of `parts` fits in `room` columns: all, else without the times left, then without `Ctx`, then `5h` alone;
- * none when not even that fits.
+ * What of `parts` fits in `room` columns: all, else without the times left, then without `Ctx`, then the fuller
+ * window alone; none when not even that fits.
  */
 export function fitUsage(parts: UsagePart[], room: number): UsagePart[] {
   const lean = parts.map(({ rest: _, ...p }) => p);
-  const steps = [parts, lean, lean.filter((p) => p.label !== "Ctx"), lean.filter((p) => p.label === "5h")];
+  const windows = lean.filter((p) => p.label !== "Ctx");
+  const fuller = windows.reduce<UsagePart | undefined>((max, p) => (!max || (p.percent ?? -1) > (max.percent ?? -1) ? p : max), undefined);
+  const steps = [parts, lean, windows, fuller ? [fuller] : []];
   return steps.find((s) => s.length > 0 && usageWidth(s) <= room) ?? [];
 }

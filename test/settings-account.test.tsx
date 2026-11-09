@@ -32,13 +32,13 @@ describe("Account group in the settings", () => {
     expect(DEFAULT_SETTINGS).toMatchObject({ accountTitle: true, accountColor: "auto", accountAvatar: "" });
   });
 
-  it("lists one entry per account, the details after the group's settings", () => {
+  it("lists one entry per account and the windows, the details after the group's settings", () => {
     const work = account(".claude-work", "work@example.com");
     const me = account(".claude-personal", "me@example.com");
     const state: AccountState = { accounts: [me, work], current: me, multiple: true, own: me.dir };
     const names = settingsEntries(update, state).map((e) => ("key" in e ? e.key : "account" in e ? (`account:${"dir" in e ? e.dir : e.account}` as string) : "other"));
     const at = names.indexOf(`account:${me.dir}`);
-    expect(names.slice(at - 1, at + 9)).toEqual(["updateMode", `account:${me.dir}`, `account:${work.dir}`, "accountColor", "accountAvatar", "accountTitle", "viewAccounts", "accountsListWidth", "accountsOrder", "account:details"]);
+    expect(names.slice(at - 1, at + 10)).toEqual(["updateMode", `account:${me.dir}`, `account:${work.dir}`, "account:quota", "accountColor", "accountAvatar", "accountTitle", "viewAccounts", "accountsListWidth", "accountsOrder", "account:details"]);
   });
 
   it("reads the former on/off setting accountBadge as the colour off", () => {

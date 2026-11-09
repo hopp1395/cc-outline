@@ -7,6 +7,7 @@ import { takeCommand, unknownCommand, type CommandSource } from "../slashCommand
 import type { PendingRequest } from "../remote/pending.js";
 import { TIMING } from "../timing.js";
 import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/usage.js";
+import { UsageText } from "./UsageText.js";
 import { CommandList, pickerFirst, pickerRows, useCommandPicker, useSlashCommands } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
 import { moveRow, pastable, promptRows } from "./PromptDialog.js";
@@ -47,13 +48,11 @@ function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: 
   );
 }
 
-const LEVEL_COLOR = { low: "green", mid: "yellow", high: "red" } as const;
-
 /**
  * The composer's frame: a line above and below, open to the sides so the text has the pane's width. The line below
- * carries `usage` at its right end, like Claude Code's status line: the context of the last answer and the account's
- * windows, `─── Ctx 62k · 5h 23% 2h14m · 7d 97% 3d4h ──`, shortened to fit (`fitUsage`). It reads the clock each
- * minute, so the times left count down.
+ * carries `usage` at its right end, like Claude Code's status line: the context of a remote session's last answer and
+ * the account's windows, `─── Ctx 62k · 5h 23% ↻ 2h14m · 7d 97% ↻ 3d4h ──`, shortened to fit (`fitUsage`). It reads the
+ * clock each minute, so the times left count down.
  */
 function Frame({ width, color, usage, children }: { width: number; color: string; usage?: RemoteUsage; children: ReactNode }) {
   const [now, setNow] = useState(Date.now);
@@ -72,14 +71,7 @@ function Frame({ width, color, usage, children }: { width: number; color: string
       {parts.length ? (
         <Text wrap="truncate">
           {line(width - usageWidth(parts) - 4)}{" "}
-          {parts.map((p, i) => (
-            <Text key={p.label}>
-              {i > 0 && <Text color="gray">{" · "}</Text>}
-              <Text dimColor>{p.label} </Text>
-              <Text color={p.level && LEVEL_COLOR[p.level]}>{p.value}</Text>
-              {p.rest && <Text dimColor> {p.rest}</Text>}
-            </Text>
-          ))}{" "}
+          <UsageText parts={parts} stale={usage?.stale} />{" "}
           {line(2)}
         </Text>
       ) : (
@@ -229,7 +221,7 @@ export function SessionComposer({
   terminal?: PromptTerminal;
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens (not while the line is blocked). */
   commands?: CommandSource;
-  /** What its frame's bottom line shows at the right (setting usageLine): a remote session's context and the account's windows. */
+  /** What its frame's bottom line shows at the right (the Remote Control Viewer): a remote session's context and the account's windows. */
   usage?: RemoteUsage;
   /**
    * The session's prompts, the newest first (`promptHistory`): ↑ on the line's first row brings back the one before,
