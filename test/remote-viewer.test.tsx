@@ -98,8 +98,8 @@ describe("a remote viewer", () => {
     });
     await until(() => app.frame().includes("frag mich mit askuserquestion"));
     expect(app.frame()).not.toContain("zähle bis 10");
-    // Above the prompt line: the context and the account's windows, both started anew since the recording.
-    await until(() => /Ctx \d+k · 5h – · 7d –/.test(app.frame()));
+    // The prompt line's border is plain: the account's windows show in the top bar (with remote API), the context nowhere.
+    expect(app.frame()).not.toMatch(/Ctx \d+k/);
     const tabs = app.frame().split("\n")[0]!;
     // No role: whether it can send shows in its prompt line.
     expect(tabs).not.toContain("observing");

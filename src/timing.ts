@@ -45,4 +45,8 @@ export const TIMING = {
   openGuard: 1500,
   /** How long a Remote Control Viewer that was started may take to register before another start counts as a new one. */
   rcViewerStart: 15_000,
+  /** How old the account's usage windows read from claude.ai may get before a viewer asks again (shared by all viewers of the account). */
+  quotaPoll: 60_000,
+  /** How often a viewer looks whether the usage windows are due, and counts the times left down. */
+  quotaCheck: 10_000,
 };

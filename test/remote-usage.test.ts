@@ -64,10 +64,12 @@ describe("the usage of a remote session", () => {
     const parts = usageParts({ context: 62_400, limits: { fiveHour: { utilization: 0.23, resetsAt: at(2 * 3600 + 14 * 60) }, sevenDay: { utilization: 0.97, resetsAt: at(3 * 86400 + 4 * 3600) }, seen: "" } }, now);
     expect(parts).toEqual([
       { label: "Ctx", value: "62k" },
-      { label: "5h", value: "23%", level: "low", rest: "2h14m" },
-      { label: "7d", value: "97%", level: "high", rest: "3d4h" },
+      { label: "5h", value: "23%", level: "low", percent: 23, rest: "↻ 2h14m" },
+      { label: "7d", value: "97%", level: "high", percent: 97, rest: "↻ 3d4h" },
     ]);
     expect(usageParts({ limits: { fiveHour: { utilization: 0.6, resetsAt: at(-5) }, seen: "" } }, now)).toEqual([{ label: "5h", value: "–" }]);
+    // A window that has not started yet has no time left.
+    expect(usageParts({ limits: { sevenDay: { utilization: 0 }, seen: "" } }, now)).toEqual([{ label: "7d", value: "0%", level: "low", percent: 0 }]);
     expect(usageParts({}, now)).toEqual([]);
     expect(shortTokens(950)).toBe("950");
     expect(shortTokens(1_000_000)).toBe("1M");
@@ -75,18 +77,18 @@ describe("the usage of a remote session", () => {
     expect(untilReset(at(540), now)).toBe("9m");
   });
 
-  it("shortens to fit: without the times left, then without Ctx, then 5h alone", () => {
+  it("shortens to fit: without the times left, then without Ctx, then the fuller window alone", () => {
     const parts: UsagePart[] = [
       { label: "Ctx", value: "62k" },
-      { label: "5h", value: "23%", level: "low", rest: "2h14m" },
-      { label: "7d", value: "97%", level: "high", rest: "3d4h" },
+      { label: "5h", value: "23%", level: "low", percent: 23, rest: "↻ 2h14m" },
+      { label: "7d", value: "97%", level: "high", percent: 97, rest: "↻ 3d4h" },
     ];
     const labels = (room: number) => fitUsage(parts, room).map((p) => `${p.label} ${p.value}${p.rest ? ` ${p.rest}` : ""}`);
-    expect(usageWidth(parts)).toBe(36);
-    expect(labels(36)).toEqual(["Ctx 62k", "5h 23% 2h14m", "7d 97% 3d4h"]);
-    expect(labels(35)).toEqual(["Ctx 62k", "5h 23%", "7d 97%"]);
+    expect(usageWidth(parts)).toBe(40);
+    expect(labels(40)).toEqual(["Ctx 62k", "5h 23% ↻ 2h14m", "7d 97% ↻ 3d4h"]);
+    expect(labels(39)).toEqual(["Ctx 62k", "5h 23%", "7d 97%"]);
     expect(labels(24)).toEqual(["5h 23%", "7d 97%"]);
-    expect(labels(14)).toEqual(["5h 23%"]);
+    expect(labels(14)).toEqual(["7d 97%"]);
     expect(labels(5)).toEqual([]);
     expect(fitUsage([{ label: "Ctx", value: "62k" }], 5)).toEqual([]);
   });
