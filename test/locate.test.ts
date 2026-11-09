@@ -1,8 +1,8 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claudeFile, continueSession, projectSlug, readJson, writeJson, type ActiveSession } from "../src/transcript/locate.js";
+import { claudeFile, continueSession, projectSlug, readJson, renameRetrying, writeJson, type ActiveSession } from "../src/transcript/locate.js";
 
 const saved = process.env.CLAUDE_CONFIG_DIR;
 afterEach(() => {
@@ -43,5 +43,39 @@ describe("continueSession", () => {
     writeJson(claudeFile(cwd, 7), resumed);
     continueSession(cwd, 7, join(tmpdir(), "a.jsonl"), join(tmpdir(), "b.jsonl"));
     expect(readJson(claudeFile(cwd, 7))).toEqual(resumed);
+  });
+});
+
+describe("renameRetrying", () => {
+  const locked = (code: string) => Object.assign(new Error(code), { code });
+
+  it("retries while the target is held open (Windows), then renames", () => {
+    let calls = 0;
+    renameRetrying("a", "b", 1000, () => {
+      if (++calls < 3) throw locked("EPERM");
+    });
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after its budget and removes the temporary file", () => {
+    const tmp = join(mkdtempSync(join(tmpdir(), "cco-rename-")), "x.json.tmp");
+    writeFileSync(tmp, "{}");
+    expect(() =>
+      renameRetrying(tmp, "b", 20, () => {
+        throw locked("EBUSY");
+      }),
+    ).toThrow("EBUSY");
+    expect(existsSync(tmp)).toBe(false);
+  });
+
+  it("throws other errors at once", () => {
+    let calls = 0;
+    expect(() =>
+      renameRetrying("a", "b", 1000, () => {
+        calls++;
+        throw locked("ENOENT");
+      }),
+    ).toThrow("ENOENT");
+    expect(calls).toBe(1);
   });
 });

@@ -66,7 +66,19 @@ export function suspendPositionWrites(suspended: boolean): void {
 export function savePositions(cwd: string, list: PositionList, positions: ListPositions): void {
   if (writesSuspended) return;
   const stored = readJson<Stored>(positionsFile(cwd)) ?? {};
-  writeJson(positionsFile(cwd), { ...stored, [list]: positions } satisfies Stored);
+  store(cwd, { ...stored, [list]: positions });
+}
+
+/**
+ * Positions are a convenience, written from timers and on unmount: a write that fails even after `writeJson`'s
+ * retries (the file held open on Windows) is dropped, the next one stores them, rather than ending the viewer.
+ */
+function store(cwd: string, stored: Stored): void {
+  try {
+    writeJson(positionsFile(cwd), stored);
+  } catch {
+    // dropped, see above
+  }
 }
 
 /**
@@ -78,7 +90,7 @@ export function updatePositions(cwd: string, list: PositionList, change: (stored
   const stored = readJson<Stored>(positionsFile(cwd)) ?? {};
   const positions = sanitize(stored[list]);
   change(positions);
-  writeJson(positionsFile(cwd), { ...stored, [list]: positions } satisfies Stored);
+  store(cwd, { ...stored, [list]: positions });
 }
 
 /** Records the selection of session `id`, moving it to the end so the sessions shown longest ago are dropped first. */
