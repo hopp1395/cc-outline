@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -115,12 +115,36 @@ export function readJson<T>(file: string): T | undefined {
   }
 }
 
-/** Writes via rename so watchers never see a half-written file. */
+/**
+ * Writes via rename so watchers never see a half-written file. On Windows the rename fails (EPERM, EBUSY, EACCES)
+ * while another process has the target open: another viewer reading it, chokidar's polling, a virus scanner. That
+ * lasts milliseconds, so it is retried for up to a second (as graceful-fs does) before it throws, leaving no `.tmp`.
+ */
 export function writeJson(file: string, value: unknown): void {
   mkdirSync(join(claudeDir(), "cco"), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(value, null, 2));
-  renameSync(tmp, file);
+  renameRetrying(tmp, file);
+}
+
+const RENAME_LOCKED = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+/** `renameSync`, retried with growing pauses while the target is held open (Windows); removes `from` if it gives up. */
+export function renameRetrying(from: string, to: string, budgetMs = 1000, rename = renameSync): void {
+  const start = Date.now();
+  for (let wait = 5; ; wait = Math.min(wait * 2, 100)) {
+    try {
+      rename(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (!code || !RENAME_LOCKED.has(code) || Date.now() - start >= budgetMs) {
+        rmSync(from, { force: true });
+        throw err;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, wait);
+    }
+  }
 }
 
 /** Session state written by the hook. */
