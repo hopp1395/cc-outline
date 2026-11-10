@@ -8,6 +8,7 @@ import type { Placement } from "./settings.js";
 import { resolvePlacement } from "./sessionViews.js";
 import { claudeDir, claudeFile, isDefaultClaudeDir, readActive, readJson, withClaudeDir, type ActiveSession } from "./transcript/locate.js";
 import { ranFromQueue } from "./transcript/queue.js";
+import type { RunningSession } from "./transcript/trash.js";
 import type { Mode } from "./tui/layout.js";
 import { requestView, runningViewer, type ViewerAction } from "./viewer.js";
 
@@ -315,17 +316,35 @@ function scriptWindow(script: string, dir: string, title: string): string | unde
  * except on Windows, where it is written for cmd (`set "…" && claude …`).
  */
 export function resumeShellCommand(sessionId: string, configDir?: string, platform: NodeJS.Platform = process.platform, fresh = false, home = homedir()): string {
-  const claude = `claude ${sessionFlag(fresh)} ${sessionId}`;
-  if (!configDir) return claude;
+  return inConfigDir(`claude ${sessionFlag(fresh)} ${sessionId}`, configDir, platform, home);
+}
+
+/**
+ * The shell command that opens the background session `jobId` (the Claude Code daemon's short id) in a terminal,
+ * under the config folder `configDir` if given: the daemon of another account knows nothing of it under the default
+ * folder ("No job matching").
+ */
+export function attachShellCommand(jobId: string, configDir?: string, platform: NodeJS.Platform = process.platform, home = homedir()): string {
+  return inConfigDir(`claude attach ${jobId}`, configDir, platform, home);
+}
+
+/** The command that opens `run` in a terminal, if the Claude Code daemon runs it: `attachShellCommand` under its account. */
+export function attachCommand(run: RunningSession | undefined): string | undefined {
+  return run?.kind === "bg" && run.jobId ? attachShellCommand(run.jobId, run.account) : undefined;
+}
+
+/** `command` prefixed so it runs under the config folder `configDir`, if given (`resumeShellCommand`). */
+function inConfigDir(command: string, configDir: string | undefined, platform: NodeJS.Platform, home: string): string {
+  if (!configDir) return command;
   // A folder in the home folder is named through its variable, as the start scripts do: shorter, and the same on every machine.
   const rel = relative(home, configDir);
   const inHome = rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && /^[\w.\\/-]+$/.test(rel);
   if (platform === "win32") {
-    if (isDefaultClaudeDir(configDir)) return `set "CLAUDE_CONFIG_DIR=" && ${claude}`;
-    return `set "CLAUDE_CONFIG_DIR=${inHome ? `%USERPROFILE%\\${rel}` : configDir}" && ${claude}`;
+    if (isDefaultClaudeDir(configDir)) return `set "CLAUDE_CONFIG_DIR=" && ${command}`;
+    return `set "CLAUDE_CONFIG_DIR=${inHome ? `%USERPROFILE%\\${rel}` : configDir}" && ${command}`;
   }
-  if (isDefaultClaudeDir(configDir)) return `env -u CLAUDE_CONFIG_DIR ${claude}`;
-  return `CLAUDE_CONFIG_DIR=${inHome ? `"$HOME/${rel}"` : shellQuote(configDir)} ${claude}`;
+  if (isDefaultClaudeDir(configDir)) return `env -u CLAUDE_CONFIG_DIR ${command}`;
+  return `CLAUDE_CONFIG_DIR=${inHome ? `"$HOME/${rel}"` : shellQuote(configDir)} ${command}`;
 }
 
 /** How claude takes the session id: one to continue (`--resume`), or the id of a new one (`--session-id`, `fresh`). */

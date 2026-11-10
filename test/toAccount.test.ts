@@ -7,7 +7,7 @@ import { continueInAccount, matchAccount, otherAccounts } from "../src/accountCo
 import { marketplaceSource, pluginState, pluginSteps, prepareAccount } from "../src/accountSetup.js";
 import { copyToAccount } from "../src/export/toAccount.js";
 import { readFavorites, toggleFavorite } from "../src/favorites.js";
-import { resumeShellCommand } from "../src/open.js";
+import { attachCommand, attachShellCommand, resumeShellCommand } from "../src/open.js";
 import { cliFile } from "../src/cliPath.js";
 import { settingsFile } from "../src/settings.js";
 import { claudeDir, inClaudeDir, projectDir, projectSlug, withClaudeDir, writeJson } from "../src/transcript/locate.js";
@@ -161,5 +161,18 @@ describe("accounts", () => {
     const home = join(tmpdir(), "cco-home");
     expect(resumeShellCommand("id1", join(home, ".claude-work"), "win32", false, home)).toBe('set "CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-work" && claude --resume id1');
     expect(resumeShellCommand("id1", join(home, ".claude-work"), "linux", false, home)).toBe('CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude --resume id1');
+  });
+
+  it("attaches to a background session under the account whose daemon runs it", () => {
+    expect(attachShellCommand("f31c9610")).toBe("claude attach f31c9610");
+    expect(attachShellCommand("f31c9610", "/h/.claude-work", "linux")).toBe("CLAUDE_CONFIG_DIR='/h/.claude-work' claude attach f31c9610");
+    const home = join(tmpdir(), "cco-home");
+    expect(attachShellCommand("f31c9610", join(home, ".claude-work"), "win32", home)).toBe('set "CLAUDE_CONFIG_DIR=%USERPROFILE%\\.claude-work" && claude attach f31c9610');
+    // Read from another account's folder (useRunning), the command names that folder.
+    const bg = { pid: 1, kind: "bg", jobId: "f31c9610" };
+    expect(attachCommand(bg)).toBe("claude attach f31c9610");
+    expect(attachCommand({ ...bg, account: "/h/.claude-work" })).toContain("CLAUDE_CONFIG_DIR");
+    expect(attachCommand({ pid: 1 })).toBeUndefined();
+    expect(attachCommand({ pid: 1, kind: "bg" })).toBeUndefined();
   });
 });
