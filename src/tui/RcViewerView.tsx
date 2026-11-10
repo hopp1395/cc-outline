@@ -8,7 +8,7 @@ import { barColorOfAccount, type Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
 import { formatAge, RC_VIEWER_GROUPS, rcViewerEntries, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type RcViewerEntry, type RcViewerState, type SeenStates } from "../rcViewer/state.js";
 import { rcViewerOptions, type RcViewerAction } from "../rcViewer/actions.js";
-import { detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, viewerCommand, type ViewerTarget } from "../open.js";
+import { attachCommand, detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, viewerCommand, type ViewerTarget } from "../open.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { describeRemoteError, remotePath, remoteUrl } from "../remote/index.js";
 import { renameAnywhere, renamePlan, type RenameSituation } from "../sessionRename.js";
@@ -255,7 +255,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const commandOf = (e: RcViewerEntry) => {
     const s = e.session;
     if (s.remote) return remoteUrl(s.id);
-    return e.running?.kind === "bg" && e.running.jobId ? `claude attach ${e.running.jobId}` : resumeCommand(s);
+    return attachCommand(e.running) ?? resumeCommand(s);
   };
 
   /** Where `e`'s session stands for renaming it: its transcript, the Claude Code it runs in, its session on claude.ai. */

@@ -2,7 +2,7 @@ import { proc } from "./proc.js";
 import { TIMING } from "./timing.js";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { detectTerminal, weztermCli, type Terminal } from "./open.js";
+import { attachCommand, detectTerminal, weztermCli, type Terminal } from "./open.js";
 import { claudeDir, readJson, type ActiveSession } from "./transcript/locate.js";
 import type { Placement } from "./settings.js";
 import type { RunningSession } from "./transcript/trash.js";
@@ -13,7 +13,10 @@ import type { RunningSession } from "./transcript/trash.js";
  */
 export function frontBlocked(session: RunningSession | undefined, terminal = detectTerminal() !== undefined): string | undefined {
   if (!terminal) return "no Windows Terminal, WezTerm or tmux";
-  if (session?.kind === "bg") return session.jobId ? `a background session has no tab: claude attach ${session.jobId}` : "a background session has no tab";
+  if (session?.kind === "bg") {
+    const attach = attachCommand(session);
+    return attach ? `a background session has no tab: ${attach}` : "a background session has no tab";
+  }
   return undefined;
 }
 
@@ -32,7 +35,8 @@ export function frontBlocked(session: RunningSession | undefined, terminal = det
  */
 export async function switchToSession(session: RunningSession, titles: string[]): Promise<string> {
   const names = [...new Set([session.name, ...titles].filter((t): t is string => !!t))];
-  const attach = session.kind === "bg" && session.jobId ? ` · runs in the background: claude attach ${session.jobId}` : "";
+  const command = attachCommand(session);
+  const attach = command ? ` · runs in the background: ${command}` : "";
   if (detectTerminal() === "wezterm") {
     const pane = weztermPaneOf(session.pid);
     if (!pane) return `its WezTerm pane is not known${attach}`;

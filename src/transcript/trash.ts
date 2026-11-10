@@ -50,6 +50,8 @@ export interface RunningSession {
   /** `bg` for a session the Claude Code daemon runs, with the `jobId` that `claude attach` takes. */
   kind?: string;
   jobId?: string;
+  /** The config folder of the other account it runs under, as read for a viewer of all accounts (`useRunning`). */
+  account?: string;
 }
 
 /** Sessions whose Claude Code process is still running, by session id. */

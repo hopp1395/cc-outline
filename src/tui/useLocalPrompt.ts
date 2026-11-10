@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { detectTerminal } from "../open.js";
+import { attachCommand, detectTerminal } from "../open.js";
 import { ESCAPE, frontBlocked, keysInClaude, prepareConsoleInput, promptSteps, questionAnswerSteps, typesIntoConsole, type ConsoleTyper, type KeyStep } from "../switchSession.js";
 import type { RunningSession } from "../transcript/trash.js";
 import type { PromptChannel, PromptTerminal } from "./SessionComposer.js";
@@ -14,7 +14,10 @@ export const WAITS_IN_TERMINAL = "Claude waits for you in its terminal";
  */
 export function localBlocked(running: RunningSession | undefined, terminal = detectTerminal(), platform: NodeJS.Platform = process.platform): string | undefined {
   if (!running) return "not running: Enter in Sessions continues it";
-  if (running.kind === "bg") return running.jobId ? `background session: claude attach ${running.jobId}` : "background session: no terminal to type into";
+  if (running.kind === "bg") {
+    const attach = attachCommand(running);
+    return attach ? `background session: ${attach}` : "background session: no terminal to type into";
+  }
   if (terminal !== "tmux" && terminal !== "wezterm" && platform !== "win32") return "no tmux or WezTerm: cco cannot type into it";
   if (running.activity === "waiting") return WAITS_IN_TERMINAL;
   return undefined;

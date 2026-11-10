@@ -164,7 +164,7 @@ export function useRunning(visible: boolean, accounts: string[]): Map<string, Ru
     if (!visible) return;
     const read = () => {
       const next = runningSessions();
-      for (const dir of accounts) for (const [id, r] of inClaudeDir(dir, runningSessions)) next.set(sessionKey({ id, account: dir }), r);
+      for (const dir of accounts) for (const [id, r] of inClaudeDir(dir, runningSessions)) next.set(sessionKey({ id, account: dir }), { ...r, account: dir });
       setRunning((prev) => (sameRunning(prev, next) ? prev : next));
     };
     read();

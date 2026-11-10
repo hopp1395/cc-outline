@@ -23,7 +23,7 @@ import { runningRcViewer, type RcViewerInfo, type RcViewerSelect } from "../rcVi
 import { screenOrder } from "../pinned.js";
 import { FocusContext } from "./focus.js";
 import { useMouse } from "./mouse.js";
-import { detectTerminal, focusSessionViewer, openInDefaultApp, openRcViewer, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
+import { attachCommand, detectTerminal, focusSessionViewer, openInDefaultApp, openRcViewer, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
 import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { downloadsDir, EXPORT_NAME, exportSessions, freeName, importArchive, importSummary, newestExport, readExportOptions, saveExportOptions, type ExportProgress, type ExportResult } from "../export/archive.js";
 import { moveSession } from "../export/move.js";
@@ -175,7 +175,8 @@ export function backgroundOf(s: SessionSummary, running?: RunningSession): Sessi
 /** The header's line about a background session: how it ran, and while the daemon runs it, the command that attaches to it. */
 export function backgroundLine(background: SessionBackground | undefined, running?: RunningSession): string | undefined {
   if (!background) return undefined;
-  const attach = background === "daemon" && running?.kind === "bg" && running.jobId ? ` · claude attach ${running.jobId}` : "";
+  const command = background === "daemon" ? attachCommand(running) : undefined;
+  const attach = command ? ` · ${command}` : "";
   return dim(`${BACKGROUND_MARK} background: ${BACKGROUND_TEXT[background]}${attach}`);
 }
 
@@ -932,7 +933,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
       rcViewer: { runs: rcViewer !== undefined, listed: rcViewerLists(s) },
       folder: tilde(dir),
       // A session the Claude Code daemon runs is attached to, not resumed.
-      command: claude?.kind === "bg" && claude.jobId ? `claude attach ${claude.jobId}` : resumeCommand(s),
+      command: attachCommand(claude) ?? resumeCommand(s),
     };
     return { situation, claude, dir };
   };
