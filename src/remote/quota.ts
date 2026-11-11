@@ -111,7 +111,27 @@ export interface Quota {
   seenAt?: number;
   /** Why the last read failed. */
   error?: string;
+  /** What kind of failure that was, for a short note (`quotaNote`). */
+  errorKind?: RemoteErrorKind | "unknown";
 }
+
+const NOTES: Record<RemoteErrorKind | "unknown", string> = {
+  "no-login": "no login",
+  expired: "expired",
+  "no-scope": "no scope",
+  "no-org": "no organisation",
+  unauthorized: "refused",
+  forbidden: "refused",
+  "rate-limit": "rate limited",
+  tls: "certificate",
+  offline: "offline",
+  server: "server error",
+  format: "unknown answer",
+  unknown: "failed",
+};
+
+/** A few words for why the windows could not be read (`expired`, `no login`), after the account's badge. */
+export const quotaNote = (kind: RemoteErrorKind | "unknown"): string => NOTES[kind] ?? NOTES.unknown;
 
 /**
  * What to show of `file` and of the windows the remote sessions' events reported (`reported`, `rate-limits.json`):
@@ -120,10 +140,12 @@ export interface Quota {
  */
 export function quotaOf(file: QuotaFile | undefined, reported: RateLimits | undefined, now = Date.now()): Quota {
   const error = file?.error?.message;
+  const errorKind = error ? file?.error?.kind : undefined;
+  const failed = { ...(error && { error }), ...(errorKind && { errorKind }) };
   const limits = newerLimits(file?.limits, reported);
-  if (!limits) return { stale: false, ...(error && { error }) };
+  if (!limits) return { stale: false, ...failed };
   const seenAt = Date.parse(limits.seen);
   const stale = !(now - seenAt <= 3 * TIMING.quotaPoll);
   const ranOut = stale && (limits.fiveHour?.resetsAt ?? Infinity) * 1000 <= now;
-  return { ...(!ranOut && { limits }), stale, ...(!Number.isNaN(seenAt) && { seenAt }), ...(error && { error }) };
+  return { ...(!ranOut && { limits }), stale, ...(!Number.isNaN(seenAt) && { seenAt }), ...failed };
 }
