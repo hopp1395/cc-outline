@@ -149,6 +149,7 @@ const RC_VIEWER_INFO_KEYS: [string, string][] = [
   ["↵ (turns)", "full prompt"],
   ["PgUp PgDn", "scroll the chat"],
   ["< > |", "width of the column's list"],
+  ["u", "whose usage windows (or a click on them)"],
   ["t h w", "tools / thinking / wrap"],
   ["c", "copy Markdown"],
   ["a A", "next / previous subagent"],

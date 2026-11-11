@@ -6,7 +6,7 @@ import { localRequestLines, type LocalRequest } from "../localRequest.js";
 import { takeCommand, unknownCommand, type CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
 import { TIMING } from "../timing.js";
-import { fitUsage, usageParts, usageWidth, type RemoteUsage } from "../remote/usage.js";
+import { fitUsageLine, type RemoteUsage } from "../remote/usage.js";
 import { UsageText } from "./UsageText.js";
 import { CommandList, pickerFirst, pickerRows, useCommandPicker, useSlashCommands } from "./CommandPicker.js";
 import { useMouse } from "./mouse.js";
@@ -48,11 +48,25 @@ function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: 
   );
 }
 
+/** What of `usage` the frame's bottom line of `width` columns shows: at least two ─ before it, a space on each side and two ─ after it. */
+export const frameUsage = (usage: RemoteUsage, width: number, now: number) => fitUsageLine(usage, width - 6, now);
+
+/**
+ * The columns of the frame's bottom line that `usage` takes (from `start`, before `end`), for a click on it; none
+ * where nothing of it shows.
+ */
+export function usageSpan(usage: RemoteUsage | undefined, width: number, now = Date.now()): { start: number; end: number } | undefined {
+  if (!usage) return undefined;
+  const shown = frameUsage(usage, width, now);
+  if (shown.parts.length === 0 && !shown.badge) return undefined;
+  return { start: width - 3 - shown.width, end: width - 3 };
+}
+
 /**
  * The composer's frame: a line above and below, open to the sides so the text has the pane's width. The line below
  * carries `usage` at its right end, like Claude Code's status line: the context of a remote session's last answer and
- * the account's windows, `─── Ctx 62k · 5h 23% ↻ 2h14m · 7d 97% ↻ 3d4h ──`, shortened to fit (`fitUsage`). It reads the
- * clock each minute, so the times left count down.
+ * the account's windows, `─── Ctx 62k · 5h 23% ↻ 2h14m · 7d 97% ↻ 3d4h ──`, shortened to fit (`fitUsage`), with the
+ * account's badge before the windows where it has one. It reads the clock each minute, so the times left count down.
  */
 function Frame({ width, color, usage, children }: { width: number; color: string; usage?: RemoteUsage; children: ReactNode }) {
   const [now, setNow] = useState(Date.now);
@@ -61,17 +75,16 @@ function Frame({ width, color, usage, children }: { width: number; color: string
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, [Boolean(usage)]);
-  // At least two ─ before it, a space on each side and two ─ after it.
-  const parts = usage ? fitUsage(usageParts(usage, now), width - 6) : [];
+  const shown = usage ? frameUsage(usage, width, now) : undefined;
   const line = (n: number) => <Text color={color}>{"─".repeat(Math.max(0, n))}</Text>;
   return (
     <Box flexDirection="column" width={width} flexShrink={0}>
       <Text wrap="truncate">{line(width)}</Text>
       {children}
-      {parts.length ? (
+      {shown && (shown.parts.length > 0 || shown.badge) ? (
         <Text wrap="truncate">
-          {line(width - usageWidth(parts) - 4)}{" "}
-          <UsageText parts={parts} stale={usage?.stale} />{" "}
+          {line(width - shown.width - 4)}{" "}
+          <UsageText parts={shown.parts} stale={usage?.stale} badge={shown.badge ? usage?.badge : undefined} />{" "}
           {line(2)}
         </Text>
       ) : (

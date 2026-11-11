@@ -8,6 +8,7 @@ import { barColorOfAccount, type Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
 import { formatAge, RC_VIEWER_GROUPS, rcViewerEntries, nextWaiting, runningStandIn, updateFresh, type FreshIdle, type RcViewerEntry, type RcViewerState, type SeenStates } from "../rcViewer/state.js";
 import { rcViewerOptions, type RcViewerAction } from "../rcViewer/actions.js";
+import { accountOfSession, shownAccount, usageBadge } from "../rcViewer/usageAccount.js";
 import { attachCommand, detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, viewerCommand, type ViewerTarget } from "../open.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { describeRemoteError, remotePath, remoteUrl } from "../remote/index.js";
@@ -25,8 +26,9 @@ import { dayOf } from "./days.js";
 import { FocusContext, useFocused } from "./focus.js";
 import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem, type Layout } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
-import { useMouse } from "./mouse.js";
-import { promptHistory, SessionComposer, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
+import { MouseContext, useMouse } from "./mouse.js";
+import { promptHistory, SessionComposer, usageSpan, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
+import { UsageAccountMenu } from "./UsageAccountMenu.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
 import { sessionHead, sessionTitle } from "./sessionHead.js";
@@ -111,8 +113,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [accountColor] = useSetting("accountColor");
   const [remoteApi] = useSetting("remoteApi");
   const [remoteControl] = useSetting("remoteControl");
-  // The account's 5-hour and 7-day windows, at the right of the prompt line's bottom border (with the remote API setting).
-  const quota = useQuota(accountState.current);
+  const [accountAvatar] = useSetting("accountAvatar");
+  const [mouse] = useSetting("mouse");
   const copy = useClipboard();
   const foreignKey = foreignDirs(accountState.accounts).join("\n");
   const foreign = useMemo(() => (foreignKey ? foreignKey.split("\n") : []), [foreignKey]);
@@ -196,6 +198,16 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // the prompt line sends there.
   const bridge = session && !session.remote && !session.account ? twins.get(session.id) : undefined;
   const remoteRead = useRemoteTranscript(session?.remote ? session.id : bridge?.id);
+  // The 5-hour and 7-day windows at the right of the prompt line's bottom border (with the remote API setting): those of
+  // the selected session's account, or of the one chosen in the list its badge opens (u), until Automatic is chosen again.
+  const [pinned, setPinned] = useState<string>();
+  const [usageMenu, setUsageMenu] = useState(false);
+  const autoAccount = accountOfSession(session, accountState.accounts, accountState.current);
+  const usageAccount = shownAccount(pinned, autoAccount, accountState.accounts);
+  const quota = useQuota(usageAccount.account);
+  const looks = { info: accountState, color: accountColor, avatar: accountAvatar };
+  const badge = usageAccount.account && quota.reason !== "off" && quota.reason !== "none" ? usageBadge(usageAccount.account, looks, quota, usageAccount.pinned) : undefined;
+  const usage = session ? { context: session.remote || bridge ? remoteRead.usage.context : undefined, limits: quota.limits, stale: quota.stale, ...(badge && { badge }) } : undefined;
   const transcript = session?.remote ? remoteRead : local;
   // What ↑ brings back at the prompt line: the session's prompts.
   const history = useMemo(() => promptHistory(transcript.turns), [transcript.turns]);
@@ -238,7 +250,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [chatModal, setChatModal] = useState(false);
   const [choice, setChoice] = useState<Choice>();
   const [renaming, setRenaming] = useState<RcViewerEntry>();
-  const dialog = choice !== undefined || renaming !== undefined;
+  const dialog = choice !== undefined || renaming !== undefined || usageMenu;
   useEffect(() => onTyping?.(chatTyping || typingInComposer), [chatTyping, typingInComposer]);
   useEffect(() => onModal?.(chatModal || dialog), [chatModal, dialog]);
   useEffect(() => onClaimKeys?.(column === "chat" && canCompose), [column, canCompose]);
@@ -374,10 +386,17 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     notify(`${which} width: ${next.width}`);
   };
 
-  // A click puts the keys in the column under it.
+  // u or a click on the usage: the list of the accounts whose windows it can show.
+  const span = usageSpan(usage, full.columns);
+  const openUsageMenu = () => {
+    if (!remoteApi) return notify("the usage windows need the remote API setting");
+    if (session) setUsageMenu(true);
+  };
   // A click puts the keys in the column under it, or in the prompt line at the bottom.
   useMouse((e) => {
     if (e.kind !== "click" || e.y < 1) return;
+    // The usage at the right of the prompt line's bottom border: whose windows they are.
+    if (span && badge && e.y === full.rows - 1 && e.x >= span.start && e.x < span.end) return openUsageMenu();
     if (session && e.y >= full.rows - composerRows) {
       if (canCompose) compose();
       return;
@@ -399,6 +418,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         const at = Math.max(0, shown.indexOf(column));
         return setColumn(shown[Math.max(0, Math.min(shown.length - 1, at + (key.leftArrow ? -1 : 1)))]!);
       }
+      // u: whose usage windows the prompt line's border shows (not while the chat's filter or a dialog of it takes the keys).
+      if (input === "u" && !key.ctrl && !key.meta && !chatTyping && !chatModal) return openUsageMenu();
       if (input === "<" || input === ">") return changeWidth((w, s) => stepFold(w, s, input === "<" ? -1 : 1));
       if (input === "|") return changeWidth((w, s) => toggleFold(w, s, before.current[column === "sessions" ? "sessions" : "turns"]));
       // n: the next session that waits for the user, the one waiting longest first.
@@ -487,6 +508,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     </Text>
   );
   const columnItem: FooterItem = { text: `←→ ${column}`, on: true, priority: 4 };
+  // u (or a click on the usage) chooses whose windows show; the help line says so while one is chosen by hand.
+  const usageItem: FooterItem = { text: "u usage", on: usageAccount.pinned, priority: 1 };
   // n has somewhere to go: a session waits, or one just finished.
   const attention = waiting > 0 || entries.some((e) => e.state === "idle" && isFresh(e));
   const sessionsFooter: FooterItem[] = [
@@ -495,12 +518,13 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     { text: "↵ act on it", priority: 3 },
     ...(attention ? [{ text: "n next", priority: 4 }] : []),
     { text: "< > | width", priority: 1 },
+    ...(badge ? [usageItem] : []),
     { text: "1/2 view", priority: 1 },
   ];
 
   return (
     <ScreenAsideContext.Provider
-      value={{ node: list, width: aside, status, focused, footer: column === "sessions" ? sessionsFooter : undefined, lead: [columnItem, ...(attention ? [{ text: "n next", priority: 4 }] : [])] }}
+      value={{ node: list, width: aside, status, focused, footer: column === "sessions" ? sessionsFooter : undefined, lead: [columnItem, ...(attention ? [{ text: "n next", priority: 4 }] : []), ...(badge ? [usageItem] : [])] }}
     >
       <Box flexDirection="column">
         <FocusContext.Provider value={focused && column !== "sessions" && !typingInComposer}>
@@ -534,12 +558,31 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             asked={asked}
             terminal={terminal}
             commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
-            usage={{ context: session.remote || bridge ? remoteRead.usage.context : undefined, limits: quota.limits, stale: quota.stale }}
+            usage={usage}
             history={history}
             unsent={unsent}
           />
         )}
       </Box>
+      {usageMenu && (
+        // The app takes the mouse from the view while a dialog is open; the list is chosen from with it all the same.
+        <MouseContext.Provider value={mouse && active}>
+        <UsageAccountMenu
+          layout={full}
+          bottom={full.rows - 1}
+          right={span?.end ?? full.columns - 3}
+          accounts={accountState.accounts}
+          looks={looks}
+          auto={autoAccount}
+          pinned={usageAccount.pinned ? usageAccount.account?.dir : undefined}
+          onChoose={(dir) => {
+            setPinned(dir);
+            setUsageMenu(false);
+          }}
+          onClose={() => setUsageMenu(false)}
+        />
+        </MouseContext.Provider>
+      )}
       {choice && <ChoiceDialog key={choice.title} layout={full} choice={choice} onClose={() => setChoice(undefined)} />}
       {renaming && (
         <RenameDialog

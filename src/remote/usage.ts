@@ -24,7 +24,31 @@ export interface RemoteUsage {
   limits?: RateLimits;
   /** The windows are older than the last reads should make them (claude.ai could not be asked): shown dim. */
   stale?: boolean;
+  /** Whose windows they are (the Remote Control Viewer): the account's badge, before the windows. */
+  badge?: UsageBadge;
 }
+
+/** The account's badge in the usage line: its avatar on its colour, as the top bar's "cco". */
+export interface UsageBadge {
+  /** The avatar, `cco` without one. */
+  avatar: string;
+  /** The account's colour (a name of `ACCOUNT_COLORS`); none where it is off. */
+  color?: string;
+  /** Chosen by hand rather than following the session: a 📌 before it. */
+  pinned?: boolean;
+  /** Dim after it, where there are no windows: `API` for an API profile, why the last read failed. */
+  note?: string;
+}
+
+/** What marks a badge chosen by hand. */
+export const PIN = "📌";
+
+/** The text of `badge` on its colour: the avatar with a space on each side there, alone without a colour. */
+export const badgeText = (badge: UsageBadge): string => (badge.color ? ` ${badge.avatar} ` : badge.avatar);
+
+/** The columns `badge` takes with its pin and note. */
+export const badgeWidth = (badge: UsageBadge | undefined): number =>
+  badge ? (badge.pinned ? stringWidth(PIN) : 0) + stringWidth(badgeText(badge)) + (badge.note ? 1 + stringWidth(badge.note) : 0) : 0;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -160,18 +184,40 @@ export function usageParts(usage: RemoteUsage, now: number): UsagePart[] {
   return parts;
 }
 
-/** The columns `parts` take, joined by ` · `. */
-export const usageWidth = (parts: UsagePart[]): number =>
-  parts.reduce((sum, p, i) => sum + (i > 0 ? 3 : 0) + stringWidth(`${p.label} ${p.value}${p.rest ? ` ${p.rest}` : ""}`), 0);
+/**
+ * The columns `parts` take, joined by ` · `; with a badge of `badge` columns before the windows, after `Ctx · `
+ * (`Ctx 62k · 📌 🦊  5h 23% · 7d 97%`), or alone.
+ */
+export function usageWidth(parts: UsagePart[], badge = 0): number {
+  const width = parts.reduce((sum, p, i) => sum + (i > 0 ? 3 : 0) + stringWidth(`${p.label} ${p.value}${p.rest ? ` ${p.rest}` : ""}`), 0);
+  if (badge <= 0) return width;
+  const windows = parts.some((p) => p.label !== "Ctx");
+  const context = parts.some((p) => p.label === "Ctx");
+  // Before the windows it stands with a space after it (Ctx's ` · ` is counted already); after Ctx alone with ` · `.
+  return width + badge + (windows ? 1 : context ? 3 : 0);
+}
 
 /**
  * What of `parts` fits in `room` columns: all, else without the times left, then without `Ctx`, then the fuller
- * window alone; none when not even that fits.
+ * window alone; none when not even that fits. A badge (`badge` columns) stays in each and is the last to go: with one,
+ * none of the parts may be what fits.
  */
-export function fitUsage(parts: UsagePart[], room: number): UsagePart[] {
+export function fitUsage(parts: UsagePart[], room: number, badge = 0): UsagePart[] {
   const lean = parts.map(({ rest: _, ...p }) => p);
   const windows = lean.filter((p) => p.label !== "Ctx");
   const fuller = windows.reduce<UsagePart | undefined>((max, p) => (!max || (p.percent ?? -1) > (max.percent ?? -1) ? p : max), undefined);
-  const steps = [parts, lean, windows, fuller ? [fuller] : []];
-  return steps.find((s) => s.length > 0 && usageWidth(s) <= room) ?? [];
+  const steps = [parts, lean, windows, fuller ? [fuller] : [], []];
+  return steps.find((s) => (s.length > 0 || badge > 0) && usageWidth(s, badge) <= room) ?? [];
+}
+
+/** The parts of the usage line that fit in `room` columns and whether its badge does; none of either where nothing fits. */
+export function fitUsageLine(usage: RemoteUsage, room: number, now: number): { parts: UsagePart[]; badge: boolean; width: number } {
+  const all = usageParts(usage, now);
+  const badge = badgeWidth(usage.badge);
+  if (badge > 0 && badge <= room) {
+    const parts = fitUsage(all, room, badge);
+    return { parts, badge: true, width: usageWidth(parts, badge) };
+  }
+  const parts = fitUsage(all, room);
+  return { parts, badge: false, width: usageWidth(parts) };
 }
