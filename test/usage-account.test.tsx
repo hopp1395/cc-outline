@@ -134,6 +134,8 @@ describe("the Remote Control Viewer's usage per account", () => {
   });
   afterEach(() => {
     updateSettings({ remoteApi: false, accountAvatar: "" });
+    // Other files share the worker: they are no Remote Control Viewer.
+    setOwnSettings(undefined);
     process.env = { ...saved };
   });
 
