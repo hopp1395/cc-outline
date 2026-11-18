@@ -2,7 +2,11 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { turnImageFile } from "../src/images.js";
+import { attachmentFile, turnAttachments } from "../src/attachments.js";
+import { holdTranscript, turnImageFile } from "../src/images.js";
+import type { RemoteEvent } from "../src/remote/api.js";
+import { remotePath } from "../src/remote/index.js";
+import { toTranscript } from "../src/remote/toTranscript.js";
 import { TranscriptParser } from "../src/transcript/parse.js";
 import { attachmentSummary } from "../src/tui/ChatView.js";
 
@@ -90,5 +94,37 @@ describe("turnImageFile", () => {
     expect(turnImageFile(join(tmpdir(), "missing.jsonl"), p.turns[0], 0)).toBeUndefined();
     p.push(prompt("u2", "no images"));
     expect(turnImageFile(undefined, p.turns[1], 0)).toBeUndefined();
+  });
+});
+
+describe("attachments of a remote session", () => {
+  it("opens images and PDFs from the events held in memory for its stand-in path", () => {
+    const id = `cse_${Date.now()}`;
+    const path = remotePath(id);
+    const toolUseId = `toolu_${Date.now()}`;
+    const pdf = { type: "document", source: { type: "base64", media_type: "application/pdf", data: PNG } };
+    const events: RemoteEvent[] = [
+      { sequence: 1, payload: { type: "user", uuid: `${id}-prompt`, message: { role: "user", content: [image(), { type: "text", text: "what is this?" }] } } },
+      { sequence: 2, payload: { type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: toolUseId, name: "Read", input: { file_path: "C:\\a.pdf" } }] } } },
+      { sequence: 3, payload: { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: [pdf] }] } } },
+      { sequence: 4, payload: { type: "result", duration_ms: 10 } },
+    ];
+    const p = new TranscriptParser({ dedupe: true });
+    p.push(toTranscript(events).lines.join("\n") + "\n");
+    const items = turnAttachments(p.turns[0], path);
+    expect(items.map((i) => i.kind)).toEqual(["pasted", "pdf"]);
+    // No file at the stand-in path: nothing to open until the events are held.
+    expect(attachmentFile(items[0])).toBeUndefined();
+    const release = holdTranscript(path, () => toTranscript(events).lines.join("\n"));
+    try {
+      const files = items.map((i) => attachmentFile(i)!);
+      expect(files[0]).toMatch(new RegExp(`${id}-prompt-1\\.png$`));
+      expect(files[1]).toMatch(new RegExp(`${toolUseId}-1\\.pdf$`));
+      expect(readFileSync(files[1]).toString("base64")).toBe(PNG);
+    } finally {
+      release();
+    }
+    // Released (the viewer switched sessions): the stand-in path is no transcript again.
+    expect(attachmentFile({ kind: "pasted", n: 1, uuid: `${id}-later`, index: 0, transcript: path })).toBeUndefined();
   });
 });
