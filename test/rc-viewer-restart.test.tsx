@@ -74,7 +74,7 @@ describe("restarting the Remote Control Viewer", () => {
     expect(view.frame()).not.toContain("not sent");
     await view.press("\r");
     await expect.poll(view.frame).toContain("Restarting…");
-    // Started by hand, without a terminal cco opens windows in: nothing is started.
+    // Without a terminal cco opens windows in: nothing is started.
     await expect.poll(view.frame, { timeout: 3000 }).toContain("✗ The Remote Control Viewer did not reopen");
     expect(view.frame()).toContain("start cco rc-viewer again");
     expect(spawned).toEqual([]);
@@ -83,10 +83,11 @@ describe("restarting the Remote Control Viewer", () => {
     view.unmount();
   });
 
-  it("restarts at once with confirm quit off: a new one in its window, after this one has exited", async () => {
+  it("restarts at once with confirm quit off: a new one in its window, after this one has exited, also when started by hand", async () => {
     updateSettings({ confirmQuit: false });
     process.env.WT_SESSION = "x";
-    claimRcViewer({ configDir: claudeDir(), window: "cco-rc-viewer" });
+    // Started by hand in Windows Terminal: registered without a window.
+    claimRcViewer({ configDir: claudeDir() });
     const view = app();
     await until(() => view.frame().includes("1 Remote Control"));
     await view.press("r");
@@ -142,12 +143,11 @@ describe("restarting the Remote Control Viewer", () => {
 });
 
 describe("reopenRcViewer", () => {
-  it("reopens only a Remote Control Viewer cco opened, in a terminal it opens windows in", () => {
-    expect(reopenRcViewer("cco-rc-viewer")).toBe(false);
-    process.env.TMUX = "/tmp/tmux";
-    expect(reopenRcViewer(undefined)).toBe(false);
+  it("reopens in a terminal it opens windows in, also one started there by hand, in its own window", () => {
+    expect(reopenRcViewer()).toBe(false);
     expect(spawned).toEqual([]);
-    expect(reopenRcViewer("cco-rc-viewer")).toBe(true);
+    process.env.TMUX = "/tmp/tmux";
+    expect(reopenRcViewer()).toBe(true);
     expect(spawned[0]!.cmd).toBe("tmux");
     expect(spawned[0]!.args.slice(0, 3)).toEqual(["new-window", "-n", "cco-rc-viewer"]);
     expect(spawned[0]!.args[3]).toContain(`'--after-pid' '${process.pid}'`);
