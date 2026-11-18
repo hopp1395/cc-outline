@@ -11,7 +11,9 @@ export interface Translated {
  * lines of a Claude Code transcript, so the parser and every renderer read them like a local session. The events
  * carry no `uuid` of their own as far as is known, so the sequence number stands in for it (`remote-<n>`), which
  * also keeps a prompt that arrives twice apart from a repeated one. A `result` becomes the `turn_duration` that
- * ends a turn; streaming parts and progress have no counterpart and are only counted.
+ * ends a turn; streaming parts and progress have no counterpart and are only counted. A tool result's structured
+ * part comes as `tool_use_result` (SDK naming) where the transcript has `toolUseResult`: renamed, or every tool shows
+ * only its text (an `AskUserQuestion` "not answered", a `Bash` call no output).
  */
 export function toTranscript(events: RemoteEvent[]): Translated {
   const lines: string[] = [];
@@ -25,7 +27,7 @@ export function toTranscript(events: RemoteEvent[]): Translated {
       isSidechain: false,
     };
     if (type === "user" || type === "assistant") {
-      lines.push(JSON.stringify({ ...payload, ...withAttachmentLabel(payload), ...base }));
+      lines.push(JSON.stringify({ ...payload, ...withAttachmentLabel(payload), ...toolUseResult(payload), ...base }));
     } else if (type === "system" && payload.subtype === "compact_boundary") {
       lines.push(JSON.stringify({ ...payload, ...base }));
     } else if (type === "system" && payload.subtype === "init") {
@@ -38,6 +40,12 @@ export function toTranscript(events: RemoteEvent[]): Translated {
     }
   }
   return { lines, unknown };
+}
+
+/** The structured tool result under the transcript's name. */
+function toolUseResult(payload: Record<string, unknown>): Record<string, unknown> {
+  if (payload.tool_use_result === undefined || payload.toolUseResult !== undefined) return {};
+  return { toolUseResult: payload.tool_use_result };
 }
 
 /** A prompt of attachments only has an empty text, which would start no turn: it gets a label like a local prompt of images. */
