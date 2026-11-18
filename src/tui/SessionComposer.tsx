@@ -1,5 +1,5 @@
 import { Box, measureElement, Text, useInput, usePaste, type DOMElement } from "ink";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { isTypedPrompt, type Turn } from "../transcript/parse.js";
 import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
@@ -121,6 +121,23 @@ export function promptHistory(turns: readonly Turn[]): string[] {
   return texts;
 }
 
+/** A draft Esc Esc cleared: its text, and the prompt editor's images it names, which go along again when it is sent. */
+interface Cleared {
+  text: string;
+  images: PromptImage[];
+}
+
+/** How many cleared drafts a session keeps for ↑, as Claude Code does. */
+const KEEP_CLEARED = 10;
+const NONE_CLEARED: readonly Cleared[] = [];
+
+/** The images of `images` that `text` names by their placeholders. */
+const namedIn = (images: readonly PromptImage[] | undefined, text: string) => {
+  if (!images?.length) return [];
+  const inText = referenced(text);
+  return images.filter((i) => inText.has(i.n));
+};
+
 type Permission = "allow" | "deny" | "reason";
 const PERMISSIONS: { id: Permission; label: string }[] = [
   { id: "allow", label: "Allow" },
@@ -192,8 +209,10 @@ interface TypedIn {
  * The bottom of a viewer of one session, like Claude Code's: a prompt line that grows with its text (Enter sends,
  * Ctrl+J starts a new line, ↑↓ move between its rows and, on the first or last, through the session's `history`), through
  * `channel`; while a remote session's Claude waits for an answer, the permission
- * (allow, deny, deny saying why) or the question takes its place. It has the keys while `focused`: Esc (or Tab) hands
- * them to the chat, Esc while Claude works stops it, as in Claude Code. While the channel is blocked it says why and
+ * (allow, deny, deny saying why) or the question takes its place. It has the keys while `focused`; Esc works as in
+ * Claude Code: while Claude works it stops it (an Esc right after does nothing), with text Esc Esc clears it (↑ brings
+ * it back first, before the prompts sent), and only on an empty line does Esc hand the keys to the chat, as Tab always
+ * does. While the channel is blocked it says why and
  * takes no keys, except while Claude waits in its `terminal`: then Enter brings that to the front. `onHeight` hears
  * the rows it takes, so the chat above leaves them.
  */
@@ -263,10 +282,17 @@ export function SessionComposer({
   const [line, setLineState] = useState<LineState>(EMPTY);
   // Browsing the history: the prompt brought back (its place found by its text, as new prompts come in), and what was
   // written before, for ↓ past the newest.
-  const [browse, setBrowse] = useState<{ text: string; index: number; draft: LineState }>();
+  // `images`: those the draft had, back with it.
+  const [browse, setBrowse] = useState<{ text: string; index: number; draft: LineState; images: PromptImage[] }>();
   const drafts = useRef(new Map<string, LineState>()).current;
   // The images of the prompts the editor handed over, per session, until sent.
   const attached = useRef(new Map<string, PromptImage[]>()).current;
+  // The drafts Esc Esc cleared, per session (`draftKey`, "" where it has none), the newest first, until the viewer ends.
+  const cleared = useRef(new Map<string, readonly Cleared[]>()).current;
+  // The first Esc of an Esc Esc, with text in the line: a second one soon after clears it.
+  const [armed, setArmed] = useState<{ at: number }>();
+  // When Esc last stopped Claude: an Esc right after it does nothing, though Claude may still show as working.
+  const stoppedAt = useRef(0);
   const keyNow = useRef(draftKey);
   if (unsent) unsent.current = () => [...drafts.values()].filter((d) => d.text.trim() !== "").length;
   // Gone (no session selected): its drafts are gone with it.
@@ -288,6 +314,7 @@ export function SessionComposer({
     setLineState(draftKey === undefined ? EMPTY : (drafts.get(draftKey) ?? EMPTY));
     setBrowse(undefined);
     setWarned(undefined);
+    setArmed(undefined);
   }
   // The editor's prompt: its session's draft, shown at once where that session is selected.
   useEffect(() => {
@@ -303,11 +330,13 @@ export function SessionComposer({
     }
   }, [handed?.at]);
   // The images the line's text still names.
-  const named = (text: string, key = keyNow.current) => {
-    const images = key === undefined ? undefined : attached.get(key);
-    if (!images) return [];
-    const inText = referenced(text);
-    return images.filter((i) => inText.has(i.n));
+  const named = (text: string, key = keyNow.current) => namedIn(key === undefined ? undefined : attached.get(key), text);
+  /** The images that go along with what the line shows now. */
+  const attach = (images: readonly PromptImage[]) => {
+    const key = keyNow.current;
+    if (key === undefined) return;
+    if (images.length > 0) attached.set(key, [...images]);
+    else attached.delete(key);
   };
   const [sending, setSending] = useState(false);
   const [choice, setChoice] = useState(0);
@@ -445,30 +474,85 @@ export function SessionComposer({
       },
     );
   };
+  // What ↑ brings back: the drafts Esc Esc cleared, then the prompts sent, each text once.
+  const mine = cleared.get(draftKey ?? "") ?? NONE_CLEARED;
+  const recallable = useMemo(() => {
+    const texts = new Set(mine.map((c) => c.text));
+    return [...texts, ...history.filter((t) => !texts.has(t))];
+  }, [mine, history]);
   // Where in the history the line is: the prompt brought back, found again by its text when new ones came in.
-  const browsed = browse ? (history.indexOf(browse.text) >= 0 ? history.indexOf(browse.text) : Math.min(browse.index, history.length - 1)) : -1;
+  const browsed = browse ? (recallable.indexOf(browse.text) >= 0 ? recallable.indexOf(browse.text) : Math.min(browse.index, recallable.length - 1)) : -1;
   const recall = (index: number, atEnd: boolean) => {
-    const text = history[index]!;
+    const text = recallable[index]!;
     // The cursor where the next key in the same direction goes on browsing: on the first row going back, the last going on.
     setLine({ text, cursor: atEnd ? text.length : 0, selected: false });
-    setBrowse({ text, index, draft: browse?.draft ?? line });
+    setBrowse({ text, index, draft: browse?.draft ?? line, images: browse?.images ?? named(line.text) });
+    // A cleared draft's images go along again; a prompt sent takes none of the draft's.
+    attach(mine.find((c) => c.text === text)?.images ?? []);
   };
   const arrow = (step: -1 | 1) => {
     const moved = moveRow(line.text, line.cursor, textRoom, step);
     if (moved !== undefined) return setLine({ ...line, cursor: moved, selected: false });
-    if (step < 0) return browsed + 1 < history.length && recall(browsed + 1, false);
+    if (step < 0) return browsed + 1 < recallable.length && recall(browsed + 1, false);
     if (!browse) return;
     if (browsed > 0) return recall(browsed - 1, true);
     setBrowse(undefined);
     setLine(browse.draft);
+    attach(browse.images);
   };
-  const escape = () => {
-    if (working && !request && !channel.blocked) return void report("interrupt sent")(channel.interrupt());
-    onFocus(false);
+  /**
+   * Esc Esc: clears the line into the drafts ↑ brings back, with its images; while browsing the history, the draft
+   * written before goes there too.
+   */
+  const clearDraft = () => {
+    const key = keyNow.current;
+    const images = key === undefined ? undefined : attached.get(key);
+    const entries: Cleared[] = [];
+    if (line.text.trim()) entries.push({ text: line.text.trim(), images: namedIn(images, line.text) });
+    if (browse?.draft.text.trim() && browse.draft.text.trim() !== line.text.trim()) entries.push({ text: browse.draft.text.trim(), images: namedIn(browse.images, browse.draft.text) });
+    if (entries.length === 0) return;
+    const slot = key ?? "";
+    const kept = (cleared.get(slot) ?? []).filter((c) => !entries.some((e) => e.text === c.text));
+    cleared.set(slot, [...entries, ...kept].slice(0, KEEP_CLEARED));
+    if (key !== undefined) {
+      drafts.delete(key);
+      attached.delete(key);
+    }
+    setLineState(EMPTY);
+    setBrowse(undefined);
+    setWarned(undefined);
+    notify("draft cleared · ↑ brings it back");
   };
+  /**
+   * Esc as in Claude Code's prompt line: stops Claude while it works; with text, the first asks for a second, which
+   * clears it, the keys staying in the line; on an empty line it gives the keys to the chat. `twice`: both of an
+   * Esc Esc that came in one read (Ink then reports one Esc with meta).
+   */
+  const escape = (twice: boolean) => {
+    // Esc again right after a stop: Claude may still show as working; the line keeps its keys and its draft.
+    if (Date.now() - stoppedAt.current < TIMING.escTwice) return;
+    if (working && !request && !channel.blocked) {
+      stoppedAt.current = Date.now();
+      return void report("interrupt sent")(channel.interrupt());
+    }
+    if (!line.text.trim()) return onFocus(false);
+    if (twice || (armed && Date.now() - armed.at < TIMING.escTwice)) {
+      setArmed(undefined);
+      return clearDraft();
+    }
+    setArmed({ at: Date.now() });
+  };
+  // The first Esc of an Esc Esc holds that long; the key help says a second one clears.
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed((a) => (a === armed ? undefined : a)), TIMING.escTwice);
+    return () => clearTimeout(timer);
+  }, [armed]);
 
   useInput(
     (input, key) => {
+      // Esc Esc is two Esc in a row: any other key in between ends the wait for the second.
+      if (armed && !key.escape) setArmed(undefined);
       if (stuck) {
         if (key.tab) return onFocus(false);
         if (key.escape) return typeIn("cancel");
@@ -516,7 +600,7 @@ export function SessionComposer({
           return;
         }
       }
-      if (key.escape) return escape();
+      if (key.escape) return escape(key.meta);
       if ((key.upArrow || key.downArrow) && !key.ctrl && !key.meta && !key.shift) return void arrow(key.upArrow ? -1 : 1);
       if (input === "\n" || (key.ctrl && input === "j")) return setLine({ text: line.text.slice(0, line.cursor) + "\n" + line.text.slice(line.cursor), cursor: line.cursor + 1, selected: false });
       if (key.return) {
@@ -550,6 +634,13 @@ export function SessionComposer({
       ))}
     </Text>
   );
+
+  // What Esc does at the line now: stop Claude, clear (asked once, as Claude Code does), or hand the keys to the chat.
+  const escKeys: [string, string][] = working
+    ? [["Esc", "stop Claude"]]
+    : line.text.trim()
+    ? [armed ? ["Esc", "again to clear"] : ["Esc Esc", "clear"], ["Tab", "chat"]]
+    : [["Esc", "chat"]];
 
   // Claude waits in its terminal: Enter there brings it to the front.
   const frontKeys = keys(focused ? [["Enter", "bring its terminal to the front"], ["Esc", "chat"]] : [[hint[0], "bring its terminal to the front"]]);
@@ -704,11 +795,17 @@ export function SessionComposer({
           </Text>
         )}
         {focused && warning
-          ? keys([...(warning.suggestion ? [["Tab", `take /${warning.suggestion}`] as [string, string]] : []), ["Enter", "send anyway"], ["Esc", working ? "stop Claude" : "chat"]])
+          ? keys([...(warning.suggestion ? [["Tab", `take /${warning.suggestion}`] as [string, string]] : []), ["Enter", "send anyway"], ...escKeys])
           : focused && picker.open
           ? keys([["Tab", "take"], ["Enter", "take and send"], ["↑↓", "choose"], ["Esc", "close the list"]])
           : focused
-          ? keys([["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"], ["^J", "new line"], ["Esc", working ? "stop Claude" : "chat"], ["PgUp/Dn", "scroll"], ...(history.length > 0 ? [["↑↓", "history"] as [string, string]] : [])])
+          ? keys([
+              ["Enter", sending ? "sending…" : working ? "send (Claude takes it in when it can)" : "send"],
+              ["^J", "new line"],
+              ...escKeys,
+              ["PgUp/Dn", "scroll"],
+              ...(recallable.length > 0 ? [["↑↓", "history"] as [string, string]] : []),
+            ])
           : keys([hint])}
       </>
     );

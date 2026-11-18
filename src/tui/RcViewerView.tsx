@@ -219,9 +219,13 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const history = useMemo(() => promptHistory(transcript.turns), [transcript.turns]);
   const path = !session ? undefined : session.remote ? remotePath(session.id) : (local.file ?? session.path);
   const live = entry !== undefined && (entry.state === "busy" || entry.state === "waiting");
+  // Claude works: as the session's state says, or, as in a viewer of one session, while its last turn is open (just
+  // sent, before the state follows), so Esc in the prompt line stops it at once.
+  const lastTurn = transcript.turns.at(-1);
+  const claudeWorks = entry?.state === "busy" || (entry !== undefined && entry.state !== "ended" && lastTurn !== undefined && !lastTurn.done && !lastTurn.interrupted);
 
   // The prompt line below the chat writes to the selected session: typed into the Claude Code that runs one of this
-  // machine, sent through claude.ai for a remote one. The chat column's Tab or i give it the keys, Esc or Tab take them back.
+  // machine, sent through claude.ai for a remote one. The chat column's Tab or i give it the keys, Tab (or Esc on an empty line) takes them back.
   const [composing, setComposing] = useState(false);
   const [composerRows, setComposerRows] = useState(3);
   const typingInComposer = composing && column === "chat" && session !== undefined;
@@ -594,7 +598,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             layout={full}
             channel={channel}
             title={`${session.remote ? "◈ " : ""}${sessionTitle(session)}`}
-            working={entry?.state === "busy"}
+            working={claudeWorks}
             pending={pending}
             focused={typingInComposer && active}
             onFocus={setComposing}
