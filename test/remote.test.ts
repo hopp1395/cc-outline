@@ -193,6 +193,22 @@ describe("the events as a transcript", () => {
     expect(parser.turns.some((t) => t.unknownCommand)).toBe(false);
     expect(turnMarkdown(parser.turns[1]!, { tools: "off", thinking: false })).toContain("`/modul` isn't a command in this session");
   });
+
+  it("keeps the structured tool result, which the events name tool_use_result: the answer to a question shows", () => {
+    // Recorded: the worker's tool result carries `tool_use_result` where a transcript has `toolUseResult`.
+    const recorded = readFileSync(new URL("./fixtures/remote-capture.jsonl", import.meta.url), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
+      .filter((l) => l.kind === "event")
+      .map((l) => ({ sequence: Number(l.data.sequence_num), source: l.data.source, createdAt: l.data.created_at, payload: l.data.payload }));
+    const parser = new TranscriptParser();
+    parser.push(toTranscript(recorded).lines.join("\n") + "\n");
+    const markdown = parser.turns.map((t) => turnMarkdown(t, { tools: "full", thinking: false })).join("\n");
+    expect(markdown).toContain("- *Welche Farbe magst du?* → **Blau**");
+    expect(markdown).not.toContain("not answered");
+    expect(markdown).toContain("Hallo aus a.txt");
+  });
 });
 
 describe("remote sessions as summaries", () => {
