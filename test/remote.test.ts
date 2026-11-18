@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, onTestFinished } from "vitest";
-import { EVENT_LIMIT, listEvents, listSessions, parseSession, remote } from "../src/remote/api.js";
+import { EVENT_LIMIT, listEvents, listSessions, parseSession, remote, sendPrompt, UPLOAD_SCOPE, uploadFiles } from "../src/remote/api.js";
 import { readLogin, RemoteError, SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { describeRemoteError, RemoteSessions, remoteSummary, remoteUrl } from "../src/remote/index.js";
 import { toTranscript } from "../src/remote/toTranscript.js";
@@ -120,6 +120,37 @@ describe("the API", () => {
       throw new TypeError("fetch failed");
     };
     await expect(listSessions(dir)).rejects.toMatchObject({ kind: "offline" });
+  });
+
+  it("uploads a file as Claude Code does and sends it along with a prompt", async () => {
+    const upload = account({ accessToken: TOKEN, expiresAt: Date.now() + 3_600_000, scopes: [SESSIONS_SCOPE, UPLOAD_SCOPE] });
+    const file = join(upload, "shot.png");
+    writeFileSync(file, Buffer.from("89504e47", "hex"));
+    answer((url) => (url.endsWith("/file_upload") ? json({ success: true, file_uuid: "f-1", file_kind: "image" }, 201) : json({})));
+    const files = await uploadFiles([file], upload);
+    expect(files).toEqual([{ fileUuid: "f-1", fileName: "shot.png", isImage: true, size: 4 }]);
+    expect(calls[0]!.url).toBe("https://api.anthropic.com/api/oauth/file_upload");
+    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${TOKEN}`);
+    const sent = (calls[0]!.init.body as FormData).get("file") as File;
+    expect(sent.name).toBe("shot.png");
+    expect(sent.type).toBe("image/png");
+    await sendPrompt("cse_1", "what is [Image #1]?", upload, files);
+    const payload = JSON.parse(calls[1]!.init.body as string).events[0].payload;
+    expect(payload).toMatchObject({ type: "user", message: { role: "user", content: "what is [Image #1]?" }, file_attachments: [{ file_uuid: "f-1", file_name: "shot.png", is_image: true, file_size: 4 }] });
+    // Without files, the prompt is as before.
+    await sendPrompt("cse_1", "hi", upload);
+    expect(JSON.parse(calls[2]!.init.body as string).events[0].payload.file_attachments).toBeUndefined();
+  });
+
+  it("names what stops an upload: the login's scope, a file gone, a file too large", async () => {
+    answer(() => json({ error: { message: "too big" } }, 413));
+    const file = join(dir, "big.png");
+    writeFileSync(file, "x");
+    // The default login here lacks the upload scope.
+    await expect(uploadFiles([file], dir)).rejects.toMatchObject({ kind: "no-scope" });
+    const upload = account({ accessToken: TOKEN, expiresAt: Date.now() + 3_600_000, scopes: [UPLOAD_SCOPE] });
+    await expect(uploadFiles([join(upload, "gone.png")], upload)).rejects.toThrow("gone.png cannot be read");
+    await expect(uploadFiles([file], upload)).rejects.toThrow("too large");
   });
 
   it("describes failures for the top bar", () => {

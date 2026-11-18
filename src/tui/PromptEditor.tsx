@@ -109,9 +109,11 @@ export function PromptEditor({
   initialText,
   active = true,
   commands,
+  screenTop = 0,
   onSubmit,
   onCancel,
 }: {
+  /** Its size: `columns` wide, `rows` high. */
   layout: Layout;
   title: string;
   /** A dim line below the title: where the prompt goes. */
@@ -121,6 +123,8 @@ export function PromptEditor({
   active?: boolean;
   /** Where the session's `/` commands come from, for the list a `/` at the prompt's start opens. */
   commands?: CommandSource;
+  /** The screen row it starts at (the Remote Control Viewer's: below the top bar), for the mouse. */
+  screenTop?: number;
   /** The text with the images' paths, and the draft it came from (the caller clears or keeps it). */
   onSubmit: (text: string, draft: PromptDraft) => void;
   onCancel: () => void;
@@ -223,7 +227,10 @@ export function PromptEditor({
   useInput(
     (input, key) => {
       if (input.startsWith("[<")) {
-        for (const e of parseMouse(input)) {
+        for (const raw of parseMouse(input)) {
+          // Outside it (the Remote Control Viewer's chat beside it, its prompt line below): not the editor's.
+          const e = { ...raw, y: raw.y - screenTop };
+          if (e.x >= layout.columns || e.y < 0 || e.y >= layout.rows) continue;
           if (picker.open && e.kind === "wheel") return picker.move(e.delta);
           if (picker.open && e.kind === "click" && e.y >= listTop && e.y < listTop + listRows) {
             const taken = picker.take(pickerFirst(picker) + e.y - listTop);

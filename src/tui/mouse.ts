@@ -48,6 +48,12 @@ export function parseMouse(input: string): MouseEvent[] {
 /** Whether mouse events are for this part of the screen: its view is shown, no dialog is open, and the mouse setting is on. */
 export const MouseContext = createContext(false);
 
+/**
+ * Which mouse events reach this part of the screen, where something lies over a part of it: the Remote Control Viewer's
+ * chat beside the prompt editor takes only the wheel, and only right of the editor. Without one, all do.
+ */
+export const MouseFilterContext = createContext<((event: MouseEvent) => boolean) | undefined>(undefined);
+
 /** Turns mouse reporting on while `enabled`, and off again on exit. */
 export function useMouseReporting(enabled: boolean): void {
   const { stdout } = useStdout();
@@ -67,10 +73,11 @@ export function useMouseReporting(enabled: boolean): void {
 /** Calls `handler` for each mouse event while the surrounding view takes the mouse (and `active`). */
 export function useMouse(handler: (event: MouseEvent) => void, active = true): void {
   const enabled = useContext(MouseContext);
+  const filter = useContext(MouseFilterContext);
   useInput(
     (input) => {
       if (!input.startsWith("[<")) return;
-      for (const event of parseMouse(input)) handler(event);
+      for (const event of parseMouse(input)) if (!filter || filter(event)) handler(event);
     },
     { isActive: enabled && active },
   );

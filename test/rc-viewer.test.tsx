@@ -19,7 +19,8 @@ import { matchesRequest } from "../src/tui/RcViewerView.js";
 import { rcViewerOptions, type RcViewerSituation } from "../src/rcViewer/actions.js";
 import { rcViewerRowLabel, SessionsView } from "../src/tui/SessionsView.js";
 import { proc } from "../src/proc.js";
-import { remote } from "../src/remote/api.js";
+import { remote, UPLOAD_SCOPE } from "../src/remote/api.js";
+import { readDraft, saveDraft } from "../src/promptDraft.js";
 import { SESSIONS_SCOPE } from "../src/remote/credentials.js";
 import { readRcViewerRequest } from "../src/rcViewer/registry.js";
 import { rcViewerLayout } from "../src/tui/layout.js";
@@ -578,6 +579,56 @@ describe("the Remote Control Viewer's prompt line", () => {
     expect(view.frame()).toContain("draft of a");
     view.unmount();
   });
+
+  it("opens the prompt editor with e and hands its prompt to the line, images of this machine as their paths", async () => {
+    idleSession("s-a", "first work", 5, process.pid);
+    const shot = join(cwd, "shot.png");
+    writeFileSync(shot, "png");
+    saveDraft("s-a", { text: "look at [Image #1]", images: [{ n: 1, path: shot, source: "png", bytes: 3, at: Date.now() }] });
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("answer of first work"));
+    await view.press("e");
+    await until(() => view.frame().includes("Prompt for Claude Code · first work"));
+    expect(view.frame()).toContain("Into the prompt line (Enter sends); images as paths.");
+    // It lies over the sessions and the turns: the chat stays in sight beside it.
+    const answerRow = view.frame().split("\n").find((l) => l.includes("answer of first work"));
+    expect(answerRow).toMatch(/^│.*│.*answer of first work/);
+    // q is a letter of the prompt here, not quitting.
+    await view.press("q");
+    await view.press("\u0013");
+    await until(() => !view.frame().includes("Prompt for Claude Code") && view.frame().includes("Enter send"));
+    expect(view.frame()).toContain(`look at "${shot}"q`);
+    expect(view.frame()).not.toContain("go along");
+    await view.press("\r");
+    await expect.poll(() => sent.length, { timeout: 3000 }).toBe(2);
+    expect(sent[0]).toEqual({ pane: "%1", keys: ["-l", `look at "${shot}"q`] });
+    // Handed over, the editor's draft is gone.
+    expect(readDraft("s-a").text).toBe("");
+    view.unmount();
+  });
+
+  it("scrolls the chat beside the prompt editor with the wheel, but not from over the editor", async () => {
+    idleSession("s-a", "long work", 5, process.pid);
+    // A long answer: the chat shows its start.
+    const file = join(projectDir(cwd), "s-a.jsonl");
+    const answer = Array.from({ length: 80 }, (_, i) => `row ${i + 1}`).join("\n\n");
+    writeFileSync(file, readFileSync(file, "utf8").replace("answer of long work", answer.replace(/\n/g, "\\n")));
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    const firstRow = () => view.frame().split("\n").find((l) => /\brow \d+\b/.test(l))?.match(/\brow (\d+)/)?.[1];
+    // It shows the answer's end, as it follows the live session.
+    await until(() => view.frame().includes("row 80"));
+    await view.press("e");
+    await until(() => view.frame().includes("Prompt for Claude Code · long work"));
+    const atEnd = firstRow();
+    // The wheel over the editor moves nothing of the chat; right of it, the chat scrolls.
+    await view.press("\u001b[<64;10;10M");
+    await tick(30);
+    expect(firstRow()).toBe(atEnd);
+    await view.press("\u001b[<64;100;10M");
+    await until(() => Number(firstRow()) < Number(atEnd));
+    expect(view.frame()).toContain("Prompt for Claude Code · long work");
+    view.unmount();
+  });
 });
 
 describe("answering a remote session in the Remote Control Viewer", () => {
@@ -667,6 +718,44 @@ describe("answering a remote session in the Remote Control Viewer", () => {
       type: "control_response",
       response: { subtype: "success", response: { behavior: "allow", updatedInput: { answers: { "Welche Farbe magst du?": "Blau" } } } },
     });
+    view.unmount();
+  });
+
+  it("uploads the prompt editor's images to a remote session and sends them along with the prompt", async () => {
+    // The session idle, before its question: the prompt line takes a prompt.
+    const idle = capture.filter((c) => c.kind === "event" && Number(c.data.sequence_num) <= 31).map((c) => c.data);
+    const uploaded: File[] = [];
+    remote.fetch = async (url, init) => {
+      if (url.endsWith("/api/oauth/file_upload")) {
+        uploaded.push((init.body as FormData).get("file") as File);
+        return new Response(JSON.stringify({ success: true, file_uuid: "f-1" }), { status: 201 });
+      }
+      if (init.method === "POST") {
+        posted.push(JSON.parse(String(init.body)).events[0].payload);
+        return new Response("{}", { status: 200 });
+      }
+      const body = url.includes("/events") ? { data: [...idle].reverse() } : { data: [{ ...entry, worker_status: "idle", last_event_at: new Date().toISOString() }] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    };
+    writeFileSync(join(claudeDir(), ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "t", expiresAt: Date.now() + 3_600_000, scopes: [SESSIONS_SCOPE, UPLOAD_SCOPE] } }));
+    const shot = join(claudeDir(), "shot.png");
+    writeFileSync(shot, "png");
+    saveDraft(String(entry.id), { text: "what is [Image #1]?", images: [{ n: 1, path: shot, source: "png", bytes: 3, at: Date.now() }, { n: 2, path: shot, source: "png", bytes: 3, at: Date.now() }] });
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("rc-test") && view.frame().includes("Space or a click"));
+    await view.press("e");
+    await until(() => view.frame().includes("Prompt for Claude Code · ◈ rc-test"));
+    expect(view.frame()).toContain("Into the prompt line (Enter sends); images uploaded.");
+    await view.press("\u0013");
+    await until(() => !view.frame().includes("Prompt for Claude Code") && view.frame().includes("Enter send"));
+    // The placeholder stays in the text; only the image it names goes along.
+    expect(view.frame()).toContain("what is [Image #1]?");
+    expect(view.frame()).toContain("⎘ [Image #1] go along");
+    await view.press("\r");
+    await expect.poll(() => posted.length).toBe(1);
+    expect(uploaded.map((f) => f.name)).toEqual(["shot.png"]);
+    expect(posted[0]).toMatchObject({ type: "user", message: { content: "what is [Image #1]?" }, file_attachments: [{ file_uuid: "f-1", file_name: "shot.png", is_image: true }] });
+    await until(() => !view.frame().includes("go along"));
     view.unmount();
   });
 });

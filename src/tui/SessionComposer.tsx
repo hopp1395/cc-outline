@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { isTypedPrompt, type Turn } from "../transcript/parse.js";
 import { editLine, type LineState } from "../filter.js";
 import { localRequestLines, type LocalRequest } from "../localRequest.js";
+import { placeholder, referenced, type PromptImage } from "../promptDraft.js";
 import { takeCommand, unknownCommand, type CommandSource } from "../slashCommands.js";
 import type { PendingRequest } from "../remote/pending.js";
 import { TIMING } from "../timing.js";
@@ -131,13 +132,25 @@ const PERMISSIONS: { id: Permission; label: string }[] = [
 export type UnsentDrafts = { current?: () => number };
 
 /**
+ * A prompt the prompt editor handed to the line (the Remote Control Viewer): it becomes the draft of the session `key`,
+ * once per `at`. `images` go along when it is sent, those whose placeholder the text still has.
+ */
+export interface HandedPrompt {
+  key: string;
+  text: string;
+  images: PromptImage[];
+  at: number;
+}
+
+/**
  * Where the prompt line's text goes: a remote session's events on claude.ai, or the Claude Code that runs a session of
  * this machine (typed in). Each call rejects with an `Error` whose message says why it failed.
  */
 export interface PromptChannel {
   /** Why nothing can be sent now (it runs nowhere, steer remote is off, …); the line shows it in place of the text. */
   blocked?: string;
-  send(text: string): Promise<void>;
+  /** Sends `text`, with `images` (of the prompt editor, named in the text by their placeholders) where they go along: a remote session's. */
+  send(text: string, images?: PromptImage[]): Promise<void>;
   /** Stops Claude while it works. */
   interrupt(): Promise<void>;
   /** Answers a request the session waits for; only a remote session's are known. */
@@ -202,6 +215,7 @@ export function SessionComposer({
   usage,
   history = [],
   unsent,
+  handed,
 }: {
   layout: Layout;
   channel: PromptChannel;
@@ -243,12 +257,16 @@ export function SessionComposer({
   history?: readonly string[];
   /** Filled with how many sessions have a draft (`draftKey`) that was not sent: what a restart of the Remote Control Viewer would lose. */
   unsent?: UnsentDrafts;
+  /** A prompt from the prompt editor, taken as its session's draft. */
+  handed?: HandedPrompt;
 }) {
   const [line, setLineState] = useState<LineState>(EMPTY);
   // Browsing the history: the prompt brought back (its place found by its text, as new prompts come in), and what was
   // written before, for ↓ past the newest.
   const [browse, setBrowse] = useState<{ text: string; index: number; draft: LineState }>();
   const drafts = useRef(new Map<string, LineState>()).current;
+  // The images of the prompts the editor handed over, per session, until sent.
+  const attached = useRef(new Map<string, PromptImage[]>()).current;
   const keyNow = useRef(draftKey);
   if (unsent) unsent.current = () => [...drafts.values()].filter((d) => d.text.trim() !== "").length;
   // Gone (no session selected): its drafts are gone with it.
@@ -271,6 +289,26 @@ export function SessionComposer({
     setBrowse(undefined);
     setWarned(undefined);
   }
+  // The editor's prompt: its session's draft, shown at once where that session is selected.
+  useEffect(() => {
+    if (!handed) return;
+    const next: LineState = { text: handed.text, cursor: handed.text.length, selected: false };
+    drafts.set(handed.key, next);
+    if (handed.images.length > 0) attached.set(handed.key, handed.images);
+    else attached.delete(handed.key);
+    if (keyNow.current === handed.key) {
+      setLineState(next);
+      setBrowse(undefined);
+      setWarned(undefined);
+    }
+  }, [handed?.at]);
+  // The images the line's text still names.
+  const named = (text: string, key = keyNow.current) => {
+    const images = key === undefined ? undefined : attached.get(key);
+    if (!images) return [];
+    const inText = referenced(text);
+    return images.filter((i) => inText.has(i.n));
+  };
   const [sending, setSending] = useState(false);
   const [choice, setChoice] = useState(0);
   // Deny, saying why: the reason's text, in place of the options.
@@ -386,10 +424,14 @@ export function SessionComposer({
     if (!text || sending || channel.blocked) return;
     setSending(true);
     const key = keyNow.current;
-    channel.send(text).then(
+    const images = named(text, key);
+    channel.send(text, images.length > 0 ? images : undefined).then(
       () => {
         // Sent: that session's draft is gone, also when another one is selected by now.
-        if (key !== undefined) drafts.delete(key);
+        if (key !== undefined) {
+          drafts.delete(key);
+          attached.delete(key);
+        }
         if (keyNow.current === key) {
           setLineState(EMPTY);
           setBrowse(undefined);
@@ -512,6 +554,7 @@ export function SessionComposer({
   // Claude waits in its terminal: Enter there brings it to the front.
   const frontKeys = keys(focused ? [["Enter", "bring its terminal to the front"], ["Esc", "chat"]] : [[hint[0], "bring its terminal to the front"]]);
 
+  const images = named(line.text);
   let body;
   let color = "yellow";
   if (localQuestion) {
@@ -650,6 +693,11 @@ export function SessionComposer({
       <>
         <CommandList picker={picker} width={room} />
         {line.text || focused ? <TextRows line={line} room={textRoom} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
+        {images.length > 0 && (
+          <Text color="magenta" dimColor={!focused} wrap="truncate">
+            {`⎘ ${images.map((i) => placeholder(i.n)).join(" ")} go along`}
+          </Text>
+        )}
         {warning && (
           <Text color="yellow" wrap="truncate">
             {`⚠ /${warning.name} is no command of this session${warning.suggestion ? ` · did you mean /${warning.suggestion}?` : ""}`}
