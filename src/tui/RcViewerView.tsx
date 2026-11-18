@@ -2,7 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { RcViewerSelect } from "../rcViewer/registry.js";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import { barColorOfAccount, type Account } from "../account.js";
 import { otherAccounts } from "../accountContinue.js";
@@ -10,8 +10,9 @@ import { formatAge, RC_VIEWER_GROUPS, rcViewerEntries, nextWaiting, runningStand
 import { rcViewerOptions, type RcViewerAction } from "../rcViewer/actions.js";
 import { accountOfSession, shownAccount, usageBadge } from "../rcViewer/usageAccount.js";
 import { attachCommand, detectTerminal, focusSessionViewer, openSessionViewer, resumeInNewWindow, viewerCommand, type ViewerTarget } from "../open.js";
-import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
+import { sendInterrupt, sendPrompt, sendResponse, uploadFiles } from "../remote/api.js";
 import { describeRemoteError, remotePath, remoteUrl } from "../remote/index.js";
+import { clearDraft, referenced, type PromptDraft } from "../promptDraft.js";
 import { renameAnywhere, renamePlan, type RenameSituation } from "../sessionRename.js";
 import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { switchToSession } from "../switchSession.js";
@@ -26,8 +27,9 @@ import { dayOf } from "./days.js";
 import { FocusContext, useFocused } from "./focus.js";
 import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem, type Layout } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
-import { MouseContext, useMouse } from "./mouse.js";
-import { promptHistory, SessionComposer, usageSpan, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
+import { MouseContext, MouseFilterContext, useMouse, type MouseEvent } from "./mouse.js";
+import { PromptEditor } from "./PromptEditor.js";
+import { promptHistory, SessionComposer, usageSpan, type HandedPrompt, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
 import { UsageAccountMenu } from "./UsageAccountMenu.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
@@ -48,6 +50,8 @@ import { useTranscript } from "./useTranscript.js";
 /** The Remote Control Viewer's columns, left to right: `←` and `→` move the keys between them. */
 export type RcViewerColumn = "sessions" | "turns" | "chat";
 const COLUMNS: RcViewerColumn[] = ["sessions", "turns", "chat"];
+/** The prompt editor's least width, where the sessions and the turns leave the chat more. */
+const EDITOR_MIN = 50;
 
 interface Props {
   /** The layout of the turns and the chat, beside the sessions column (`rcViewerLayout`). */
@@ -115,6 +119,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [remoteControl] = useSetting("remoteControl");
   const [accountAvatar] = useSetting("accountAvatar");
   const [mouse] = useSetting("mouse");
+  // Whether the app gives this view the mouse; while the prompt editor is open it does not, and the chat beside it takes the wheel all the same.
+  const inheritedMouse = useContext(MouseContext);
   const copy = useClipboard();
   const foreignKey = foreignDirs(accountState.accounts).join("\n");
   const foreign = useMemo(() => (foreignKey ? foreignKey.split("\n") : []), [foreignKey]);
@@ -226,7 +232,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
       blocked: remoteControl ? undefined : "steer remote is off (Settings of a viewer)",
-      send: (text) => readable(sendPrompt(remoteId, text)),
+      // The prompt editor's images go along uploaded, as the app sends what is attached.
+      send: (text, images) => readable((images?.length ? uploadFiles(images.map((i) => i.path)) : Promise.resolve([])).then((files) => sendPrompt(remoteId, text, undefined, files))),
       interrupt: () => readable(sendInterrupt(remoteId)),
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
     };
@@ -250,13 +257,43 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const [chatModal, setChatModal] = useState(false);
   const [choice, setChoice] = useState<Choice>();
   const [renaming, setRenaming] = useState<RcViewerEntry>();
-  const dialog = choice !== undefined || renaming !== undefined || usageMenu;
+  // e: the prompt editor for the selected session, over the whole window; what it hands over goes into the prompt line.
+  const [editor, setEditor] = useState<{ entry: RcViewerEntry; at: number }>();
+  const [handed, setHanded] = useState<HandedPrompt>();
+  const dialog = choice !== undefined || renaming !== undefined || usageMenu || editor !== undefined;
   useEffect(() => onTyping?.(chatTyping || typingInComposer), [chatTyping, typingInComposer]);
   useEffect(() => onModal?.(chatModal || dialog), [chatModal, dialog]);
   useEffect(() => onClaimKeys?.(column === "chat" && canCompose), [column, canCompose]);
   const compose = () => {
     setColumn("chat");
     setComposing(true);
+  };
+  // Where the selected session's `/` commands come from, for the prompt line's and the editor's list.
+  const commandSource = !session ? undefined : remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() };
+  const openEditor = () => {
+    if (!entry) return notify("no session selected");
+    if (channel.blocked) return notify(`e: ${channel.blocked}`);
+    setEditor({ entry, at: Date.now() });
+  };
+  /**
+   * The editor's prompt into the prompt line of its session: for one of this machine with the images' paths in the
+   * text, for a remote one (another machine) with its placeholders, the images uploaded along when it is sent.
+   */
+  const handOver = (text: string, draft: PromptDraft) => {
+    const target = editor?.entry;
+    setEditor(undefined);
+    if (!target) return;
+    const remoteTarget = target.session.remote !== undefined;
+    const inText = referenced(draft.text);
+    setHanded({
+      key: target.key,
+      text: remoteTarget ? draft.text.trim() : text,
+      images: remoteTarget ? draft.images.filter((i) => inText.has(i.n)) : [],
+      at: Date.now(),
+    });
+    clearDraft(target.session.id);
+    if (target.key !== entry?.key) return notify(`in the prompt line of ${truncate(sessionTitle(target.session), 30)}`);
+    compose();
   };
 
   // Session viewers of the sessions listed, for the Enter dialog.
@@ -392,6 +429,13 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     if (!remoteApi) return notify("the usage windows need the remote API setting");
     if (session) setUsageMenu(true);
   };
+  // Where the chat starts: the sessions column, its border and the turns' list before it.
+  const chatLeft = aside + (aside > 0 ? 2 : 0) + (layout.fold === "hidden" ? 0 : layout.listWidth);
+  // The prompt editor lies over the sessions and the turns, below the top bar and above the prompt line, framed, its right
+  // edge beside the border to the chat, which stays: the chat stays in sight (and its wheel scrolls it). In a narrow
+  // window it takes at least `EDITOR_MIN` columns, over that border too.
+  const editorColumns = Math.min(full.columns, Math.max(EDITOR_MIN, chatLeft));
+  const chatMouse = useMemo(() => (editor ? (e: MouseEvent) => e.kind === "wheel" && e.x >= editorColumns : undefined), [editor !== undefined, editorColumns]);
   // A click puts the keys in the column under it, or in the prompt line at the bottom.
   useMouse((e) => {
     if (e.kind !== "click" || e.y < 1) return;
@@ -402,9 +446,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       return;
     }
     setComposing(false);
-    const sessionsEnd = aside;
-    const turnsEnd = sessionsEnd + (aside > 0 ? 2 : 0) + (layout.fold === "hidden" ? 0 : layout.listWidth);
-    setColumn(e.x < sessionsEnd ? "sessions" : e.x < turnsEnd ? "turns" : "chat");
+    setColumn(e.x < aside ? "sessions" : e.x < chatLeft ? "turns" : "chat");
   }, active && !dialog);
 
   useInput(
@@ -420,6 +462,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       }
       // u: whose usage windows the prompt line's border shows (not while the chat's filter or a dialog of it takes the keys).
       if (input === "u" && !key.ctrl && !key.meta && !chatTyping && !chatModal) return openUsageMenu();
+      if (input === "e" && !key.ctrl && !key.meta && !chatTyping && !chatModal) return openEditor();
       if (input === "<" || input === ">") return changeWidth((w, s) => stepFold(w, s, input === "<" ? -1 : 1));
       if (input === "|") return changeWidth((w, s) => toggleFold(w, s, before.current[column === "sessions" ? "sessions" : "turns"]));
       // n: the next session that waits for the user, the one waiting longest first.
@@ -528,6 +571,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     >
       <Box flexDirection="column">
         <FocusContext.Provider value={focused && column !== "sessions" && !typingInComposer}>
+          <MouseContext.Provider value={editor ? mouse && active : inheritedMouse}>
+          <MouseFilterContext.Provider value={chatMouse}>
           <ChatView
             cwd={session?.cwd ?? process.cwd()}
             path={path}
@@ -541,6 +586,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             scrollOnly={typingInComposer}
             spaceMarks={false}
           />
+          </MouseFilterContext.Provider>
+          </MouseContext.Provider>
         </FocusContext.Provider>
         {session && (
           <SessionComposer
@@ -557,10 +604,11 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             hint={["Space", "or a click: write a prompt"]}
             asked={asked}
             terminal={terminal}
-            commands={remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() }}
+            commands={commandSource}
             usage={usage}
             history={history}
             unsent={unsent}
+            handed={handed}
           />
         )}
       </Box>
@@ -584,6 +632,26 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         </MouseContext.Provider>
       )}
       {choice && <ChoiceDialog key={choice.title} layout={full} choice={choice} onClose={() => setChoice(undefined)} />}
+      {editor && (
+        <Box position="absolute" top={1} left={0}>
+          <PromptEditor
+            key={editor.at}
+            layout={{ ...layout, columns: editorColumns, rows: layout.rows - 1 }}
+            screenTop={1}
+            title={`Prompt for Claude Code · ${editor.entry.session.remote ? "◈ " : ""}${sessionTitle(editor.entry.session)}`}
+            detail={
+              editor.entry.session.remote
+                ? "Into the prompt line (Enter sends); images uploaded."
+                : "Into the prompt line (Enter sends); images as paths."
+            }
+            draftKey={editor.entry.session.id}
+            commands={editor.entry === entry ? commandSource : undefined}
+            active={active}
+            onSubmit={handOver}
+            onCancel={() => setEditor(undefined)}
+          />
+        </Box>
+      )}
       {renaming && (
         <RenameDialog
           layout={full}
