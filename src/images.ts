@@ -15,14 +15,35 @@ export function imageDir(): string {
   return join(tmpdir(), "cco-images");
 }
 
+/**
+ * Transcripts that are no file: a remote session's stand-in path `claude.ai/<id>.jsonl` to the lines its events
+ * make, built when an image is looked up (the events are kept anyway, the lines with their base64 data are not).
+ */
+const heldTranscripts = new Map<string, () => string>();
+
+/** Makes `text` the transcript at `path` for opening images and PDFs, until the returned function is called. */
+export function holdTranscript(path: string, text: () => string): () => void {
+  heldTranscripts.set(path, text);
+  return () => {
+    if (heldTranscripts.get(path) === text) heldTranscripts.delete(path);
+  };
+}
+
+/** The text of `transcript`: one held in memory, else the file's; undefined if it cannot be read. */
+function transcriptText(transcript: string): string | undefined {
+  const held = heldTranscripts.get(transcript);
+  if (held) return held();
+  try {
+    return readFileSync(transcript, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /** The image blocks of the transcript entry `uuid`: a prompt's content, or a queued prompt's. */
 function entryImages(transcript: string, uuid: string): ImageBlock[] {
-  let text: string;
-  try {
-    text = readFileSync(transcript, "utf8");
-  } catch {
-    return [];
-  }
+  const text = transcriptText(transcript);
+  if (text === undefined) return [];
   for (const line of text.split("\n")) {
     if (!line.includes(uuid)) continue;
     try {
@@ -74,12 +95,8 @@ function written(block: ImageBlock | undefined, base: string): string | undefine
 
 /** The image and document (PDF) blocks of the tool result for the call `toolUseId`. */
 function resultFiles(transcript: string, toolUseId: string): ImageBlock[] {
-  let text: string;
-  try {
-    text = readFileSync(transcript, "utf8");
-  } catch {
-    return [];
-  }
+  const text = transcriptText(transcript);
+  if (text === undefined) return [];
   for (const line of text.split("\n")) {
     if (!line.includes(toolUseId) || !line.includes("tool_result")) continue;
     try {

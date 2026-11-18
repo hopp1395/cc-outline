@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listEvents, listSessions, type RemoteEvent, type RemoteSession } from "../remote/api.js";
-import { describeRemoteError } from "../remote/index.js";
+import { holdTranscript } from "../images.js";
+import { describeRemoteError, remotePath } from "../remote/index.js";
 import { pendingRequests, type PendingRequest } from "../remote/pending.js";
 import { toTranscript } from "../remote/toTranscript.js";
 import { contextOf, keepRateLimits, newerLimits, rateLimitsOf, type RateLimits, type RemoteUsage } from "../remote/usage.js";
@@ -44,6 +45,8 @@ export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteT
     if (!id) return;
     const parser = new TranscriptParser({ dedupe: true });
     const events: RemoteEvent[] = [];
+    // The chat opens its images and PDFs from the transcript at `path`, which for a remote session is no file: its events stand in.
+    const release = holdTranscript(remotePath(id), () => toTranscript(events).lines.join("\n"));
     let last = -1;
     let truncated = false;
     let session: RemoteSession | undefined;
@@ -108,6 +111,7 @@ export function useRemoteTranscript(id: string | undefined, reload = 0): RemoteT
     return () => {
       cancelled = true;
       clearInterval(timer);
+      release();
     };
   }, [id, reload]);
   return state;
