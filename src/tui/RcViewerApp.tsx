@@ -9,7 +9,7 @@ import { onCtrlC } from "./ctrlC.js";
 import { FocusContext, useTerminalFocus } from "./focus.js";
 import { InfoDialog, type InfoPage } from "./InfoDialog.js";
 import { RcViewerView } from "./RcViewerView.js";
-import { readRcViewerRequest, runningRcViewer, type RcViewerSelect } from "../rcViewer/registry.js";
+import { readRcViewerRequest, type RcViewerSelect } from "../rcViewer/registry.js";
 import { reopenRcViewer } from "../open.js";
 import { AccountAvatarContext, AccountBadgeContext, DevContext, RC_VIEWER_TABS, rcViewerLayout, layoutOf, ScreenNoticeContext, tabAt, TabSetContext, type Mode } from "./layout.js";
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
@@ -100,7 +100,7 @@ export function RcViewerApp({ unfocused = false, accounts, select, requestsSince
     const title = "Restart the Remote Control Viewer";
     progress.host.set("restart", { title, status: "running", text: "Restarting" });
     setTimeout(() => {
-      if (reopenRcViewer(runningRcViewer()?.window)) return exit();
+      if (reopenRcViewer()) return exit();
       restarting.current = false;
       progress.host.set("restart", {
         title,

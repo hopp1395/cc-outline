@@ -228,13 +228,14 @@ function rcViewerWindow(running: { pid: number; window?: string } | undefined, s
 }
 
 /**
- * Restarts the Remote Control Viewer this process is (`r`, Reset: restart): a new one with the CLI on disk now in the window cco opened
- * it in (`window`, from its registration), which waits until this one has exited (`--after-pid`), so the one per machine holds. False
- * where cco did not open it (no window: started by hand in a terminal, which cannot be reopened) or without a supported terminal.
+ * Restarts the Remote Control Viewer this process is (`r`, Reset: restart): a new one with the CLI on disk now in its window
+ * (`RC_VIEWER_WINDOW`), which waits until this one has exited (`--after-pid`), so the one per machine holds. One cco opened
+ * comes back in the same window (in Windows Terminal its tab closes as this one exits); one started by hand in a terminal opens
+ * there as well, and the terminal it was started in falls back to its shell. False without a supported terminal.
  */
-export function reopenRcViewer(window: string | undefined): boolean {
+export function reopenRcViewer(): boolean {
   const terminal = detectTerminal();
-  if (!window || !terminal) return false;
+  if (!terminal) return false;
   return startRcViewer(terminal, ["--after-pid", String(process.pid)]) !== undefined;
 }
 
