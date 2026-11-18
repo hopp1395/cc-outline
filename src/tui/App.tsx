@@ -281,8 +281,8 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
   // After an update: the notes of every version since the one run before, until closed.
   const whatsNewOpen = update.whatsNew.length > 0;
   // Views take no keys while a dialog of the app is open.
-  // The prompt line below the chat: the chat has the keys at first, Tab or i hand them to the prompt line, Esc or
-  // Tab back. The chat leaves it the rows it takes.
+  // The prompt line below the chat: the chat has the keys at first, Tab or i hand them to the prompt line, Tab (or
+  // Esc on an empty line) back. The chat leaves it the rows it takes.
   const [composing, setComposing] = useState(false);
   const [composerRows, setComposerRows] = useState(3);
   const typingInComposer = composer && composing && mode === "chat";

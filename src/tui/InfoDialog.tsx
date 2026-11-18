@@ -145,7 +145,7 @@ const RC_VIEWER_INFO_KEYS: [string, string][] = [
   ["Home End", "first / last"],
   ["n", "next waiting / just finished"],
   ["↵", "sessions: what to do with it"],
-  ["␣ click", "write a prompt (Esc back)"],
+  ["␣ click", "write a prompt (Tab back, Esc Esc clear)"],
   ["e", "prompt editor, with images (into the prompt line)"],
   ["↵ (turns)", "full prompt"],
   ["PgUp PgDn", "scroll the chat"],

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -545,8 +545,9 @@ describe("the Remote Control Viewer's prompt line", () => {
 
     // A draft for the first session stays with it: the second one's line starts empty and sends to its own pane.
     await until(() => !view.frame().includes("hello a"));
+    // With text, Esc would ask for a second to clear it: Tab gives the keys to the chat.
     await view.press("draft of a");
-    await view.press("\u001b");
+    await view.press("\t");
     await until(() => view.frame().includes("Space or a click") && view.frame().includes("draft of a"));
     await view.press("\u001b[D");
     await view.press("\u001b[D");
@@ -577,6 +578,20 @@ describe("the Remote Control Viewer's prompt line", () => {
     await view.click(10, size.rows - 2);
     await until(() => view.frame().includes("Enter send"));
     expect(view.frame()).toContain("draft of a");
+    view.unmount();
+  });
+
+  it("stops Claude with Esc once the prompt is in its transcript, before the session's state says it works", async () => {
+    idleSession("s-a", "first work", 5, process.pid);
+    const file = join(projectDir(cwd), "s-a.jsonl");
+    const ts = new Date().toISOString();
+    appendFileSync(file, JSON.stringify({ type: "user", uuid: "s-a-u2", timestamp: ts, cwd, message: { role: "user", content: "just sent" } }) + "\n");
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("just sent"));
+    await view.press(" ");
+    await until(() => view.frame().includes("Esc stop Claude"));
+    await view.press("\u001b");
+    await expect.poll(() => sent, { timeout: 3000 }).toEqual([{ pane: "%1", keys: ["Escape"] }]);
     view.unmount();
   });
 

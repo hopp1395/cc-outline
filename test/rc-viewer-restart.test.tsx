@@ -108,7 +108,7 @@ describe("restarting the Remote Control Viewer", () => {
     await view.press(" ");
     await until(() => view.frame().includes("Enter send"));
     await view.press("half a prompt");
-    await view.press("\u001b");
+    await view.press("\t");
     await until(() => view.frame().includes("Space or a click"));
     await view.press("r");
     await expect.poll(view.frame).toContain("Restart the Remote Control Viewer?");
