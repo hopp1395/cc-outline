@@ -55,7 +55,7 @@ const heading = (s: string) => `\u001b[1;36m${s}\u001b[22;39m`;
 
 /** How the other accounts are sorted, for each value of the `accountsOrder` setting. */
 const ORDERS: Record<AccountsOrder, (a: Account, b: Account) => number> = {
-  email: (a, b) => a.email.localeCompare(b.email),
+  email: (a, b) => a.email.localeCompare(b.email) || (a.organization ?? "").localeCompare(b.organization ?? "") || basename(a.dir).localeCompare(basename(b.dir)),
   folder: (a, b) => basename(a.dir).localeCompare(basename(b.dir)) || a.email.localeCompare(b.email),
   recent: (a, b) => accountUsedAt(b) - accountUsedAt(a) || a.email.localeCompare(b.email),
 };
@@ -137,7 +137,7 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
     items: entries,
     text: (e) =>
       e.kind === "account"
-        ? { list: haystack([e.account.email, basename(e.account.dir)]), details: haystack([e.account.dir, e.account.name, e.account.organization, e.account.seat, e.account.billing]) }
+        ? { list: haystack([e.account.email]), details: haystack([e.account.dir, e.account.name, e.account.organization, e.account.seat, e.account.billing]) }
         : { list: "", details: "" },
     selected: index,
     select,
@@ -313,12 +313,10 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
               if (e.kind === "add") return <Text dimColor={!isSelected}>how to add an account</Text>;
               if (e.kind === "trashed") {
                 const t = e.entry;
-                const folder = basename(t.folder.from);
                 return (
                   <>
                     <Text color="red">○ </Text>
-                    <EntryText text={t.account.email} width={Math.max(4, listWidth - 3 - Math.min(folder.length, 16) - 1)} selected={isSelected} active={active} />
-                    <Text dimColor> {folder.length > 16 ? `${folder.slice(0, 15)}…` : folder}</Text>
+                    <EntryText text={t.account.email} width={Math.max(4, listWidth - 3)} selected={isSelected} active={active} />
                   </>
                 );
               }
@@ -326,28 +324,25 @@ export function AccountsView({ cwd, layout, visible, active, onTyping, onModal, 
               const marked = favorites.isMarked(a.dir);
               const color = colorOfAccount(a, state, settings.accountColor);
               const avatar = avatarOfAccount(a, state, settings.accountAvatar);
-              const folder = basename(a.dir);
-              // The avatar at the right end, on the account's colour as in the top bar.
+              // The row is the dot, the avatar on the account's colour (as in the top bar) and the email; the rest is in the details.
               const badge = avatar ? ` ${avatar} ` : "";
               return (
                 <>
                   {marked && <Star />}
                   <Text color={color}>{isCurrent(a) ? "● " : "○ "}</Text>
+                  {badge && (
+                    <Text>
+                      <Text color={ACCOUNT_COLORS[color]} backgroundColor={color}>
+                        {badge}
+                      </Text>{" "}
+                    </Text>
+                  )}
                   <EntryText
                     text={a.email}
-                    width={Math.max(4, listWidth - 3 - (marked ? 2 : 0) - Math.min(folder.length, 16) - 1 - (badge ? stringWidth(badge) + 1 : 0))}
+                    width={Math.max(4, listWidth - 3 - (marked ? 2 : 0) - (badge ? stringWidth(badge) + 1 : 0))}
                     selected={isSelected}
                     active={active}
                   />
-                  <Text dimColor> {folder.length > 16 ? `${folder.slice(0, 15)}…` : folder}</Text>
-                  {badge && (
-                    <Text>
-                      {" "}
-                      <Text color={ACCOUNT_COLORS[color]} backgroundColor={color}>
-                        {badge}
-                      </Text>
-                    </Text>
-                  )}
                 </>
               );
             }}

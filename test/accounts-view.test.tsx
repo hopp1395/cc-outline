@@ -66,9 +66,9 @@ function otherSession(id: string, title: string) {
   );
 }
 
-const render = (props: Partial<Parameters<typeof AccountsView>[0]> = {}) =>
+const render = (props: Partial<Parameters<typeof AccountsView>[0]> = {}, state: AccountState = stateOf()) =>
   renderInk(
-    <AccountContext.Provider value={stateOf()}>
+    <AccountContext.Provider value={state}>
       <AccountsView cwd={cwd} layout={layout} visible active {...props} />
     </AccountContext.Provider>,
     layout,
@@ -104,6 +104,31 @@ describe("the Accounts view", () => {
     expect(emails("email")).toEqual(["zed@x", "amy@x", "bob@x"]);
     expect(emails("folder")).toEqual(["zed@x", "bob@x", "amy@x"]);
     expect(emails("recent")).toEqual(["zed@x", "bob@x", "amy@x"]);
+  });
+
+  it("sorts accounts of the same email by organisation, then folder", () => {
+    const me = account("/me", "me@x");
+    const b = { ...account("/b", "jan@x"), organization: "Wodis" };
+    const c = { ...account("/c", "jan@x"), organization: "Wieland" };
+    const d = { ...account("/a", "jan@x"), organization: "Wieland" };
+    expect(accountEntries({ accounts: [b, me, c, d], current: me }).flatMap((e) => (e.kind === "account" ? [e.account.dir] : []))).toEqual(["/me", "/a", "/c", "/b"]);
+  });
+
+  it("shows a row as the dot, the avatar and the email; folder and organisation only in the details", async () => {
+    const wodis = mkdtempSync(join(tmpdir(), "w-"));
+    const wieland = mkdtempSync(join(tmpdir(), "w-"));
+    const accounts = [
+      account(own, "me@home.de"),
+      { ...account(wodis, "jan@work.com"), organization: "Wodis", avatar: "(^_^)" },
+      { ...account(wieland, "jan@work.com"), organization: "Wieland" },
+    ];
+    const view = render({}, { accounts, current: accounts[0], multiple: true, own });
+    await until(() => view.frame().includes("(^_^)"));
+    const rows = view.frame().split("\n").map((l) => l.slice(0, layout.listWidth));
+    const withAvatar = rows.find((l) => l.includes("(^_^)"))!;
+    expect(withAvatar).toMatch(/○ +\(\^_\^\) +jan@work\.com/);
+    expect(rows.filter((l) => /[●○] /.test(l)).join("\n")).not.toMatch(/Wodis|Wieland|w-|cco-accounts-own/);
+    view.unmount();
   });
 
   it("goes round the orders with s and keeps the choice", async () => {
