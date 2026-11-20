@@ -27,7 +27,7 @@ export function toTranscript(events: RemoteEvent[]): Translated {
       isSidechain: false,
     };
     if (type === "user" || type === "assistant") {
-      lines.push(JSON.stringify({ ...payload, ...withAttachmentLabel(payload), ...toolUseResult(payload), ...base }));
+      lines.push(JSON.stringify({ ...payload, ...withAttachmentLabel(payload), ...toolUseResult(payload), ...synthetic(payload), ...base }));
     } else if (type === "system" && payload.subtype === "compact_boundary") {
       lines.push(JSON.stringify({ ...payload, ...base }));
     } else if (type === "system" && payload.subtype === "init") {
@@ -46,6 +46,15 @@ export function toTranscript(events: RemoteEvent[]): Translated {
 function toolUseResult(payload: Record<string, unknown>): Record<string, unknown> {
   if (payload.tool_use_result === undefined || payload.toolUseResult !== undefined) return {};
   return { toolUseResult: payload.tool_use_result };
+}
+
+/**
+ * What the worker writes in the user's place, `isSynthetic` in the events (a skill's text after its `/` command, the
+ * `<local-command-caveat>` of a local command), is `isMeta` in a transcript: without it the skill's text started a turn
+ * of its own, "Base directory for this skill: …" as its prompt.
+ */
+function synthetic(payload: Record<string, unknown>): Record<string, unknown> {
+  return payload.type === "user" && payload.isSynthetic === true ? { isMeta: true } : {};
 }
 
 /** A prompt of attachments only has an empty text, which would start no turn: it gets a label like a local prompt of images. */
