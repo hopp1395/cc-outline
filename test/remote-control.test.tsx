@@ -60,7 +60,8 @@ describe("writing to a remote session", () => {
     await sendPrompt("cse_1", "run the tests");
     expect(posted[0]!.url).toBe("https://api.anthropic.com/v1/code/sessions/cse_1/events");
     const [event] = posted[0]!.body.events;
-    expect(event!.payload).toMatchObject({ type: "user", message: { role: "user", content: "run the tests" } });
+    // Without client_platform the worker takes it for a peer's message and runs no / command.
+    expect(event!.payload).toMatchObject({ type: "user", client_platform: "web_claude_ai", message: { role: "user", content: "run the tests" } });
     expect(event!.payload.uuid).toMatch(/^[0-9a-f-]{36}$/);
   });
 
