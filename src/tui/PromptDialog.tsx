@@ -16,31 +16,65 @@ export const pastable = (text: string) => text.replace(/\r\n?/g, "\n").replace(/
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
+type PromptRow = { start: number; text: string };
+
+/** Printable ASCII: one column a character, cut without measuring. */
+const PLAIN = /^[\x20-\x7e]*$/;
+
+/** The rows `text` was cut into last, for the next frame: a long prompt is cut once, not on each key or frame. */
+let lastCut: { text: string; room: number; rows: PromptRow[] } | undefined;
+
+/** `text` cut into rows of at most `room` columns (`promptRows`). */
+function cutRows(text: string, room: number): PromptRow[] {
+  if (lastCut?.text === text && lastCut.room === room) return lastCut.rows;
+  const rows: PromptRow[] = [];
+  let start = 0;
+  for (const line of text.split("\n")) {
+    if (room >= 1 && PLAIN.test(line)) {
+      let at = 0;
+      do {
+        rows.push({ start: start + at, text: line.slice(at, at + room) });
+        at += room;
+      } while (at < line.length);
+    } else {
+      let rowStart = start;
+      let row = "";
+      // The row's width, added up: measuring the whole row again for each character made a long line slow.
+      let width = 0;
+      for (const { segment, index } of graphemes.segment(line)) {
+        const w = stringWidth(segment);
+        if (width + w > room) {
+          rows.push({ start: rowStart, text: row });
+          rowStart = start + index;
+          row = "";
+          width = 0;
+        }
+        row += segment;
+        width += w;
+      }
+      rows.push({ start: rowStart, text: row });
+    }
+    start += line.length + 1;
+  }
+  lastCut = { text, room, rows };
+  return rows;
+}
+
 /**
  * The text cut into rows of at most `room` columns, by line break and by width, each with the offset it starts at,
  * so the cursor can be placed; the cursor's row and column.
  */
-export function promptRows(text: string, cursor: number, room: number): { rows: { start: number; text: string }[]; row: number; column: number } {
-  const rows: { start: number; text: string }[] = [];
-  let start = 0;
-  for (const line of text.split("\n")) {
-    let rowStart = start;
-    let row = "";
-    for (const { segment, index } of graphemes.segment(line)) {
-      if (stringWidth(row + segment) > room) {
-        rows.push({ start: rowStart, text: row });
-        rowStart = start + index;
-        row = "";
-      }
-      row += segment;
-    }
-    rows.push({ start: rowStart, text: row });
-    start += line.length + 1;
-  }
+export function promptRows(text: string, cursor: number, room: number): { rows: PromptRow[]; row: number; column: number } {
+  const rows = cutRows(text, room);
   // The cursor's row: the last one starting at or before it.
-  let row = 0;
-  for (let i = 0; i < rows.length; i++) if (rows[i]!.start <= cursor) row = i;
-  return { rows, row, column: cursor - rows[row]!.start };
+  let lo = 0;
+  let hi = rows.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (rows[mid]!.start <= cursor) lo = mid;
+    else hi = mid - 1;
+  }
+  return { rows, row: lo, column: cursor - rows[lo]!.start };
 }
 
 /**

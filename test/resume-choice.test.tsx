@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { updateSettings } from "../src/settings.js";
 import { renderInk, tick, until } from "./helpers/ink.js";
 import { proc } from "../src/proc.js";
-import { commandSteps, prepareConsoleInput, promptSteps, stepsLine } from "../src/switchSession.js";
+import { commandSteps, consoleLine, keyRecords, prepareConsoleInput, promptSteps, sendPause } from "../src/switchSession.js";
 import { claudeDir, pairingFile, projectDir, readJson } from "../src/transcript/locate.js";
 import { TranscriptParser, type Turn } from "../src/transcript/parse.js";
 import { renameSession } from "../src/transcript/rename.js";
@@ -203,27 +203,53 @@ describe("prepareConsoleInput", () => {
     expect(spawned[0]!.typed).toBeUndefined();
     expect(typer.ready()).toBe(true);
     expect(await typer.type(commandSteps("/resume abc"))).toBe(true);
-    expect(spawned[0]!.typed).toBe(`${stepsLine(commandSteps("/resume abc"))}\n`);
+    expect(spawned[0]!.typed).toBe(`${consoleLine(commandSteps("/resume abc"))}\n`);
     expect(typer.ready()).toBe(false);
     expect(await typer.type(commandSteps("/resume again"))).toBe(false);
   });
 
-  it("writes the keys as one line of JSON, everything past ASCII escaped", () => {
-    expect(stepsLine([["äb 🦊", 0, 0, 150]])).toBe('[["\\u00e4b \\ud83e\\udd8a",0,0,150]]');
-    expect(JSON.parse(stepsLine([["äb 🦊", 0, 0, 150]]))).toEqual([["äb 🦊", 0, 0, 150]]);
+  it("builds the key records itself: each UTF-16 unit pressed and released, 20 bytes a record", () => {
+    const records = keyRecords("ä🦊", 0x4a, 8);
+    expect(records.length).toBe(3 * 2 * 20);
+    const units = [0xe4, 0xd83e, 0xdd8a];
+    for (let i = 0; i < 6; i++) {
+      const at = i * 20;
+      expect(records.readUInt16LE(at)).toBe(1);
+      expect(records.readInt32LE(at + 4)).toBe(i % 2 === 0 ? 1 : 0);
+      expect(records.readUInt16LE(at + 8)).toBe(1);
+      expect(records.readUInt16LE(at + 10)).toBe(0x4a);
+      expect(records.readUInt16LE(at + 14)).toBe(units[i >> 1]);
+      expect(records.readUInt32LE(at + 16)).toBe(8);
+    }
   });
 
-  it("types a prompt after what is there, a line break as \\ and Enter, the last Enter sending", () => {
+  it("writes the keys as one ASCII line of base64 records and pauses, a long step in parts", () => {
+    const line = consoleLine([["äb", 0, 0, 150], ["", 0, 0, 300], ["x".repeat(5000), 0, 0, 0], ["\r", 13, 0, 0]]);
+    expect(line).toMatch(/^[A-Za-z0-9+/=: ]+$/);
+    const parts = line.split(" ").map((p) => p.split(":"));
+    expect(parts.map((p) => p[1])).toEqual(["150", "300", "0", "0", "0", "0"]);
+    expect(Buffer.from(parts[0]![0]!, "base64")).toEqual(keyRecords("äb", 0, 0));
+    expect(parts[1]![0]).toBe("");
+    // 5000 characters are 10000 records: 4096, 4096 and the rest, with the pause only after the last.
+    expect(parts.slice(2, 5).map((p) => Buffer.from(p[0]!, "base64").length / 20)).toEqual([4096, 4096, 1808]);
+    expect(Buffer.concat(parts.slice(2, 5).map((p) => Buffer.from(p[0]!, "base64")))).toEqual(keyRecords("x".repeat(5000), 0, 0));
+  });
+
+  it("types a prompt after what is there, line breaks as Ctrl+J, and sends it with Enter after a pause", () => {
     expect(promptSteps("one\ntwo")).toEqual([
-      ["one\\", 0, 0, 150],
-      ["\r", 13, 0, 100],
-      ["two", 0, 0, 150],
+      ["one", 0, 0, 0],
+      ["\n", 0x4a, 8, 0],
+      ["two", 0, 0, sendPause("one\ntwo")],
       ["\r", 13, 0, 0],
     ]);
     expect(promptSteps("hi")).toEqual([
       ["hi", 0, 0, 150],
       ["\r", 13, 0, 0],
     ]);
+    // No pause a line: a long prompt's pause grows with its length only, up to two seconds.
+    const long = Array.from({ length: 300 }, (_, i) => `line ${i}`).join("\n");
+    expect(promptSteps(long).reduce((sum, s) => sum + s[3], 0)).toBe(sendPause(long));
+    expect(sendPause("x".repeat(200_000))).toBe(2000);
     // A slash command clears the input first.
     expect(commandSteps("/resume x")[0]).toEqual(["\f", 0x4c, 8, 100]);
   });
@@ -250,7 +276,7 @@ describe("continuing a session that runs nowhere", () => {
     expect(spawned.filter((c) => c.cmd === "powershell.exe")).toHaveLength(1);
     await view.press("\r");
     await until(() => view.frame().includes("continuing it in this Claude Code"));
-    expect(spawned.filter((c) => c.cmd === "powershell.exe").map((c) => c.typed)).toEqual([`${stepsLine(commandSteps("/resume s1"))}\n`]);
+    expect(spawned.filter((c) => c.cmd === "powershell.exe").map((c) => c.typed)).toEqual([`${consoleLine(commandSteps("/resume s1"))}\n`]);
     view.unmount();
   });
 

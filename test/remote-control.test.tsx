@@ -1,6 +1,7 @@
 import { Box } from "ink";
 import { mkdtempSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import stringWidth from "string-width";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { remote, sendInterrupt, sendPrompt } from "../src/remote/api.js";
@@ -81,6 +82,43 @@ describe("the prompt dialog", () => {
     const { rows, row, column } = promptRows("abcdef\nxy", 8, 4);
     expect(rows.map((r) => r.text)).toEqual(["abcd", "ef", "xy"]);
     expect([row, column]).toEqual([2, 1]);
+  });
+
+  it("cuts plain and wide text as measuring each row would, wherever the cursor is", () => {
+    // The cut as it was: each row measured again with each character.
+    const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const measured = (text: string, room: number) => {
+      const rows: { start: number; text: string }[] = [];
+      let start = 0;
+      for (const line of text.split("\n")) {
+        let rowStart = start;
+        let row = "";
+        for (const { segment, index } of segments.segment(line)) {
+          if (stringWidth(row + segment) > room) {
+            rows.push({ start: rowStart, text: row });
+            rowStart = start + index;
+            row = "";
+          }
+          row += segment;
+        }
+        rows.push({ start: rowStart, text: row });
+        start += line.length + 1;
+      }
+      return rows;
+    };
+    const texts = ["", "abc", "abcd", "abcdef", "abcdef\n\nxy\n", "日本語のテキスト mixed with ascii", "a🦊b👍🏽c\nüber", "x".repeat(250) + "\n" + "y".repeat(7)];
+    for (const text of texts)
+      for (const room of [1, 3, 4, 10]) {
+        const expected = measured(text, room);
+        expect(promptRows(text, 0, room).rows).toEqual(expected);
+        for (let cursor = 0; cursor <= text.length; cursor++) {
+          let row = 0;
+          expected.forEach((r, i) => {
+            if (r.start <= cursor) row = i;
+          });
+          expect(promptRows(text, cursor, room)).toMatchObject({ row, column: cursor - expected[row]!.start });
+        }
+      }
   });
 
   it("takes several lines, sends on Enter and keeps an unsent draft", async () => {
