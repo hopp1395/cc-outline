@@ -119,7 +119,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
       wrap: (e) => <ProgressProvider layout={layout}>{e}</ProgressProvider>,
     });
 
-  it("types a prompt into the Claude Code that runs it, a line break as \\ and Enter", async () => {
+  it("types a prompt into the Claude Code that runs it, a line break as Ctrl+J, then Enter", async () => {
     runs("idle");
     const app = viewer();
     await until(() => app.frame().includes("Tab write a prompt"));
@@ -130,7 +130,7 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     await app.press("two");
     await app.press("\r");
     await expect.poll(() => keys.length, { timeout: 3000 }).toBe(4);
-    expect(keys).toEqual([["-l", "one\\"], ["Enter"], ["-l", "two"], ["Enter"]]);
+    expect(keys).toEqual([["-l", "one"], ["C-j"], ["-l", "two"], ["Enter"]]);
     // Nothing cleared what was typed there before.
     expect(keys.flat()).not.toContain("C-l");
     await until(() => !app.frame().includes("two"));

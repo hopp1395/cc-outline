@@ -158,21 +158,21 @@ export function questionAnswerSteps(questions: QuestionShape[], picks: { picked:
 export const commandSteps = (text: string): KeyStep[] => [CLEAR, [text, 0, 0, 150], enter()];
 
 /**
- * A prompt typed after whatever is typed there already (nothing is cleared). A line break goes in as `\` + Enter,
- * which Claude Code turns into a new line; each Enter comes on its own after a pause, so none is taken for a
- * paste, and the last one sends.
+ * A prompt typed after whatever is typed there already (nothing is cleared), then sent: its lines as `promptLineSteps`
+ * types them (each line break Ctrl+J, Claude Code's chat:newline, no pauses), then Enter on its own after `sendPause`,
+ * so it is not read together with the text and taken for part of a paste. A line break used to be `\` + Enter with a
+ * pause before and after each: ~250 ms a line, and a prompt of some 120 lines outlasted the typer's timeout half typed.
  */
 export function promptSteps(text: string): KeyStep[] {
-  const steps: KeyStep[] = [];
-  const lines = text.split("\n");
-  lines.forEach((line, i) => {
-    const last = i === lines.length - 1;
-    const typed = last ? line : `${line}\\`;
-    if (typed) steps.push([typed, 0, 0, 150]);
-    steps.push(enter(last ? 0 : 100));
-  });
+  const steps = promptLineSteps(text);
+  const last = steps.at(-1);
+  if (last) last[3] = sendPause(text);
+  steps.push(enter());
   return steps;
 }
+
+/** The pause before the Enter that sends `text`: longer for a long text, which Claude Code takes longer to read in. */
+export const sendPause = (text: string) => Math.min(2000, 150 + Math.round(text.length / 40));
 
 /**
  * A prompt put into Claude Code's prompt line without sending it (the prompt editor's hand-over): after whatever is
@@ -251,8 +251,48 @@ const TYPER_IDLE_MS = 5 * 60_000;
 /** How long typing may take once asked. */
 const TYPER_TIMEOUT_MS = 30_000;
 
-/** `steps` as the console script reads them: one line of JSON, everything past ASCII escaped, whatever code page stdin has. */
-export const stepsLine = (steps: KeyStep[]) => JSON.stringify(steps).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+/** Key records written to the console in one call at most: a long prompt goes in parts, without a pause between them. */
+const RECORDS_PER_WRITE = 4096;
+
+/**
+ * The INPUT_RECORDs (20 bytes each, KEY_EVENT) of a step's keys: each UTF-16 unit of `chars` pressed and released with
+ * the virtual key `vk` and the control key state `ctrl`. Built here: PowerShell 5.1 took seconds to put a long prompt's
+ * bytes together one `BitConverter` call at a time.
+ */
+export function keyRecords(chars: string, vk: number, ctrl: number): Buffer {
+  const out = Buffer.alloc(chars.length * 40);
+  for (let i = 0; i < chars.length; i++) {
+    const unit = chars.charCodeAt(i);
+    for (const down of [1, 0]) {
+      const at = (i * 2 + 1 - down) * 20;
+      out.writeUInt16LE(1, at); // EventType: KEY_EVENT
+      out.writeInt32LE(down, at + 4); // bKeyDown
+      out.writeUInt16LE(1, at + 8); // wRepeatCount
+      out.writeUInt16LE(vk, at + 10); // wVirtualKeyCode
+      out.writeUInt16LE(unit, at + 14); // UnicodeChar
+      out.writeUInt32LE(ctrl, at + 16); // dwControlKeyState
+    }
+  }
+  return out;
+}
+
+/**
+ * `steps` as the console script reads them: one line of `<records>:<pause>`, separated by spaces, the records
+ * (`keyRecords`) in base64, at most `RECORDS_PER_WRITE` each (the parts of a longer step pause only after the last).
+ * ASCII only, so stdin's code page does not matter, and no JSON, which Windows PowerShell parses slowly.
+ */
+export function consoleLine(steps: KeyStep[]): string {
+  const parts: string[] = [];
+  for (const [chars, vk, ctrl, wait] of steps) {
+    const records = keyRecords(chars, vk, ctrl);
+    const size = RECORDS_PER_WRITE * 20;
+    for (let at = 0; at < records.length || at === 0; at += size) {
+      const last = at + size >= records.length;
+      parts.push(`${records.subarray(at, at + size).toString("base64")}:${last ? wait : 0}`);
+    }
+  }
+  return parts.join(" ");
+}
 
 /**
  * Starts PowerShell with `CONSOLE_INPUT_SCRIPT` for the Claude Code process `claudePid`, on Windows only.
@@ -285,8 +325,9 @@ export function prepareConsoleInput(claudePid: number, platform: NodeJS.Platform
       if (used) return false;
       used = true;
       clearTimeout(idle);
-      const timeout = setTimeout(() => child.kill(), TYPER_TIMEOUT_MS);
-      child.stdin?.end(`${stepsLine(steps)}\n`);
+      // The pauses come on top: a long prompt's own takes a while.
+      const timeout = setTimeout(() => child.kill(), TYPER_TIMEOUT_MS + steps.reduce((sum, s) => sum + s[3], 0));
+      child.stdin?.end(`${consoleLine(steps)}\n`);
       await exited;
       clearTimeout(timeout);
       return output.trim() === "ok";
@@ -302,11 +343,11 @@ export function prepareConsoleInput(claudePid: number, platform: NodeJS.Platform
 }
 
 /**
- * Types key presses read from stdin (one line of JSON, `KeyStep`s) into the console of process CCO_CLAUDE_PID.
+ * Types key presses read from stdin (one line, `consoleLine`: INPUT_RECORDs in base64 and pauses) into the console of process CCO_CLAUDE_PID.
  * PowerShell declares the kernel32 calls first, so it can be started ahead and wait for the line; then it leaves its
  * own (hidden) console, attaches to that one and writes key events (INPUT_RECORDs of 20 bytes) into its
  * input buffer, which Windows Terminal's pseudo console hands to Claude Code like typed keys, whichever
- * tab or pane has the focus. Each step's keys, then its pause. Prints "ok", else the step that failed; nothing for an
+ * tab or pane has the focus. Each part's records, then its pause. Prints "ok", else the step that failed; nothing for an
  * empty line (cancelled). The calls are declared through Reflection.Emit: Add-Type compiled the same with csc in
  * ~10 s (likely the virus scanner on the new DLL).
  */
@@ -324,22 +365,6 @@ foreach ($f in @(
 }
 $K = $type.CreateType()
 
-function Keys([string]$chars, [int]$vk, [int]$ctrl) {
-  $out = New-Object byte[] ($chars.Length * 40)
-  $i = 0
-  foreach ($c in $chars.ToCharArray()) {
-    foreach ($down in 1, 0) {
-      [BitConverter]::GetBytes([uint16]1).CopyTo($out, $i)
-      [BitConverter]::GetBytes([int32]$down).CopyTo($out, $i + 4)
-      [BitConverter]::GetBytes([uint16]1).CopyTo($out, $i + 8)
-      [BitConverter]::GetBytes([uint16]$vk).CopyTo($out, $i + 10)
-      [BitConverter]::GetBytes([uint16][int]$c).CopyTo($out, $i + 14)
-      [BitConverter]::GetBytes([uint32]$ctrl).CopyTo($out, $i + 16)
-      $i += 20
-    }
-  }
-  ,$out
-}
 function Send([byte[]]$records) {
   $written = [uint32]0
   $K::WriteConsoleInputW($script:conin, $records, [uint32]($records.Length / 20), [ref]$written)
@@ -347,14 +372,15 @@ function Send([byte[]]$records) {
 
 $line = [Console]::In.ReadLine()
 if (-not $line) { exit }
-$steps = ConvertFrom-Json $line
 [void]$K::FreeConsole()
 if (-not $K::AttachConsole([uint32]$env:CCO_CLAUDE_PID)) { [Console]::Out.Write('attach'); exit }
 $script:conin = $K::CreateFileW('CONIN$', [uint32]3221225472, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
 if ($script:conin.ToInt64() -eq -1) { [Console]::Out.Write('conin'); exit }
-foreach ($s in $steps) {
-  if (-not (Send (Keys ([string]$s[0]) ([int]$s[1]) ([int]$s[2])))) { [Console]::Out.Write('write'); exit }
-  if ([int]$s[3] -gt 0) { Start-Sleep -Milliseconds ([int]$s[3]) }
+foreach ($s in $line.Split(' ')) {
+  $part = $s.Split(':')
+  $records = [Convert]::FromBase64String($part[0])
+  if ($records.Length -gt 0 -and -not (Send $records)) { [Console]::Out.Write('write'); exit }
+  if ([int]$part[1] -gt 0) { Start-Sleep -Milliseconds ([int]$part[1]) }
 }
 [Console]::Out.Write('ok')
 `;
