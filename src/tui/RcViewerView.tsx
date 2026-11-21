@@ -29,7 +29,7 @@ import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { MouseContext, MouseFilterContext, useMouse, type MouseEvent } from "./mouse.js";
 import { PromptEditor } from "./PromptEditor.js";
-import { promptHistory, SessionComposer, usageSpan, type HandedPrompt, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
+import { PEER_PROMPT_NOTE, promptHistory, SessionComposer, usageSpan, type HandedPrompt, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
 import { UsageAccountMenu } from "./UsageAccountMenu.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
@@ -236,6 +236,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
       blocked: remoteControl ? undefined : "steer remote is off (Settings of a viewer)",
+      note: PEER_PROMPT_NOTE,
       // The prompt editor's images go along uploaded, as the app sends what is attached.
       send: (text, images) => readable((images?.length ? uploadFiles(images.map((i) => i.path)) : Promise.resolve([])).then((files) => sendPrompt(remoteId, text, undefined, files))),
       interrupt: () => readable(sendInterrupt(remoteId)),
@@ -248,7 +249,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const typedIn = remoteChannel !== undefined && bridge !== undefined && entry?.running !== undefined && !localChannel.blocked;
   // An ended session of this machine continues from the Enter dialog.
   const channel: PromptChannel = typedIn
-    ? { ...remoteChannel, send: localChannel.send }
+    ? { ...remoteChannel, send: localChannel.send, note: undefined }
     : (remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: "not running: Enter continues it in a new window" }));
   const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
   // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal; a question
