@@ -171,6 +171,9 @@ export interface HandedPrompt {
  */
 export const PEER_PROMPT_NOTE = "claude.ai delivers this as another session's message, so Claude may ask back";
 
+/** The sharper form of `PEER_PROMPT_NOTE` while the text is a `/` command: delivered as another session's message, it is plain text, not run as a command (`/clear` and the like only work typed into the session's own terminal). */
+export const PEER_SLASH_NOTE = "a / command sent this way is not run — type it in the session's own terminal";
+
 export interface PromptChannel {
   /** Why nothing can be sent now (it runs nowhere, steer remote is off, …); the line shows it in place of the text. */
   blocked?: string;
@@ -801,7 +804,7 @@ export function SessionComposer({
         )}
         {channel.note && (
           <Text color="yellow" dimColor wrap="truncate">
-            {`⚠ ${channel.note}`}
+            {`⚠ ${line.text.trimStart().startsWith("/") ? PEER_SLASH_NOTE : channel.note}`}
           </Text>
         )}
         {warning && (
