@@ -445,6 +445,22 @@ function scriptName(path: string): string | undefined {
 
 const HANDED_BACK = /^This agent's report was delivered to you as a message/;
 const REPORT_START = /^[\s\S]*?The report follows:[^\n]*\n/;
+// How Claude Code wraps a message whose origin carries no `body` (a prompt claude.ai passed on from an unknown sender).
+const PEER_WRAPPED = /^Another Claude session sent a message:\n([\s\S]*?)(?:\n\nThis came from another Claude session[\s\S]*)?$/;
+
+/** What a peer message says when its origin carries no `body`: the text Claude Code wrapped in its notice. */
+function wrappedPeerText(entry: Entry): string | undefined {
+  const content: unknown = entry.type === "attachment" ? entry.attachment?.prompt : entry.message?.content;
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map((b: { type?: string; text?: string }) => (b?.type === "text" ? (b.text ?? "") : "")).join("")
+        : undefined;
+  const inner = text?.match(PEER_WRAPPED)?.[1]?.trim();
+  // A subagent's report is in `body`; its wrapped form only names it.
+  return inner && !inner.startsWith("<agent-message") ? inner : undefined;
+}
 
 /** A message from another agent (`origin.kind: "peer"`) as a user entry, or mid-turn as a queued command. */
 function peerOf(entry: Entry): Origin | undefined {
@@ -1043,7 +1059,7 @@ export class TranscriptParser {
     const from = origin.from ?? origin.senderTaskId;
     const agent = from ? this.agents.find((a) => a.agentId === from) : undefined;
     const handback = origin.handback === true || agent !== undefined;
-    const result = peerText(origin);
+    const result = peerText(origin.body === undefined ? { ...origin, body: wrappedPeerText(entry) } : origin);
     const name = agent ? `"${agent.description}"` : from ?? "an agent";
     this.turns.push({
       id: entry.uuid ?? String(this.turns.length),
