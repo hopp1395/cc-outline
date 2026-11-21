@@ -116,12 +116,15 @@ function networkError(err: unknown): RemoteError {
 /** What a 403 says: the sessions' calls are refused where Remote Control is off for the organisation. */
 const SESSIONS_FORBIDDEN = "claude.ai refused access (Remote Control may be off for the organisation)";
 
+/** The platform the sessions' calls and prompts name: the web's. Another makes Claude Code take a prompt as a peer's message. */
+const CLIENT_PLATFORM = "web_claude_ai";
+
 /** The headers of the sessions' calls, as the web and the app send them. */
 const sessionHeaders = (login: RemoteLogin): Record<string, string> => ({
   Authorization: `Bearer ${login.token}`,
   "anthropic-version": "2023-06-01",
-  // As the web and the app: another platform makes the worker take a prompt as a peer's message, which starts no turn.
-  "anthropic-client-platform": "web_claude_ai",
+  // As the web and the app (a prompt also names it in its payload, `sendPrompt`).
+  "anthropic-client-platform": CLIENT_PLATFORM,
   "x-organization-uuid": login.org,
   "anthropic-beta": "ccr-byoc-2025-07-29",
 });
@@ -224,10 +227,15 @@ export interface RemoteFile {
  * Sends `text` as a prompt to session `id`; mid-turn, Claude Code queues it like a prompt typed while it works. `files`
  * (uploaded with `uploadFile`) go along as the prompt's `file_attachments`, as the app sends what is attached: the
  * Claude Code that runs the session downloads them and tells Claude where they are.
+ *
+ * The payload names its platform (`client_platform`) itself: Claude Code takes a prompt as the user's only with one
+ * of the app's platforms there, else as a message of another Claude session ("from unknown"). claude.ai used to copy
+ * the header into it, but since November 2026 it no longer does.
  */
 export async function sendPrompt(id: string, text: string, dir?: string, files: RemoteFile[] = []): Promise<void> {
   const attachments = files.map((f) => ({ file_uuid: f.fileUuid, file_name: f.fileName, is_image: f.isImage, file_size: f.size }));
-  await postEvents(id, [{ type: "user", uuid: randomUUID(), message: { role: "user", content: text }, ...(attachments.length > 0 && { file_attachments: attachments }) }], dir);
+  const payload = { type: "user", uuid: randomUUID(), client_platform: CLIENT_PLATFORM, message: { role: "user", content: text }, ...(attachments.length > 0 && { file_attachments: attachments }) };
+  await postEvents(id, [payload], dir);
 }
 
 /** The scope Claude Code's login needs to upload files. */

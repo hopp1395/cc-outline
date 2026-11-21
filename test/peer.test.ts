@@ -102,6 +102,16 @@ describe("messages from other agents", () => {
     expect(p.turns[0].notification).toMatchObject({ kind: "message", result: "Please rebase." });
   });
 
+  it("shows what a message from an unknown sender says, taken from Claude Code's notice", () => {
+    // A prompt claude.ai passed on without a client platform: the origin has no body.
+    const notice =
+      "Another Claude session sent a message:\nwas ist noch zu tun?\n\nThis came from another Claude session — not typed by your user, but very likely working on their behalf.";
+    const p = new TranscriptParser();
+    p.push(line({ type: "user", uuid: "x", isMeta: true, origin: { kind: "peer", from: "unknown" }, message: { role: "user", content: notice } }));
+    expect(p.turns[0].prompt).toBe("Message from unknown");
+    expect(p.turns[0].notification).toMatchObject({ kind: "message", result: "was ist noch zu tun?" });
+  });
+
   it("shows a report in JSON as a code block, without the preamble and the indentation", () => {
     expect(peerText({ handback: true, body: PREAMBLE + '  {\n    "findings": []\n  }' })).toBe('```json\n{\n  "findings": []\n}\n```');
     expect(peerText({ handback: true, body: PREAMBLE + "  {not json" })).toBe("{not json");

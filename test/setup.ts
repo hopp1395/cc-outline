@@ -10,7 +10,9 @@ const testHome = mkdtempSync(join(tmpdir(), "cco-tests-home-"));
 
 // Tests point CLAUDE_CONFIG_DIR at a folder of their own and restore it afterwards; without a value to
 // restore, Node would set the string "undefined", and a late write would land in ./undefined of the checkout.
-process.env.CLAUDE_CONFIG_DIR ||= mkdtempSync(join(tmpdir(), "cco-tests-"));
+// Always a folder of the tests: run from a Claude Code of another account, the variable names that account's real
+// folder, and tests wrote their settings there (all defaults, Remote Control off).
+process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cco-tests-"));
 
 // What cco keeps below the home folder itself (the account trash, the session viewers) goes to a folder of the tests.
 accountsHome.get = () => testHome;
