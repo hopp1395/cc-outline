@@ -56,11 +56,11 @@ afterEach(() => {
 });
 
 describe("writing to a remote session", () => {
-  it("posts a prompt as the app does: a user event with a uuid and the web's platform", async () => {
+  it("posts a prompt as the app does: a user event with a uuid", async () => {
     await sendPrompt("cse_1", "run the tests");
     expect(posted[0]!.url).toBe("https://api.anthropic.com/v1/code/sessions/cse_1/events");
     const [event] = posted[0]!.body.events;
-    // Without the platform in the payload, Claude Code takes the prompt as another Claude session's message.
+    // Without client_platform the worker takes it for a peer's message and runs no / command.
     expect(event!.payload).toMatchObject({ type: "user", client_platform: "web_claude_ai", message: { role: "user", content: "run the tests" } });
     expect(event!.payload.uuid).toMatch(/^[0-9a-f-]{36}$/);
   });
