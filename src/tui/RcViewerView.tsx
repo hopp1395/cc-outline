@@ -37,7 +37,7 @@ import { sessionHead, sessionTitle } from "./sessionHead.js";
 import { useTerminalTitle } from "./title.js";
 import { useAccountState } from "./useAccount.js";
 import { useClipboard } from "./useClipboard.js";
-import { terminalOf, useLocalPrompt } from "./useLocalPrompt.js";
+import { terminalOf, useLocalPrompt, WAITS_IN_TERMINAL } from "./useLocalPrompt.js";
 import { useLocalRequest } from "./useLocalRequest.js";
 import { questionsOf } from "./QuestionDialog.js";
 import { localRequestSummary } from "../localRequest.js";
@@ -138,8 +138,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // Sessions that run but were not read (no prompt yet, nothing written today) stand in with what their Claude Code tells.
   const seen = useRef<SeenStates>(new Map());
   const { entries, twins } = useMemo(() => {
-    const { merged, twins } = mergeRemote(withNames(read ?? [], running), remote.sessions);
-    const known = new Set(merged.map(sessionKey));
+    const named = withNames(read ?? [], running);
+    const known = new Set(named.map(sessionKey));
     const standIns: SessionSummary[] = [];
     for (const [key, run] of running) {
       if (known.has(key) || !run.cwd) continue;
@@ -148,7 +148,9 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       const dir = account ? inClaudeDir(account, () => projectDir(run.cwd!)) : projectDir(run.cwd);
       standIns.push(runningStandIn(id, run, join(dir, `${id}.jsonl`), account));
     }
-    return { entries: rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart), twins };
+    // Stand-ins too: one connected to claude.ai is its twin there, its prompts typed into its terminal.
+    const { merged, twins } = mergeRemote([...named, ...standIns], remote.sessions);
+    return { entries: rcViewerEntries(merged, running, sessionKey, seen.current, now, dayStart), twins };
   }, [read, remote.sessions, running, now, dayStart]);
   // The entries whose folder is gone: their folder shows struck through, as in Sessions.
   const goneFolders = useMemo(() => new Set(entries.filter((e) => !e.session.remote && e.session.cwd && !existsSync(e.session.cwd)).map((e) => e.key)), [entries]);
@@ -245,11 +247,14 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // A session of this machine connected to claude.ai gets its prompts typed in where keys reach it: Claude Code takes
   // a prompt sent through claude.ai's API as another Claude session's message ("from unknown"), which Claude treats
   // with caution. Stopping it and answering its requests still go through claude.ai.
-  const typedIn = remoteChannel !== undefined && bridge !== undefined && entry?.running !== undefined && !localChannel.blocked;
+  // Never through claude.ai, also where keys do not reach it: then the line says why. What Claude waits for there is
+  // answered through claude.ai, so waiting does not block the line.
+  const notRunning = "not running: Enter continues it in a new window";
+  const typedBlocked = !entry?.running ? notRunning : localChannel.blocked === WAITS_IN_TERMINAL ? undefined : localChannel.blocked;
   // An ended session of this machine continues from the Enter dialog.
-  const channel: PromptChannel = typedIn
-    ? { ...remoteChannel, send: localChannel.send }
-    : (remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: "not running: Enter continues it in a new window" }));
+  const channel: PromptChannel = remoteChannel && bridge
+    ? { ...remoteChannel, send: localChannel.send, blocked: remoteChannel.blocked ?? typedBlocked }
+    : (remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: notRunning }));
   const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
   // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal; a question
   // also in the line below the chat, its answer typed into its Claude Code.
