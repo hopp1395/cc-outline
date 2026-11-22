@@ -149,7 +149,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       standIns.push(runningStandIn(id, run, join(dir, `${id}.jsonl`), account));
     }
     // Stand-ins too: one connected to claude.ai is its twin there, its prompts typed into its terminal.
-    const { merged, twins } = mergeRemote([...named, ...standIns], remote.sessions);
+    const { merged, twins } = mergeRemote([...named, ...standIns], remote.sessions, running);
     return { entries: rcViewerEntries(merged, running, sessionKey, seen.current, now, dayStart), twins };
   }, [read, remote.sessions, running, now, dayStart]);
   // The entries whose folder is gone: their folder shows struck through, as in Sessions.
