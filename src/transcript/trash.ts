@@ -50,6 +50,12 @@ export interface RunningSession {
   /** `bg` for a session the Claude Code daemon runs, with the `jobId` that `claude attach` takes. */
   kind?: string;
   jobId?: string;
+  /**
+   * The session claude.ai shows it as while Remote Control connects it now (`bridgeSessionId`, `session_…`; the
+   * transcript's `bridge-session` entries name it `cse_…`, see `sameBridge`). Unlike those entries it names only the
+   * current one: a session continued from Ended may write another session's bridge id into its transcript.
+   */
+  bridge?: string;
   /** The config folder of the other account it runs under, as read for a viewer of all accounts (`useRunning`). */
   account?: string;
 }
@@ -71,7 +77,7 @@ export function runningSessions(): Map<string, RunningSession> {
       if (typeof info.sessionId !== "string" || typeof info.pid !== "number" || !isAlive(info.pid)) continue;
       const activity = info.status === "busy" || info.status === "waiting" || info.status === "idle" ? info.status : undefined;
       const since = typeof info.statusUpdatedAt === "number" ? info.statusUpdatedAt : undefined;
-      sessions.set(info.sessionId, { pid: info.pid, activity, since, name: text(info.name), cwd: text(info.cwd), kind: text(info.kind), jobId: text(info.jobId) });
+      sessions.set(info.sessionId, { pid: info.pid, activity, since, name: text(info.name), cwd: text(info.cwd), kind: text(info.kind), jobId: text(info.jobId), bridge: text(info.bridgeSessionId) });
     } catch {
       // Being rewritten or not ours: skip it.
     }

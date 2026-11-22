@@ -630,7 +630,7 @@ export function SessionsView({ cwd, activePath, layout, visible, active, onModal
   const [rcViewerSelected, setRcViewerSelected] = useState(false);
   const { merged, connected, twins } = useMemo(() => {
     if (!read) return { merged: read, connected: new Set<string>(), twins: new Map<string, SessionSummary>() };
-    return mergeRemote(withNames(read, running), remoteRead.sessions);
+    return mergeRemote(withNames(read, running), remoteRead.sessions, running);
   }, [read, remoteRead.sessions, running]);
   const activeId = activePath ? basename(activePath, ".jsonl") : undefined;
   /** The viewer's own session; another account's never is, even under the same id. */
