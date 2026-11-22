@@ -167,7 +167,7 @@ export interface HandedPrompt {
  * The note for a prompt line that sends through claude.ai to a session whose Claude Code is not on this machine: the
  * prompt reaches it as another Claude session's message, not the user's (claude.ai no longer stamps a client platform
  * on prompts sent through its API, so the worker takes them `from: "unknown"`, `wrappedPeerText` in `parse.ts`), and
- * Claude may ask back before acting. A session of this machine is typed into instead (`typedIn`), so it has no note.
+ * Claude may ask back before acting. A session of this machine is always typed into instead, so it has no note.
  */
 export const PEER_PROMPT_NOTE = "claude.ai delivers this as another session's message, so Claude may ask back";
 

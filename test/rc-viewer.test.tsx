@@ -717,6 +717,44 @@ describe("answering a remote session in the Remote Control Viewer", () => {
     view.unmount();
   });
 
+  it("never sends a prompt to a session of this machine (⇄) through claude.ai, also where keys do not reach it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "cco-rc-viewer-bridge-bg-"));
+    mkdirSync(projectDir(cwd), { recursive: true });
+    const ts = new Date().toISOString();
+    writeFileSync(
+      join(projectDir(cwd), "s-bg.jsonl"),
+      [
+        { type: "user", uuid: "b-u", timestamp: ts, cwd, message: { role: "user", content: "work in the background" } },
+        { type: "assistant", uuid: "b-a", timestamp: ts, cwd, message: { id: "b-m", role: "assistant", content: [{ type: "text", text: "done in the background" }], stop_reason: "end_turn" } },
+        { type: "bridge-session", sessionId: "s-bg", bridgeSessionId: String(entry.id) },
+        { type: "custom-title", customTitle: "bg twin", sessionId: "s-bg" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n") + "\n",
+    );
+    mkdirSync(join(claudeDir(), "sessions"), { recursive: true });
+    // A background session: no terminal to type into, so claude.ai would be the only way.
+    writeFileSync(join(claudeDir(), "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "s-bg", status: "idle", cwd, kind: "bg", jobId: "j1" }));
+    const idle = { ...entry, worker_status: "idle" };
+    remote.fetch = async (url, init) => {
+      if (init.method === "POST") {
+        posted.push(JSON.parse(String(init.body)).events[0].payload);
+        return new Response("{}", { status: 200 });
+      }
+      return new Response(JSON.stringify(url.includes("/events") ? { data: [] } : { data: [idle] }), { status: 200 });
+    };
+    const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+    await until(() => view.frame().includes("bg twin") && view.frame().includes("done in the background"));
+    // The line says why, in place of sending through claude.ai.
+    await view.press("i");
+    await until(() => view.frame().includes("background session: claude attach j1"));
+    await view.press("hello");
+    await view.press("\r");
+    await tick(50);
+    expect(posted).toEqual([]);
+    view.unmount();
+  });
+
   it("lists it as waiting, and Enter answers its question in the prompt line's place", async () => {
     const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
     await until(() => view.frame().includes("── Waiting") && view.frame().includes("Welche Farbe magst du?"));
