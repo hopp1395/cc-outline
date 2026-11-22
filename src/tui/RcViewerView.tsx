@@ -284,7 +284,9 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     setComposing(true);
   };
   // Where the selected session's `/` commands come from, for the prompt line's and the editor's list.
-  const commandSource = !session ? undefined : remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() };
+  // A session of this machine connected to claude.ai (⇄) gets its prompts typed into its terminal, so its own list
+  // counts there: claude.ai's leaves out what the app allows in a terminal only (`/exit`, `terminal_slash_commands`).
+  const commandSource = !session ? undefined : session.remote ? { remoteId: session.id } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() };
   const openEditor = () => {
     if (!entry) return notify("no session selected");
     if (channel.blocked) return notify(`e: ${channel.blocked}`);
