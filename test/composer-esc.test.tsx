@@ -3,7 +3,7 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { PromptImage } from "../src/promptDraft.js";
 import { TIMING } from "../src/timing.js";
-import { SessionComposer, type HandedPrompt, type PromptChannel } from "../src/tui/SessionComposer.js";
+import { PEER_PROMPT_NOTE, PEER_SLASH_NOTE, SessionComposer, type HandedPrompt, type PromptChannel } from "../src/tui/SessionComposer.js";
 import type { Layout } from "../src/tui/layout.js";
 import { renderInk, tick, until } from "./helpers/ink.js";
 
@@ -141,6 +141,25 @@ describe("Esc in the prompt line", () => {
     await until(() => view.frame().includes("⎘ [Image #1] go along"));
     await view.press("\r");
     await expect.poll(() => run.sent).toEqual([{ text: "look at [Image #1]", images: [image] }]);
+    view.unmount();
+  });
+});
+
+describe("the peer-prompt note", () => {
+  it("switches to the sharper slash form while the text is a / command", async () => {
+    const notices: string[] = [];
+    const channel: PromptChannel = { note: PEER_PROMPT_NOTE, send: async () => {}, interrupt: async () => {} };
+    const view = renderInk(<Harness channel={channel} notices={notices} />, layout);
+    await until(() => view.frame().includes(PEER_PROMPT_NOTE));
+    await view.press("just text");
+    await tick();
+    expect(view.frame()).toContain(PEER_PROMPT_NOTE);
+    expect(view.frame()).not.toContain(PEER_SLASH_NOTE);
+    await view.press(ESC + ESC);
+    await until(() => !view.frame().includes("just text"));
+    await view.press("/clear");
+    await until(() => view.frame().includes(PEER_SLASH_NOTE));
+    expect(view.frame()).not.toContain(PEER_PROMPT_NOTE);
     view.unmount();
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RemoteUsage } from "../src/remote/usage.js";
-import { SessionComposer, type PromptChannel } from "../src/tui/SessionComposer.js";
+import { PEER_PROMPT_NOTE, SessionComposer, type PromptChannel } from "../src/tui/SessionComposer.js";
 import type { Layout } from "../src/tui/layout.js";
 import { renderInk } from "./helpers/ink.js";
 
@@ -12,10 +12,10 @@ const usage: RemoteUsage = {
   limits: { fiveHour: { utilization: 0.23, resetsAt: at(2 * 3600 + 14 * 60 + 30) }, sevenDay: { utilization: 0.97, resetsAt: at(3 * 86400 + 4 * 3600 + 30) }, seen: "" },
 };
 
-const rows = (columns: number, extra: { usage?: RemoteUsage; blocked?: string } = {}) => {
+const rows = (columns: number, extra: { usage?: RemoteUsage; blocked?: string; note?: string } = {}) => {
   const layout = layoutOf(columns);
   const view = renderInk(
-    <SessionComposer layout={layout} channel={{ ...channel, blocked: extra.blocked }} title="t" working={false} focused={false} onFocus={() => {}} notify={() => {}} onHeight={() => {}} usage={extra.usage} />,
+    <SessionComposer layout={layout} channel={{ ...channel, blocked: extra.blocked, note: extra.note }} title="t" working={false} focused={false} onFocus={() => {}} notify={() => {}} onHeight={() => {}} usage={extra.usage} />,
     layout,
   );
   const lines = view.frame().split("\n").filter((l) => l.trim());
@@ -45,5 +45,10 @@ describe("the prompt line's frame", () => {
     expect(rows(22, { usage, blocked: "steer remote is off" }).at(-1)).toBe(`${"─".repeat(3)} 5h 23% · 7d 97% ──`);
     expect(rows(12, { usage }).at(-1)).toBe(`${"─".repeat(2)} 7d 97% ──`);
     expect(rows(11, { usage }).at(-1)).toBe("─".repeat(11));
+  });
+
+  it("shows the peer-prompt note while the line can still send, but not while it is blocked", () => {
+    expect(rows(80, { note: PEER_PROMPT_NOTE }).join("\n")).toContain(PEER_PROMPT_NOTE);
+    expect(rows(80, { note: PEER_PROMPT_NOTE, blocked: "steer remote is off" }).join("\n")).not.toContain(PEER_PROMPT_NOTE);
   });
 });
