@@ -245,18 +245,17 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
     };
   }, [remoteId, remoteControl]);
-  // A session of this machine connected to claude.ai gets its prompts typed in where keys reach it: Claude Code takes
-  // a prompt sent through claude.ai's API as another Claude session's message ("from unknown"), which Claude treats
-  // with caution. Stopping it and answering its requests still go through claude.ai.
-  // Never through claude.ai, also where keys do not reach it: then the line says why. What Claude waits for there is
-  // answered through claude.ai, so waiting does not block the line.
+  const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
+  // A session of this machine connected to claude.ai always gets its prompts typed in, never through claude.ai: Claude
+  // Code takes a prompt sent through its API as another Claude session's message ("from unknown"), which Claude treats
+  // with caution. Where keys do not reach it, the line says why. Stopping it and answering what it waits for still go
+  // through claude.ai, so neither waiting nor a request blocks the line (a request takes the line's place).
   const notRunning = "not running: Enter continues it in a new window";
-  const typedBlocked = !entry?.running ? notRunning : localChannel.blocked === WAITS_IN_TERMINAL ? undefined : localChannel.blocked;
+  const typedBlocked = pending ? undefined : !entry?.running ? notRunning : localChannel.blocked === WAITS_IN_TERMINAL ? undefined : localChannel.blocked;
   // An ended session of this machine continues from the Enter dialog.
   const channel: PromptChannel = remoteChannel && bridge
     ? { ...remoteChannel, send: localChannel.send, note: undefined, blocked: remoteChannel.blocked ?? typedBlocked }
     : (remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: notRunning }));
-  const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
   // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal; a question
   // also in the line below the chat, its answer typed into its Claude Code.
   const asked = useLocalRequest(session && !session.remote ? session.id : undefined, path, entry?.state === "waiting" && !pending, session?.account, entry?.running?.since);
