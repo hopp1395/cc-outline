@@ -16,7 +16,7 @@ import { clearDraft, referenced, type PromptDraft } from "../promptDraft.js";
 import { renameAnywhere, renamePlan, type RenameSituation } from "../sessionRename.js";
 import { viewersOf, viewerWindow } from "../sessionViewers.js";
 import { switchToSession } from "../switchSession.js";
-import { rangeStart, readSettings, updateSettings, type ColumnWidth, type ListWidth } from "../settings.js";
+import { RC_VIEWER_RANGE_NAMES, rcViewerCutoff, rcViewerReadSince, readSettings, updateSettings, type ColumnWidth, type ListWidth } from "../settings.js";
 import { TIMING } from "../timing.js";
 import { claudeDir, inClaudeDir, projectDir } from "../transcript/locate.js";
 import type { SessionSummary } from "../transcript/sessions.js";
@@ -106,7 +106,7 @@ function RcViewerMarker({ entry, fresh }: { entry: RcViewerEntry; fresh: boolean
 }
 
 /**
- * The Remote Control Viewer (`cco rc-viewer`): the sessions that run or ran today, of every project and account and claude.ai
+ * The Remote Control Viewer (`cco rc-viewer`): the sessions that run or ran today (setting rcViewerRange), of every project and account and claude.ai
  * (setting remote API), grouped by what they need (waiting, working, idle, ended); beside them the selected session's
  * turns and the chat of the selected turn, live. `←` and `→` move the keys between the three columns.
  */
@@ -124,18 +124,22 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const copy = useClipboard();
   const foreignKey = foreignDirs(accountState.accounts).join("\n");
   const foreign = useMemo(() => (foreignKey ? foreignKey.split("\n") : []), [foreignKey]);
-  // Today's sessions: a new day starts the list afresh on the next read.
+  // The sessions of the range (today by default): a new day moves the read's start, at midnight; the rolling 24 hours read
+  // since yesterday's midnight and `cutoff` drops the older ones on every tick.
+  const [range] = useSetting("rcViewerRange");
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TIMING.activityPoll);
     return () => clearInterval(timer);
   }, []);
   const day = dayOf(now);
-  const dayStart = useMemo(() => rangeStart("today", new Date(now))!, [day]);
-  const { sessions: read } = useSessions(process.cwd(), visible, true, dayStart, foreign);
+  const readSince = useMemo(() => rcViewerReadSince(range, now), [day, range]);
+  const cutoff = rcViewerCutoff(range, now);
+  const inRange = range === "today" ? "today" : `in ${RC_VIEWER_RANGE_NAMES[range]}`;
+  const { sessions: read } = useSessions(process.cwd(), visible, true, readSince, foreign);
   const running = useRunning(visible, foreign);
   const remote = useRemoteSessions(visible, remoteApi);
-  // Sessions that run but were not read (no prompt yet, nothing written today) stand in with what their Claude Code tells.
+  // Sessions that run but were not read (no prompt yet, nothing written in the range) stand in with what their Claude Code tells.
   const seen = useRef<SeenStates>(new Map());
   const { entries, twins } = useMemo(() => {
     const { merged, twins } = mergeRemote(withNames(read ?? [], running), remote.sessions);
@@ -148,8 +152,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       const dir = account ? inClaudeDir(account, () => projectDir(run.cwd!)) : projectDir(run.cwd);
       standIns.push(runningStandIn(id, run, join(dir, `${id}.jsonl`), account));
     }
-    return { entries: rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, dayStart), twins };
-  }, [read, remote.sessions, running, now, dayStart]);
+    return { entries: rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, cutoff), twins };
+  }, [read, remote.sessions, running, now, cutoff]);
   // The entries whose folder is gone: their folder shows struck through, as in Sessions.
   const goneFolders = useMemo(() => new Set(entries.filter((e) => !e.session.remote && e.session.cwd && !existsSync(e.session.cwd)).map((e) => e.key)), [entries]);
 
@@ -500,9 +504,9 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
         items={entries}
         selected={index}
         height={layout.bodyHeight}
-        empty="No session today"
+        empty={`No session ${inRange}`}
         itemKey={(e) => e.key}
-        group={(e) => RC_VIEWER_GROUPS[e.state]}
+        group={(e) => (e.state === "ended" && range !== "today" ? `${RC_VIEWER_GROUPS.ended} · ${RC_VIEWER_RANGE_NAMES[range]}` : RC_VIEWER_GROUPS[e.state])}
         onPick={(i) => {
           select(i);
           setColumn("sessions");
@@ -549,7 +553,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   const status = (
     <Text dimColor={!focused}>
       {waiting > 0 && <Text color="yellow">{`⚠ ${waiting} waiting · `}</Text>}
-      {`${working} working · ${entries.length} today`}
+      {`${working} working · ${entries.length} ${inRange}`}
       {remote.error && <Text color="red">{` · claude.ai: ${remote.error}`}</Text>}
       {" · "}
     </Text>

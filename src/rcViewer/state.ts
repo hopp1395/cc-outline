@@ -54,7 +54,7 @@ const activeAt = (s: SessionSummary) => {
 
 /**
  * The Remote Control Viewer's list: the sessions that run (this machine's in a Claude Code, remote ones still connected) and those
- * last written since `dayStart` (today), grouped by state (`RC_VIEWER_STATES`). The waiting ones come oldest first (the
+ * last written since `cutoff` (setting rcViewerRange, today by default), grouped by state (`RC_VIEWER_STATES`). The waiting ones come oldest first (the
  * longest waiting on top); the others newest first. `seen` keeps since when each was in its state; it is updated in
  * place and loses the sessions no longer listed.
  */
@@ -64,7 +64,7 @@ export function rcViewerEntries(
   keyOf: (s: SessionSummary) => string,
   seen: SeenStates,
   now: number,
-  dayStart: number,
+  cutoff: number,
 ): RcViewerEntry[] {
   const entries: RcViewerEntry[] = [];
   const listed = new Set<string>();
@@ -75,7 +75,7 @@ export function rcViewerEntries(
     const at = activeAt(session);
     const live = state !== "ended" && (run !== undefined || session.remote !== undefined);
     // A remote session claude.ai still lists counts as running only while it is not idle for days.
-    if (!(run !== undefined || (live && state !== "idle") || (at !== undefined && at >= dayStart))) continue;
+    if (!(run !== undefined || (live && state !== "idle") || (at !== undefined && at >= cutoff))) continue;
     listed.add(key);
     const before = seen.get(key);
     const since = before?.state === state ? before.since : before ? now : (at ?? now);
