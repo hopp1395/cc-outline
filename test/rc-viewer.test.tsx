@@ -10,7 +10,7 @@ import { claimRcViewer, runningRcViewer, rcViewerFile, rcViewerStartFile } from 
 import { forgetOpens } from "../src/openGuard.js";
 import { MouseContext } from "../src/tui/mouse.js";
 import { openRcViewer } from "../src/open.js";
-import { DEFAULT_SETTINGS, isViewShown, RC_VIEWER_KEYS, rcViewerSettingsFile, readMainSettings, readSettings, setOwnSettings, updateSettings } from "../src/settings.js";
+import { DEFAULT_SETTINGS, isViewShown, RC_VIEWER_KEYS, rcViewerCutoff, rcViewerReadSince, rcViewerSettingsFile, readMainSettings, readSettings, setOwnSettings, updateSettings } from "../src/settings.js";
 import { claudeDir, projectDir } from "../src/transcript/locate.js";
 import type { SessionSummary } from "../src/transcript/sessions.js";
 import type { RunningSession } from "../src/transcript/trash.js";
@@ -88,6 +88,23 @@ describe("Remote Control Viewer state", () => {
     ]);
     // First seen: since its last write.
     expect(entries.find((e) => e.key === "wait-old")!.since).toBe(NOW - 20 * 60_000);
+  });
+
+  it("reaches back as far as its range says: today and the days from midnight, the 24 hours rolling", () => {
+    const now = new Date(2026, 9, 16, 0, 30).getTime();
+    const midnight = (daysBack: number) => new Date(2026, 9, 16 - daysBack).getTime();
+    expect(rcViewerCutoff("today", now)).toBe(midnight(0));
+    expect(rcViewerCutoff("24h", now)).toBe(now - 24 * 3600_000);
+    expect(rcViewerCutoff("3d", now)).toBe(midnight(2));
+    expect(rcViewerCutoff("7d", now)).toBe(midnight(6));
+    expect(rcViewerCutoff("30d", now)).toBe(midnight(29));
+    // The read starts at a midnight, so it moves once a day; the rolling 24 hours read yesterday's too.
+    expect(rcViewerReadSince("24h", now)).toBe(midnight(1));
+    expect(rcViewerReadSince("7d", now)).toBe(midnight(6));
+    // Half an hour after midnight yesterday evening's session is gone with today, but not with the 24 hours.
+    const yesterday = [summary("evening", 60)];
+    expect(rcViewerEntries(yesterday, new Map(), (s) => s.id, new Map(), NOW, NOW - 30 * 60_000)).toEqual([]);
+    expect(rcViewerEntries(yesterday, new Map(), (s) => s.id, new Map(), NOW, NOW - 24 * 3600_000).map((e) => e.key)).toEqual(["evening"]);
   });
 
   it("keeps since when a session is in its state, and starts anew when it changes", () => {
@@ -287,6 +304,27 @@ describe("the Remote Control Viewer's three columns", () => {
     expect(view.frame()).toContain("←→ sessions");
     view.unmount();
     rmSync(join(claudeDir(), "sessions"), { recursive: true, force: true });
+  });
+
+  it("lists the ended sessions of its range and names it in the Ended heading", async () => {
+    session("s-today", "today's work", 30, "Done today.");
+    const old = session("s-old", "yesterday's work", 60 * 30, "Old answer.");
+    utimesSync(old, new Date(Date.now() - 30 * 3600_000), new Date(Date.now() - 30 * 3600_000));
+    updateSettings({ rcViewerRange: "3d" });
+    try {
+      const view = renderInk(<RcViewerApp accounts={{ accounts: [], multiple: false, own: claudeDir() }} />, size);
+      await until(() => view.frame().includes("yesterday's work") && view.frame().includes("today's work"));
+      expect(view.frame()).toContain("── Ended · 3 days");
+      expect(view.frame()).toContain("2 in 3 days");
+      // Back to today: yesterday's session goes, the heading says no range.
+      updateSettings({ rcViewerRange: "today" });
+      await until(() => !view.frame().includes("yesterday's work"));
+      expect(view.frame()).toMatch(/── Ended(?! ·)/);
+      expect(view.frame()).toContain("1 today");
+      view.unmount();
+    } finally {
+      updateSettings({ rcViewerRange: "today" });
+    }
   });
 
   it("selects the session it was opened for, once the list has it", async () => {

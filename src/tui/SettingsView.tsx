@@ -8,7 +8,7 @@ import wrapAnsi from "wrap-ansi";
 import { gatherExtras } from "../statusline/extras.js";
 import { isStatusLinePreset, renderStatusLine, sampleInput, STATUS_LINE_VALUES, type StatusInput, type StatusLineSetting } from "../statusline/render.js";
 import { applyStatusLine, describeStatusLine, hasOwnStatusLine, readStatusLineState, statusLineInputFile, syncStatusLineSetting } from "../statusline/setup.js";
-import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
+import { ACCOUNT_DIRS_SEPARATOR, AUTO_OPEN_VALUES, COMPACT_COLUMNS_VALUES, COMPACT_SPLIT_VALUES, COMPACT_VIEW_VALUES, DEFAULT_SETTINGS, FILTER_IN_VALUES, PLACEMENT_VALUES, RANGE_NAMES, RANGE_VALUES, RC_VIEWER_RANGE_NAMES, RC_VIEWER_RANGE_VALUES, rcViewerCutoff, UPDATE_VALUES, VIEW_SETTINGS, isRcViewer, isRcViewerKey, isSessionViewerKey, ownSettingsFile, rangeStart, readMainSettings, reloadSettings, resetSessionViewerSettings, updateSettings, type ColumnWidth, type CompactView, type ListRange, type Settings, type UpdateMode } from "../settings.js";
 import { detectTerminal, TERMINAL_NAMES, type Terminal } from "../open.js";
 import { claudeBinDir } from "../addAccount.js";
 import { marketplaceSource } from "../accountSetup.js";
@@ -799,9 +799,41 @@ export const RC_VIEWER_ROWS: Row[] = [
       "How wide the Remote Control Viewer's list of the selected session's turns is, in the middle; the chat takes the rest. It is measured on what the sessions leave: narrow there is a fifth of that. At the ends the turns fold away (hidden) or take the room of the chat (full).",
     viewKey: "`<`, `>` and `|` in the Remote Control Viewer's turns or chat column",
   },
+  {
+    key: "rcViewerRange",
+    group: "Remote Control Viewer",
+    label: "ended range",
+    description:
+      "How far back the Remote Control Viewer lists the sessions that no longer run: those under Ended, and claude.ai's sessions that are idle. Sessions that run are always listed. Keep today for a short list of what is going on; pick a longer range to continue yesterday's or last week's sessions from here. Unless it is today, the Ended group's heading names it. A longer range reads more transcripts at the start.",
+    values: RC_VIEWER_RANGE_VALUES.map((v): [string, Text] => [
+      v,
+      v === "today"
+        ? (c) => `only today, since ${firstDay("today", c.now)} 00:00; right after midnight the list starts empty`
+        : v === "24h"
+          ? (c) => `the last 24 hours, rolling: at ${clock(c.now)} back to ${clock(c.now)} yesterday`
+          : (c) => `today and the ${Number.parseInt(v, 10) - 1} days before, since ${rcViewerFirstDay(v, c.now)} 00:00`,
+    ]),
+  },
 ];
 
-const valueName = (v: string | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : v === "" ? DEFAULT_AVATAR : v in RANGE_NAMES ? RANGE_NAMES[v as keyof typeof RANGE_NAMES] : v);
+/** "Thu 24 Sep" for the first day the Remote Control Viewer's `range` covers. */
+const rcViewerFirstDay = (range: (typeof RC_VIEWER_RANGE_VALUES)[number], now: Date) => dayLabel(dayOf(rcViewerCutoff(range, now.getTime()))!, "other", now.getTime());
+
+/** "15:04" for `now`. */
+const clock = (now: Date) => `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+const valueName = (v: string | boolean) =>
+  typeof v === "boolean"
+    ? v
+      ? "on"
+      : "off"
+    : v === ""
+      ? DEFAULT_AVATAR
+      : v in RANGE_NAMES
+        ? RANGE_NAMES[v as keyof typeof RANGE_NAMES]
+        : v in RC_VIEWER_RANGE_NAMES
+          ? RC_VIEWER_RANGE_NAMES[v as keyof typeof RC_VIEWER_RANGE_NAMES]
+          : v;
 
 /** A value as the list shows it: the order values without "-first", so the labels keep their room. */
 export const shortValueName = (v: string | boolean) => (v === "newest-first" ? "newest" : v === "oldest-first" ? "oldest" : valueName(v));

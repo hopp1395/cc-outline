@@ -38,6 +38,40 @@ export function rangeStart(range: ListRange, now = new Date()): number | undefin
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
 }
 
+/**
+ * How far back the Remote Control Viewer lists the sessions that no longer run (Ended, and claude.ai's idle ones): today since
+ * midnight, the last 24 hours (rolling, so not empty right after midnight), or calendar days from midnight like `RANGE_VALUES`.
+ */
+export const RC_VIEWER_RANGE_VALUES = ["today", "24h", "3d", "7d", "30d"] as const;
+export type RcViewerRange = (typeof RC_VIEWER_RANGE_VALUES)[number];
+
+/** How the Remote Control Viewer's range values are shown. */
+export const RC_VIEWER_RANGE_NAMES: Record<RcViewerRange, string> = {
+  today: "today",
+  "24h": "24 hours",
+  "3d": "3 days",
+  "7d": "7 days",
+  "30d": "30 days",
+};
+
+/** Since when the Remote Control Viewer lists a session that no longer runs: `range` back from `now`. */
+export function rcViewerCutoff(range: RcViewerRange, now: number): number {
+  if (range === "24h") return now - 24 * 3600_000;
+  const day = new Date(now);
+  const days = range === "today" ? 1 : Number.parseInt(range, 10);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() - (days - 1)).getTime();
+}
+
+/**
+ * Since when the Remote Control Viewer reads transcripts for `range`: a midnight, so the scan's start moves once a day; for the
+ * rolling 24 hours yesterday's, and `rcViewerCutoff` drops what is older.
+ */
+export function rcViewerReadSince(range: RcViewerRange, now: number): number {
+  if (range !== "24h") return rcViewerCutoff(range, now);
+  const day = new Date(now);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() - 1).getTime();
+}
+
 /** The project folders whose sessions the Sessions view lists: this one's, the others', or all. */
 export const SESSIONS_FOLDERS_VALUES = ["this", "other", "all"] as const;
 export type SessionsFolders = (typeof SESSIONS_FOLDERS_VALUES)[number];
@@ -194,6 +228,8 @@ export interface Settings {
   /** Remote Control Viewer (`cco rc-viewer`): the width of its sessions list (left) and of the selected session's turn list (middle); the chat takes the rest. */
   rcViewerSessionsWidth: ListWidth;
   rcViewerTurnsWidth: ListWidth;
+  /** Remote Control Viewer: how far back it lists the sessions that no longer run (Ended, and claude.ai's idle ones). */
+  rcViewerRange: RcViewerRange;
   /** Accounts: the view is reachable with 0, a click on the "cco" and ←/→; /cco:accounts opens it either way. */
   viewAccounts: boolean;
   /** Accounts: the order of the other accounts (s in the view). */
@@ -255,6 +291,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accountsListWidth: "normal",
   rcViewerSessionsWidth: "normal",
   rcViewerTurnsWidth: "narrow",
+  rcViewerRange: "today",
   viewAccounts: true,
   accountsOrder: "email",
   viewChat: true,
@@ -327,7 +364,7 @@ export const isSessionViewerKey = (key: string): key is SessionViewerKey => (SES
 
 /**
  * The settings the Remote Control Viewer (`cco rc-viewer`) keeps for itself: how its chat looks and how it is used, like a viewer of
- * one session, and its two list widths. It has no compact view: three columns need the width.
+ * one session, its two list widths and how far back it lists ended sessions. It has no compact view: three columns need the width.
  */
 export const RC_VIEWER_KEYS = [
   "showTools",
@@ -337,6 +374,7 @@ export const RC_VIEWER_KEYS = [
   "chatOrder",
   "rcViewerSessionsWidth",
   "rcViewerTurnsWidth",
+  "rcViewerRange",
   "settingsListWidth",
   "mouse",
   "marquee",
@@ -348,7 +386,7 @@ export const RC_VIEWER_KEYS = [
 ] as const satisfies readonly (keyof Settings)[];
 export const isRcViewerKey = (key: string): boolean => (RC_VIEWER_KEYS as readonly string[]).includes(key);
 /** The settings only the Remote Control Viewer has: the project's viewer does not show them. */
-export const isRcViewerOnlyKey = (key: string): boolean => key === "rcViewerSessionsWidth" || key === "rcViewerTurnsWidth";
+export const isRcViewerOnlyKey = (key: string): boolean => key === "rcViewerSessionsWidth" || key === "rcViewerTurnsWidth" || key === "rcViewerRange";
 
 /**
  * Which settings of its own this process keeps apart from the project's viewer: a viewer of one session's
@@ -426,6 +464,7 @@ const CHOICES: Partial<Record<keyof Settings, readonly string[]>> = {
   accountsListWidth: LIST_WIDTH_VALUES,
   rcViewerSessionsWidth: LIST_WIDTH_VALUES,
   rcViewerTurnsWidth: LIST_WIDTH_VALUES,
+  rcViewerRange: RC_VIEWER_RANGE_VALUES,
   accountsOrder: ACCOUNTS_ORDER_VALUES,
 };
 
