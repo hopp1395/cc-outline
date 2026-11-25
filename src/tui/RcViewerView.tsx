@@ -29,7 +29,7 @@ import { EntryText, List, ScreenAsideContext, shorter, truncate, type FooterItem
 import { stepFold, toggleFold, UNFOLDED, type FoldState } from "./listFold.js";
 import { MouseContext, MouseFilterContext, useMouse, type MouseEvent } from "./mouse.js";
 import { PromptEditor } from "./PromptEditor.js";
-import { promptHistory, SessionComposer, usageSpan, type HandedPrompt, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
+import { PEER_PROMPT_NOTE, promptHistory, SessionComposer, usageSpan, type HandedPrompt, type PromptChannel, type UnsentDrafts } from "./SessionComposer.js";
 import { UsageAccountMenu } from "./UsageAccountMenu.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { projectName, resumeCommand, SessionMarker } from "./SessionsView.js";
@@ -37,7 +37,7 @@ import { sessionHead, sessionTitle } from "./sessionHead.js";
 import { useTerminalTitle } from "./title.js";
 import { useAccountState } from "./useAccount.js";
 import { useClipboard } from "./useClipboard.js";
-import { terminalOf, useLocalPrompt } from "./useLocalPrompt.js";
+import { terminalOf, useLocalPrompt, WAITS_IN_TERMINAL } from "./useLocalPrompt.js";
 import { useLocalRequest } from "./useLocalRequest.js";
 import { questionsOf } from "./QuestionDialog.js";
 import { localRequestSummary } from "../localRequest.js";
@@ -142,8 +142,8 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
   // Sessions that run but were not read (no prompt yet, nothing written in the range) stand in with what their Claude Code tells.
   const seen = useRef<SeenStates>(new Map());
   const { entries, twins } = useMemo(() => {
-    const { merged, twins } = mergeRemote(withNames(read ?? [], running), remote.sessions);
-    const known = new Set(merged.map(sessionKey));
+    const named = withNames(read ?? [], running);
+    const known = new Set(named.map(sessionKey));
     const standIns: SessionSummary[] = [];
     for (const [key, run] of running) {
       if (known.has(key) || !run.cwd) continue;
@@ -152,7 +152,9 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
       const dir = account ? inClaudeDir(account, () => projectDir(run.cwd!)) : projectDir(run.cwd);
       standIns.push(runningStandIn(id, run, join(dir, `${id}.jsonl`), account));
     }
-    return { entries: rcViewerEntries([...merged, ...standIns], running, sessionKey, seen.current, now, cutoff), twins };
+    // Stand-ins too: one connected to claude.ai is its twin there, its prompts typed into its terminal.
+    const { merged, twins } = mergeRemote([...named, ...standIns], remote.sessions, running);
+    return { entries: rcViewerEntries(merged, running, sessionKey, seen.current, now, cutoff), twins };
   }, [read, remote.sessions, running, now, cutoff]);
   // The entries whose folder is gone: their folder shows struck through, as in Sessions.
   const goneFolders = useMemo(() => new Set(entries.filter((e) => !e.session.remote && e.session.cwd && !existsSync(e.session.cwd)).map((e) => e.key)), [entries]);
@@ -240,15 +242,24 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
       blocked: remoteControl ? undefined : "steer remote is off (Settings of a viewer)",
+      note: PEER_PROMPT_NOTE,
       // The prompt editor's images go along uploaded, as the app sends what is attached.
       send: (text, images) => readable((images?.length ? uploadFiles(images.map((i) => i.path)) : Promise.resolve([])).then((files) => sendPrompt(remoteId, text, undefined, files))),
       interrupt: () => readable(sendInterrupt(remoteId)),
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),
     };
   }, [remoteId, remoteControl]);
-  // An ended session of this machine continues from the Enter dialog.
-  const channel: PromptChannel = remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: "not running: Enter continues it in a new window" });
   const pending = session?.remote ? (remoteRead.pending[0] ?? session.remote.pending) : bridge ? (remoteRead.pending[0] ?? bridge.remote?.pending) : undefined;
+  // A session of this machine connected to claude.ai always gets its prompts typed in, never through claude.ai: Claude
+  // Code takes a prompt sent through its API as another Claude session's message ("from unknown"), which Claude treats
+  // with caution. Where keys do not reach it, the line says why. Stopping it and answering what it waits for still go
+  // through claude.ai, so neither waiting nor a request blocks the line (a request takes the line's place).
+  const notRunning = "not running: Enter continues it in a new window";
+  const typedBlocked = pending ? undefined : !entry?.running ? notRunning : localChannel.blocked === WAITS_IN_TERMINAL ? undefined : localChannel.blocked;
+  // An ended session of this machine continues from the Enter dialog.
+  const channel: PromptChannel = remoteChannel && bridge
+    ? { ...remoteChannel, send: localChannel.send, note: undefined, blocked: remoteChannel.blocked ?? typedBlocked }
+    : (remoteChannel ?? (entry?.running ? localChannel : { ...localChannel, blocked: notRunning }));
   // What a waiting session of this machine asks, as its hooks recorded it: shown, answered in its terminal; a question
   // also in the line below the chat, its answer typed into its Claude Code.
   const asked = useLocalRequest(session && !session.remote ? session.id : undefined, path, entry?.state === "waiting" && !pending, session?.account, entry?.running?.since);
@@ -277,7 +288,9 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
     setComposing(true);
   };
   // Where the selected session's `/` commands come from, for the prompt line's and the editor's list.
-  const commandSource = !session ? undefined : remoteId ? { remoteId } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() };
+  // A session of this machine connected to claude.ai (⇄) gets its prompts typed into its terminal, so its own list
+  // counts there: claude.ai's leaves out what the app allows in a terminal only (`/exit`, `terminal_slash_commands`).
+  const commandSource = !session ? undefined : session.remote ? { remoteId: session.id } : { transcript: path, cwd: session.cwd ?? process.cwd(), configDir: session.account ?? claudeDir() };
   const openEditor = () => {
     if (!entry) return notify("no session selected");
     if (channel.blocked) return notify(`e: ${channel.blocked}`);

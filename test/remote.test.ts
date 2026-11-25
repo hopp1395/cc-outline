@@ -194,6 +194,23 @@ describe("the events as a transcript", () => {
     expect(turnMarkdown(parser.turns[1]!, { tools: "off", thinking: false })).toContain("`/modul` isn't a command in this session");
   });
 
+  it("keeps what the worker writes in the user's place out of the prompts: a skill's text, a command's caveat", () => {
+    // As recorded (2.1.329): a skill run from claude.ai is the prompt, then the skill's text as an isSynthetic user event.
+    const skill = "Base directory for this skill: W:\\repos\\plan-b\\.claude\\skills\\domain-modeling\n\n# Domain modeling";
+    const caveat = "<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>";
+    const { lines } = toTranscript([
+      event(1, { type: "user", client_platform: "web_claude_ai", message: { role: "user", content: "/domain-modeling Tresor" } }),
+      event(2, { type: "user", isSynthetic: true, message: { role: "user", content: [{ type: "text", text: skill }] } }),
+      event(3, { type: "assistant", message: { role: "assistant", id: "m1", content: [{ type: "text", text: "Fangen wir an." }], stop_reason: "end_turn" } }),
+      event(4, { type: "result", duration_ms: 1500 }),
+      event(5, { type: "user", isSynthetic: true, message: { role: "user", content: caveat } }),
+    ]);
+    expect(lines.map((l) => JSON.parse(l).isMeta)).toEqual([undefined, true, undefined, undefined, true]);
+    const parser = new TranscriptParser();
+    parser.push(lines.join("\n") + "\n");
+    expect(parser.turns.map((t) => t.prompt)).toEqual(["/domain-modeling Tresor"]);
+  });
+
   it("keeps the structured tool result, which the events name tool_use_result: the answer to a question shows", () => {
     // Recorded: the worker's tool result carries `tool_use_result` where a transcript has `toolUseResult`.
     const recorded = readFileSync(new URL("./fixtures/remote-capture.jsonl", import.meta.url), "utf8")

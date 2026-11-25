@@ -47,7 +47,7 @@ import { UpdateContext, useUpdate } from "./useUpdate.js";
 import { useSetting, useSettings } from "./useSetting.js";
 import { useSessionPath, useTranscript } from "./useTranscript.js";
 import { useRemoteTranscript } from "./useRemoteTranscript.js";
-import { promptHistory, SessionComposer, type PromptChannel } from "./SessionComposer.js";
+import { PEER_PROMPT_NOTE, promptHistory, SessionComposer, type PromptChannel } from "./SessionComposer.js";
 import { describeRemoteError, remotePath } from "../remote/index.js";
 import { sendInterrupt, sendPrompt, sendResponse } from "../remote/api.js";
 import { terminalOf, useLocalPrompt } from "./useLocalPrompt.js";
@@ -293,6 +293,7 @@ export function App({ cwd, sessionId, initialMode, unfocused = false, claudePid,
     const readable = (p: Promise<void>) => p.catch((err) => Promise.reject(new Error(describeRemoteError(err))));
     return {
       blocked: remoteControl ? undefined : "steer remote is off (the project's viewer's Settings)",
+      note: PEER_PROMPT_NOTE,
       send: (text) => readable(sendPrompt(remoteId, text)),
       interrupt: () => readable(sendInterrupt(remoteId)),
       respond: (requestId, response) => readable(sendResponse(remoteId, requestId, response)),

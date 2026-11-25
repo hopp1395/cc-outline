@@ -220,14 +220,19 @@ export interface RemoteFile {
   size: number;
 }
 
+/** The platform a prompt names in its payload: the web app's, one a person types in. */
+const CLIENT_PLATFORM = "web_claude_ai";
+
 /**
  * Sends `text` as a prompt to session `id`; mid-turn, Claude Code queues it like a prompt typed while it works. `files`
  * (uploaded with `uploadFile`) go along as the prompt's `file_attachments`, as the app sends what is attached: the
- * Claude Code that runs the session downloads them and tells Claude where they are.
+ * Claude Code that runs the session downloads them and tells Claude where they are. The payload names
+ * `client_platform` itself: claude.ai stopped filling it in from the header (November 2026), and a worker (2.1.329)
+ * demotes a prompt without one to a peer's message, so a `/` command arrived as text.
  */
 export async function sendPrompt(id: string, text: string, dir?: string, files: RemoteFile[] = []): Promise<void> {
   const attachments = files.map((f) => ({ file_uuid: f.fileUuid, file_name: f.fileName, is_image: f.isImage, file_size: f.size }));
-  await postEvents(id, [{ type: "user", uuid: randomUUID(), message: { role: "user", content: text }, ...(attachments.length > 0 && { file_attachments: attachments }) }], dir);
+  await postEvents(id, [{ type: "user", uuid: randomUUID(), client_platform: CLIENT_PLATFORM, message: { role: "user", content: text }, ...(attachments.length > 0 && { file_attachments: attachments }) }], dir);
 }
 
 /** The scope Claude Code's login needs to upload files. */

@@ -163,9 +163,22 @@ export interface HandedPrompt {
  * Where the prompt line's text goes: a remote session's events on claude.ai, or the Claude Code that runs a session of
  * this machine (typed in). Each call rejects with an `Error` whose message says why it failed.
  */
+/**
+ * The note for a prompt line that sends through claude.ai to a session whose Claude Code is not on this machine: the
+ * prompt reaches it as another Claude session's message, not the user's (claude.ai no longer stamps a client platform
+ * on prompts sent through its API, so the worker takes them `from: "unknown"`, `wrappedPeerText` in `parse.ts`), and
+ * Claude may ask back before acting. A session of this machine is always typed into instead, so it has no note.
+ */
+export const PEER_PROMPT_NOTE = "claude.ai delivers this as another session's message, so Claude may ask back";
+
+/** The sharper form of `PEER_PROMPT_NOTE` while the text is a `/` command: delivered as another session's message, it is plain text, not run as a command (`/clear` and the like only work typed into the session's own terminal). */
+export const PEER_SLASH_NOTE = "a / command sent this way is not run — type it in the session's own terminal";
+
 export interface PromptChannel {
   /** Why nothing can be sent now (it runs nowhere, steer remote is off, …); the line shows it in place of the text. */
   blocked?: string;
+  /** A note shown below the text while the line can still send (not blocked): why a prompt sent this way needs care, such as `PEER_PROMPT_NOTE`. */
+  note?: string;
   /** Sends `text`, with `images` (of the prompt editor, named in the text by their placeholders) where they go along: a remote session's. */
   send(text: string, images?: PromptImage[]): Promise<void>;
   /** Stops Claude while it works. */
@@ -787,6 +800,11 @@ export function SessionComposer({
         {images.length > 0 && (
           <Text color="magenta" dimColor={!focused} wrap="truncate">
             {`⎘ ${images.map((i) => placeholder(i.n)).join(" ")} go along`}
+          </Text>
+        )}
+        {channel.note && (
+          <Text color="yellow" dimColor wrap="truncate">
+            {`⚠ ${line.text.trimStart().startsWith("/") ? PEER_SLASH_NOTE : channel.note}`}
           </Text>
         )}
         {warning && (

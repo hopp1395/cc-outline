@@ -149,7 +149,7 @@ const sameRunning = (a: Map<string, RunningSession>, b: Map<string, RunningSessi
   a.size === b.size &&
   [...a].every(([id, r]) => {
     const o = b.get(id);
-    return o !== undefined && o.pid === r.pid && o.activity === r.activity && o.since === r.since && o.name === r.name;
+    return o !== undefined && o.pid === r.pid && o.activity === r.activity && o.since === r.since && o.name === r.name && o.bridge === r.bridge;
   });
 
 /**
@@ -183,21 +183,38 @@ export function withNames(read: SessionSummary[], running: Map<string, RunningSe
 }
 
 /**
+ * A remote session's id without its prefix: Claude Code's status file names it `session_…`, the transcript and
+ * claude.ai's list `cse_…`, with the same rest.
+ */
+export const bridgeKey = (id: string) => id.slice(id.indexOf("_") + 1);
+
+/**
  * This machine's sessions `read` with the remote ones that are not among them: a session of this machine names the
  * id claude.ai lists it under (`bridge-session` entries); failing that, a remote one may name the local id somewhere in
- * its data. `connected` holds the ids of this machine's sessions that are remote too (⇄).
+ * its data. A Claude Code that runs one and names the session it is connected to now (`running`, `RunningSession.bridge`)
+ * outranks both: a session continued from Ended may carry another one's bridge id in its transcript, and both then
+ * showed that one's question. `connected` holds the ids of this machine's sessions that are remote too (⇄).
  */
 export function mergeRemote(
   read: SessionSummary[],
   remote: SessionSummary[],
+  running?: Map<string, RunningSession>,
 ): { merged: SessionSummary[]; connected: Set<string>; twins: Map<string, SessionSummary> } {
   const local = new Set(read.filter((s) => !s.account).map((s) => s.id));
+  // The remote sessions this machine's Claude Codes say they are connected to, by `bridgeKey`.
+  const current = new Map<string, string>();
+  for (const [id, r] of running ?? []) if (!r.account && r.bridge) current.set(bridgeKey(r.bridge), id);
   const byBridge = new Map<string, string>();
   for (const s of read) if (!s.account) for (const id of s.bridgeIds ?? []) byBridge.set(id, s.id);
   // Each local session connected to claude.ai, with the remote session it is there.
   const twins = new Map<string, SessionSummary>();
   const alone = remote.filter((r) => {
-    const twin = [...(byBridge.has(r.id) ? [byBridge.get(r.id)!] : []), ...(r.remote?.refs?.filter((id) => local.has(id)) ?? [])];
+    const owner = current.get(bridgeKey(r.id));
+    // Not by the transcripts: one whose Claude Code names another session there is that one's twin only.
+    const free = (id: string) => !running?.get(id)?.bridge;
+    const twin = owner !== undefined
+      ? local.has(owner) ? [owner] : []
+      : [...(byBridge.has(r.id) ? [byBridge.get(r.id)!] : []), ...(r.remote?.refs?.filter((id) => local.has(id)) ?? [])].filter(free);
     for (const id of twin) twins.set(id, r);
     return twin.length === 0;
   });
