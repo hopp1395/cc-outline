@@ -22,6 +22,7 @@ import { AttachmentsDialog } from "./AttachmentsDialog.js";
 import { runningRcViewer, type RcViewerInfo, type RcViewerSelect } from "../rcViewer/registry.js";
 import { screenOrder } from "../pinned.js";
 import { FocusContext } from "./focus.js";
+import { useBlinkOff } from "./blink.js";
 import { useMouse } from "./mouse.js";
 import { attachCommand, detectTerminal, focusSessionViewer, openInDefaultApp, openRcViewer, openSessionViewer, resumeInNewWindow, resumeShellCommand, viewerCommand, type ViewerTarget } from "../open.js";
 import { viewersOf, viewerWindow } from "../sessionViewers.js";
@@ -443,27 +444,6 @@ export function SessionMarker({ symbol, activity, color = "green", flash = false
       {symbol}
     </Text>
   );
-}
-
-/**
- * Whether a blinking mark is in its off phase now: while `active`, re-renders at each change of phase. The phase comes
- * from the clock, so every mark blinks in step.
- */
-export function useBlinkOff(active: boolean): boolean {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    let timer: ReturnType<typeof setTimeout>;
-    const next = () => {
-      timer = setTimeout(() => {
-        setTick((n) => n + 1);
-        next();
-      }, TIMING.blink - (Date.now() % TIMING.blink));
-    };
-    next();
-    return () => clearTimeout(timer);
-  }, [active]);
-  return active && Math.floor(Date.now() / TIMING.blink) % 2 === 1;
 }
 
 /** Short name of the project a session belongs to: its folder name. */

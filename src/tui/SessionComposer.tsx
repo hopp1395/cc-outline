@@ -14,6 +14,7 @@ import { useMouse } from "./mouse.js";
 import { moveRow, pastable, promptRows } from "./PromptDialog.js";
 import { annotationsOf, QuestionDialog, questionsOf, type Answer, type Question } from "./QuestionDialog.js";
 import { truncate, type Layout } from "./layout.js";
+import { useCaret } from "./blink.js";
 import { useClipboard } from "./useClipboard.js";
 import { WAITS_IN_TERMINAL } from "./useLocalPrompt.js";
 import { permissionResponse, requestRows, toolInputLines } from "./useRemoteControl.js";
@@ -24,8 +25,11 @@ const MAX_ROWS = 6;
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const EMPTY: LineState = { text: "", cursor: 0, selected: false };
 
-/** The rows of `line`, at most `MAX_ROWS` around the cursor, with the cursor drawn inverse. */
-function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: number; lead: string; cursor?: boolean }) {
+/**
+ * The rows of `line`, at most `MAX_ROWS` around the cursor, with the cursor drawn inverse while `caret` (it blinks;
+ * without `cursor` the rows show no place for it at all).
+ */
+function TextRows({ line, room, lead, cursor = true, caret = true }: { line: LineState; room: number; lead: string; cursor?: boolean; caret?: boolean }) {
   const { rows, row, column } = promptRows(line.text, line.cursor, room);
   const first = Math.max(0, Math.min(row - MAX_ROWS + 1, rows.length - MAX_ROWS));
   return (
@@ -40,7 +44,7 @@ function TextRows({ line, room, lead, cursor = true }: { line: LineState; room: 
           <Text key={at} wrap="truncate">
             {head}
             {r.text.slice(0, column)}
-            <Text inverse>{char || " "}</Text>
+            <Text inverse={caret}>{char || " "}</Text>
             {rest.slice(char.length)}
           </Text>
         );
@@ -240,7 +244,7 @@ export function SessionComposer({
   notify,
   onHeight,
   draftKey,
-  hint = ["Tab", "write a prompt"],
+  hint = ["Tab", ""],
   asked,
   terminal,
   commands,
@@ -266,7 +270,10 @@ export function SessionComposer({
    * to another session than the one it was written for.
    */
   draftKey?: string;
-  /** What the line says while it does not have the keys: the key that gives them, and what for. */
+  /**
+   * What the line says while it does not have the keys: the key that gives them, and what else does (`or a click:`,
+   * may be empty); what for follows (write a prompt, answer it, …).
+   */
   hint?: [string, string];
   /**
    * What a session of this machine waits for, as its hooks recorded it: shown in the line's place while it waits,
@@ -425,6 +432,9 @@ export function SessionComposer({
   useEffect(() => {
     if (focused && channel.blocked && !request && !localQuestion && !stuck && !(waitsThere && front)) onFocus(false);
   }, [focused, channel.blocked, request, localQuestion, stuck, waitsThere, front]);
+  // The mark of where the keys go (the cursor, the permission's `›`, `›` before the keys of a stuck answer or of the
+  // terminal to bring forward) blinks while the line has them; a question draws its own.
+  const caret = useCaret(focused && !isQuestion);
 
   // A prompt brought back unchanged keeps the list of / commands closed, so ↑↓ go on through the history.
   const recalled = browse !== undefined && line.text === browse.text;
@@ -637,8 +647,12 @@ export function SessionComposer({
     { isActive: focused && !isQuestion },
   );
 
-  const keys = (items: [string, string][]) => (
+  // Without the keys: the key that gives them, what else does, and `what` for.
+  const idleKey = (what: string): [string, string] => [hint[0], hint[1] ? `${hint[1]} ${what}` : what];
+  // `marked`: the keys are all there is to press (no cursor, no choice), so a `›` before them is the blinking mark.
+  const keys = (items: [string, string][], marked = false) => (
     <Text wrap="truncate" dimColor={!focused}>
+      {marked && focused && <Text color="cyan">{caret ? "› " : "  "}</Text>}
       {items.map(([k, what], i) => (
         <Text key={i}>
           <Text color="yellow">{k}</Text> {what}
@@ -656,7 +670,7 @@ export function SessionComposer({
     : [["Esc", "chat"]];
 
   // Claude waits in its terminal: Enter there brings it to the front.
-  const frontKeys = keys(focused ? [["Enter", "bring its terminal to the front"], ["Esc", "chat"]] : [[hint[0], "bring its terminal to the front"]]);
+  const frontKeys = keys(focused ? [["Enter", "bring its terminal to the front"], ["Esc", "chat"]] : [idleKey("bring its terminal to the front")], true);
 
   const images = named(line.text);
   let body;
@@ -667,6 +681,7 @@ export function SessionComposer({
         key={askedKey}
         inline
         active={focused}
+        idle={idleKey("answer it")}
         layout={layout}
         title={`Claude asks · ${truncate(title, 40)}`}
         questions={localQuestions}
@@ -688,6 +703,7 @@ export function SessionComposer({
       <QuestionDialog
         inline
         active={focused}
+        idle={idleKey("answer it")}
         layout={layout}
         title={`Claude asks · ${truncate(title, 40)}`}
         questions={questions}
@@ -715,19 +731,19 @@ export function SessionComposer({
         {reason ? (
           <>
             <Text dimColor>Why? Claude reads it.</Text>
-            <TextRows line={reason} room={room - 2} lead="› " />
+            <TextRows line={reason} room={room - 2} lead="› " caret={caret} />
             {keys([["Enter", "deny"], ["^J", "new line"], ["Esc", "back"]])}
           </>
         ) : (
           <>
             {PERMISSIONS.map((p, i) => (
               <Text key={p.id} wrap="truncate">
-                <Text color="cyan">{i === choice && focused ? "›" : " "}</Text>
+                <Text color="cyan">{i === choice && caret ? "›" : " "}</Text>
                 {` ${i + 1}. `}
                 <Text bold={i === choice}>{p.label}</Text>
               </Text>
             ))}
-            {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [[hint[0], "answer it"]])}
+            {keys(focused ? [["↑↓", "choose"], ["Enter", "answer"], ["1-3", ""], ["Esc", "chat"]] : [idleKey("answer it")])}
           </>
         )}
       </>
@@ -759,7 +775,8 @@ export function SessionComposer({
                     ...(front ? [["Enter", "bring its terminal to the front"] as [string, string]] : []),
                     ["Tab", "chat"],
                   ]
-                : [[hint[0], "try again or cancel"]],
+                : [idleKey("try again or cancel")],
+              true,
             )}
           </>
         ) : (
@@ -796,7 +813,7 @@ export function SessionComposer({
     body = (
       <>
         <CommandList picker={picker} width={room} />
-        {line.text || focused ? <TextRows line={line} room={textRoom} lead="› " cursor={focused} /> : <Text dimColor>{"› "}</Text>}
+        {line.text || focused ? <TextRows line={line} room={textRoom} lead="› " cursor={focused} caret={caret} /> : <Text dimColor>{"› "}</Text>}
         {images.length > 0 && (
           <Text color="magenta" dimColor={!focused} wrap="truncate">
             {`⎘ ${images.map((i) => placeholder(i.n)).join(" ")} go along`}
@@ -824,7 +841,7 @@ export function SessionComposer({
               ["PgUp/Dn", "scroll"],
               ...(recallable.length > 0 ? [["↑↓", "history"] as [string, string]] : []),
             ])
-          : keys([hint])}
+          : keys([idleKey("write a prompt")])}
       </>
     );
   }

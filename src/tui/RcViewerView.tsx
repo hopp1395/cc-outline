@@ -622,7 +622,7 @@ export function RcViewerView({ layout: full, aside, visible, active, onTyping, o
             notify={notify}
             onHeight={setComposerRows}
             draftKey={entry?.key}
-            hint={["Space", "or a click: write a prompt"]}
+            hint={["Space", "or a click:"]}
             asked={asked}
             terminal={terminal}
             commands={commandSource}

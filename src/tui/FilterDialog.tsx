@@ -85,8 +85,8 @@ export function FilterDialog({
   );
 }
 
-/** A line of text being edited in a dialog `width` columns wide, the part around the cursor shown. */
-export function LineField({ line, width }: { line: LineState; width: number }) {
+/** A line of text being edited in a dialog `width` columns wide, the part around the cursor shown (drawn while `caret`). */
+export function LineField({ line, width, caret = true }: { line: LineState; width: number; caret?: boolean }) {
   // Inside the border and padding, one column kept for the cursor at the end.
   const room = width - 4 - 2;
   const { text, cursor, selected } = line;
@@ -108,7 +108,7 @@ export function LineField({ line, width }: { line: LineState; width: number }) {
       ) : (
         <>
           {before}
-          <Text inverse>{at || " "}</Text>
+          <Text inverse={caret}>{at || " "}</Text>
           {after}
         </>
       )}

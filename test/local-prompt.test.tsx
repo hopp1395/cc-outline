@@ -274,9 +274,12 @@ describe("the prompt line of a viewer of a session of this machine", () => {
     previewQuestion();
     const app = viewer();
     await until(() => app.frame().includes("Note only…"));
-    expect(app.frame()).toContain("Esc cancel the question");
+    // Without the keys it names the key that gives them, not its own.
+    expect(app.frame()).toContain("Tab answer it");
+    expect(app.frame()).not.toContain("Esc cancel the question");
     // Tab gives the keys to the question and back: Esc in the chat then types nothing.
     await app.press("\t");
+    await until(() => app.frame().includes("Esc cancel the question"));
     await app.press("\t");
     await app.press("\u001b");
     await tick(100);
