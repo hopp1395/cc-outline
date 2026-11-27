@@ -4,6 +4,7 @@ import sliceAnsi from "slice-ansi";
 import stringWidth from "string-width";
 import { editLine, insertable, type LineState } from "../filter.js";
 import { usesPreviews } from "../switchSession.js";
+import { useCaret } from "./blink.js";
 import { LineField } from "./FilterDialog.js";
 import { bold, Dialog, dim, wrapLines, type Layout } from "./layout.js";
 
@@ -177,6 +178,7 @@ export function QuestionDialog({
   onTyped,
   inline = false,
   active = true,
+  idle,
 }: {
   layout: Layout;
   title: string;
@@ -193,6 +195,8 @@ export function QuestionDialog({
   inline?: boolean;
   /** It takes the keys (the prompt line has the focus). */
   active?: boolean;
+  /** Inline without the keys: the key that gives them to it, shown in place of its own (`Space`, `or a click: answer it`). */
+  idle?: [string, string];
 }) {
   const tabbed = questions.length > 1;
   // The tabs: one per question, then Submit (only with several).
@@ -266,6 +270,10 @@ export function QuestionDialog({
     if (key.return) return questions[q]!.multiSelect ? advance(answers) : choose(q, row.option);
   }, { isActive: active });
   usePaste((text) => q !== undefined && row && "other" in row && type(q, editLine(field[q]!, insertable(text), {})));
+  // Inline, the mark of where the keys go (`›`, the field's cursor, the Submit tab) blinks while it has them and is gone
+  // without them, so one sees whether typing reaches it; over the view a dialog always has the keys.
+  const caret = useCaret(inline && active);
+  const marked = !inline || caret;
 
   const width = inline ? layout.columns : Math.min(MAX_WIDTH, layout.columns - 4);
   // Inside the border and padding (inline: the prompt line's frame, open to the sides).
@@ -287,7 +295,7 @@ export function QuestionDialog({
       const box = question.multiSelect ? (on ? "[x]" : "[ ]") : on ? "(•)" : "( )";
       return on ? green(box) : box;
     };
-    const pointer = (i: number) => (i === at ? cyan("›") : " ");
+    const pointer = (i: number) => (i === at && marked ? cyan("›") : " ");
     const digits = String(question.options.length).length;
     const rows: BodyLine[] = [];
     for (const [oi, option] of question.options.entries()) {
@@ -302,7 +310,7 @@ export function QuestionDialog({
     const label = other === at ? bold(name) : name;
     rows.push({ text: `${pointer(other)} ${mark(a.other !== undefined)} ${label}`, block: other });
     // The field's own width counts its border and padding (`LineField`): four columns more than its text.
-    rows.push({ text: other === at || a.other !== undefined ? <LineField line={field[qi]!} width={cols + 4} /> : " ", block: other });
+    rows.push({ text: other === at || a.other !== undefined ? <LineField line={field[qi]!} width={cols + 4} caret={other === at && marked} /> : " ", block: other });
     return { head: [...wrapLines(bold(asked(question)), room), " "], rows, selected: at };
   };
   // The rows a question takes: its text and options, and beside or below them its tallest preview.
@@ -364,6 +372,8 @@ export function QuestionDialog({
   }
   while (body.length < height) body.push(" ");
 
+  // Inline without the keys, its own keys do nothing: it names the one that gives it them instead.
+  const waiting = inline && !active && idle !== undefined;
   const keyItems: [string, string][] =
     q === undefined
       ? [["Enter", "send"]]
@@ -375,20 +385,21 @@ export function QuestionDialog({
   if (tabbed) keyItems.push(["←→", "question"]);
   if (onLeave) keyItems.push(["Esc", "cancel the question"], ["Tab", "chat"]);
   else keyItems.push(["Esc", inline ? "chat" : "later"]);
+  const shownKeys = waiting ? [idle] : keyItems;
 
   const content: ReactNode = (
     <>
       <Text bold color="cyan" wrap="truncate">
         {title}
       </Text>
-      {tabbed ? <Text wrap="truncate">{tabBar(questions, answers, tab, room)}</Text> : null}
+      {tabbed ? <Text wrap="truncate">{tabBar(questions, answers, tab, room, q !== undefined || marked)}</Text> : null}
       <Text> </Text>
       {body.map((line, i) => (typeof line === "string" ? <Text key={i} wrap="truncate">{line}</Text> : <Box key={i}>{line}</Box>))}
       <Text color="yellow" wrap="truncate">
         {notice ?? " "}
       </Text>
-      <Text wrap="truncate">
-        {keyItems.map(([k, what], i) => (
+      <Text wrap="truncate" dimColor={waiting}>
+        {shownKeys.map(([k, what], i) => (
           <Text key={i}>
             <Text color="yellow">{k}</Text>
             {what ? ` ${what}` : ""}
@@ -407,8 +418,11 @@ export function QuestionDialog({
   );
 }
 
-/** The bar of tabs: `← ☐ Colour  ☒ Parts  ✔ Submit →`, the active one inverse, cut around it to `room` columns. */
-function tabBar(questions: Question[], answers: Answer[], tab: number, room: number): string {
+/**
+ * The bar of tabs: `← ☐ Colour  ☒ Parts  ✔ Submit →`, the active one inverse (only bold while not `lit`: the Submit
+ * tab blinks as the mark of where the keys go), cut around it to `room` columns.
+ */
+function tabBar(questions: Question[], answers: Answer[], tab: number, room: number, lit = true): string {
   const labels = [...questions.map((question, qi) => ({ mark: isAnswered(answers[qi]) ? "☒" : "☐", name: question.header || `Question ${qi + 1}` })), { mark: "✔", name: "Submit" }];
   const { from, to } = tabWindow(
     labels.map((l) => stringWidth(` ${l.mark} ${l.name} `)),
@@ -416,7 +430,7 @@ function tabBar(questions: Question[], answers: Answer[], tab: number, room: num
     // Less the arrows and their spaces.
     room - 4,
   );
-  const tabs = labels.slice(from, to).map((l, i) => (from + i === tab ? inverse(bold(` ${l.mark} ${l.name} `)) : ` ${l.mark === "☐" ? l.mark : green(l.mark)} ${l.name} `));
+  const tabs = labels.slice(from, to).map((l, i) => (from + i === tab ? (lit ? inverse : (s: string) => s)(bold(` ${l.mark} ${l.name} `)) : ` ${l.mark === "☐" ? l.mark : green(l.mark)} ${l.name} `));
   const arrow = (s: string, on: boolean) => (on ? cyan(s) : dim(s));
   return `${arrow("←", tab > 0)} ${from > 0 ? dim("… ") : ""}${tabs.join(" ")}${to < labels.length ? dim(" …") : ""} ${arrow("→", tab < labels.length - 1)}`;
 }
